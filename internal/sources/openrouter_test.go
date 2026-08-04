@@ -57,6 +57,13 @@ func TestLookupPrices(t *testing.T) {
 	if !qwen.Found || qwen.InPerM != 2 || qwen.OutPerM != 6 || qwen.Context != 262144 {
 		t.Errorf("qwen = %+v, want in=2 out=6 ctx=262144 (cache-price fields must be ignored)", qwen)
 	}
+	// The fixture lists three overrides out of order — 128000, then 64000
+	// (the smallest, in the middle), then 300000 (the largest, last) — so
+	// neither "first wins" nor "last wins" would happen to match "smallest
+	// wins" by coincidence of array order. This also exercises both branches
+	// of the tie-break: 64000 replaces 128000 (smaller supersedes), and
+	// 300000 is skipped in favour of the already-held 64000 (larger is
+	// rejected).
 	if !qwen.HasOverride || qwen.OverrideMinTokens != 64000 || qwen.OverrideInPerM != 2.5 || qwen.OverrideOutPerM != 7 {
 		t.Errorf("qwen override = %+v, want the override with the SMALLEST min_prompt_tokens (64000) to win, regardless of array order", qwen)
 	}

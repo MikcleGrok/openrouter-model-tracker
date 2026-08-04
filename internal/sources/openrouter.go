@@ -133,6 +133,12 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			Found:   true,
 		}
 		for _, ov := range m.Pricing.Overrides {
+			// A zero/absent threshold is not a usable long-context tier —
+			// skip it rather than let it win the tie-break and render a
+			// bogus "от 0K+" claim.
+			if ov.MinPromptTokens <= 0 {
+				continue
+			}
 			if info.HasOverride && ov.MinPromptTokens >= info.OverrideMinTokens {
 				continue
 			}

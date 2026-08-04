@@ -37,6 +37,11 @@
             "min_prompt_tokens": 64000,
             "prompt": "0.0000025",
             "completion": "0.000007"
+          },
+          {
+            "min_prompt_tokens": 300000,
+            "prompt": "0.00001",
+            "completion": "0.00002"
           }
         ]
       }
