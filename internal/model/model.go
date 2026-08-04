@@ -51,9 +51,17 @@ type Model struct {
 	QualityPriceLabel string
 
 	// LongContextPriceLabel is the catalogue's long-context pricing tier,
-	// pre-formatted as "$in / $out от <threshold>+". Empty when the
-	// catalogue reported no override for this slug.
+	// pre-formatted as "$in / $out от <threshold>+", for display next to a
+	// combined in/out price cell (the favourites table). LongContextInLabel
+	// and LongContextOutLabel carry the same tier split into "$in от
+	// <threshold>+" / "$out от <threshold>+" for display next to separate
+	// input/output price columns (the per-tier table) — putting the combined
+	// label there would land the input price under the output column's
+	// header. All three are empty when the catalogue reported no override
+	// for this slug.
 	LongContextPriceLabel string
+	LongContextInLabel    string
+	LongContextOutLabel   string
 
 	// Rankable is false for a row whose number does not belong to the product
 	// sold under this slug, or which has no SWE-bench Verified number at all.
@@ -111,8 +119,11 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 		m.Tokens10Out = pricing.Tokens10(m.OutPerM)
 		m.Tokens10Mixed = pricing.Tokens10(m.MixedPrice)
 		if price.HasOverride {
+			threshold := pricing.FormatContext(price.OverrideMinTokens)
 			m.LongContextPriceLabel = fmt.Sprintf("$%s / $%s от %s+",
-				pricing.FormatPrice(price.OverrideInPerM), pricing.FormatPrice(price.OverrideOutPerM), pricing.FormatContext(price.OverrideMinTokens))
+				pricing.FormatPrice(price.OverrideInPerM), pricing.FormatPrice(price.OverrideOutPerM), threshold)
+			m.LongContextInLabel = fmt.Sprintf("$%s от %s+", pricing.FormatPrice(price.OverrideInPerM), threshold)
+			m.LongContextOutLabel = fmt.Sprintf("$%s от %s+", pricing.FormatPrice(price.OverrideOutPerM), threshold)
 		}
 
 		if row, has := firstRow[e.Slug]; has {

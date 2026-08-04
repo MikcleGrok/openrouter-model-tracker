@@ -20,7 +20,9 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Rankable: true,
 		Owner: "OpenAI (C)", OpenWeights: "нет", Note: "Независимая оценка (vals.ai).",
 		Tokens10In: pricing.Tokens10(0.5), Tokens10Out: pricing.Tokens10(3), Tokens10Mixed: pricing.Tokens10(1.125),
-		LongContextPriceLabel: "$0.20 / $0.90 от 272K+",
+		LongContextPriceLabel: "$1.00 / $4.00 от 272K+",
+		LongContextInLabel:    "$1.00 от 272K+",
+		LongContextOutLabel:   "$4.00 от 272K+",
 	}
 	sol = model.Model{
 		Slug: "openai/gpt-5.6-sol", DisplayName: "GPT-5.6 Sol", Tier: "opus",

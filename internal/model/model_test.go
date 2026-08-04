@@ -88,6 +88,12 @@ func TestMerge(t *testing.T) {
 	if luna.LongContextPriceLabel != "$1.00 / $4.00 от 272K+" {
 		t.Errorf("luna.LongContextPriceLabel = %q, want %q", luna.LongContextPriceLabel, "$1.00 / $4.00 от 272K+")
 	}
+	if luna.LongContextInLabel != "$1.00 от 272K+" {
+		t.Errorf("luna.LongContextInLabel = %q, want %q", luna.LongContextInLabel, "$1.00 от 272K+")
+	}
+	if luna.LongContextOutLabel != "$4.00 от 272K+" {
+		t.Errorf("luna.LongContextOutLabel = %q, want %q", luna.LongContextOutLabel, "$4.00 от 272K+")
+	}
 
 	m3 := m["minimax/minimax-m3"]
 	if m3.Score == nil || m3.Score.Value != 80.5 {
@@ -102,8 +108,9 @@ func TestMerge(t *testing.T) {
 	if m3.QualityPriceLabel != "153" {
 		t.Errorf("m3.QualityPriceLabel = %q, want %q (80.5 / 0.525 = 153.3, and >= 100 prints as an integer)", m3.QualityPriceLabel, "153")
 	}
-	if m3.LongContextPriceLabel != "" {
-		t.Errorf("m3.LongContextPriceLabel = %q, want empty — the catalogue reported no override for this slug", m3.LongContextPriceLabel)
+	if m3.LongContextPriceLabel != "" || m3.LongContextInLabel != "" || m3.LongContextOutLabel != "" {
+		t.Errorf("m3 long-context labels = %q / %q / %q, want all empty — the catalogue reported no override for this slug",
+			m3.LongContextPriceLabel, m3.LongContextInLabel, m3.LongContextOutLabel)
 	}
 
 	pro := m["deepseek/deepseek-v4-pro"]
