@@ -103,9 +103,23 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	// aborts the run and never wipes the other sources' results.
 	var wg sync.WaitGroup
 
+	// Catalogue and prices share the same underlying OpenRouter URL and the same
+	// on-disk HTTP cache entry, so they run sequentially in one goroutine —
+	// catalog first to warm the cache, then prices reads the now-fresh entry —
+	// instead of as two goroutines that could both miss a cold/expired cache at
+	// once and race writing the same cache file.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		c, err := d.catalog(ctx)
+		if err != nil {
+			warn("openrouter: каталог не получен (%v) — новые и снятые модели в этом прогоне не искались", err)
+		} else {
+			mu.Lock()
+			catalog = c
+			mu.Unlock()
+		}
+
 		p, err := d.prices(ctx, modelmap.Slugs(entries))
 		if err != nil {
 			warn("openrouter: цены не получены (%v) — берутся из снимка прошлого прогона", err)
@@ -114,19 +128,6 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		prices, pricesOK = p, true
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c, err := d.catalog(ctx)
-		if err != nil {
-			warn("openrouter: каталог не получен (%v) — новые и снятые модели в этом прогоне не искались", err)
-			return
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		catalog = c
 	}()
 
 	for _, s := range d.sources {
@@ -153,11 +154,29 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	today := d.now().Format("2006-01-02")
 	prices, scores, stalePrices, staleScores := applyFallback(entries, prices, pricesOK, scores, snap)
 
-	models := model.Merge(entries, prices, scores, nt)
-	markStale(models, stalePrices, staleScores, today)
+	// A whole-catalogue failure with no snapshot fallback for some tracked slug
+	// would make model.Merge silently drop it — never overwrite the document
+	// with fewer rows than are actually tracked.
+	if !pricesOK {
+		var missing []string
+		for _, e := range entries {
+			if _, ok := prices[e.Slug]; !ok {
+				missing = append(missing, e.Slug)
+			}
+		}
+		if len(missing) > 0 {
+			return Report{Warnings: warnings}, fmt.Errorf(
+				"refresh: OpenRouter catalogue unreachable and %d model(s) have no snapshot fallback: %v — refusing to overwrite the document",
+				len(missing), missing)
+		}
+	}
 
+	models := model.Merge(entries, prices, scores, nt)
 	report := BuildReport(entries, catalog, prices, models)
 	report.Warnings = warnings
+	// markStale runs after BuildReport: it appends to Note/ScoreLabel, and
+	// BuildReport's NeedsReview check needs to see the original, unmutated Note.
+	markStale(models, stalePrices, staleScores, today)
 	if opts.DryRun {
 		return report, nil
 	}

@@ -218,6 +218,24 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	}
 }
 
+func TestRunRefusesToWriteWhenPricesFailWithNoSnapshotFallback(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
+
+	broken := okDeps()
+	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+		return nil, errors.New("catalogue unreachable")
+	}
+
+	_, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, broken)
+	if err == nil {
+		t.Fatal("run must return an error when prices fail and a tracked model has no snapshot fallback")
+	}
+	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("run must not write the document when refusing due to missing price coverage")
+	}
+}
+
 func TestApplyFallbackLeavesLiveNotFoundAlone(t *testing.T) {
 	entries := []modelmap.Entry{{Slug: "x-ai/grok-4.1-fast", Tier: "sonnet", Names: map[string]string{"vals": "xai/grok-4.1-fast"}}}
 	snap := &Snapshot{Models: map[string]SnapshotEntry{
