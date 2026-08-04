@@ -1,0 +1,42 @@
+{
+  "data": [
+    {
+      "id": "openai/gpt-5.6-luna",
+      "name": "OpenAI: GPT-5.6 Luna",
+      "context_length": 1000000,
+      "pricing": {
+        "prompt": "0.0000005",
+        "completion": "0.000003"
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-max",
+      "name": "Qwen: Qwen3.8 Max",
+      "context_length": 262144,
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000006",
+        "input_cache_read": "0.00000025",
+        "input_cache_write": "0.0000025"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "name": "NVIDIA: Nemotron 3 Ultra (free)",
+      "context_length": 1000000,
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "some/other-model",
+      "name": "Some: Other Model",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000002"
+      }
+    }
+  ]
+}
