@@ -1,0 +1,6 @@
+# комментарий в начале файла
+
+openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol	swebench=Model: gpt-5.6-sol
+	# отступ и комментарий — тоже игнорируются
+minimax/minimax-m3	tier=sonnet
+nvidia/nemotron-3-ultra-550b-a55b:free	tier=free	swebench=Model: nemotron-3-ultra
