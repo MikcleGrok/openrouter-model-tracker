@@ -1,0 +1,125 @@
+# Паттерны кандидатов, скрываемых из секции ➕ отчёта. Один glob (Go path.Match)
+# на строку; # и пустые строки игнорируются, тот же стиль, что в model-map.tsv.
+#
+# Это только шумоподавление отчёта: ни один паттерн ничего не удаляет из
+# model-map.tsv и не мешает вручную добавить любой из скрытых slug'ов туда,
+# если он того стоит. Список набран по факту разбора реального вывода
+# `openrouter check` — превью/датированные снапшоты/устаревшие поколения
+# уже отслеживаемых вендоров.
+
+# Превью и промежуточные варианты
+*/*-preview
+*/*-preview-*
+*/*-thinking
+*/*-thinking-*
+*/*:thinking
+
+# Датированные снапшоты и версии
+*/*-2024*
+*/*-2025*
+*/*-2026*
+*/*-05-06
+*/*-0324
+*/*-0528
+*/*-0905
+*/*-0731
+
+# OpenAI — устаревшие поколения (GPT-3.5, GPT-4/4-turbo/4o, GPT-4.1, o1/o3/o4,
+# и GPT-5 / 5.1 / 5.2 / 5.3 / 5.4 / 5.5 — всё старше отслеживаемого поколения
+# 5.6. Сиблинги самого 5.6 (luna-pro, sol-pro, terra, terra-pro) НЕ фильтруются
+# — это тот самый редкий интересный случай, ради которого секция и существует.
+openai/gpt-3.5-*
+openai/gpt-4
+openai/gpt-4-*
+openai/gpt-4o*
+openai/gpt-4.1*
+openai/gpt-5
+openai/gpt-5-*
+openai/gpt-5.1*
+openai/gpt-5.2*
+openai/gpt-5.3*
+openai/gpt-5.4*
+openai/gpt-5.5*
+openai/o1*
+openai/o3*
+openai/o4*
+openai/gpt-oss*
+openai/gpt-chat-latest
+openai/gpt-audio*
+
+# Google — устаревшие поколения (Gemini 2.5/3/3.1/3.5 не-флагман, Gemma 2/3)
+google/gemini-2.5-*
+google/gemini-3-*
+google/gemini-3.1-flash*
+google/gemini-3.5-*
+google/gemma-2-*
+google/gemma-3*
+google/lyria-*
+
+# Cohere — старая линейка Command (в подборке только North Mini Code)
+cohere/command-*
+
+# DeepSeek — промежуточные/устаревшие снапшоты
+deepseek/deepseek-chat*
+deepseek/deepseek-r1*
+deepseek/deepseek-v3.1*
+deepseek/deepseek-v3.2-exp
+deepseek/deepseek-v4-flash-0731
+
+# Meta — старое поколение Llama 3.x (в подборке уже Llama 4 Maverick / Muse Spark)
+meta-llama/llama-3.*
+meta-llama/llama-guard-*
+
+# Mistral — устаревшая/дублирующая линейка (в подборке уже Medium 3.5/Devstral 2/Large 3/Codestral)
+mistralai/ministral-*
+mistralai/mistral-large
+mistralai/mistral-large-2407
+mistralai/mistral-medium-3
+mistralai/mistral-medium-3.1
+mistralai/mistral-nemo
+mistralai/mistral-saba
+mistralai/mistral-small*
+mistralai/mixtral-*
+mistralai/voxtral-*
+
+# MiniMax — старые/промежуточные версии (в подборке только M3)
+minimax/minimax-01
+minimax/minimax-m1
+minimax/minimax-m2*
+
+# Moonshot — старые/промежуточные Kimi K2 (в подборке уже K2.5/K2.7 Code/K3)
+moonshotai/kimi-k2
+moonshotai/kimi-k2-*
+moonshotai/kimi-k2.6
+
+# Qwen — старое поколение без десятичной точки после qwen3, Qwen 2.5, и
+# 3.5/3.6 — всё старше отслеживаемого 3.7-Max. Сиблинги 3.7 (flash, plus) и
+# анонсированное превью 3.8-Max НЕ фильтруются — уже обсуждаются в notes.yaml
+# как кандидаты на замену рекомендации.
+qwen/qwen-*
+qwen/qwen2.5*
+qwen/qwen3-*
+qwen/qwen3.5-*
+qwen/qwen3.6-*
+
+# Tencent, Kwaipilot — старые/предварительные версии
+tencent/hunyuan-a13b-instruct
+tencent/hy3-preview
+kwaipilot/kat-coder-pro-v2
+
+# InclusionAI — старое поколение 2.6 (в подборке уже Ling 3.0 Flash)
+inclusionai/ling-2.*
+inclusionai/ring-2.*
+
+# xAI — экспериментальные/build-сборки и версия ниже отслеживаемой 4.5
+x-ai/grok-4.20*
+x-ai/grok-4.3
+x-ai/grok-build-*
+
+# Z.ai — устаревшее поколение GLM-4.x, и версии GLM-5.x младше отслеживаемой
+# 5.2 (5.0 и 5.1) вместе с их turbo-вариантами
+z-ai/glm-4.*
+z-ai/glm-5
+z-ai/glm-5.1
+z-ai/glm-5-turbo
+z-ai/glm-5v-turbo

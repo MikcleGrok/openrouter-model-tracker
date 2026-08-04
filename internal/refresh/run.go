@@ -151,8 +151,42 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		scores = append(scores, rows[s.id]...)
 	}
 
+	// A source "succeeded" if its rows entry was ever set — even to an empty
+	// slice — since the goroutine only reaches that assignment on a nil error.
+	sourceOK := make(map[string]bool, len(d.sources))
+	for _, s := range d.sources {
+		_, ok := rows[s.id]
+		sourceOK[s.id] = ok
+	}
+
 	today := d.now().Format("2006-01-02")
-	prices, scores, stalePrices, staleScores := applyFallback(entries, prices, pricesOK, scores, snap)
+	prices, scores, stalePrices, staleScores := applyFallback(entries, prices, pricesOK, scores, sourceOK, nt, snap)
+
+	models := model.Merge(entries, prices, scores, nt)
+	report := BuildReport(entries, catalog, prices, pricesOK, models)
+	report.Warnings = warnings
+
+	// Most of the raw NewCandidates list is preview/dated/distilled variants
+	// of already-tracked families nobody will realistically add — filter
+	// those out so the section stays reviewable. Runs after report.Warnings
+	// is set above so a load failure here is never lost.
+	patterns, err := loadIgnorePatterns(filepath.Join(opts.DataDir, "ignore-candidates.txt"))
+	if err != nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("ignore-candidates.txt: %v", err))
+	} else {
+		report.NewCandidates = filterIgnored(report.NewCandidates, patterns)
+	}
+
+	// markStale runs after BuildReport: it appends to Note/ScoreLabel, and
+	// BuildReport's NeedsReview check needs to see the original, unmutated Note.
+	markStale(models, stalePrices, staleScores, today)
+
+	// Report generation above is a cheap, useful diagnostic even on a dry run
+	// (`openrouter check`) — a pure read-only report must never hard-fail, so
+	// every guard below that blocks an actual WRITE runs only past this point.
+	if opts.DryRun {
+		return report, nil
+	}
 
 	// A whole-catalogue failure with no snapshot fallback for some tracked slug
 	// would make model.Merge silently drop it — never overwrite the document
@@ -165,20 +199,17 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 			}
 		}
 		if len(missing) > 0 {
-			return Report{Warnings: warnings}, fmt.Errorf(
+			return report, fmt.Errorf(
 				"refresh: OpenRouter catalogue unreachable and %d model(s) have no snapshot fallback: %v — refusing to overwrite the document",
 				len(missing), missing)
 		}
 	}
 
-	models := model.Merge(entries, prices, scores, nt)
-	report := BuildReport(entries, catalog, prices, models)
-	report.Warnings = warnings
-	// markStale runs after BuildReport: it appends to Note/ScoreLabel, and
-	// BuildReport's NeedsReview check needs to see the original, unmutated Note.
-	markStale(models, stalePrices, staleScores, today)
-	if opts.DryRun {
-		return report, nil
+	// A live price lookup that succeeds but reports every tracked slug as gone
+	// (e.g. OpenRouter renamed its slug scheme) would make Merge drop every
+	// entry — never overwrite the document with an empty document.
+	if len(models) == 0 {
+		return report, fmt.Errorf("refresh: no tracked model has usable price data this run — refusing to overwrite the document")
 	}
 
 	var buf bytes.Buffer
@@ -199,7 +230,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 
 // applyFallback fills the gaps a failed source left, from the previous run's
 // snapshot, and reports which slugs were filled so markStale can label them.
-func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo, pricesOK bool, scores []sources.ScoreRow, snap *Snapshot) (map[string]sources.PriceInfo, []sources.ScoreRow, map[string]bool, map[string]bool) {
+func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo, pricesOK bool, scores []sources.ScoreRow, sourceOK map[string]bool, nt *notes.Notes, snap *Snapshot) (map[string]sources.PriceInfo, []sources.ScoreRow, map[string]bool, map[string]bool) {
 	stalePrices := map[string]bool{}
 	staleScores := map[string]bool{}
 	if prices == nil {
@@ -235,6 +266,29 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 		// A model that declares no source has nothing that could have failed:
 		// its number, if any, comes from notes.yaml and is never stale.
 		if scored[e.Slug] || len(e.Names) == 0 {
+			continue
+		}
+		// Only consider a slug for score-fallback if at least one of its
+		// declared sources actually failed this run. If every declared
+		// source succeeded but simply had no row for this slug, that is a
+		// genuine absence (model dropped off the leaderboard, or the
+		// model-map name is wrong) — not a failure, and injecting a stale
+		// snapshot value here would hide both.
+		anySourceFailed := false
+		for sourceID := range e.Names {
+			if !sourceOK[sourceID] {
+				anySourceFailed = true
+				break
+			}
+		}
+		if !anySourceFailed {
+			continue
+		}
+		// A manual notes.yaml override outranks a stale fallback: Merge
+		// already falls back to nt.ScoreOverride when no live row is
+		// present, so simply not injecting a stale row here lets that
+		// existing path take over with the correct provenance label.
+		if _, has := nt.ScoreOverride(e.Slug); has {
 			continue
 		}
 		se, ok := snap.Models[e.Slug]

@@ -29,9 +29,12 @@ func vendorOf(slug string) string {
 }
 
 // BuildReport compares the tracked set against the live catalogue and the
-// merged rows. An empty catalogue means the lookup failed, and nothing is
-// reported as new or retired: a failed check must never look like a removal.
-func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]sources.PriceInfo, models []model.Model) Report {
+// merged rows. An empty catalogue means the catalogue lookup failed, and
+// nothing is reported as new: a failed check must never look like a removal.
+// Retired is gated on pricesOK instead, since it only needs the price lookup
+// to have actually succeeded — the catalogue and price fetches can now fail
+// independently.
+func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]sources.PriceInfo, pricesOK bool, models []model.Model) Report {
 	var r Report
 
 	tracked := make(map[string]bool, len(entries))
@@ -47,6 +50,8 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 				r.NewCandidates = append(r.NewCandidates, slug)
 			}
 		}
+	}
+	if pricesOK {
 		for _, e := range entries {
 			if p, ok := prices[e.Slug]; ok && !p.Found {
 				r.Retired = append(r.Retired, e.Slug)
@@ -54,12 +59,21 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		}
 	}
 
+	// A model with no declared source in model-map.tsv has no wrong-spelling
+	// bug possible: its score, if any, comes entirely from a manual notes.yaml
+	// override or is absent by design. Flagging it in NoScore is pure noise
+	// that buries the real signal — a declared source that still came back empty.
+	hasSource := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		hasSource[e.Slug] = len(e.Names) > 0
+	}
+
 	for _, m := range models {
 		if m.Note == notes.NeedsReview || m.Owner == notes.NeedsReview || m.OpenWeights == notes.NeedsReview ||
 			(m.Free && m.ClaudeRef == notes.NeedsReview) {
 			r.NeedsReview = append(r.NeedsReview, m.Slug)
 		}
-		if m.Score == nil {
+		if m.Score == nil && hasSource[m.Slug] {
 			r.NoScore = append(r.NoScore, m.Slug)
 		}
 	}

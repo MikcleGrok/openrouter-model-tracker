@@ -133,12 +133,13 @@ func TestMergeTakesTheFirstSourceForASlug(t *testing.T) {
 }
 
 // rankSet is a hand-computed ranking fixture.
-//   sonnet: cheap  in 0.30 out 1.20 -> mixed 0.525, score 80.5 -> 153.33  (1st)
-//           mid    in 1.25 out 4.25 -> mixed 2.00,  score 77.4 ->  38.70  (2nd)
-//           dear   in 2.00 out 6.00 -> mixed 3.00,  score 86.6 ->  28.87  (3rd)
-//           noscore in 0.50 out 2.00 -> mixed 0.875, unrankable
-//           dearer-noscore in 5.00 out 5.00 -> mixed 5.00, unrankable
-//   free:   two rows, ranked by score alone
+//
+//	sonnet: cheap  in 0.30 out 1.20 -> mixed 0.525, score 80.5 -> 153.33  (1st)
+//	        mid    in 1.25 out 4.25 -> mixed 2.00,  score 77.4 ->  38.70  (2nd)
+//	        dear   in 2.00 out 6.00 -> mixed 3.00,  score 86.6 ->  28.87  (3rd)
+//	        noscore in 0.50 out 2.00 -> mixed 0.875, unrankable
+//	        dearer-noscore in 5.00 out 5.00 -> mixed 5.00, unrankable
+//	free:   two rows, ranked by score alone
 func rankSet() []Model {
 	mk := func(slug, tier string, in, out, score float64, rankable bool) Model {
 		m := Model{Slug: slug, Tier: tier, InPerM: in, OutPerM: out, Rankable: rankable}

@@ -77,7 +77,13 @@ func newRootCmd() *cobra.Command {
 		}
 		opts.DryRun = dry
 		report, err := refresh.Run(cmd.Context(), opts)
+		// Print the report exactly once: on error, only if there is
+		// something in it to show (Warnings survive even a hard failure);
+		// on success, always.
 		if err != nil {
+			if len(report.Warnings) > 0 {
+				fmt.Fprint(cmd.OutOrStdout(), report.String())
+			}
 			return err
 		}
 		fmt.Fprint(cmd.OutOrStdout(), report.String())

@@ -11,6 +11,7 @@ import (
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
@@ -218,6 +219,41 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	}
 }
 
+func TestRunDryRunNeverHardFailsEvenWhenNothingCanBeMerged(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
+
+	broken := okDeps()
+	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+		return nil, errors.New("catalogue unreachable")
+	}
+	broken.catalog = func(ctx context.Context) ([]string, error) {
+		return nil, errors.New("catalogue unreachable")
+	}
+	broken.sources = []scoreSource{
+		{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+			return nil, errors.New("leaderboard block gone")
+		}},
+		{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+			return nil, errors.New("astro island gone")
+		}},
+	}
+
+	// No snapshot seeded — Fix 1's "Merge would produce zero models" guard
+	// (and the pre-existing missing-price-coverage guard) would both fire on
+	// a real refresh. `check` (--dry-run) must still report, not hard-fail.
+	report, err := run(context.Background(), Options{DataDir: dir, OutputPath: out, DryRun: true}, broken)
+	if err != nil {
+		t.Fatalf("run must not hard-fail on --dry-run even when nothing can be merged: %v", err)
+	}
+	if len(report.Warnings) != 4 {
+		t.Errorf("Warnings = %v, want one per failed fetch (prices, catalogue, swebench, vals)", report.Warnings)
+	}
+	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("--dry-run must never write the document")
+	}
+}
+
 func TestRunRefusesToWriteWhenPricesFailWithNoSnapshotFallback(t *testing.T) {
 	dir := newDataDir(t)
 	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
@@ -236,18 +272,120 @@ func TestRunRefusesToWriteWhenPricesFailWithNoSnapshotFallback(t *testing.T) {
 	}
 }
 
+func TestRunRefusesToWriteWhenMergeProducesZeroModels(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
+
+	broken := okDeps()
+	// Prices succeeds as a whole (pricesOK == true) but reports every tracked
+	// slug as gone — the "OpenRouter renamed its slug scheme" scenario the
+	// !pricesOK guard alone does not catch.
+	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+		out := make(map[string]sources.PriceInfo, len(slugs))
+		for _, slug := range slugs {
+			out[slug] = sources.PriceInfo{Slug: slug, Found: false}
+		}
+		return out, nil
+	}
+
+	_, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, broken)
+	if err == nil {
+		t.Fatal("run must return an error when Merge would produce zero models")
+	}
+	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
+		t.Error("run must not write the document when every tracked model has no usable price data")
+	}
+}
+
+// loadTestNotes builds a *notes.Notes from inline YAML, for tests that call
+// applyFallback directly and need a notes.Notes without going through run().
+func loadTestNotes(t *testing.T, yamlContent string) *notes.Notes {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write notes.yaml: %v", err)
+	}
+	nt, err := notes.Load(path)
+	if err != nil {
+		t.Fatalf("notes.Load: %v", err)
+	}
+	return nt
+}
+
 func TestApplyFallbackLeavesLiveNotFoundAlone(t *testing.T) {
 	entries := []modelmap.Entry{{Slug: "x-ai/grok-4.1-fast", Tier: "sonnet", Names: map[string]string{"vals": "xai/grok-4.1-fast"}}}
 	snap := &Snapshot{Models: map[string]SnapshotEntry{
 		"x-ai/grok-4.1-fast": {InPerM: 0.2, OutPerM: 0.5, Context: 2000000},
 	}}
 	live := map[string]sources.PriceInfo{"x-ai/grok-4.1-fast": {Slug: "x-ai/grok-4.1-fast"}} // Found == false
+	sourceOK := map[string]bool{"vals": false}
+	nt := loadTestNotes(t, "{}")
 
-	prices, _, stalePrices, _ := applyFallback(entries, live, true, nil, snap)
+	prices, _, stalePrices, _ := applyFallback(entries, live, true, nil, sourceOK, nt, snap)
 	if prices["x-ai/grok-4.1-fast"].Found {
 		t.Error("a slug the live catalogue reported as gone was resurrected from the snapshot")
 	}
 	if len(stalePrices) != 0 {
 		t.Errorf("stalePrices = %v, want empty on a successful catalogue fetch", stalePrices)
+	}
+}
+
+func TestApplyFallbackDoesNotFabricateStaleScoreWhenSourceSucceededButHadNoRow(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "openai/gpt-5.6-luna", Tier: "opus", Names: map[string]string{"vals": "openai/gpt-5.6-luna"}},
+	}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"openai/gpt-5.6-luna": {
+			Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", Checked: "2026-07-30"},
+		},
+	}}
+	// vals succeeded this run (no error) but simply returned no row for luna —
+	// a genuine "model dropped off the leaderboard or the map entry is
+	// misspelled" situation, not a source failure.
+	sourceOK := map[string]bool{"vals": true}
+	nt := loadTestNotes(t, "{}")
+	prices := map[string]sources.PriceInfo{"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", Found: true}}
+
+	_, scores, _, staleScores := applyFallback(entries, prices, true, nil, sourceOK, nt, snap)
+	for _, r := range scores {
+		if r.Slug == "openai/gpt-5.6-luna" {
+			t.Fatalf("score was fabricated from the snapshot even though its declared source succeeded this run: %+v", r)
+		}
+	}
+	if staleScores["openai/gpt-5.6-luna"] {
+		t.Error("staleScores marked luna stale even though its declared source succeeded — genuine absence, not a failure")
+	}
+}
+
+func TestApplyFallbackPrefersScoreOverrideOverStaleSnapshot(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "minimax/minimax-m3", Tier: "sonnet", Names: map[string]string{"vals": "minimax/minimax-m3"}},
+	}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"minimax/minimax-m3": {
+			Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 55.0, VariantMeasured: "minimax/minimax-m3", Checked: "2026-07-01"},
+		},
+	}}
+	// The declared source failed this run — the only case where fallback
+	// should even be considered.
+	sourceOK := map[string]bool{"vals": false}
+	// testNotesYAML carries a manual score override for minimax/minimax-m3
+	// labelled "80.5% (только вендор)".
+	nt := loadTestNotes(t, testNotesYAML)
+	prices := map[string]sources.PriceInfo{"minimax/minimax-m3": {Slug: "minimax/minimax-m3", InPerM: 0.3, OutPerM: 1.2, Found: true}}
+
+	_, scores, _, staleScores := applyFallback(entries, prices, true, nil, sourceOK, nt, snap)
+	for _, r := range scores {
+		if r.Slug == "minimax/minimax-m3" {
+			t.Fatalf("a stale snapshot score was injected even though notes.yaml has a manual override: %+v", r)
+		}
+	}
+	if staleScores["minimax/minimax-m3"] {
+		t.Error("staleScores marked minimax stale even though notes.yaml's override should take precedence")
+	}
+
+	merged := model.Merge(entries, prices, scores, nt)
+	if len(merged) != 1 || merged[0].Score == nil || !strings.Contains(merged[0].ScoreLabel, "только вендор") {
+		t.Fatalf("merged model does not carry the notes.yaml override, got: %+v", merged)
 	}
 }
