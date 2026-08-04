@@ -9,7 +9,53 @@
 #   vals=<ключ модели в tasks.overall на vals.ai, например openai/gpt-5.6-luna>
 # Источник не указан → у модели нет автоматически собираемой оценки;
 # число можно задать вручную блоком score: в notes.yaml.
+
+# ── ≈ Opus 5 ─────────────────────────────────────────────────────────────────
 openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna
 openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol
+
+# ── ≈ Sonnet 5 ───────────────────────────────────────────────────────────────
 minimax/minimax-m3	tier=sonnet
+meta/muse-spark-1.1	tier=sonnet
+qwen/qwen3.7-max	tier=sonnet
+x-ai/grok-4.5	tier=sonnet	vals=grok/grok-4.5
+mistralai/mistral-medium-3-5	tier=sonnet
+google/gemini-3.1-pro-preview	tier=sonnet
+moonshotai/kimi-k3	tier=sonnet	vals=kimi/kimi-k3
+deepseek/deepseek-v4-pro	tier=sonnet
+z-ai/glm-5.2	tier=sonnet
+google/gemini-3.6-flash	tier=sonnet
+
+# ── ≈ Haiku 4.5 и ниже ───────────────────────────────────────────────────────
+deepseek/deepseek-v4-flash	tier=haiku
+tencent/hy3	tier=haiku
+qwen/qwen3-coder-next	tier=haiku
+deepseek/deepseek-v3.2	tier=haiku
+qwen/qwen3-coder	tier=haiku
+xiaomi/mimo-v2.5-pro	tier=haiku
+mistralai/devstral-2512	tier=haiku
+moonshotai/kimi-k2.5	tier=haiku
+moonshotai/kimi-k2.7-code	tier=haiku
+kwaipilot/kat-coder-air-v2.5	tier=haiku
+kwaipilot/kat-coder-pro-v2.5	tier=haiku
+xiaomi/mimo-v2.5	tier=haiku
+meta-llama/llama-4-maverick	tier=haiku
+mistralai/codestral-2508	tier=haiku
+meituan/longcat-2.0	tier=haiku
+openai/gpt-5-mini	tier=haiku
+mistralai/mistral-large-2512	tier=haiku
+
+# ── Бесплатные ───────────────────────────────────────────────────────────────
 nvidia/nemotron-3-ultra-550b-a55b:free	tier=free
+poolside/laguna-xs-2.1:free	tier=free
+cohere/north-mini-code:free	tier=free
+poolside/laguna-s-2.1:free	tier=free
+nvidia/nemotron-3-super-120b-a12b:free	tier=free
+nvidia/nemotron-3-nano-30b-a3b:free	tier=free
+openai/gpt-oss-20b:free	tier=free
+google/gemma-4-31b-it:free	tier=free
+google/gemma-4-26b-a4b-it:free	tier=free
+nvidia/nemotron-nano-9b-v2:free	tier=free
+inclusionai/ling-3.0-flash:free	tier=free
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free	tier=free
+nvidia/nemotron-nano-12b-v2-vl:free	tier=free
