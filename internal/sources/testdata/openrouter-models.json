@@ -6,7 +6,16 @@
       "context_length": 1000000,
       "pricing": {
         "prompt": "0.0000005",
-        "completion": "0.000003"
+        "completion": "0.000003",
+        "overrides": [
+          {
+            "min_prompt_tokens": 272000,
+            "prompt": "0.000001",
+            "completion": "0.000004",
+            "input_cache_read": "0.0000001",
+            "input_cache_write": "0.00000125"
+          }
+        ]
       }
     },
     {
@@ -17,7 +26,19 @@
         "prompt": "0.000002",
         "completion": "0.000006",
         "input_cache_read": "0.00000025",
-        "input_cache_write": "0.0000025"
+        "input_cache_write": "0.0000025",
+        "overrides": [
+          {
+            "min_prompt_tokens": 128000,
+            "prompt": "0.000003",
+            "completion": "0.000008"
+          },
+          {
+            "min_prompt_tokens": 64000,
+            "prompt": "0.0000025",
+            "completion": "0.000007"
+          }
+        ]
       }
     },
     {

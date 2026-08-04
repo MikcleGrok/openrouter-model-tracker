@@ -27,6 +27,21 @@ type PriceInfo struct {
 	Context int
 	Free    bool
 	Found   bool
+
+	// HasOverride and the three fields below surface the catalogue's
+	// long-context pricing tier: a model whose prompt exceeds
+	// OverrideMinTokens bills at OverrideInPerM/OverrideOutPerM instead of
+	// InPerM/OutPerM.
+	HasOverride bool
+	// OverrideMinTokens is the min_prompt_tokens of the override with the
+	// SMALLEST threshold. The catalogue's overrides array is parsed in full,
+	// but only the lowest threshold is surfaced today: every override we've
+	// observed in the wild is a single long-context tier, and picking the
+	// smallest is the one choice that stays correct if a second, higher tier
+	// ever shows up.
+	OverrideMinTokens int
+	OverrideInPerM    float64
+	OverrideOutPerM   float64
 }
 
 type catalogResponse struct {
@@ -43,6 +58,16 @@ type catalogModel struct {
 	Pricing       struct {
 		Prompt     string `json:"prompt"`
 		Completion string `json:"completion"`
+		// Overrides is the long-context pricing tier: alternate prompt/
+		// completion prices that kick in once the request's prompt exceeds
+		// MinPromptTokens. Not every model has one. Cache-price fields
+		// inside each entry are deliberately not declared here — this tool
+		// tracks no cache pricing anywhere.
+		Overrides []struct {
+			MinPromptTokens int    `json:"min_prompt_tokens"`
+			Prompt          string `json:"prompt"`
+			Completion      string `json:"completion"`
+		} `json:"overrides"`
 	} `json:"pricing"`
 }
 
@@ -99,7 +124,7 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 		if err != nil {
 			return nil, fmt.Errorf("openrouter: %s: parse completion price %q: %w", slug, m.Pricing.Completion, err)
 		}
-		out[slug] = PriceInfo{
+		info := PriceInfo{
 			Slug:    slug,
 			InPerM:  in,
 			OutPerM: outPrice,
@@ -107,6 +132,24 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			Free:    m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
 			Found:   true,
 		}
+		for _, ov := range m.Pricing.Overrides {
+			if info.HasOverride && ov.MinPromptTokens >= info.OverrideMinTokens {
+				continue
+			}
+			ovIn, err := perMillion(ov.Prompt)
+			if err != nil {
+				return nil, fmt.Errorf("openrouter: %s: parse override prompt price %q: %w", slug, ov.Prompt, err)
+			}
+			ovOut, err := perMillion(ov.Completion)
+			if err != nil {
+				return nil, fmt.Errorf("openrouter: %s: parse override completion price %q: %w", slug, ov.Completion, err)
+			}
+			info.HasOverride = true
+			info.OverrideMinTokens = ov.MinPromptTokens
+			info.OverrideInPerM = ovIn
+			info.OverrideOutPerM = ovOut
+		}
+		out[slug] = info
 	}
 	return out, nil
 }

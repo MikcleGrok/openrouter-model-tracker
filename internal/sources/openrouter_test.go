@@ -49,15 +49,24 @@ func TestLookupPrices(t *testing.T) {
 	if !luna.Found || luna.InPerM != 0.5 || luna.OutPerM != 3 || luna.Context != 1000000 || luna.Free {
 		t.Errorf("luna = %+v, want in=0.5 out=3 ctx=1000000 free=false found=true", luna)
 	}
+	if !luna.HasOverride || luna.OverrideMinTokens != 272000 || luna.OverrideInPerM != 1 || luna.OverrideOutPerM != 4 {
+		t.Errorf("luna override = %+v, want hasOverride=true minTokens=272000 in=1 out=4 (cache-price override fields must be ignored)", luna)
+	}
 
 	qwen := got["qwen/qwen3.8-max"]
 	if !qwen.Found || qwen.InPerM != 2 || qwen.OutPerM != 6 || qwen.Context != 262144 {
 		t.Errorf("qwen = %+v, want in=2 out=6 ctx=262144 (cache-price fields must be ignored)", qwen)
 	}
+	if !qwen.HasOverride || qwen.OverrideMinTokens != 64000 || qwen.OverrideInPerM != 2.5 || qwen.OverrideOutPerM != 7 {
+		t.Errorf("qwen override = %+v, want the override with the SMALLEST min_prompt_tokens (64000) to win, regardless of array order", qwen)
+	}
 
 	free := got["nvidia/nemotron-3-ultra-550b-a55b:free"]
 	if !free.Found || !free.Free || free.InPerM != 0 || free.OutPerM != 0 {
 		t.Errorf("free = %+v, want free=true with zero prices", free)
+	}
+	if free.HasOverride {
+		t.Errorf("free = %+v, want HasOverride=false — the fixture has no overrides field for this model", free)
 	}
 
 	gone := got["x-ai/grok-4.1-fast"]
