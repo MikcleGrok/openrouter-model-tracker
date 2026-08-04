@@ -1,0 +1,47 @@
+updated_note: "цены и оценки собраны автоматически"
+
+sections:
+  favorites_intro: "Один лучший вариант на каждый уровень качества Claude."
+  safety_intro: "Рейтинг безопасности — независимая оценка компании-разработчика в целом, а не конкретной модели."
+  saferai: "Второй источник для сверки — SaferAI Frontier Risk Management Tracker (tracker.safer-ai.org)."
+  open_weights: "Открытые веса отмечены полужирным в колонке «Открытые веса»."
+  tiers_intro: "Категории — по примерному уровню качества относительно Claude."
+  tokens10_intro: "Смешанное соотношение 3:1 (вход:выход) — грубое приближение к нагрузке кодинг-агента."
+  free_intro: "Модели с ценой $0/$0 — из каталога OpenRouter."
+  free_terms: "Для всех `:free`-моделей: rate-limit 20 запросов/мин, 50-1000 запросов/день."
+
+fable_verdict: "Ни одна проверенная модель независимо не подтверждает Fable-уровень."
+
+claude_prices:
+  - model: Claude Opus 5
+    in: "$5"
+    out: "$25"
+    context: "1M"
+    note: "—"
+
+claude_note: "На OpenRouter цены Claude совпадают с прайсом Anthropic 1:1."
+
+claude_tokens:
+  - model: Claude Opus 5
+    in: "2.00"
+    out: "0.40"
+    mixed: "1.00"
+
+companies:
+  - name: OpenAI
+    grade: "C (2.28)"
+    comment: "Лидирует в категории Risk Assessment"
+
+caveats:
+  - "Цены на OpenRouter меняются часто — перед тратами сверьтесь на https://openrouter.ai/models."
+
+favorite_reasons:
+  opus:
+    openai/gpt-5.6-luna: "Лучшее соотношение цена/качество в Opus-тире."
+
+models:
+  openai/gpt-5.6-luna:
+    display: GPT-5.6 Luna
+    owner: OpenAI (C)
+    open_weights: "нет"
+    note: "Оценка независимая (vals.ai)."

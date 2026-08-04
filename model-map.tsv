@@ -1,0 +1,15 @@
+# Ручная карта соответствий. Одна строка — одна отслеживаемая модель.
+# Разделитель — ТАБУЛЯЦИЯ. Пустые строки и строки, начинающиеся с #, игнорируются.
+#
+# Формат: <openrouter-slug>\ttier=<opus|sonnet|haiku|free>\t<source>=<точное имя на источнике>...
+#
+# tier — обязателен, задаётся вручную: с каким тиром Claude модель примерно сопоставима.
+# <source> — идентификатор источника: swebench | vals.
+#   swebench=<значение тега целиком, ВМЕСТЕ с префиксом "Model: ">
+#   vals=<ключ модели в tasks.overall на vals.ai, например openai/gpt-5.6-luna>
+# Источник не указан → у модели нет автоматически собираемой оценки;
+# число можно задать вручную блоком score: в notes.yaml.
+openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna
+openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol
+minimax/minimax-m3	tier=sonnet
+nvidia/nemotron-3-ultra-550b-a55b:free	tier=free
