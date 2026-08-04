@@ -5,6 +5,7 @@
 package model
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 
@@ -48,6 +49,11 @@ type Model struct {
 	// Display strings, precomputed so the template stays logic-free.
 	ScoreLabel        string
 	QualityPriceLabel string
+
+	// LongContextPriceLabel is the catalogue's long-context pricing tier,
+	// pre-formatted as "$in / $out от <threshold>+". Empty when the
+	// catalogue reported no override for this slug.
+	LongContextPriceLabel string
 
 	// Rankable is false for a row whose number does not belong to the product
 	// sold under this slug, or which has no SWE-bench Verified number at all.
@@ -104,6 +110,10 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 		m.Tokens10In = pricing.Tokens10(m.InPerM)
 		m.Tokens10Out = pricing.Tokens10(m.OutPerM)
 		m.Tokens10Mixed = pricing.Tokens10(m.MixedPrice)
+		if price.HasOverride {
+			m.LongContextPriceLabel = fmt.Sprintf("$%s / $%s от %s+",
+				pricing.FormatPrice(price.OverrideInPerM), pricing.FormatPrice(price.OverrideOutPerM), pricing.FormatContext(price.OverrideMinTokens))
+		}
 
 		if row, has := firstRow[e.Slug]; has {
 			m.Score = &ScoreInfo{

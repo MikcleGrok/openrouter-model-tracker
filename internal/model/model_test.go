@@ -30,7 +30,10 @@ func testEntries() []modelmap.Entry {
 
 func testPrices() map[string]sources.PriceInfo {
 	return map[string]sources.PriceInfo{
-		"openai/gpt-5.6-luna":                    {Slug: "openai/gpt-5.6-luna", InPerM: 0.5, OutPerM: 3, Context: 1000000, Found: true},
+		"openai/gpt-5.6-luna": {
+			Slug: "openai/gpt-5.6-luna", InPerM: 0.5, OutPerM: 3, Context: 1000000, Found: true,
+			HasOverride: true, OverrideMinTokens: 272000, OverrideInPerM: 1, OverrideOutPerM: 4,
+		},
 		"minimax/minimax-m3":                     {Slug: "minimax/minimax-m3", InPerM: 0.3, OutPerM: 1.2, Context: 1000000, Found: true},
 		"deepseek/deepseek-v4-pro":               {Slug: "deepseek/deepseek-v4-pro", InPerM: 0.435, OutPerM: 0.87, Context: 1000000, Found: true},
 		"x-ai/grok-4.1-fast":                     {Slug: "x-ai/grok-4.1-fast"}, // Found == false: slug пропал из каталога
@@ -82,6 +85,9 @@ func TestMerge(t *testing.T) {
 	if luna.Tokens10In != 20 || luna.Tokens10Out != 10.0/3 {
 		t.Errorf("luna tokens = in %v out %v, want 20 and 10/3", luna.Tokens10In, luna.Tokens10Out)
 	}
+	if luna.LongContextPriceLabel != "$1.00 / $4.00 от 272K+" {
+		t.Errorf("luna.LongContextPriceLabel = %q, want %q", luna.LongContextPriceLabel, "$1.00 / $4.00 от 272K+")
+	}
 
 	m3 := m["minimax/minimax-m3"]
 	if m3.Score == nil || m3.Score.Value != 80.5 {
@@ -95,6 +101,9 @@ func TestMerge(t *testing.T) {
 	}
 	if m3.QualityPriceLabel != "153" {
 		t.Errorf("m3.QualityPriceLabel = %q, want %q (80.5 / 0.525 = 153.3, and >= 100 prints as an integer)", m3.QualityPriceLabel, "153")
+	}
+	if m3.LongContextPriceLabel != "" {
+		t.Errorf("m3.LongContextPriceLabel = %q, want empty — the catalogue reported no override for this slug", m3.LongContextPriceLabel)
 	}
 
 	pro := m["deepseek/deepseek-v4-pro"]
