@@ -135,3 +135,10 @@ func TestLoadMissingFileIsAnError(t *testing.T) {
 		t.Fatal("Load returned nil error for a missing notes.yaml, want an error")
 	}
 }
+
+func TestUpdatedNoteFallsBackToNeedsReview(t *testing.T) {
+	n := &Notes{}
+	if got := n.UpdatedNote(); got != NeedsReview {
+		t.Errorf("UpdatedNote() on empty Notes = %q, want %q", got, NeedsReview)
+	}
+}

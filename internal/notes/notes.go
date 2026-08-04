@@ -152,7 +152,7 @@ func (n *Notes) FavoriteReason(tier, slug string) string {
 func (n *Notes) Section(id string) string { return orNeedsReview(n.f.Sections[id]) }
 
 // UpdatedNote is the parenthetical after the date on the "Обновлено:" line.
-func (n *Notes) UpdatedNote() string { return n.f.UpdatedNote }
+func (n *Notes) UpdatedNote() string { return orNeedsReview(n.f.UpdatedNote) }
 
 // FableVerdict is the text of the "≈ Fable 5" favourites row, which has no model.
 func (n *Notes) FableVerdict() string { return orNeedsReview(n.f.FableVerdict) }
