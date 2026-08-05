@@ -15,7 +15,7 @@ import (
 var comparisonTemplate string
 
 // FavoriteRow is one line of the "Фавориты по категориям" table. A row with no
-// Model renders the Fallback text instead — that is how the "≈ Fable 5" line
+// Model renders the Fallback text instead — that is how the "Claude Fable 5" line
 // says there is no worthy candidate.
 type FavoriteRow struct {
 	TierLabel string
@@ -80,33 +80,35 @@ func Render(w io.Writer, data RenderData) error {
 var paidTiers = []string{"opus", "sonnet", "haiku"}
 
 var tierHeadings = map[string]string{
-	"opus":   "≈ Opus 5",
-	"sonnet": "≈ Sonnet 5",
-	"haiku":  "<≈ Haiku 4.5",
-	"free":   "<≈ Haiku 4.5 (бесплатная)",
+	"opus":   ">≈ Claude Opus 5",
+	"sonnet": "≈ Claude Sonnet 5",
+	"haiku":  "<≈ Claude Haiku 4.5",
+	"free":   "<≈ Claude Haiku 4.5 (бесплатная)",
 }
 
-// ClaudeEquivalent returns the table's Claude-relative label. Only a rankable
-// benchmark score can affect the haiku/free thresholds; Q/P and price are not
-// used.
+// ClaudeEquivalent returns the table's Claude-relative label. The manual tier
+// selects the Claude reference; only rankable haiku/free scores affect their
+// thresholds. Q/P and price are not used.
 func ClaudeEquivalent(m model.Model) string {
 	switch m.Tier {
-	case "opus", "sonnet":
-		return ">≈ Haiku 4.5"
+	case "opus":
+		return ">≈ Claude Opus 5"
+	case "sonnet":
+		return "≈ Claude Sonnet 5"
 	case "haiku", "free":
 		if m.Score == nil || !m.Rankable {
 			if m.Tier == "free" {
-				return "<≈ Haiku 4.5"
+				return "<≈ Claude Haiku 4.5"
 			}
-			return "≈ Haiku 4.5"
+			return "≈ Claude Haiku 4.5"
 		}
 		if m.Score.Value >= 70 {
-			return "≈ Haiku 4.5"
+			return "≈ Claude Haiku 4.5"
 		}
 		if m.Score.Value >= 60 {
-			return "<≈ Haiku 4.5"
+			return "<≈ Claude Haiku 4.5"
 		}
-		return "<<≈ Haiku 4.5"
+		return "<<≈ Claude Haiku 4.5"
 	}
 	return "н/д"
 }
@@ -133,7 +135,7 @@ func BuildRenderData(models []model.Model, nt *notes.Notes, updated string) Rend
 	}
 
 	d.Favorites = append(d.Favorites, FavoriteRow{
-		TierLabel: "≈ Fable 5",
+		TierLabel: "≈ Claude Fable 5",
 		Fallback:  "нет достойного кандидата",
 		Reason:    nt.FableVerdict(),
 	})

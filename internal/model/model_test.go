@@ -131,7 +131,7 @@ func TestMerge(t *testing.T) {
 	if !free.Free || free.QualityPriceLabel != "н/д (цена $0)" {
 		t.Errorf("free = %+v, want Free with the $0 quality/price label", free)
 	}
-	if free.ClaudeRef != "<≈ Haiku 4.5 (середина диапазона)" {
+	if free.ClaudeRef != "<≈ Claude Haiku 4.5 (середина диапазона)" {
 		t.Errorf("free.ClaudeRef = %q", free.ClaudeRef)
 	}
 }

@@ -37,7 +37,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		Context: 1000000, Free: true,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70.4, VariantMeasured: "vendor-claimed"},
 		ScoreLabel: "65–70.4% (только вендор)", QualityPriceLabel: "н/д (цена $0)", Rankable: true,
-		ClaudeRef: "<≈ Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
+		ClaudeRef: "<≈ Claude Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
 		Note: "550B/55B-active MoE.",
 	}
 	return
@@ -50,8 +50,8 @@ func goldenData() RenderData {
 		UpdatedNote:    "цены и оценки собраны автоматически",
 		FavoritesIntro: "Один лучший вариант на каждый уровень качества Claude.",
 		Favorites: []FavoriteRow{
-			{TierLabel: "≈ Fable 5", Fallback: "нет достойного кандидата", Reason: "Ни одна проверенная модель независимо не подтверждает Fable-уровень."},
-			{TierLabel: "≈ Opus 5", Model: &luna, Reason: "Лучшее соотношение цена/качество."},
+			{TierLabel: "≈ Claude Fable 5", Fallback: "нет достойного кандидата", Reason: "Ни одна проверенная модель независимо не подтверждает Fable-уровень."},
+			{TierLabel: ">≈ Claude Opus 5", Model: &luna, Reason: "Лучшее соотношение цена/качество."},
 			{TierLabel: "↳ второй выбор", Model: &sol, Reason: "Ближе всего к Opus 5 по сырой оценке."},
 		},
 		ClaudePrices:  []notes.ClaudePrice{{Model: "Claude Opus 5", In: "$5", Out: "$25", Context: "1M", Note: "—"}},
@@ -61,7 +61,7 @@ func goldenData() RenderData {
 		SaferAI:       "SaferAI Frontier Risk Management Tracker: OpenAI 34%.",
 		OpenWeights:   "Полностью закрытые: всё OpenAI.",
 		TiersIntro:    "Категории — по примерному уровню качества относительно Claude.",
-		Tiers:         []TierSection{{Heading: "≈ Opus 5", Rows: []model.Model{luna, sol}}},
+		Tiers:         []TierSection{{Heading: ">≈ Claude Opus 5", Rows: []model.Model{luna, sol}}},
 		Tokens10Intro: "Смешанное соотношение 3:1 (вход:выход).",
 		ClaudeTokens:  []notes.ClaudeTokens{{Model: "Claude Opus 5", In: "2.00", Out: "0.40", Mixed: "1.00"}},
 		Caveats:       []string{"Цены на OpenRouter меняются часто.", "Бенчмарки сильно зависят от скаффолда."},
@@ -129,13 +129,13 @@ func TestBuildRenderData(t *testing.T) {
 	if len(d.Favorites) != 4 {
 		t.Fatalf("got %d favourite rows, want 4 (Fable placeholder + opus #1 and #2 + free #1): %+v", len(d.Favorites), d.Favorites)
 	}
-	if d.Favorites[0].Model != nil || d.Favorites[0].TierLabel != "≈ Fable 5" {
+	if d.Favorites[0].Model != nil || d.Favorites[0].TierLabel != "≈ Claude Fable 5" {
 		t.Errorf("favourites[0] = %+v, want the Fable placeholder row first", d.Favorites[0])
 	}
 	if d.Favorites[0].Reason != nt.FableVerdict() {
 		t.Errorf("favourites[0].Reason = %q, want the fable_verdict text", d.Favorites[0].Reason)
 	}
-	if d.Favorites[1].TierLabel != "≈ Opus 5" || d.Favorites[1].Model.Slug != "openai/gpt-5.6-luna" {
+	if d.Favorites[1].TierLabel != ">≈ Claude Opus 5" || d.Favorites[1].Model.Slug != "openai/gpt-5.6-luna" {
 		t.Errorf("favourites[1] = %+v, want luna as the opus favourite (82.7 > 8.6)", d.Favorites[1])
 	}
 	if d.Favorites[1].Reason != "Лучшее соотношение цена/качество в Opus-тире." {
@@ -151,7 +151,7 @@ func TestBuildRenderData(t *testing.T) {
 		t.Errorf("favourites[3] = %+v, want the free-tier favourite", d.Favorites[3])
 	}
 
-	if len(d.Tiers) != 1 || d.Tiers[0].Heading != "≈ Opus 5" {
+	if len(d.Tiers) != 1 || d.Tiers[0].Heading != ">≈ Claude Opus 5" {
 		t.Fatalf("Tiers = %+v, want a single non-empty opus section", d.Tiers)
 	}
 	got := []string{}
@@ -171,5 +171,19 @@ func TestBuildRenderData(t *testing.T) {
 	if len(d.Caveats) != 2 || len(d.Companies) != 2 || len(d.ClaudePrices) != 2 {
 		t.Errorf("static blocks not pulled from notes.yaml: caveats %d, companies %d, claude prices %d",
 			len(d.Caveats), len(d.Companies), len(d.ClaudePrices))
+	}
+}
+
+func TestClaudeHeadingsUseNamedReferencesAndExactOperators(t *testing.T) {
+	want := map[string]string{
+		"opus":   ">≈ Claude Opus 5",
+		"sonnet": "≈ Claude Sonnet 5",
+		"haiku":  "<≈ Claude Haiku 4.5",
+		"free":   "<≈ Claude Haiku 4.5 (бесплатная)",
+	}
+	for tier, expected := range want {
+		if got := tierHeadings[tier]; got != expected {
+			t.Errorf("tierHeadings[%q] = %q, want %q", tier, got, expected)
+		}
 	}
 }
