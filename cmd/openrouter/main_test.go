@@ -29,7 +29,7 @@ func TestVersionFlag(t *testing.T) {
 
 func TestRootHelpIncludesVersion(t *testing.T) {
 	output := executeCLI(t, "--help")
-	if !strings.Contains(output, "--version") || !strings.Contains(output, "version for openrouter") {
+	if !strings.Contains(output, "Version: dev") || !strings.Contains(output, "--version") || !strings.Contains(output, "version for openrouter") {
 		t.Errorf("root help does not describe --version:\n%s", output)
 	}
 }
@@ -44,6 +44,9 @@ func TestReleaseLikeVersionInjection(t *testing.T) {
 	}
 	if got := executeCLI(t, "version"); got != "openrouter v0.1.0\n" {
 		t.Errorf("release-like version = %q, want %q", got, "openrouter v0.1.0\\n")
+	}
+	if output := executeCLI(t, "--help"); !strings.Contains(output, "Version: v0.1.0") {
+		t.Errorf("release-like root help does not show the version:\n%s", output)
 	}
 }
 

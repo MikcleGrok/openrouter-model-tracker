@@ -36,9 +36,17 @@ VERSION="$(git describe --tags --exact-match)" && go build -ldflags "-X main.ver
 Например, при checkout на теге `v0.1.0` ожидаемый вывод:
 
 ```text
+$ ./bin/openrouter --help
+Version: v0.1.0
+
+openrouter собирает цены и контекст с публичного OpenRouter API, оценки — со swebench.com
+и vals.ai по ручной карте model-map.tsv, и целиком перегенерирует markdown-документ.
+
 $ ./bin/openrouter --version
 openrouter version v0.1.0
 ```
+
+В обычной локальной сборке root help показывает `Version: dev`.
 
 Локальная Homebrew formula находится вне этого репозитория и не получает git tag автоматически,
 поэтому её обычная сборка может показать `dev`. Безопасный вариант — сначала собрать бинарник
