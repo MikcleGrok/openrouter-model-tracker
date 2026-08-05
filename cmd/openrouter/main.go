@@ -265,7 +265,7 @@ func newRootCmd() *cobra.Command {
 			return writeTableOutput(renderTable(models, width, shouldPage), cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
-	tableCmd.Flags().StringVar(&tableSort, "sort", "slug", "sort by: "+tableSortHelp)
+	tableCmd.Flags().StringVar(&tableSort, "sort", "q/p", "sort by: "+tableSortHelp)
 	tableCmd.Flags().BoolVar(&tableReverse, "reverse", false, "reverse the primary sort order")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 

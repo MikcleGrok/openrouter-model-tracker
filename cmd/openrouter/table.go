@@ -69,7 +69,7 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {
 	if key == "" {
-		key = "slug"
+		key = "q/p"
 	}
 	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "score": true, "q/p": true}
 	if !valid[key] {
@@ -84,7 +84,11 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 				return leftOK
 			}
 			if leftOK && leftValue != rightValue {
+				descending := key == "q/p"
 				if reverse {
+					descending = !descending
+				}
+				if descending {
 					return leftValue > rightValue
 				}
 				return leftValue < rightValue

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -132,6 +133,38 @@ func TestSortTableModelsUsesTypedValuesAndSlugTiebreaker(t *testing.T) {
 	}
 }
 
+func TestSortTableModelsDefaultsToDescendingQualityPrice(t *testing.T) {
+	models := []model.Model{
+		{Slug: "missing"},
+		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
+		{Slug: "high", Score: &model.ScoreInfo{Value: 3}, Rankable: true, QualityPrice: 3},
+	}
+	if err := sortTableModels(models, "", false); err != nil {
+		t.Fatalf("default sort error = %v", err)
+	}
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"high", "low", "missing"}) {
+		t.Fatalf("default sort = %v, want [high low missing]", got)
+	}
+	models = []model.Model{
+		{Slug: "missing"},
+		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
+		{Slug: "high", Score: &model.ScoreInfo{Value: 3}, Rankable: true, QualityPrice: 3},
+	}
+	if err := sortTableModels(models, "", true); err != nil {
+		t.Fatalf("reverse default sort error = %v", err)
+	}
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"low", "high", "missing"}) {
+		t.Fatalf("reverse default sort = %v, want [low high missing]", got)
+	}
+}
+
+func TestSortTableModelsExplicitSlugRemainsAscending(t *testing.T) {
+	models := []model.Model{{Slug: "z"}, {Slug: "a"}}
+	if err := sortTableModels(models, "slug", false); err != nil || models[0].Slug != "a" {
+		t.Fatalf("explicit slug sort = %+v, err=%v", models, err)
+	}
+}
+
 func TestSortTableModelsSupportsEverySortKey(t *testing.T) {
 	base := []model.Model{
 		{Slug: "z/model", DisplayName: "Alpha", Context: 10, InPerM: 2, OutPerM: 9, Score: &model.ScoreInfo{Value: 8}, Rankable: true, QualityPrice: 4},
@@ -147,7 +180,7 @@ func TestSortTableModelsSupportsEverySortKey(t *testing.T) {
 		{key: "input", want: "a/model"},
 		{key: "output", want: "a/model"},
 		{key: "score", want: "z/model"},
-		{key: "q/p", want: "a/model"},
+		{key: "q/p", want: "z/model"},
 	}
 	for _, test := range tests {
 		models := append([]model.Model(nil), base...)
