@@ -45,11 +45,13 @@ make history
 
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
 
-Версия по умолчанию — `dev`. Для release-сборки из checkout, содержащего полный git tag,
-используй точную инъекцию тега через Go ldflags:
+Версия сборки берётся из `git describe --tags --always --dirty` и передаётся в Go через
+`-X main.version`. Поэтому checkout на точном теге показывает чистую версию, а commit после
+тега — стандартный suffix `-N-g<sha>`; изменённый checkout дополнительно получает `-dirty`.
+Для release-сборки `make release-build` требует чистый checkout ровно на полном git-теге:
 
 ```bash
-VERSION="$(git describe --tags --exact-match)" && go build -ldflags "-X main.version=${VERSION}" -o ./bin/openrouter ./cmd/openrouter
+make release-build
 ```
 
 Например, при checkout на теге `v0.1.0` ожидаемый вывод:
@@ -65,12 +67,13 @@ $ ./bin/openrouter --version
 openrouter version v0.1.0
 ```
 
-В обычной локальной сборке root help показывает `Version: dev`.
+В обычной локальной сборке root help показывает текущее значение `git describe`, включая
+suffix для commit после тега или `-dirty` для изменённого checkout.
 
-Локальная Homebrew formula находится вне этого репозитория и не получает git tag автоматически,
-поэтому её обычная сборка может показать `dev`. Безопасный вариант — сначала собрать бинарник
-командой выше на нужном полном теге, а затем использовать его как release-артефакт; формулу вне
-репозитория не изменяй для настройки этой инъекции.
+Локальная Homebrew formula находится вне этого репозитория и во время сборки вычисляет ту же
+версию через `git describe` из checkout в `buildpath`, поэтому Homebrew больше не подставляет
+свой `HEAD-<sha>` в Go ldflags. Exact tag показывает чистую версию, а commit после тега —
+describe suffix.
 
 ## Что правится руками
 

@@ -4,18 +4,20 @@ DATA_DIR := $(CURDIR)
 OUTPUT := $(CURDIR)/docs/openrouter-model-comparison.md
 GO_FILES := $(shell git ls-files '*.go')
 
-VERSION := $(shell if test -z "$$(git status --porcelain --untracked-files=all 2>/dev/null)"; then git describe --tags --exact-match 2>/dev/null || printf 'dev'; else printf 'dev-dirty'; fi)
+VERSION := $(shell git describe --tags --always --dirty)
 RELEASE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
-.PHONY: build test race vet fmt fmt-check check refresh history release-build clean help
+.PHONY: build test race vet fmt fmt-check check refresh history release-build clean help FORCE
 
 build: $(BINARY)
 
-$(BINARY): $(GO_FILES) go.mod go.sum
+$(BINARY): FORCE Makefile $(GO_FILES) go.mod go.sum
 	@mkdir -p $(dir $@)
 	$(GO) build -ldflags "-X main.version=$(VERSION)" -o $@ ./cmd/openrouter
+
+FORCE:
 
 test:
 	$(GO) test ./...
@@ -43,6 +45,7 @@ history: build
 
 release-build:
 	@test -n "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires checkout at an exact git tag'; exit 1; }
+	@test "$(VERSION)" = "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires a clean checkout at an exact git tag'; exit 1; }
 	@mkdir -p $(dir $(BINARY))
 	$(GO) build -ldflags "-X main.version=$(RELEASE_VERSION)" -o $(BINARY) ./cmd/openrouter
 
