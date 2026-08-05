@@ -150,10 +150,13 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string) (st
 
 func newRootCmd() *cobra.Command {
 	var (
-		cfgPath string
-		dataDir string
-		output  string
-		dryRun  bool
+		cfgPath      string
+		dataDir      string
+		output       string
+		dryRun       bool
+		tableSort    string
+		tableReverse bool
+		tableNoPager bool
 	)
 
 	root := &cobra.Command{
@@ -255,10 +258,16 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), renderTable(models, width))
-			return nil
+			if err := sortTableModels(models, tableSort, tableReverse); err != nil {
+				return err
+			}
+			shouldPage := tableShouldPage(cmd.OutOrStdout(), tableNoPager)
+			return writeTableOutput(renderTable(models, width, shouldPage), cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
+	tableCmd.Flags().StringVar(&tableSort, "sort", "slug", "sort by: "+tableSortHelp)
+	tableCmd.Flags().BoolVar(&tableReverse, "reverse", false, "reverse the primary sort order")
+	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",

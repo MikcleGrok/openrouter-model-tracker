@@ -3,8 +3,10 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -18,10 +20,13 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
+	"golang.org/x/term"
 )
 
 const defaultTableWidth = 120
 const minTableWidth = 40
+
+const tableSortHelp = "name, slug, context, input, output, score, q/p"
 
 func loadLocalModels(dataDir string) ([]model.Model, error) {
 	entries, err := modelmap.Load(filepath.Join(dataDir, "model-map.tsv"))
@@ -59,8 +64,85 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 	if len(models) == 0 {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Slug < models[j].Slug })
 	return models, nil
+}
+
+func sortTableModels(models []model.Model, key string, reverse bool) error {
+	if key == "" {
+		key = "slug"
+	}
+	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "score": true, "q/p": true}
+	if !valid[key] {
+		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
+	}
+	sort.SliceStable(models, func(i, j int) bool {
+		left, right := models[i], models[j]
+		if key == "score" || key == "q/p" {
+			leftValue, leftOK := tableNumericSortValue(left, key)
+			rightValue, rightOK := tableNumericSortValue(right, key)
+			if leftOK != rightOK {
+				return leftOK
+			}
+			if leftOK && leftValue != rightValue {
+				if reverse {
+					return leftValue > rightValue
+				}
+				return leftValue < rightValue
+			}
+			return left.Slug < right.Slug
+		}
+		comparison := 0
+		switch key {
+		case "name":
+			comparison = strings.Compare(left.DisplayName, right.DisplayName)
+		case "slug":
+			comparison = strings.Compare(left.Slug, right.Slug)
+		case "context":
+			comparison = compareInts(left.Context, right.Context)
+		case "input":
+			comparison = compareFloats(left.InPerM, right.InPerM)
+		case "output":
+			comparison = compareFloats(left.OutPerM, right.OutPerM)
+		}
+		if comparison == 0 {
+			return left.Slug < right.Slug
+		}
+		return (comparison < 0) != reverse
+	})
+	return nil
+}
+
+func compareInts(left, right int) int {
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func compareFloats(left, right float64) int {
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func tableNumericSortValue(m model.Model, key string) (float64, bool) {
+	if key == "score" {
+		if m.Score == nil || !m.Rankable {
+			return 0, false
+		}
+		return m.Score.Value, true
+	}
+	if m.Free || m.Score == nil || !m.Rankable {
+		return 0, false
+	}
+	return m.QualityPrice, true
 }
 
 func tableWidth() (int, error) {
@@ -191,17 +273,21 @@ func plainTableText(value string) string {
 	}, value)
 }
 
-func renderTable(models []model.Model, width int) string {
-	preferred := []int{30, 7, 12, 13, 8, 26, 20}
-	minimum := []int{3, 1, 2, 2, 2, 2, 6}
+func renderTable(models []model.Model, width int, preserveIdentity bool) string {
+	preferred := []int{24, 30, 12, 13, 13, 8, 20, 20}
+	minimum := []int{4, 4, 7, 9, 10, 6, 20, 4}
+	compactMinimum := []int{1, 1, 1, 1, 1, 1, 1, 8}
 	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
 	if target < minTableWidth-(3*len(widths)+1) {
 		target = minTableWidth - (3*len(widths) + 1)
 	}
+	if target < sum(minimum) {
+		minimum = compactMinimum
+	}
 	if target < sum(widths) {
 		deficit := sum(widths) - target
-		for _, i := range []int{0, 6, 4, 3, 2, 1, 5} {
+		for _, i := range []int{0, 1, 7, 6, 4, 3, 2, 5} {
 			shrink := widths[i] - minimum[i]
 			if shrink > deficit {
 				shrink = deficit
@@ -215,7 +301,19 @@ func renderTable(models []model.Model, width int) string {
 	} else {
 		widths[4] += target - sum(widths)
 	}
-	headers := []string{"Model", "Context", "Input $/M", "Output $/M", "Status", "Q/P", "Note"}
+	headers := []string{"Name", "Slug", "Context", "Input $/M", "Output $/M", "Status", "Q/P", "Note"}
+	if preserveIdentity {
+		for i := 0; i < 2; i++ {
+			widths[i] = tableDisplayWidth(headers[i])
+			for _, m := range models {
+				value := m.DisplayName
+				if i == 1 {
+					value = m.Slug
+				}
+				widths[i] = max(widths[i], tableDisplayWidth(plainTableText(value)))
+			}
+		}
+	}
 	var b strings.Builder
 	separator := func() {
 		b.WriteString("+")
@@ -229,7 +327,9 @@ func renderTable(models []model.Model, width int) string {
 		b.WriteString("|")
 		for i, value := range values {
 			value = plainTableText(value)
-			value = truncateTable(value, widths[i])
+			if !preserveIdentity || i > 1 {
+				value = truncateTable(value, widths[i])
+			}
 			b.WriteString(" " + padTableCell(value, widths[i]) + " |")
 		}
 		b.WriteByte('\n')
@@ -238,10 +338,41 @@ func renderTable(models []model.Model, width int) string {
 	row(headers)
 	separator()
 	for _, m := range models {
-		row([]string{m.DisplayName, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableStatus(m), m.QualityPriceLabel, tableNote(m)})
+		row([]string{m.DisplayName, m.Slug, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableStatus(m), m.QualityPriceLabel, tableNote(m)})
 	}
 	separator()
 	return b.String()
+}
+
+var tableIsTTY = func(stdout io.Writer) bool {
+	file, ok := stdout.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
+}
+
+func tableShouldPage(stdout io.Writer, noPager bool) bool {
+	return !noPager && tableIsTTY(stdout)
+}
+
+var runTablePager = func(output string, stdout, stderr io.Writer) error {
+	pager := exec.Command("less", "-S")
+	pager.Stdin = strings.NewReader(output)
+	pager.Stdout = stdout
+	pager.Stderr = stderr
+	if err := pager.Run(); err != nil {
+		return fmt.Errorf("table: run less -S: %w", err)
+	}
+	return nil
+}
+
+func writeTableOutput(output string, stdout, stderr io.Writer, shouldPage bool) error {
+	if shouldPage {
+		return runTablePager(output, stdout, stderr)
+	}
+	_, err := io.WriteString(stdout, output)
+	return err
 }
 
 func sum(values []int) int {
@@ -250,4 +381,11 @@ func sum(values []int) int {
 		total += value
 	}
 	return total
+}
+
+func max(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
