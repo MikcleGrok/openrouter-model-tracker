@@ -68,7 +68,7 @@ models:
     display: NVIDIA Nemotron 3 Ultra
     owner: NVIDIA
     open_weights: "да, OpenMDW-1.1"
-    claude_ref: "≈ Haiku 4.5 (середина диапазона)"
+    claude_ref: "<≈ Haiku 4.5 (середина диапазона)"
     note: "550B/55B-active MoE."
     score:
       label: "65–70.4% (5 скаффолдов, прогон самой NVIDIA)"

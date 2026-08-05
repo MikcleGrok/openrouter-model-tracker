@@ -219,12 +219,12 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 		{DisplayName: "opus", Tier: "opus"},
 		{DisplayName: "sonnet", Tier: "sonnet"},
 		{DisplayName: "haiku", Tier: "haiku"},
-		{DisplayName: "free-ref", Tier: "free", ClaudeRef: "≈ Haiku 4.5 (середина диапазона)"},
+		{DisplayName: "free-ref", Tier: "free", ClaudeRef: "<≈ Haiku 4.5 (середина диапазона)"},
 		{DisplayName: "free-fallback", Tier: "free"},
 		{DisplayName: "unknown", Tier: "other"},
 	}
 	output := renderTable(models, 40, false)
-	for _, want := range []string{"≈ Opus 5", "≈ Sonnet 5", "≈ Haiku 4.5", "≈ Haiku 4.5 (середина диапазона)", "≈ Haiku 4.5 (бесплатная)", "н/д"} {
+	for _, want := range []string{"≈ Opus 5", "≈ Sonnet 5", "<≈ Haiku 4.5", "<≈ Haiku 4.5 (середина диапазона)", "<≈ Haiku 4.5 (бесплатная)", "н/д"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("Claude equivalent %q missing from output:\n%s", want, output)
 		}
@@ -232,7 +232,7 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 }
 
 func TestRenderTableKeepsFullClaudeEquivalentAtAnyRequestedWidth(t *testing.T) {
-	want := "≈ Haiku 4.5 (уточнение классификации)"
+	want := "<≈ Haiku 4.5 (уточнение классификации)"
 	for _, width := range []int{120, 40} {
 		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: want}}, width, false)
 		if !strings.Contains(output, want) {
@@ -245,9 +245,9 @@ func TestRenderTableKeepsFullClaudeEquivalentAtAnyRequestedWidth(t *testing.T) {
 }
 
 func TestRenderTableKeepsNormalizedFullClaudeAndNoteAtAnyRequestedWidth(t *testing.T) {
-	claudeRef := "**≈ Haiku 4.5** | уточнение\t界🙂"
+	claudeRef := "**<≈ Haiku 4.5** | уточнение\t界🙂"
 	note := "**полная** заметка | с control\r\nи Unicode е\u0301界🙂"
-	wantClaude := "≈ Haiku 4.5 / уточнение 界🙂"
+	wantClaude := "<≈ Haiku 4.5 / уточнение 界🙂"
 	wantNote := "полная заметка / с control  и Unicode е\u0301界🙂"
 	for _, width := range []int{120, 40} {
 		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: claudeRef, Note: note}}, width, false)

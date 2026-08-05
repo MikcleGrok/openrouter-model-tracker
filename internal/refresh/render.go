@@ -82,8 +82,8 @@ var paidTiers = []string{"opus", "sonnet", "haiku"}
 var tierHeadings = map[string]string{
 	"opus":   "≈ Opus 5",
 	"sonnet": "≈ Sonnet 5",
-	"haiku":  "≈ Haiku 4.5",
-	"free":   "≈ Haiku 4.5 (бесплатная)",
+	"haiku":  "<≈ Haiku 4.5",
+	"free":   "<≈ Haiku 4.5 (бесплатная)",
 }
 
 // ClaudeEquivalent returns the manually classified Claude-level label for a model.
