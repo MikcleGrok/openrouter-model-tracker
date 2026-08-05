@@ -304,6 +304,18 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	minimum := []int{30, 6, 3, 7, 9, 10, 4}
 	compactMinimum := []int{4, 6, 3, 1, 1, 1, 1}
 	widths := append([]int(nil), preferred...)
+	hasNote := false
+	maxNoteWidth := 0
+	for _, m := range models {
+		noteWidth := tableDisplayWidth(tableNote(m))
+		if noteWidth > 0 {
+			hasNote = true
+			maxNoteWidth = max(maxNoteWidth, noteWidth)
+		}
+	}
+	if hasNote {
+		widths[6] = maxNoteWidth
+	}
 	target := width - (3*len(widths) + 1)
 	if target < minTableWidth-(3*len(widths)+1) {
 		target = minTableWidth - (3*len(widths) + 1)
@@ -313,7 +325,11 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	}
 	if target < sum(widths) {
 		deficit := sum(widths) - target
-		for _, i := range []int{0, 6, 5, 4, 3, 2, 1} {
+		shrinkOrder := []int{0, 5, 4, 3, 2, 1}
+		if !hasNote {
+			shrinkOrder = append(shrinkOrder, 6)
+		}
+		for _, i := range shrinkOrder {
 			shrink := widths[i] - minimum[i]
 			if shrink > deficit {
 				shrink = deficit

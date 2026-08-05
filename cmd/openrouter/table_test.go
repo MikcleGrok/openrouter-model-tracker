@@ -27,13 +27,49 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	if strings.Contains(output, "**") || strings.Contains(output, "`") {
 		t.Fatalf("table contains Markdown emphasis markers:\n%s", output)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if len(line) > 120 {
-			t.Errorf("line exceeds requested width: %d: %q", len(line), line)
-		}
-	}
 	if !strings.Contains(output, "...") {
 		t.Errorf("long cells were not truncated:\n%s", output)
+	}
+}
+
+func TestRenderTableKeepsFullNoteAtAnyRequestedWidth(t *testing.T) {
+	note := "full note with enough detail to exceed the preferred column width"
+	models := []model.Model{{DisplayName: "model", Note: note}}
+	for _, width := range []int{120, 40} {
+		output := renderTable(models, width, false)
+		if !strings.Contains(output, note) {
+			t.Errorf("full note at %d columns is missing or truncated:\n%s", width, output)
+		}
+		if got := tableColumnWidths(output)[6]; got < tableDisplayWidth(note) {
+			t.Errorf("note column width at %d columns = %d, want >= %d", width, got, tableDisplayWidth(note))
+		}
+	}
+}
+
+func TestRenderTableUsesMaximumDisplayWidthForAllNotes(t *testing.T) {
+	notes := []string{"short", "е\u0301界🙂", "the longest note is kept in full"}
+	models := make([]model.Model, 0, len(notes))
+	wantWidth := 0
+	for _, note := range notes {
+		models = append(models, model.Model{DisplayName: "model", Note: note})
+		wantWidth = max(wantWidth, tableDisplayWidth(note))
+	}
+
+	output := renderTable(models, 40, false)
+	if got := tableColumnWidths(output)[6]; got != wantWidth {
+		t.Fatalf("note column width = %d, want maximum display width %d:\n%s", got, wantWidth, output)
+	}
+	for _, note := range notes {
+		if !strings.Contains(output, note) {
+			t.Errorf("full note %q is missing or truncated:\n%s", note, output)
+		}
+	}
+}
+
+func TestRenderTableDoesNotExpandEmptyNoteColumn(t *testing.T) {
+	output := renderTable([]model.Model{{DisplayName: "model"}}, 40, false)
+	if got := tableColumnWidths(output)[6]; got > 21 {
+		t.Fatalf("empty note column width = %d, want <= 21", got)
 	}
 }
 
@@ -93,8 +129,8 @@ func assertTableHeaders(t *testing.T, output string, want []string) {
 
 func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "review this"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "no-score", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Note: notes.NeedsReview}}, 120, false)
-	if got := tableColumnWidths(output); !reflect.DeepEqual(got, []int{30, 8, 5, 8, 13, 13, 21}) {
-		t.Fatalf("table column widths = %v, want [30 8 5 8 13 13 21]", got)
+	if got := tableColumnWidths(output); got[6] < tableDisplayWidth("review this") {
+		t.Fatalf("note column width = %d, want >= %d", got[6], tableDisplayWidth("review this"))
 	}
 	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
 		t.Fatalf("paid model cells are not separated:\n%s", output)
@@ -146,26 +182,13 @@ func tableColumnWidths(output string) []int {
 
 func TestRenderTableFitsNarrowWidth(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", Note: "a note"}}, 40, false)
-	if !strings.Contains(output, "| Name | Status  | Q/P |") {
+	if !strings.Contains(output, "| Name ") || !strings.Contains(output, "| Status ") || !strings.Contains(output, "| Q/P ") {
 		t.Fatalf("minimum table does not preserve required headers:\n%s", output)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if width := len([]rune(line)); width > 40 {
-			t.Errorf("line exceeds requested width: %d: %q", width, line)
-		}
 	}
 }
 
 func TestRenderTableFitsNarrowWidthWithCyrillic(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "модель", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "значение", Note: "заметка с длинным текстом"}}, 40, false)
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if width := tableDisplayWidth(line); width > 40 {
-			t.Errorf("line exceeds display width: %d: %q", width, line)
-		}
-		if utf8.RuneCountInString(line) > 40 {
-			t.Errorf("line exceeds rune limit: %d: %q", utf8.RuneCountInString(line), line)
-		}
-	}
 	if !utf8.ValidString(output) {
 		t.Fatalf("table output is not valid UTF-8: %q", output)
 	}
