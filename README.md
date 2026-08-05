@@ -22,6 +22,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
+- `openrouter table` — показать локальные данные моделей в plain-text таблице без Markdown и сети
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -37,8 +38,13 @@ make vet
 make fmt-check
 make check
 make history
+make table
 make init
 ```
+
+`openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный
+снимок из `cache/last-run-snapshot.json`. Они не обращаются к сети и завершаются с ошибкой,
+если локальный снимок отсутствует.
 
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
 `docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,

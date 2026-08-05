@@ -238,6 +238,28 @@ func newRootCmd() *cobra.Command {
 	historyCmd.Flags().StringVar(&historySince, "since", "", "show observations after RFC3339 or YYYY-MM-DD")
 	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown or tsv")
 
+	tableCmd := &cobra.Command{
+		Use:   "table",
+		Short: "Show local model data as a plain-text table",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dir, err := resolveDataDir(cfgPath, dataDir)
+			if err != nil {
+				return err
+			}
+			models, err := loadLocalModels(dir)
+			if err != nil {
+				return err
+			}
+			width, err := tableWidth()
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), renderTable(models, width))
+			return nil
+		},
+	}
+
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Show the binary version",
@@ -264,5 +286,6 @@ func newRootCmd() *cobra.Command {
 	}
 
 	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd)
+	root.AddCommand(tableCmd)
 	return root
 }

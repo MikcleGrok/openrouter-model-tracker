@@ -9,7 +9,7 @@ RELEASE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
-.PHONY: build test race vet fmt fmt-check check init refresh history release-build clean help FORCE
+.PHONY: build test race vet fmt fmt-check check init refresh history table release-build clean help FORCE
 
 build: $(BINARY)
 
@@ -46,6 +46,9 @@ refresh: build
 history: build
 	$(BINARY) history --data-dir $(DATA_DIR)
 
+table: build
+	$(BINARY) table --data-dir $(DATA_DIR)
+
 release-build:
 	@test -n "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires checkout at an exact git tag'; exit 1; }
 	@test "$(VERSION)" = "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires a clean checkout at an exact git tag'; exit 1; }
@@ -67,6 +70,7 @@ help:
 		'init           Build, initialize, refresh, and open the report on macOS' \
 		'refresh        Refresh data and the generated comparison document' \
 		'history        Show price history for this checkout' \
+		'table          Show local model data as a plain-text table' \
 		'release-build  Build with the exact checked-out git tag' \
 		'clean           Remove only bin/openrouter' \
 		'help            Show this list of targets'
