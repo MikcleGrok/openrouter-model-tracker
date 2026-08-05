@@ -24,6 +24,25 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
+## Makefile
+
+Основные локальные цели:
+
+```bash
+make help
+make build
+make test
+make vet
+make fmt-check
+make check
+make history
+```
+
+`make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
+`docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,
+а `make release-build` собирает бинарник только из checkout на полном git-теге.
+`make clean` удаляет только `bin/openrouter`; кэш и пользовательские данные не удаляются.
+
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
 
 Версия по умолчанию — `dev`. Для release-сборки из checkout, содержащего полный git tag,
