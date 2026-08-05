@@ -1,11 +1,51 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func executeCLI(t *testing.T, args ...string) string {
+	t.Helper()
+	cmd := newRootCmd()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute %v: %v\noutput: %s", args, err, output.String())
+	}
+	return output.String()
+}
+
+func TestVersionFlag(t *testing.T) {
+	if got := executeCLI(t, "--version"); got != "openrouter version dev\n" {
+		t.Errorf("--version = %q, want %q", got, "openrouter version dev\\n")
+	}
+}
+
+func TestRootHelpIncludesVersion(t *testing.T) {
+	output := executeCLI(t, "--help")
+	if !strings.Contains(output, "--version") || !strings.Contains(output, "version for openrouter") {
+		t.Errorf("root help does not describe --version:\n%s", output)
+	}
+}
+
+func TestReleaseLikeVersionInjection(t *testing.T) {
+	original := version
+	defer func() { version = original }()
+	version = "v0.1.0"
+
+	if got := executeCLI(t, "--version"); got != "openrouter version v0.1.0\n" {
+		t.Errorf("release-like --version = %q, want %q", got, "openrouter version v0.1.0\\n")
+	}
+	if got := executeCLI(t, "version"); got != "openrouter v0.1.0\n" {
+		t.Errorf("release-like version = %q, want %q", got, "openrouter v0.1.0\\n")
+	}
+}
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()

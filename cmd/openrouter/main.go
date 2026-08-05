@@ -157,8 +157,9 @@ func newRootCmd() *cobra.Command {
 	)
 
 	root := &cobra.Command{
-		Use:   "openrouter",
-		Short: "Пересобирает сравнение моделей OpenRouter из живых цен и бенчмарк-лидербордов",
+		Use:     "openrouter",
+		Version: version,
+		Short:   "Пересобирает сравнение моделей OpenRouter из живых цен и бенчмарк-лидербордов",
 		Long: "openrouter собирает цены и контекст с публичного OpenRouter API, оценки — со swebench.com\n" +
 			"и vals.ai по ручной карте model-map.tsv, и целиком перегенерирует markdown-документ.\n" +
 			"Проза живёт в notes.yaml: правки в самом .md следующий прогон затрёт.",

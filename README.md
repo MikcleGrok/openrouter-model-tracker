@@ -22,8 +22,28 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter version`
+- `openrouter --version` — показать версию бинарника
 
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
+
+Версия по умолчанию — `dev`. Для release-сборки из checkout, содержащего полный git tag,
+используй точную инъекцию тега через Go ldflags:
+
+```bash
+VERSION="$(git describe --tags --exact-match)" && go build -ldflags "-X main.version=${VERSION}" -o ./bin/openrouter ./cmd/openrouter
+```
+
+Например, при checkout на теге `v0.1.0` ожидаемый вывод:
+
+```text
+$ ./bin/openrouter --version
+openrouter version v0.1.0
+```
+
+Локальная Homebrew formula находится вне этого репозитория и не получает git tag автоматически,
+поэтому её обычная сборка может показать `dev`. Безопасный вариант — сначала собрать бинарник
+командой выше на нужном полном теге, а затем использовать его как release-артефакт; формулу вне
+репозитория не изменяй для настройки этой инъекции.
 
 ## Что правится руками
 
