@@ -50,6 +50,28 @@ func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
 	}
 }
 
+func TestRenderTableKeepsRegularIdentityColumnWidth(t *testing.T) {
+	for _, showSlug := range []bool{false, true} {
+		output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/model"}}, 120, showSlug)
+		width := firstTableColumnWidth(output)
+		if width < 30 || width > maxTableIdentityWidth {
+			t.Errorf("identity column width for showSlug=%v = %d, want 30..%d", showSlug, width, maxTableIdentityWidth)
+		}
+	}
+}
+
+func firstTableColumnWidth(output string) int {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "+") {
+			separatorEnd := strings.IndexByte(line[1:], '+')
+			if separatorEnd >= 0 {
+				return separatorEnd - 2
+			}
+		}
+	}
+	return 0
+}
+
 func assertTableHeaders(t *testing.T, output string, want []string) {
 	t.Helper()
 	for _, line := range strings.Split(output, "\n") {
@@ -71,6 +93,9 @@ func assertTableHeaders(t *testing.T, output string, want []string) {
 
 func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "review this"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "no-score", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Note: notes.NeedsReview}}, 120, false)
+	if got := tableColumnWidths(output); !reflect.DeepEqual(got, []int{30, 8, 14, 8, 13, 13, 12}) {
+		t.Fatalf("table column widths = %v, want [30 8 14 8 13 13 12]", got)
+	}
 	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
 		t.Fatalf("paid model cells are not separated:\n%s", output)
 	}
@@ -80,6 +105,21 @@ func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	if strings.Contains(output, "93.0%; review this") || strings.Contains(output, "н/д;") || strings.Contains(output, notes.NeedsReview) {
 		t.Fatalf("status and note were combined or review marker was shown:\n%s", output)
 	}
+}
+
+func tableColumnWidths(output string) []int {
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "+") {
+			continue
+		}
+		parts := strings.Split(strings.Trim(line, "+"), "+")
+		widths := make([]int, 0, len(parts))
+		for _, part := range parts {
+			widths = append(widths, len(part)-2)
+		}
+		return widths
+	}
+	return nil
 }
 
 func TestRenderTableFitsNarrowWidth(t *testing.T) {

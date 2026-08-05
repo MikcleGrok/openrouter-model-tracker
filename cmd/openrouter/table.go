@@ -293,8 +293,8 @@ func plainTableText(value string) string {
 }
 
 func renderTable(models []model.Model, width int, showSlug bool) string {
-	preferred := []int{maxTableIdentityWidth, 8, 20, 12, 13, 13, 12}
-	minimum := []int{4, 6, 3, 7, 9, 10, 4}
+	preferred := []int{maxTableIdentityWidth, 8, 14, 8, 13, 13, 22}
+	minimum := []int{30, 6, 3, 7, 9, 10, 4}
 	compactMinimum := []int{4, 6, 3, 1, 1, 1, 1}
 	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
