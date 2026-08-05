@@ -93,17 +93,39 @@ func assertTableHeaders(t *testing.T, output string, want []string) {
 
 func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "review this"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "no-score", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Note: notes.NeedsReview}}, 120, false)
-	if got := tableColumnWidths(output); !reflect.DeepEqual(got, []int{30, 8, 14, 8, 13, 13, 12}) {
-		t.Fatalf("table column widths = %v, want [30 8 14 8 13 13 12]", got)
+	if got := tableColumnWidths(output); !reflect.DeepEqual(got, []int{30, 8, 5, 8, 13, 13, 21}) {
+		t.Fatalf("table column widths = %v, want [30 8 5 8 13 13 21]", got)
 	}
 	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
 		t.Fatalf("paid model cells are not separated:\n%s", output)
 	}
-	if !strings.Contains(output, "н/д (цена $0)") || !strings.Contains(output, "н/д (оценка") {
-		t.Fatalf("free/no-score Q/P labels missing:\n%s", output)
+	if !strings.Contains(output, "н/...") || strings.Contains(output, "н/д (цена $0)") || strings.Contains(output, "н/д (оценка") {
+		t.Fatalf("free/no-score Q/P labels were not safely truncated:\n%s", output)
 	}
 	if strings.Contains(output, "93.0%; review this") || strings.Contains(output, "н/д;") || strings.Contains(output, notes.NeedsReview) {
 		t.Fatalf("status and note were combined or review marker was shown:\n%s", output)
+	}
+}
+
+func TestRenderTableKeepsQualityPriceWithinFiveColumns(t *testing.T) {
+	models := []model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "436", Note: "status note"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "missing", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)"}}
+	for _, width := range []int{120, 40} {
+		output := renderTable(models, width, false)
+		if got := tableColumnWidths(output)[2]; got > 5 {
+			t.Errorf("Q/P column width at %d columns = %d, want <= 5:\n%s", width, got, output)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+			if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Name ") {
+				continue
+			}
+			cells := strings.Split(strings.Trim(line, "|"), "|")
+			if len(cells) < 3 {
+				t.Fatalf("malformed table row at %d columns: %q", width, line)
+			}
+			if got := tableDisplayWidth(strings.TrimSpace(cells[2])); got > 5 {
+				t.Errorf("Q/P cell width at %d columns = %d, want <= 5: %q", width, got, line)
+			}
+		}
 	}
 }
 
