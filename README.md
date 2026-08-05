@@ -17,6 +17,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 
 ## Команды
 
+- `openrouter init [--config PATH] [--data-dir PATH]` — создать пользовательский конфиг и локальный каталог кэша; существующие пути не изменяются
 - `openrouter refresh [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
@@ -45,6 +46,25 @@ make history
 
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
 
+Инициализация из checkout создаёт только отсутствующие пути:
+
+```bash
+openrouter init
+```
+
+Будут созданы `~/.config/openrouter/config.yaml` и `<data_dir>/cache/`, если их ещё нет.
+Шаблон конфига не содержит machine-specific абсолютных путей:
+
+```yaml
+data_dir: .
+default_output: docs/openrouter-model-comparison.md
+```
+
+`model-map.tsv`, `notes.yaml` и `ignore-candidates.txt` остаются входными файлами checkout и
+не создаются командой `init`. Повторный запуск сообщает `Already exists` и не перезаписывает
+конфиг. Команда не обращается к сети и не создаёт snapshot, price history, HTTP cache или
+сгенерированный документ.
+
 Версия сборки берётся из `git describe --tags --always --dirty` и передаётся в Go через
 `-X main.version`. Поэтому checkout на точном теге показывает чистую версию, а commit после
 тега — стандартный suffix `-N-g<sha>`; изменённый checkout дополнительно получает `-dirty`.
@@ -60,8 +80,8 @@ make release-build
 $ ./bin/openrouter --help
 Version: v0.1.0
 
-openrouter собирает цены и контекст с публичного OpenRouter API, оценки — со swebench.com
-и vals.ai по ручной карте model-map.tsv, и целиком перегенерирует markdown-документ.
+openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com
+and vals.ai using the manual model-map.tsv mapping, then regenerates the markdown document.
 
 $ ./bin/openrouter --version
 openrouter version v0.1.0

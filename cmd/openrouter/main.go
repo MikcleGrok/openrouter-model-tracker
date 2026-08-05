@@ -80,14 +80,14 @@ func parseSince(value string) (time.Time, error) {
 	}
 	parsed, err := time.Parse("2006-01-02", value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("--since должен быть RFC3339 или датой YYYY-MM-DD: %w", err)
+		return time.Time{}, fmt.Errorf("--since must be RFC3339 or YYYY-MM-DD: %w", err)
 	}
 	return parsed, nil
 }
 
 func renderHistory(h *pricehistory.History, modelSlug, since, format string) (string, error) {
 	if format != "markdown" && format != "tsv" {
-		return "", fmt.Errorf("--format должен быть markdown или tsv")
+		return "", fmt.Errorf("--format must be markdown or tsv")
 	}
 	cutoff, err := parseSince(since)
 	if err != nil {
@@ -159,15 +159,15 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "openrouter",
 		Version: version,
-		Short:   "Пересобирает сравнение моделей OpenRouter из живых цен и бенчмарк-лидербордов",
+		Short:   "Regenerate the OpenRouter model comparison from live prices and benchmark leaderboards",
 		Long: fmt.Sprintf("Version: %s\n\n", version) +
-			"openrouter собирает цены и контекст с публичного OpenRouter API, оценки — со swebench.com\n" +
-			"и vals.ai по ручной карте model-map.tsv, и целиком перегенерирует markdown-документ.\n" +
-			"Проза живёт в notes.yaml: правки в самом .md следующий прогон затрёт.",
+			"openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com\n" +
+			"and vals.ai using the manual model-map.tsv mapping, then regenerates the markdown document.\n" +
+			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.",
 		SilenceUsage: true,
 	}
-	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "путь к config.yaml")
-	root.PersistentFlags().StringVar(&dataDir, "data-dir", "", "каталог проекта с model-map.tsv, notes.yaml и cache/ (перекрывает конфиг)")
+	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config.yaml")
+	root.PersistentFlags().StringVar(&dataDir, "data-dir", "", "project directory with model-map.tsv, notes.yaml, and cache/ (overrides config)")
 
 	runRefresh := func(cmd *cobra.Command, dry bool) error {
 		opts, err := resolveOptions(cfgPath, dataDir, output)
@@ -197,25 +197,25 @@ func newRootCmd() *cobra.Command {
 
 	refreshCmd := &cobra.Command{
 		Use:   "refresh",
-		Short: "Собрать свежие данные и перезаписать документ",
+		Short: "Fetch fresh data and overwrite the document",
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, dryRun) },
 	}
-	refreshCmd.Flags().StringVar(&output, "output", "", "путь генерируемого markdown (перекрывает конфиг)")
-	refreshCmd.Flags().BoolVar(&dryRun, "dry-run", false, "ничего не писать: ни документ, ни снимок")
+	refreshCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (overrides config)")
+	refreshCmd.Flags().BoolVar(&dryRun, "dry-run", false, "write nothing: neither the document nor the snapshot")
 
 	checkCmd := &cobra.Command{
 		Use:   "check",
-		Short: "Только отчёт: новые кандидаты, снятые slug'и, пробелы в notes.yaml — без записи",
+		Short: "Report only: new candidates, removed slugs, and notes.yaml gaps; write nothing",
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, true) },
 	}
-	checkCmd.Flags().StringVar(&output, "output", "", "путь генерируемого markdown (нужен только для проверки конфига)")
+	checkCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (used only to validate config)")
 
 	var historyModel, historySince, historyFormat string
 	historyCmd := &cobra.Command{
 		Use:   "history",
-		Short: "Показать историю цен",
+		Short: "Show price history",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := resolveDataDir(cfgPath, dataDir)
@@ -234,19 +234,35 @@ func newRootCmd() *cobra.Command {
 			return nil
 		},
 	}
-	historyCmd.Flags().StringVar(&historyModel, "model", "", "фильтр по slug")
-	historyCmd.Flags().StringVar(&historySince, "since", "", "показывать наблюдения после RFC3339 или даты YYYY-MM-DD")
-	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "формат: markdown или tsv")
+	historyCmd.Flags().StringVar(&historyModel, "model", "", "filter by slug")
+	historyCmd.Flags().StringVar(&historySince, "since", "", "show observations after RFC3339 or YYYY-MM-DD")
+	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown or tsv")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
-		Short: "Показать версию бинарника",
+		Short: "Show the binary version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Fprintf(cmd.OutOrStdout(), "openrouter %s\n", version)
 		},
 	}
 
-	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd)
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Create a user config and local cache directory",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			items, err := config.Init(cfgPath, dataDir)
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				fmt.Fprintln(cmd.OutOrStdout(), item)
+			}
+			return nil
+		},
+	}
+
+	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd)
 	return root
 }

@@ -54,3 +54,77 @@ func TestDefaultPath(t *testing.T) {
 		t.Errorf("DefaultPath = %q, want it to end with .config/openrouter/config.yaml", got)
 	}
 }
+
+func TestInitRejectsConfigDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(path, t.TempDir()); err == nil || !strings.Contains(err.Error(), "config path is a directory") {
+		t.Fatalf("Init error = %v, want config path type error", err)
+	}
+}
+
+func TestInitPreservesRelativeDataDir(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	configPath := filepath.Join(root, "config.yaml")
+	dataDir := filepath.Join("relative", "project")
+	if _, err := Init(configPath, dataDir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.DataDir != dataDir {
+		t.Errorf("DataDir = %q, want %q", got.DataDir, dataDir)
+	}
+	if info, err := os.Stat(filepath.Join(dataDir, "cache")); err != nil || !info.IsDir() {
+		t.Fatalf("relative cache directory stat = %v, info = %+v", err, info)
+	}
+}
+
+func TestInitRejectsCacheFile(t *testing.T) {
+	root := t.TempDir()
+	cachePath := filepath.Join(root, "cache")
+	if err := os.WriteFile(cachePath, []byte("user data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.yaml")
+	if _, err := Init(configPath, root); err == nil || !strings.Contains(err.Error(), "cache path is not a directory") {
+		t.Fatalf("Init error = %v, want cache path type error", err)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config stat error = %v, want rollback removal", err)
+	}
+	body, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "user data\n" {
+		t.Fatalf("cache file changed: %q", body)
+	}
+}
+
+func TestInitRollsBackConfigWhenCacheInspectionFails(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	if err := os.WriteFile(dataDir, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.yaml")
+	if _, err := Init(configPath, dataDir); err == nil {
+		t.Fatal("Init returned nil error, want cache inspection error")
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config stat error = %v, want rollback removal", err)
+	}
+	body, err := os.ReadFile(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "not a directory\n" {
+		t.Fatalf("data path changed: %q", body)
+	}
+}
