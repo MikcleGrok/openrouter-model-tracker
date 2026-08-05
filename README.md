@@ -22,7 +22,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table [-s|--slug] [-n|--limit N] [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-s/--slug` переключает первую колонку на `Slug` с `m.Slug`; `-n/--limit N` оставляет первые `N` моделей после сортировки. Лимит по умолчанию не задан, а `N=0` выводит только заголовок и разделители.
+- `openrouter table [-s|--slug] [-n|--limit N] [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Claude | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-s/--slug` переключает первую колонку на `Slug` с `m.Slug`; `-n/--limit N` оставляет первые `N` моделей после сортировки. Лимит по умолчанию не задан, а `N=0` выводит только заголовок и разделители.
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -54,11 +54,20 @@ make init
 Колонка `Note` рассчитывается по полной display width самого длинного непустого описания и не
 обрезается; если таблица шире терминала, `less -S` позволяет прокручивать её по горизонтали,
 а pipe или файл сохраняют полный текст.
+Колонка `Claude` — ручная классификация по `Model.Tier` и `ClaudeRef` из `notes.yaml`, а не
+автоматический benchmark equivalence: для `opus`, `sonnet`, `haiku` и `free` используются
+канонические labels отчёта, а непустой `ClaudeRef` уточняет free-модель. Неизвестная классификация
+отображается как `н/д`.
+`Claude` и `Note` всегда выводятся полными значениями и могут сделать таблицу шире даже при
+`COLUMNS=40`; в интерактивном режиме `less -S` позволяет прокручивать её горизонтально, а pipe
+или файл сохраняют полный текст. Compact fallback относится только к структурным колонкам
+(`Name`/`Slug`, `Status`, `Q/P`, `Context` и ценам), а не к `Claude` или `Note`.
 При обычной ширине терминала первая колонка имеет минимум 30 и максимум 40 display columns, а
 `Q/P` — максимум 5 display columns; числовые значения сохраняются, длинные fallback labels
 обрезаются по display width;
-для узких терминалов используется compact fallback. В pager mode она не сохраняется сверх
-максимума; `less -S` по-прежнему позволяет горизонтально прокручивать остальные колонки.
+для узких терминалов для этих структурных колонок используется compact fallback. В pager mode
+она не сохраняется сверх максимума; `less -S` по-прежнему позволяет горизонтально прокручивать
+остальные колонки.
 
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
 `docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,

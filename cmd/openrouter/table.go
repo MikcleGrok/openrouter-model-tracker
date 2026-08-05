@@ -279,6 +279,10 @@ func tableStatus(m model.Model) string {
 	return plainTableText(status)
 }
 
+func tableClaude(m model.Model) string {
+	return refresh.ClaudeEquivalent(m)
+}
+
 func tableNote(m model.Model) string {
 	if m.Note == "" || m.Note == notes.NeedsReview {
 		return ""
@@ -300,54 +304,49 @@ func plainTableText(value string) string {
 }
 
 func renderTable(models []model.Model, width int, showSlug bool) string {
-	preferred := []int{maxTableIdentityWidth, 8, 5, 8, 13, 13, 22}
-	minimum := []int{30, 6, 3, 7, 9, 10, 4}
-	compactMinimum := []int{4, 6, 3, 1, 1, 1, 1}
-	widths := append([]int(nil), preferred...)
-	hasNote := false
+	identityHeader := "Name"
+	if showSlug {
+		identityHeader = "Slug"
+	}
+	headers := []string{identityHeader, "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"}
+	rows := make([][]string, 0, len(models))
+	maxClaudeWidth := 0
 	maxNoteWidth := 0
 	for _, m := range models {
-		noteWidth := tableDisplayWidth(tableNote(m))
-		if noteWidth > 0 {
-			hasNote = true
-			maxNoteWidth = max(maxNoteWidth, noteWidth)
+		identity := m.DisplayName
+		if showSlug {
+			identity = m.Slug
 		}
+		values := []string{identity, tableClaude(m), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableNote(m)}
+		for i := range values {
+			values[i] = plainTableText(values[i])
+		}
+		rows = append(rows, values)
+		maxClaudeWidth = max(maxClaudeWidth, tableDisplayWidth(values[1]))
+		maxNoteWidth = max(maxNoteWidth, tableDisplayWidth(values[7]))
 	}
-	if hasNote {
-		widths[6] = maxNoteWidth
-	}
+	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, 5, 8, 13, 13, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 3, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	// Claude and Note keep their full widths; only structural columns use compact fallback.
+	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
+	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
-	if target < minTableWidth-(3*len(widths)+1) {
-		target = minTableWidth - (3*len(widths) + 1)
-	}
-	if target < sum(minimum) {
+	if width <= minTableWidth {
 		minimum = compactMinimum
 	}
 	if target < sum(widths) {
 		deficit := sum(widths) - target
-		shrinkOrder := []int{0, 5, 4, 3, 2, 1}
-		if !hasNote {
-			shrinkOrder = append(shrinkOrder, 6)
-		}
-		for _, i := range shrinkOrder {
-			shrink := widths[i] - minimum[i]
-			if shrink > deficit {
-				shrink = deficit
-			}
-			widths[i] -= shrink
+		for _, index := range []int{0, 1, 4, 5, 6, 7, 3, 2} {
+			shrink := min(widths[index]-minimum[index], deficit)
+			widths[index] -= shrink
 			deficit -= shrink
 			if deficit == 0 {
 				break
 			}
 		}
-	} else {
+	} else if target > sum(widths) {
 		widths[4] += target - sum(widths)
 	}
-	identityHeader := "Name"
-	if showSlug {
-		identityHeader = "Slug"
-	}
-	headers := []string{identityHeader, "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"}
 	var b strings.Builder
 	separator := func() {
 		b.WriteString("+")
@@ -360,7 +359,6 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	row := func(values []string) {
 		b.WriteString("|")
 		for i, value := range values {
-			value = plainTableText(value)
 			if i == 0 {
 				value = truncateTable(value, min(widths[i], maxTableIdentityWidth))
 			} else {
@@ -373,12 +371,8 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	separator()
 	row(headers)
 	separator()
-	for _, m := range models {
-		identity := m.DisplayName
-		if showSlug {
-			identity = m.Slug
-		}
-		row([]string{identity, tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableNote(m)})
+	for _, values := range rows {
+		row(values)
 	}
 	separator()
 	return b.String()

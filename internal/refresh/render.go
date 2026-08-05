@@ -86,6 +86,18 @@ var tierHeadings = map[string]string{
 	"free":   "≈ Haiku 4.5 и ниже (бесплатная)",
 }
 
+// ClaudeEquivalent returns the manually classified Claude-level label for a model.
+// It is deliberately based on the hand-maintained tier, not benchmark or price data.
+func ClaudeEquivalent(m model.Model) string {
+	if m.Tier == "free" && m.ClaudeRef != "" && m.ClaudeRef != notes.NeedsReview {
+		return m.ClaudeRef
+	}
+	if label, ok := tierHeadings[m.Tier]; ok {
+		return label
+	}
+	return "н/д"
+}
+
 // BuildRenderData turns merged models plus the prose file into the flat,
 // already-ordered structure the template iterates.
 func BuildRenderData(models []model.Model, nt *notes.Notes, updated string) RenderData {

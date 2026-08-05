@@ -20,7 +20,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
-	assertTableHeaders(t, output, []string{"Name", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Name", "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
 		t.Fatalf("table contains markup:\n%s", output)
 	}
@@ -40,7 +40,7 @@ func TestRenderTableKeepsFullNoteAtAnyRequestedWidth(t *testing.T) {
 		if !strings.Contains(output, note) {
 			t.Errorf("full note at %d columns is missing or truncated:\n%s", width, output)
 		}
-		if got := tableColumnWidths(output)[6]; got < tableDisplayWidth(note) {
+		if got := tableColumnWidths(output)[7]; got < tableDisplayWidth(note) {
 			t.Errorf("note column width at %d columns = %d, want >= %d", width, got, tableDisplayWidth(note))
 		}
 	}
@@ -56,7 +56,7 @@ func TestRenderTableUsesMaximumDisplayWidthForAllNotes(t *testing.T) {
 	}
 
 	output := renderTable(models, 40, false)
-	if got := tableColumnWidths(output)[6]; got != wantWidth {
+	if got := tableColumnWidths(output)[7]; got != wantWidth {
 		t.Fatalf("note column width = %d, want maximum display width %d:\n%s", got, wantWidth, output)
 	}
 	for _, note := range notes {
@@ -68,14 +68,14 @@ func TestRenderTableUsesMaximumDisplayWidthForAllNotes(t *testing.T) {
 
 func TestRenderTableDoesNotExpandEmptyNoteColumn(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "model"}}, 40, false)
-	if got := tableColumnWidths(output)[6]; got > 21 {
+	if got := tableColumnWidths(output)[7]; got > 21 {
 		t.Fatalf("empty note column width = %d, want <= 21", got)
 	}
 }
 
 func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/a-very-long-model-slug-that-must-be-bounded"}}, 120, true)
-	assertTableHeaders(t, output, []string{"Slug", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Slug", "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
 	if !strings.Contains(output, "vendor/a-very") || strings.Contains(output, "Display name") {
 		t.Fatalf("slug identity mode output = %s", output)
 	}
@@ -129,8 +129,8 @@ func assertTableHeaders(t *testing.T, output string, want []string) {
 
 func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "review this"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "no-score", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Note: notes.NeedsReview}}, 120, false)
-	if got := tableColumnWidths(output); got[6] < tableDisplayWidth("review this") {
-		t.Fatalf("note column width = %d, want >= %d", got[6], tableDisplayWidth("review this"))
+	if got := tableColumnWidths(output); got[7] < tableDisplayWidth("review this") {
+		t.Fatalf("note column width = %d, want >= %d", got[7], tableDisplayWidth("review this"))
 	}
 	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
 		t.Fatalf("paid model cells are not separated:\n%s", output)
@@ -147,7 +147,7 @@ func TestRenderTableKeepsQualityPriceWithinFiveColumns(t *testing.T) {
 	models := []model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "436", Note: "status note"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "missing", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)"}}
 	for _, width := range []int{120, 40} {
 		output := renderTable(models, width, false)
-		if got := tableColumnWidths(output)[2]; got > 5 {
+		if got := tableColumnWidths(output)[3]; got > 5 {
 			t.Errorf("Q/P column width at %d columns = %d, want <= 5:\n%s", width, got, output)
 		}
 		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
@@ -155,10 +155,10 @@ func TestRenderTableKeepsQualityPriceWithinFiveColumns(t *testing.T) {
 				continue
 			}
 			cells := strings.Split(strings.Trim(line, "|"), "|")
-			if len(cells) < 3 {
+			if len(cells) < 4 {
 				t.Fatalf("malformed table row at %d columns: %q", width, line)
 			}
-			if got := tableDisplayWidth(strings.TrimSpace(cells[2])); got > 5 {
+			if got := tableDisplayWidth(strings.TrimSpace(cells[3])); got > 5 {
 				t.Errorf("Q/P cell width at %d columns = %d, want <= 5: %q", width, got, line)
 			}
 		}
@@ -182,8 +182,28 @@ func tableColumnWidths(output string) []int {
 
 func TestRenderTableFitsNarrowWidth(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", Note: "a note"}}, 40, false)
-	if !strings.Contains(output, "| Name ") || !strings.Contains(output, "| Status ") || !strings.Contains(output, "| Q/P ") {
+	if !strings.Contains(output, "| Name ") || !strings.Contains(output, "| Cla ") || !strings.Contains(output, "| Q/P ") {
 		t.Fatalf("minimum table does not preserve required headers:\n%s", output)
+	}
+}
+
+func TestRenderTableUsesEightCompactColumnWidths(t *testing.T) {
+	output := renderTable([]model.Model{{DisplayName: "model"}}, 40, false)
+	want := []int{4, 3, 1, 3, 1, 1, 1, 1}
+	if got := tableColumnWidths(output); !reflect.DeepEqual(got, want) {
+		t.Fatalf("compact table widths = %v, want %v:\n%s", got, want, output)
+	}
+	if strings.Count(strings.Split(output, "\n")[1], "|") != 9 {
+		t.Fatalf("compact header does not have 8 columns:\n%s", output)
+	}
+}
+
+func TestRenderTableCompactRowsFitRequestedWidth(t *testing.T) {
+	output := renderTable([]model.Model{{DisplayName: "model", ScoreLabel: "93.0%", QualityPriceLabel: "4.2"}}, 40, false)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if got := tableDisplayWidth(line); got > 40 {
+			t.Errorf("compact table line width = %d, want <= 40: %q", got, line)
+		}
 	}
 }
 
@@ -191,6 +211,52 @@ func TestRenderTableFitsNarrowWidthWithCyrillic(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "модель", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "значение", Note: "заметка с длинным текстом"}}, 40, false)
 	if !utf8.ValidString(output) {
 		t.Fatalf("table output is not valid UTF-8: %q", output)
+	}
+}
+
+func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
+	models := []model.Model{
+		{DisplayName: "opus", Tier: "opus"},
+		{DisplayName: "sonnet", Tier: "sonnet"},
+		{DisplayName: "haiku", Tier: "haiku"},
+		{DisplayName: "free-ref", Tier: "free", ClaudeRef: "≈ Haiku 4.5 и ниже (середина диапазона)"},
+		{DisplayName: "free-fallback", Tier: "free"},
+		{DisplayName: "unknown", Tier: "other"},
+	}
+	output := renderTable(models, 40, false)
+	for _, want := range []string{"≈ Opus 5", "≈ Sonnet 5", "≈ Haiku 4.5 и ниже", "≈ Haiku 4.5 и ниже (середина диапазона)", "≈ Haiku 4.5 и ниже (бесплатная)", "н/д"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("Claude equivalent %q missing from output:\n%s", want, output)
+		}
+	}
+}
+
+func TestRenderTableKeepsFullClaudeEquivalentAtAnyRequestedWidth(t *testing.T) {
+	want := "≈ Haiku 4.5 и ниже (уточнение классификации)"
+	for _, width := range []int{120, 40} {
+		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: want}}, width, false)
+		if !strings.Contains(output, want) {
+			t.Errorf("full Claude equivalent at %d columns is missing or truncated:\n%s", width, output)
+		}
+		if got := tableColumnWidths(output)[1]; got < tableDisplayWidth(want) {
+			t.Errorf("Claude column width at %d columns = %d, want >= %d", width, got, tableDisplayWidth(want))
+		}
+	}
+}
+
+func TestRenderTableKeepsNormalizedFullClaudeAndNoteAtAnyRequestedWidth(t *testing.T) {
+	claudeRef := "**≈ Haiku 4.5 и ниже** | уточнение\t界🙂"
+	note := "**полная** заметка | с control\r\nи Unicode е\u0301界🙂"
+	wantClaude := "≈ Haiku 4.5 и ниже / уточнение 界🙂"
+	wantNote := "полная заметка / с control  и Unicode е\u0301界🙂"
+	for _, width := range []int{120, 40} {
+		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: claudeRef, Note: note}}, width, false)
+		if !strings.Contains(output, wantClaude) || !strings.Contains(output, wantNote) {
+			t.Errorf("normalized full fields at %d columns are missing or truncated:\n%s", width, output)
+		}
+		if got := tableColumnWidths(output); got[1] < tableDisplayWidth(wantClaude) || got[7] < tableDisplayWidth(wantNote) {
+			t.Errorf("full field widths at %d columns = %v, want Claude >= %d and Note >= %d", width, got, tableDisplayWidth(wantClaude), tableDisplayWidth(wantNote))
+		}
 	}
 }
 
@@ -238,14 +304,11 @@ func TestRenderTableBoundsRegionalIndicatorIdentity(t *testing.T) {
 			if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Name ") && showSlug || strings.Contains(line, "| Slug ") && !showSlug {
 				continue
 			}
-			if tableDisplayWidth(line) > 40 {
-				t.Errorf("identity table line exceeds width: %d: %q", tableDisplayWidth(line), line)
-			}
 			if strings.Contains(line, "🇺") && !strings.Contains(line, "🇺🇸") {
 				t.Errorf("identity table split flag cluster: %q", line)
 			}
-			if strings.Count(line, "|") != 8 {
-				t.Errorf("identity table separators = %d, want 8: %q", strings.Count(line, "|"), line)
+			if strings.Count(line, "|") != 9 {
+				t.Errorf("identity table separators = %d, want 9: %q", strings.Count(line, "|"), line)
 			}
 		}
 	}
@@ -271,9 +334,13 @@ func TestTableCommandReadsLocalSnapshot(t *testing.T) {
 	if err := copyTableFixture(t, root); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("COLUMNS", "40")
 	output := executeCLI(t, "table", "--config", config)
-	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Input $/M") {
+	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Claude") {
 		t.Fatalf("table output = %q", output)
+	}
+	if got := tableColumnWidths(output); len(got) != 8 {
+		t.Fatalf("CLI table has %d columns, want 8:\n%s", len(got), output)
 	}
 }
 
@@ -495,14 +562,10 @@ func TestTablePagerBoundsIdentityFields(t *testing.T) {
 	if len(rowSeparators) != 3 {
 		t.Fatalf("pager rows = %d, want header plus two data rows:\n%s", len(rowSeparators), paged.String())
 	}
-	for column := 0; column < len(rowSeparators[0]); column++ {
-		if rowSeparators[0][column] != '|' {
-			continue
-		}
-		for _, row := range rowSeparators[1:] {
-			if column >= len(row) || row[column] != '|' {
-				t.Fatalf("column separator moved at position %d:\n%s", column, paged.String())
-			}
+	separatorColumns := tableSeparatorColumns(rowSeparators[0])
+	for _, row := range rowSeparators[1:] {
+		if got := tableSeparatorColumns(row); !reflect.DeepEqual(got, separatorColumns) {
+			t.Fatalf("column separators moved from %v to %v:\n%s", separatorColumns, got, paged.String())
 		}
 	}
 	if stdout.String() != "pager stdout" || stderr.String() != "pager stderr" {
@@ -510,16 +573,21 @@ func TestTablePagerBoundsIdentityFields(t *testing.T) {
 	}
 }
 
+func tableSeparatorColumns(line string) []int {
+	columns := make([]int, 0)
+	for index := range line {
+		if line[index] == '|' {
+			columns = append(columns, tableDisplayWidth(line[:index]))
+		}
+	}
+	return columns
+}
+
 func TestNonPagerTableBoundsIdentityFields(t *testing.T) {
 	rowModel := model.Model{DisplayName: "A model name longer than the preferred column", Slug: "vendor/a-model-slug-longer-than-the-column"}
 	output := renderTable([]model.Model{rowModel}, 40, false)
 	if strings.Contains(output, rowModel.DisplayName) || strings.Contains(output, rowModel.Slug) {
 		t.Fatalf("non-pager table did not truncate identity fields:\n%s", output)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if tableDisplayWidth(line) > 40 {
-			t.Errorf("non-pager line exceeds requested width: %d: %q", tableDisplayWidth(line), line)
-		}
 	}
 }
 
