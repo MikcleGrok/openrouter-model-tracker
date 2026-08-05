@@ -219,7 +219,7 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 	models := []model.Model{
 		{DisplayName: "opus", Tier: "opus"},
 		{DisplayName: "sonnet", Tier: "sonnet"},
-		{DisplayName: "haiku-high", Tier: "haiku", Score: &model.ScoreInfo{Value: 70}, Rankable: true, ClaudeRef: "**<≈ Claude Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字"},
+		{DisplayName: "haiku-high", Tier: "haiku", Score: &model.ScoreInfo{Value: 70}, Rankable: true, ClaudeRef: "**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字"},
 		{DisplayName: "haiku-mid", Tier: "haiku", Score: &model.ScoreInfo{Value: 60}, Rankable: true},
 		{DisplayName: "haiku-low", Tier: "haiku", Score: &model.ScoreInfo{Value: 59.9}, Rankable: true},
 		{DisplayName: "haiku-fallback", Tier: "haiku"},
@@ -231,16 +231,16 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 	}
 	output := renderTable(models, 120, false)
 	wantClaude := map[string]string{
-		"opus":           ">≈ Claude Opus 5",
-		"sonnet":         "≈ Claude Sonnet 5",
-		"haiku-high":     "≈ Claude Haiku 4.5",
-		"haiku-mid":      "<≈ Claude Haiku 4.5",
-		"haiku-low":      "<<≈ Claude Haiku 4.5",
-		"haiku-fallback": "≈ Claude Haiku 4.5",
-		"free-high":      "≈ Claude Haiku 4.5",
-		"free-mid":       "<≈ Claude Haiku 4.5",
-		"free-low":       "<<≈ Claude Haiku 4.5",
-		"free-fallback":  "<≈ Claude Haiku 4.5",
+		"opus":           ">≈ Opus 5",
+		"sonnet":         "≈ Sonnet 5",
+		"haiku-high":     "≈ Haiku 4.5",
+		"haiku-mid":      "<≈ Haiku 4.5",
+		"haiku-low":      "<<≈ Haiku 4.5",
+		"haiku-fallback": "≈ Haiku 4.5",
+		"free-high":      "≈ Haiku 4.5",
+		"free-mid":       "<≈ Haiku 4.5",
+		"free-low":       "<<≈ Haiku 4.5",
+		"free-fallback":  "<≈ Haiku 4.5",
 		"unknown":        "н/д",
 	}
 	for slug, want := range wantClaude {
@@ -274,7 +274,7 @@ func tableRowCell(t *testing.T, output, identity string, column int) string {
 }
 
 func TestRenderTableKeepsClaudeLabelAtAnyRequestedWidth(t *testing.T) {
-	want := "<<≈ Claude Haiku 4.5"
+	want := "<<≈ Haiku 4.5"
 	for _, width := range []int{120, 40} {
 		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", Score: &model.ScoreInfo{Value: 59}, Rankable: true}}, width, false)
 		if !strings.Contains(output, want) {
@@ -288,8 +288,8 @@ func TestRenderTableKeepsClaudeLabelAtAnyRequestedWidth(t *testing.T) {
 
 func TestRenderTableKeepsNormalizedFullClaudeAndNoteAtAnyRequestedWidth(t *testing.T) {
 	note := "**полная** заметка | с control\r\nи Unicode е\u0301界🙂"
-	claudeRef := "__<≈ Claude Haiku 4.5__ | бесплатная, середина диапазона, уточнение漢字"
-	wantClaude := ">≈ Claude Opus 5"
+	claudeRef := "__<≈ Haiku 4.5__ | бесплатная, середина диапазона, уточнение漢字"
+	wantClaude := ">≈ Opus 5"
 	wantNote := "полная заметка / с control  и Unicode е\u0301界🙂"
 	for _, width := range []int{120, 40} {
 		output := renderTable([]model.Model{{DisplayName: "model", Tier: "opus", ClaudeRef: claudeRef, Note: note}}, width, false)
@@ -843,7 +843,7 @@ func copyTableFixture(t *testing.T, root string) error {
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/high\ttier=sonnet\ndemo/low\ttier=haiku\ndemo/missing\ttier=free\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    note: Local fixture\n    claude_ref: '**<≈ Claude Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字'\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    note: Local fixture\n    claude_ref: '**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字'\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
 		return err
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{

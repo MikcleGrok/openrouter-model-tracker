@@ -154,7 +154,7 @@ func (n *Notes) Section(id string) string { return orNeedsReview(n.f.Sections[id
 // UpdatedNote is the parenthetical after the date on the "Обновлено:" line.
 func (n *Notes) UpdatedNote() string { return orNeedsReview(n.f.UpdatedNote) }
 
-// FableVerdict is the text of the "Claude Fable 5" favourites row, which has no model.
+// FableVerdict is the text of the "≈ Fable 5" favourites row, which has no model.
 func (n *Notes) FableVerdict() string { return orNeedsReview(n.f.FableVerdict) }
 
 // ClaudeNote is the paragraph under the static Claude price table.

@@ -10,7 +10,7 @@
 # Источник не указан → у модели нет автоматически собираемой оценки;
 # число можно задать вручную блоком score: в notes.yaml.
 
-# ── >≈ Claude Opus 5 ─────────────────────────────────────────────────────────
+# ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
 openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna
 openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol
 openai/gpt-5.6-luna-pro	tier=opus
@@ -18,7 +18,7 @@ openai/gpt-5.6-sol-pro	tier=opus
 openai/gpt-5.6-terra	tier=opus
 openai/gpt-5.6-terra-pro	tier=opus
 
-# ── ≈ Claude Sonnet 5 ────────────────────────────────────────────────────────
+# ── ≈ Sonnet 5 ───────────────────────────────────────────────────────────────
 minimax/minimax-m3	tier=sonnet
 meta/muse-spark-1.1	tier=sonnet
 qwen/qwen3.7-max	tier=sonnet
@@ -33,7 +33,7 @@ deepseek/deepseek-v4-pro	tier=sonnet
 z-ai/glm-5.2	tier=sonnet
 google/gemini-3.6-flash	tier=sonnet
 
-# ── <≈ Claude Haiku 4.5 ───────────────────────────────────────────────────────
+# ── <≈ Haiku 4.5 ─────────────────────────────────────────────────────────────
 deepseek/deepseek-v4-flash	tier=haiku
 tencent/hy3	tier=haiku
 qwen/qwen3-coder-next	tier=haiku
