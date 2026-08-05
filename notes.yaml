@@ -189,7 +189,7 @@ favorite_reasons:
       тоже вендорские, но относятся к ней самой.
   haiku:
     deepseek/deepseek-v4-flash: >-
-      Лучшая цена/качество во всём тире ≈ Haiku 4.5 и ниже: SWE-V 73.7–79.0% (вендорские
+      Лучшая цена/качество во всём тире ≈ Haiku 4.5: SWE-V 73.7–79.0% (вендорские
       цифры по двум вариантам линейки) при цене вне конкуренции с остальными строками
       тира — независимо от того, какая из двух оценок точнее.
     tencent/hy3: >-
@@ -627,7 +627,7 @@ models:
     display: NVIDIA Nemotron 3 Ultra
     owner: NVIDIA
     open_weights: "да, OpenMDW-1.1"
-    claude_ref: "≈ Haiku 4.5 и ниже (середина диапазона)"
+    claude_ref: "≈ Haiku 4.5 (середина диапазона)"
     note: >-
       550B/55B-active MoE. Прогон на 5 разных агентных скаффолдах делала сама NVIDIA —
       это демонстрация устойчивости к харнессу, а не независимое подтверждение
@@ -642,7 +642,7 @@ models:
     display: Poolside Laguna XS 2.1
     owner: Poolside
     open_weights: "да, OpenMDW-1.1"
-    claude_ref: "≈ Haiku 4.5 и ниже (верх диапазона)"
+    claude_ref: "≈ Haiku 4.5 (верх диапазона)"
     note: >-
       33B/3B-active, узкая специализация — агентный кодинг; независимо не подтверждено
       (Poolside прямо пишет в карточке, что публикует «official scores» из своих
@@ -659,7 +659,7 @@ models:
     display: Cohere North Mini Code
     owner: Cohere (Cohere Labs)
     open_weights: "да, Apache 2.0"
-    claude_ref: "≈ Haiku 4.5 и ниже (середина диапазона)"
+    claude_ref: "≈ Haiku 4.5 (середина диапазона)"
     note: >-
       30B/3B-active MoE; SWE-bench Pro 40.2% (другая метрика). Оценки вендорские,
       независимого подтверждения не найдено. Единственная компания из этой таблицы,
@@ -674,7 +674,7 @@ models:
     display: Poolside Laguna S 2.1
     owner: Poolside
     open_weights: "да, OpenMDW-1.1"
-    claude_ref: "вероятно ≈ Haiku 4.5 и ниже — но по не-Verified метрикам, не сравнивайте напрямую"
+    claude_ref: "вероятно ≈ Haiku 4.5 — но по не-Verified метрикам, не сравнивайте напрямую"
     no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
     note: >-
       118B/8B-active. SWE-bench Verified нет; есть SWE-bench Multilingual 78.5%, Pro 59.4%,
@@ -685,7 +685,7 @@ models:
     display: NVIDIA Nemotron 3 Super
     owner: NVIDIA
     open_weights: "да, OpenMDW-1.1"
-    claude_ref: "≈ Haiku 4.5 и ниже (нижняя граница диапазона)"
+    claude_ref: "≈ Haiku 4.5 (нижняя граница диапазона)"
     note: >-
       120B/12B-active MoE.
     score:

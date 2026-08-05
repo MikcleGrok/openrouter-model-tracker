@@ -33,7 +33,7 @@ deepseek/deepseek-v4-pro	tier=sonnet
 z-ai/glm-5.2	tier=sonnet
 google/gemini-3.6-flash	tier=sonnet
 
-# ── ≈ Haiku 4.5 и ниже ───────────────────────────────────────────────────────
+# ── ≈ Haiku 4.5 ──────────────────────────────────────────────────────────────
 deepseek/deepseek-v4-flash	tier=haiku
 tencent/hy3	tier=haiku
 qwen/qwen3-coder-next	tier=haiku

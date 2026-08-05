@@ -79,6 +79,6 @@ SaferAI Frontier Risk Management Tracker: OpenAI 34%.
 
 | Модель | Slug на OpenRouter | Контекст | Оценка качества | Ориентир по Claude | Владелец | Открытые веса | Примечание |
 |---|---|---|---|---|---|---|---|
-| NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1M | 65–70.4% (только вендор) | ≈ Haiku 4.5 и ниже | NVIDIA | да, OpenMDW-1.1 | 550B/55B-active MoE. |
+| NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1M | 65–70.4% (только вендор) | ≈ Haiku 4.5 (бесплатная) | NVIDIA | да, OpenMDW-1.1 | 550B/55B-active MoE. |
 
 Для всех `:free`-моделей: rate-limit 20 запросов/мин.

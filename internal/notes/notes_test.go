@@ -29,7 +29,7 @@ func TestModelAccessors(t *testing.T) {
 	if got := n.ModelNote("openai/gpt-5.6-luna"); got != "Оценка независимая (vals.ai)." {
 		t.Errorf("ModelNote = %q", got)
 	}
-	if got := n.ClaudeRef("nvidia/nemotron-3-ultra-550b-a55b:free"); got != "≈ Haiku 4.5 и ниже (середина диапазона)" {
+	if got := n.ClaudeRef("nvidia/nemotron-3-ultra-550b-a55b:free"); got != "≈ Haiku 4.5 (середина диапазона)" {
 		t.Errorf("ClaudeRef = %q", got)
 	}
 }

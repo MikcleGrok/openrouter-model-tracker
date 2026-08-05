@@ -37,7 +37,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		Context: 1000000, Free: true,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70.4, VariantMeasured: "vendor-claimed"},
 		ScoreLabel: "65–70.4% (только вендор)", QualityPriceLabel: "н/д (цена $0)", Rankable: true,
-		ClaudeRef: "≈ Haiku 4.5 и ниже", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
+		ClaudeRef: "≈ Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
 		Note: "550B/55B-active MoE.",
 	}
 	return
