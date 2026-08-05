@@ -22,7 +22,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. Колонки идут в порядке `Name | Slug | Context | Input $/M | Output $/M | Status | Q/P | Note`; `Name` — человекочитаемое имя из `m.DisplayName`, а `Slug` — стабильный идентификатор.
+- `openrouter table [-s|--slug] [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-s/--slug` переключает первую колонку на `Slug` с `m.Slug`.
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -51,6 +51,8 @@ make init
 а отсутствующие score/Q/P всегда остаются в конце. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
+Ширина первой колонки ограничена 40 display columns и в pager mode не сохраняется сверх этого
+предела; `less -S` по-прежнему позволяет горизонтально прокручивать остальные колонки.
 
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
 `docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,

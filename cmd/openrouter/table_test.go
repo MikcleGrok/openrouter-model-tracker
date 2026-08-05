@@ -17,9 +17,10 @@ import (
 
 func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a very long model name that should be shortened", Slug: "vendor/model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "**a long note** that should also be shortened | safely"}}, 120, false)
-	if !strings.Contains(output, "Name") || !strings.Contains(output, "Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
+	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
+	assertTableHeaders(t, output, []string{"Name", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
 		t.Fatalf("table contains markup:\n%s", output)
 	}
@@ -34,6 +35,38 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	if !strings.Contains(output, "...") {
 		t.Errorf("long cells were not truncated:\n%s", output)
 	}
+}
+
+func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
+	output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/a-very-long-model-slug-that-must-be-bounded"}}, 120, true)
+	assertTableHeaders(t, output, []string{"Slug", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	if !strings.Contains(output, "vendor/a-very") || strings.Contains(output, "Display name") {
+		t.Fatalf("slug identity mode output = %s", output)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if strings.HasPrefix(line, "| vendor/") && tableDisplayWidth(strings.TrimSpace(strings.Split(line, "|")[1])) > maxTableIdentityWidth {
+			t.Fatalf("slug identity exceeds %d columns: %q", maxTableIdentityWidth, line)
+		}
+	}
+}
+
+func assertTableHeaders(t *testing.T, output string, want []string) {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "| ") || !strings.Contains(line, "| Name ") && !strings.Contains(line, "| Slug ") {
+			continue
+		}
+		parts := strings.Split(strings.Trim(line, "|"), "|")
+		got := make([]string, 0, len(parts))
+		for _, part := range parts {
+			got = append(got, strings.TrimSpace(part))
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("table headers = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatalf("header row not found in output:\n%s", output)
 }
 
 func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
@@ -51,6 +84,9 @@ func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 
 func TestRenderTableFitsNarrowWidth(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", Note: "a note"}}, 40, false)
+	if !strings.Contains(output, "| Name | Status  | Q/P |") {
+		t.Fatalf("minimum table does not preserve required headers:\n%s", output)
+	}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if width := len([]rune(line)); width > 40 {
 			t.Errorf("line exceeds requested width: %d: %q", width, line)
@@ -94,6 +130,42 @@ func TestTableDisplayWidthHandlesEmojiSequences(t *testing.T) {
 	}
 }
 
+func TestTableDisplayWidthHandlesRegionalIndicatorPairs(t *testing.T) {
+	if got := tableDisplayWidth("🇺🇸"); got != 2 {
+		t.Errorf("tableDisplayWidth flag = %d, want 2", got)
+	}
+	if got := tableDisplayWidth("🇺"); got != 2 {
+		t.Errorf("tableDisplayWidth lone regional indicator = %d, want 2", got)
+	}
+	if got := truncateTable("🇺🇸model", 2); got != "🇺🇸" {
+		t.Errorf("truncateTable flag = %q, want %q", got, "🇺🇸")
+	}
+	if got := truncateTable("🇺🇸model", 5); got != "🇺🇸..." {
+		t.Errorf("truncateTable flag with suffix = %q, want %q", got, "🇺🇸...")
+	}
+}
+
+func TestRenderTableBoundsRegionalIndicatorIdentity(t *testing.T) {
+	modelWithFlag := model.Model{DisplayName: "🇺🇸 model name that is longer than the identity column", Slug: "🇺🇸/model-that-is-longer-than-the-identity-column"}
+	for _, showSlug := range []bool{false, true} {
+		output := renderTable([]model.Model{modelWithFlag}, 40, showSlug)
+		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+			if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Name ") && showSlug || strings.Contains(line, "| Slug ") && !showSlug {
+				continue
+			}
+			if tableDisplayWidth(line) > 40 {
+				t.Errorf("identity table line exceeds width: %d: %q", tableDisplayWidth(line), line)
+			}
+			if strings.Contains(line, "🇺") && !strings.Contains(line, "🇺🇸") {
+				t.Errorf("identity table split flag cluster: %q", line)
+			}
+			if strings.Count(line, "|") != 8 {
+				t.Errorf("identity table separators = %d, want 8: %q", strings.Count(line, "|"), line)
+			}
+		}
+	}
+}
+
 func TestRenderTableNormalizesControlCharacters(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "model\nname", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "score\tvalue", Note: "note\r\nwith\tcontrol\x1btext"}}, 80, false)
 	if strings.ContainsAny(output, "\r\t\x1b") {
@@ -115,8 +187,22 @@ func TestTableCommandReadsLocalSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := executeCLI(t, "table", "--config", config)
-	if !strings.Contains(output, "Name") || !strings.Contains(output, "Slug") || !strings.Contains(output, "Input $/M") {
+	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Input $/M") {
 		t.Fatalf("table output = %q", output)
+	}
+}
+
+func TestTableHelpIncludesSlugAlias(t *testing.T) {
+	cmd := newRootCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"table", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("table help: %v", err)
+	}
+	if !strings.Contains(output.String(), "-s, --slug") && !strings.Contains(output.String(), "--slug") {
+		t.Fatalf("table help does not contain slug alias:\n%s", output.String())
 	}
 }
 
@@ -230,7 +316,7 @@ func TestTablePagerDecision(t *testing.T) {
 	}
 }
 
-func TestTablePagerReceivesFullIdentityFields(t *testing.T) {
+func TestTablePagerBoundsIdentityFields(t *testing.T) {
 	previousTTY := tableIsTTY
 	previousPager := runTablePager
 	t.Cleanup(func() {
@@ -256,11 +342,16 @@ func TestTablePagerReceivesFullIdentityFields(t *testing.T) {
 	if err := writeTableOutput(renderTable(models, 40, shouldPage), &stdout, &stderr, shouldPage); err != nil {
 		t.Fatalf("writeTableOutput: %v", err)
 	}
-	if !strings.Contains(paged.String(), models[0].DisplayName) || !strings.Contains(paged.String(), models[0].Slug) {
-		t.Fatalf("pager received truncated identity fields:\n%s", paged.String())
+	if strings.Contains(paged.String(), models[0].DisplayName) || strings.Contains(paged.String(), models[1].DisplayName) {
+		t.Fatalf("pager preserved unbounded identity fields:\n%s", paged.String())
 	}
-	if !strings.Contains(paged.String(), models[1].DisplayName) || !strings.Contains(paged.String(), models[1].Slug) {
-		t.Fatalf("pager received truncated second identity fields:\n%s", paged.String())
+	for _, line := range strings.Split(strings.TrimSpace(paged.String()), "\n") {
+		if strings.HasPrefix(line, "| ") {
+			identity := strings.TrimSpace(strings.Split(line, "|")[1])
+			if tableDisplayWidth(identity) > maxTableIdentityWidth {
+				t.Fatalf("pager identity exceeds %d columns: %q", maxTableIdentityWidth, line)
+			}
+		}
 	}
 	var rowSeparators []string
 	for _, line := range strings.Split(strings.TrimSpace(paged.String()), "\n") {

@@ -25,6 +25,7 @@ import (
 
 const defaultTableWidth = 120
 const minTableWidth = 40
+const maxTableIdentityWidth = 40
 
 const tableSortHelp = "name, slug, context, input, output, score, q/p"
 
@@ -185,6 +186,13 @@ func tableCluster(value string, start int) (int, int) {
 	r, size := utf8.DecodeRuneInString(value[index:])
 	clusterWidth := tableRuneWidth(r)
 	index += size
+	if tableIsRegionalIndicator(r) && index < len(value) {
+		next, nextSize := utf8.DecodeRuneInString(value[index:])
+		if tableIsRegionalIndicator(next) {
+			index += nextSize
+			clusterWidth = 2
+		}
+	}
 	for index < len(value) {
 		r, size = utf8.DecodeRuneInString(value[index:])
 		if tableIsClusterContinuation(r) {
@@ -211,6 +219,10 @@ func tableCluster(value string, start int) (int, int) {
 	return index, clusterWidth
 }
 
+func tableIsRegionalIndicator(r rune) bool {
+	return r >= 0x1f1e6 && r <= 0x1f1ff
+}
+
 func tableIsClusterContinuation(r rune) bool {
 	return r == '\ufe0e' || r == '\ufe0f' || (r >= 0x1f3fb && r <= 0x1f3ff) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
 }
@@ -218,6 +230,9 @@ func tableIsClusterContinuation(r rune) bool {
 func tableRuneWidth(r rune) int {
 	if tableIsClusterContinuation(r) || r == '\u200d' {
 		return 0
+	}
+	if tableIsRegionalIndicator(r) {
+		return 2
 	}
 	if r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a || (r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) || (r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe10 && r <= 0xfe19) || (r >= 0xfe30 && r <= 0xfe6f) || (r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) || (r >= 0x1f300 && r <= 0x1faff)) {
 		return 2
@@ -277,10 +292,10 @@ func plainTableText(value string) string {
 	}, value)
 }
 
-func renderTable(models []model.Model, width int, preserveIdentity bool) string {
-	preferred := []int{24, 30, 12, 13, 13, 8, 20, 20}
-	minimum := []int{4, 4, 7, 9, 10, 6, 20, 4}
-	compactMinimum := []int{1, 1, 1, 1, 1, 1, 1, 8}
+func renderTable(models []model.Model, width int, showSlug bool) string {
+	preferred := []int{maxTableIdentityWidth, 8, 20, 12, 13, 13, 12}
+	minimum := []int{4, 6, 3, 7, 9, 10, 4}
+	compactMinimum := []int{4, 6, 3, 1, 1, 1, 1}
 	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
 	if target < minTableWidth-(3*len(widths)+1) {
@@ -291,7 +306,7 @@ func renderTable(models []model.Model, width int, preserveIdentity bool) string 
 	}
 	if target < sum(widths) {
 		deficit := sum(widths) - target
-		for _, i := range []int{0, 1, 7, 6, 4, 3, 2, 5} {
+		for _, i := range []int{0, 6, 5, 4, 3, 2, 1} {
 			shrink := widths[i] - minimum[i]
 			if shrink > deficit {
 				shrink = deficit
@@ -305,19 +320,11 @@ func renderTable(models []model.Model, width int, preserveIdentity bool) string 
 	} else {
 		widths[4] += target - sum(widths)
 	}
-	headers := []string{"Name", "Slug", "Context", "Input $/M", "Output $/M", "Status", "Q/P", "Note"}
-	if preserveIdentity {
-		for i := 0; i < 2; i++ {
-			widths[i] = tableDisplayWidth(headers[i])
-			for _, m := range models {
-				value := m.DisplayName
-				if i == 1 {
-					value = m.Slug
-				}
-				widths[i] = max(widths[i], tableDisplayWidth(plainTableText(value)))
-			}
-		}
+	identityHeader := "Name"
+	if showSlug {
+		identityHeader = "Slug"
 	}
+	headers := []string{identityHeader, "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"}
 	var b strings.Builder
 	separator := func() {
 		b.WriteString("+")
@@ -331,7 +338,9 @@ func renderTable(models []model.Model, width int, preserveIdentity bool) string 
 		b.WriteString("|")
 		for i, value := range values {
 			value = plainTableText(value)
-			if !preserveIdentity || i > 1 {
+			if i == 0 {
+				value = truncateTable(value, min(widths[i], maxTableIdentityWidth))
+			} else {
 				value = truncateTable(value, widths[i])
 			}
 			b.WriteString(" " + padTableCell(value, widths[i]) + " |")
@@ -342,10 +351,21 @@ func renderTable(models []model.Model, width int, preserveIdentity bool) string 
 	row(headers)
 	separator()
 	for _, m := range models {
-		row([]string{m.DisplayName, m.Slug, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableStatus(m), m.QualityPriceLabel, tableNote(m)})
+		identity := m.DisplayName
+		if showSlug {
+			identity = m.Slug
+		}
+		row([]string{identity, tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableNote(m)})
 	}
 	separator()
 	return b.String()
+}
+
+func min(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 var tableIsTTY = func(stdout io.Writer) bool {
