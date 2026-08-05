@@ -218,23 +218,64 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 	models := []model.Model{
 		{DisplayName: "opus", Tier: "opus"},
 		{DisplayName: "sonnet", Tier: "sonnet"},
-		{DisplayName: "haiku", Tier: "haiku"},
-		{DisplayName: "free-ref", Tier: "free", ClaudeRef: "<≈ Haiku 4.5 (середина диапазона)"},
+		{DisplayName: "haiku-high", Tier: "haiku", Score: &model.ScoreInfo{Value: 70}, Rankable: true, ClaudeRef: "**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字"},
+		{DisplayName: "haiku-mid", Tier: "haiku", Score: &model.ScoreInfo{Value: 60}, Rankable: true},
+		{DisplayName: "haiku-low", Tier: "haiku", Score: &model.ScoreInfo{Value: 59.9}, Rankable: true},
+		{DisplayName: "haiku-fallback", Tier: "haiku"},
+		{DisplayName: "free-high", Tier: "free", Score: &model.ScoreInfo{Value: 70}, Rankable: true},
+		{DisplayName: "free-mid", Tier: "free", Score: &model.ScoreInfo{Value: 60}, Rankable: true},
+		{DisplayName: "free-low", Tier: "free", Score: &model.ScoreInfo{Value: 59.9}, Rankable: true},
 		{DisplayName: "free-fallback", Tier: "free"},
 		{DisplayName: "unknown", Tier: "other"},
 	}
-	output := renderTable(models, 40, false)
-	for _, want := range []string{"≈ Opus 5", "≈ Sonnet 5", "<≈ Haiku 4.5", "<≈ Haiku 4.5 (середина диапазона)", "<≈ Haiku 4.5 (бесплатная)", "н/д"} {
-		if !strings.Contains(output, want) {
-			t.Errorf("Claude equivalent %q missing from output:\n%s", want, output)
+	output := renderTable(models, 120, false)
+	wantClaude := map[string]string{
+		"opus":           ">≈ Haiku 4.5",
+		"sonnet":         ">≈ Haiku 4.5",
+		"haiku-high":     "≈ Haiku 4.5",
+		"haiku-mid":      "<≈ Haiku 4.5",
+		"haiku-low":      "<<≈ Haiku 4.5",
+		"haiku-fallback": "≈ Haiku 4.5",
+		"free-high":      "≈ Haiku 4.5",
+		"free-mid":       "<≈ Haiku 4.5",
+		"free-low":       "<<≈ Haiku 4.5",
+		"free-fallback":  "<≈ Haiku 4.5",
+		"unknown":        "н/д",
+	}
+	for slug, want := range wantClaude {
+		if got := tableRowCell(t, output, slug, 1); got != want {
+			t.Errorf("Claude equivalent for %q = %q, want %q:\n%s", slug, got, want, output)
+		}
+	}
+	for _, forbidden := range []string{"ClaudeRef", "бесплатная", "середина диапазона", "уточнение"} {
+		if strings.Contains(output, forbidden) {
+			t.Errorf("forbidden Claude text %q present:\n%s", forbidden, output)
 		}
 	}
 }
 
-func TestRenderTableKeepsFullClaudeEquivalentAtAnyRequestedWidth(t *testing.T) {
-	want := "<≈ Haiku 4.5 (уточнение классификации)"
+func tableRowCell(t *testing.T, output, identity string, column int) string {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Name ") || strings.Contains(line, "| Slug ") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) != 8 {
+			t.Fatalf("table row has %d columns, want 8: %q", len(cells), line)
+		}
+		if len(cells) <= column || strings.TrimSpace(cells[0]) != identity {
+			continue
+		}
+		return strings.TrimSpace(cells[column])
+	}
+	return ""
+}
+
+func TestRenderTableKeepsClaudeLabelAtAnyRequestedWidth(t *testing.T) {
+	want := "<<≈ Haiku 4.5"
 	for _, width := range []int{120, 40} {
-		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: want}}, width, false)
+		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", Score: &model.ScoreInfo{Value: 59}, Rankable: true}}, width, false)
 		if !strings.Contains(output, want) {
 			t.Errorf("full Claude equivalent at %d columns is missing or truncated:\n%s", width, output)
 		}
@@ -245,14 +286,19 @@ func TestRenderTableKeepsFullClaudeEquivalentAtAnyRequestedWidth(t *testing.T) {
 }
 
 func TestRenderTableKeepsNormalizedFullClaudeAndNoteAtAnyRequestedWidth(t *testing.T) {
-	claudeRef := "**<≈ Haiku 4.5** | уточнение\t界🙂"
 	note := "**полная** заметка | с control\r\nи Unicode е\u0301界🙂"
-	wantClaude := "<≈ Haiku 4.5 / уточнение 界🙂"
+	claudeRef := "__<≈ Haiku 4.5__ | бесплатная, середина диапазона, уточнение漢字"
+	wantClaude := ">≈ Haiku 4.5"
 	wantNote := "полная заметка / с control  и Unicode е\u0301界🙂"
 	for _, width := range []int{120, 40} {
-		output := renderTable([]model.Model{{DisplayName: "model", Tier: "free", ClaudeRef: claudeRef, Note: note}}, width, false)
-		if !strings.Contains(output, wantClaude) || !strings.Contains(output, wantNote) {
+		output := renderTable([]model.Model{{DisplayName: "model", Tier: "opus", ClaudeRef: claudeRef, Note: note}}, width, false)
+		if strings.Count(output, wantClaude) != 1 || !strings.Contains(output, wantNote) {
 			t.Errorf("normalized full fields at %d columns are missing or truncated:\n%s", width, output)
+		}
+		for _, forbidden := range []string{"бесплатная", "середина диапазона", "уточнение", "漢字"} {
+			if strings.Contains(output, forbidden) {
+				t.Errorf("ClaudeRef text %q leaked into table at %d columns:\n%s", forbidden, width, output)
+			}
 		}
 		if got := tableColumnWidths(output); got[1] < tableDisplayWidth(wantClaude) || got[7] < tableDisplayWidth(wantNote) {
 			t.Errorf("full field widths at %d columns = %v, want Claude >= %d and Note >= %d", width, got, tableDisplayWidth(wantClaude), tableDisplayWidth(wantNote))
@@ -389,7 +435,7 @@ func TestTableLimitRejectsNegativeAndInvalidValues(t *testing.T) {
 	}
 }
 
-func TestTableHelpIncludesSlugAlias(t *testing.T) {
+func TestTableHelpIncludesUpdatedAliases(t *testing.T) {
 	cmd := newRootCmd()
 	var output strings.Builder
 	cmd.SetOut(&output)
@@ -398,8 +444,11 @@ func TestTableHelpIncludesSlugAlias(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("table help: %v", err)
 	}
-	if !strings.Contains(output.String(), "-s, --slug") && !strings.Contains(output.String(), "--slug") {
+	if !strings.Contains(output.String(), "-S, --slug") && !strings.Contains(output.String(), "--slug") {
 		t.Fatalf("table help does not contain slug alias:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "-s, --sort") || !strings.Contains(output.String(), "-R, --reverse") || !strings.Contains(output.String(), "quality") {
+		t.Fatalf("table help does not contain sort/reverse aliases and quality:\n%s", output.String())
 	}
 	if !strings.Contains(output.String(), "-n, --limit") || !strings.Contains(output.String(), "after sorting") {
 		t.Fatalf("table help does not describe limit:\n%s", output.String())
@@ -414,12 +463,12 @@ func TestSortTableModelsUsesTypedValuesAndSlugTiebreaker(t *testing.T) {
 	if err := sortTableModels(models, "input", true); err != nil || models[0].Slug != "z" {
 		t.Fatalf("reverse input sort = %+v, err=%v", models, err)
 	}
-	if err := sortTableModels(models, "score", false); err != nil || models[0].Slug != "a" {
-		t.Fatalf("score tie-breaker = %+v, err=%v", models, err)
+	if err := sortTableModels(models, "quality", false); err != nil || models[0].Slug != "a" {
+		t.Fatalf("quality tie-breaker = %+v, err=%v", models, err)
 	}
 }
 
-func TestSortTableModelsDefaultsToDescendingQualityPrice(t *testing.T) {
+func TestSortTableModelsDefaultRemainsDescendingQualityPrice(t *testing.T) {
 	models := []model.Model{
 		{Slug: "missing"},
 		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
@@ -465,7 +514,7 @@ func TestSortTableModelsSupportsEverySortKey(t *testing.T) {
 		{key: "context", want: "z/model"},
 		{key: "input", want: "a/model"},
 		{key: "output", want: "a/model"},
-		{key: "score", want: "z/model"},
+		{key: "quality", want: "a/model"},
 		{key: "q/p", want: "z/model"},
 	}
 	for _, test := range tests {
@@ -478,12 +527,102 @@ func TestSortTableModelsSupportsEverySortKey(t *testing.T) {
 
 func TestSortTableModelsMissingNumericValuesGoLast(t *testing.T) {
 	models := []model.Model{{Slug: "missing"}, {Slug: "scored", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1}}
-	if err := sortTableModels(models, "score", false); err != nil || models[1].Slug != "missing" {
-		t.Fatalf("score missing placement = %+v, err=%v", models, err)
+	if err := sortTableModels(models, "quality", false); err != nil || models[1].Slug != "missing" {
+		t.Fatalf("quality missing placement = %+v, err=%v", models, err)
 	}
 	if err := sortTableModels(models, "q/p", false); err != nil || models[1].Slug != "missing" {
 		t.Fatalf("q/p missing placement = %+v, err=%v", models, err)
 	}
+}
+
+func TestSortTableModelsQualityBoundariesAndMissingValues(t *testing.T) {
+	newModels := func() []model.Model {
+		return []model.Model{
+			{Slug: "missing"},
+			{Slug: "not-rankable", Score: &model.ScoreInfo{Value: 99}, Rankable: false},
+			{Slug: "below", Score: &model.ScoreInfo{Value: 59.9}, Rankable: true},
+			{Slug: "boundary-low", Score: &model.ScoreInfo{Value: 60}, Rankable: true},
+			{Slug: "boundary-high", Score: &model.ScoreInfo{Value: 70}, Rankable: true},
+		}
+	}
+
+	models := newModels()
+	if err := sortTableModels(models, "quality", false); err != nil {
+		t.Fatalf("descending quality sort: %v", err)
+	}
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug, models[3].Slug, models[4].Slug}; !reflect.DeepEqual(got, []string{"boundary-high", "boundary-low", "below", "missing", "not-rankable"}) {
+		t.Fatalf("descending quality sort = %v, want rankable boundaries first and missing values last", got)
+	}
+
+	models = newModels()
+	if err := sortTableModels(models, "quality", true); err != nil {
+		t.Fatalf("ascending quality sort: %v", err)
+	}
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug, models[3].Slug, models[4].Slug}; !reflect.DeepEqual(got, []string{"below", "boundary-low", "boundary-high", "missing", "not-rankable"}) {
+		t.Fatalf("ascending quality sort = %v, want rankable boundaries first and missing values last", got)
+	}
+}
+
+func TestTableCLIQualitySortAliasesAndFlags(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	tests := []struct {
+		name      string
+		args      []string
+		firstSlug string
+	}{
+		{name: "long quality", args: []string{"--sort", "quality"}, firstSlug: "demo/high"},
+		{name: "q alias", args: []string{"--sort", "q"}, firstSlug: "demo/high"},
+		{name: "short Q alias", args: []string{"-s", "Q"}, firstSlug: "demo/high"},
+		{name: "reverse quality", args: []string{"--sort", "quality", "-R", "-n", "1"}, firstSlug: "demo/low"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"table", "--config", config, "--no-pager", "-S"}, test.args...)
+			output := executeCLI(t, args...)
+			if got := tableFirstCell(output, 0); got != test.firstSlug {
+				t.Fatalf("first table slug = %q, want %q:\n%s", got, test.firstSlug, output)
+			}
+			if test.name == "reverse quality" && !strings.Contains(output, "| Slug ") {
+				t.Fatalf("-S did not select the Slug column:\n%s", output)
+			}
+			if test.name == "reverse quality" && strings.Count(output, "| demo/") != 1 {
+				t.Fatalf("-n 1 did not leave one model row:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestTableCLIDefaultSortUsesQualityPrice(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	output := executeCLI(t, "table", "--config", config, "--no-pager", "-S")
+	if got := tableFirstCell(output, 0); got != "demo/low" {
+		t.Fatalf("default Q/P first table slug = %q, want demo/low:\n%s", got, output)
+	}
+}
+
+func tableFirstCell(output string, column int) string {
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Slug ") || strings.Contains(line, "| Name ") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) > column {
+			return strings.TrimSpace(cells[column])
+		}
+	}
+	return ""
 }
 
 func TestSortTableModelsRejectsUnknownKey(t *testing.T) {
@@ -612,13 +751,17 @@ func copyTableFixture(t *testing.T, root string) error {
 	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/high\ttier=sonnet\ndemo/low\ttier=haiku\ndemo/missing\ttier=free\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/model:\n    display: Demo Model\n    note: Local fixture\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    note: Local fixture\n    claude_ref: '**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字'\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
 		return err
 	}
-	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{"demo/model": {InPerM: 1, OutPerM: 2, Context: 128000}}}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/high":    {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90}},
+		"demo/low":     {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10}},
+		"demo/missing": {InPerM: 1, OutPerM: 1, Context: 128000},
+	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {
 		return err

@@ -27,7 +27,7 @@ const defaultTableWidth = 120
 const minTableWidth = 40
 const maxTableIdentityWidth = 40
 
-const tableSortHelp = "name, slug, context, input, output, score, q/p"
+const tableSortHelp = "name, slug, context, input, output, quality, q/p"
 
 func loadLocalModels(dataDir string) ([]model.Model, error) {
 	entries, err := modelmap.Load(filepath.Join(dataDir, "model-map.tsv"))
@@ -69,23 +69,27 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 }
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {
+	key = strings.ToLower(key)
+	if key == "q" {
+		key = "quality"
+	}
 	if key == "" {
 		key = "q/p"
 	}
-	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "score": true, "q/p": true}
+	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "quality": true, "q/p": true}
 	if !valid[key] {
 		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
 	}
 	sort.SliceStable(models, func(i, j int) bool {
 		left, right := models[i], models[j]
-		if key == "score" || key == "q/p" {
+		if key == "quality" || key == "q/p" {
 			leftValue, leftOK := tableNumericSortValue(left, key)
 			rightValue, rightOK := tableNumericSortValue(right, key)
 			if leftOK != rightOK {
 				return leftOK
 			}
 			if leftOK && leftValue != rightValue {
-				descending := key == "q/p"
+				descending := key == "quality" || key == "q/p"
 				if reverse {
 					descending = !descending
 				}
@@ -145,7 +149,7 @@ func compareFloats(left, right float64) int {
 }
 
 func tableNumericSortValue(m model.Model, key string) (float64, bool) {
-	if key == "score" {
+	if key == "quality" {
 		if m.Score == nil || !m.Rankable {
 			return 0, false
 		}

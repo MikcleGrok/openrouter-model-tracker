@@ -86,14 +86,27 @@ var tierHeadings = map[string]string{
 	"free":   "<≈ Haiku 4.5 (бесплатная)",
 }
 
-// ClaudeEquivalent returns the manually classified Claude-level label for a model.
-// It is deliberately based on the hand-maintained tier, not benchmark or price data.
+// ClaudeEquivalent returns the table's Claude-relative label. Only a rankable
+// benchmark score can affect the haiku/free thresholds; Q/P and price are not
+// used.
 func ClaudeEquivalent(m model.Model) string {
-	if m.Tier == "free" && m.ClaudeRef != "" && m.ClaudeRef != notes.NeedsReview {
-		return m.ClaudeRef
-	}
-	if label, ok := tierHeadings[m.Tier]; ok {
-		return label
+	switch m.Tier {
+	case "opus", "sonnet":
+		return ">≈ Haiku 4.5"
+	case "haiku", "free":
+		if m.Score == nil || !m.Rankable {
+			if m.Tier == "free" {
+				return "<≈ Haiku 4.5"
+			}
+			return "≈ Haiku 4.5"
+		}
+		if m.Score.Value >= 70 {
+			return "≈ Haiku 4.5"
+		}
+		if m.Score.Value >= 60 {
+			return "<≈ Haiku 4.5"
+		}
+		return "<<≈ Haiku 4.5"
 	}
 	return "н/д"
 }
