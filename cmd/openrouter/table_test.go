@@ -232,6 +232,51 @@ func TestTableCommandReadsLocalSnapshot(t *testing.T) {
 	}
 }
 
+func TestLimitTableModelsDefaultsToNoLimit(t *testing.T) {
+	models := []model.Model{{Slug: "first"}, {Slug: "second"}}
+	if got := limitTableModels(models, -1); !reflect.DeepEqual(got, models) {
+		t.Fatalf("no limit = %v, want %v", got, models)
+	}
+}
+
+func TestLimitTableModelsPicksFirstAfterQualityPriceSort(t *testing.T) {
+	models := []model.Model{
+		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
+		{Slug: "high", Score: &model.ScoreInfo{Value: 3}, Rankable: true, QualityPrice: 3},
+	}
+	if err := sortTableModels(models, "q/p", false); err != nil {
+		t.Fatalf("sort: %v", err)
+	}
+	got := limitTableModels(models, 1)
+	if len(got) != 1 || got[0].Slug != "high" {
+		t.Fatalf("limited q/p result = %v, want [high]", got)
+	}
+}
+
+func TestLimitTableModelsZeroRows(t *testing.T) {
+	output := renderTable(limitTableModels([]model.Model{{Slug: "model"}}, 0), 120, false)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if strings.HasPrefix(line, "| ") && !strings.Contains(line, "| Name ") {
+			t.Fatalf("zero limit rendered a data row: %q", line)
+		}
+	}
+	if !strings.Contains(output, "| Name ") || strings.Count(output, "| Name ") != 1 {
+		t.Fatalf("zero limit omitted or duplicated header:\n%s", output)
+	}
+}
+
+func TestTableLimitRejectsNegativeAndInvalidValues(t *testing.T) {
+	for _, value := range []string{"-1", "not-a-number", "9223372036854775808"} {
+		cmd := newRootCmd()
+		cmd.SetArgs([]string{"table", "--limit", value})
+		if err := cmd.Execute(); err == nil {
+			t.Errorf("limit %q unexpectedly succeeded", value)
+		} else if !strings.Contains(err.Error(), "limit") {
+			t.Errorf("limit %q error = %v, want limit context", value, err)
+		}
+	}
+}
+
 func TestTableHelpIncludesSlugAlias(t *testing.T) {
 	cmd := newRootCmd()
 	var output strings.Builder
@@ -243,6 +288,9 @@ func TestTableHelpIncludesSlugAlias(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "-s, --slug") && !strings.Contains(output.String(), "--slug") {
 		t.Fatalf("table help does not contain slug alias:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "-n, --limit") || !strings.Contains(output.String(), "after sorting") {
+		t.Fatalf("table help does not describe limit:\n%s", output.String())
 	}
 }
 

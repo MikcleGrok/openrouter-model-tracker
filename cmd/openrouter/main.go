@@ -156,6 +156,7 @@ func newRootCmd() *cobra.Command {
 		dryRun        bool
 		tableSort     string
 		tableReverse  bool
+		tableLimit    int
 		tableNoPager  bool
 		tableShowSlug bool
 	)
@@ -247,6 +248,9 @@ func newRootCmd() *cobra.Command {
 		Short: "Show local model data as a plain-text table",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Flags().Changed("limit") && tableLimit < 0 {
+				return fmt.Errorf("table: limit must be non-negative, got %d", tableLimit)
+			}
 			dir, err := resolveDataDir(cfgPath, dataDir)
 			if err != nil {
 				return err
@@ -255,11 +259,12 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			width, err := tableWidth()
-			if err != nil {
+			if err := sortTableModels(models, tableSort, tableReverse); err != nil {
 				return err
 			}
-			if err := sortTableModels(models, tableSort, tableReverse); err != nil {
+			models = limitTableModels(models, tableLimit)
+			width, err := tableWidth()
+			if err != nil {
 				return err
 			}
 			shouldPage := tableShouldPage(cmd.OutOrStdout(), tableNoPager)
@@ -268,6 +273,7 @@ func newRootCmd() *cobra.Command {
 	}
 	tableCmd.Flags().StringVar(&tableSort, "sort", "q/p", "sort by: "+tableSortHelp)
 	tableCmd.Flags().BoolVar(&tableReverse, "reverse", false, "reverse the primary sort order")
+	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "s", false, "show Slug instead of Name as the first column")
 

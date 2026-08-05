@@ -22,7 +22,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table [-s|--slug] [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-s/--slug` переключает первую колонку на `Slug` с `m.Slug`.
+- `openrouter table [-s|--slug] [-n|--limit N] [--sort name|slug|context|input|output|score|q/p] [--reverse] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-s/--slug` переключает первую колонку на `Slug` с `m.Slug`; `-n/--limit N` оставляет первые `N` моделей после сортировки. Лимит по умолчанию не задан, а `N=0` выводит только заголовок и разделители.
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -48,7 +48,7 @@ make init
 
 По умолчанию таблица сортируется по `q/p` по убыванию. `--sort` принимает только `name`, `slug`,
 `context`, `input`, `output`, `score` и `q/p`; числовые поля сортируются по исходным значениям,
-а отсутствующие score/Q/P всегда остаются в конце. `--reverse` меняет основной порядок, slug
+а отсутствующие score/Q/P всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
 При обычной ширине терминала первая колонка имеет минимум 30 и максимум 40 display columns;

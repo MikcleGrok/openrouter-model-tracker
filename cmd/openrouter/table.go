@@ -117,6 +117,13 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 	return nil
 }
 
+func limitTableModels(models []model.Model, limit int) []model.Model {
+	if limit < 0 || limit >= len(models) {
+		return models
+	}
+	return models[:limit]
+}
+
 func compareInts(left, right int) int {
 	if left < right {
 		return -1
