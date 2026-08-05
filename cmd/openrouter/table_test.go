@@ -9,12 +9,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
 
 func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
-	output := renderTable([]model.Model{{DisplayName: "a very long model name that should be shortened", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", Note: "**a long note** that should also be shortened | safely"}}, 80)
-	if !strings.Contains(output, "Model") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status/Note") {
+	output := renderTable([]model.Model{{DisplayName: "a very long model name that should be shortened", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "**a long note** that should also be shortened | safely"}}, 120)
+	if !strings.Contains(output, "Model") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
@@ -24,12 +25,25 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 		t.Fatalf("table contains Markdown emphasis markers:\n%s", output)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if len(line) > 80 {
+		if len(line) > 120 {
 			t.Errorf("line exceeds requested width: %d: %q", len(line), line)
 		}
 	}
 	if !strings.Contains(output, "...") {
 		t.Errorf("long cells were not truncated:\n%s", output)
+	}
+}
+
+func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
+	output := renderTable([]model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "review this"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "no-score", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Note: notes.NeedsReview}}, 120)
+	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
+		t.Fatalf("paid model cells are not separated:\n%s", output)
+	}
+	if !strings.Contains(output, "н/д (цена $0)") || !strings.Contains(output, "н/д (оценка") {
+		t.Fatalf("free/no-score Q/P labels missing:\n%s", output)
+	}
+	if strings.Contains(output, "93.0%; review this") || strings.Contains(output, "н/д;") || strings.Contains(output, notes.NeedsReview) {
+		t.Fatalf("status and note were combined or review marker was shown:\n%s", output)
 	}
 }
 

@@ -168,10 +168,14 @@ func tableStatus(m model.Model) string {
 	if status == "" {
 		status = "No score"
 	}
-	if m.Note != "" && m.Note != notes.NeedsReview {
-		status += "; " + m.Note
-	}
 	return plainTableText(status)
+}
+
+func tableNote(m model.Model) string {
+	if m.Note == "" || m.Note == notes.NeedsReview {
+		return ""
+	}
+	return plainTableText(m.Note)
 }
 
 func plainTableText(value string) string {
@@ -188,16 +192,16 @@ func plainTableText(value string) string {
 }
 
 func renderTable(models []model.Model, width int) string {
-	preferred := []int{30, 7, 12, 13, 20}
-	minimum := []int{6, 3, 5, 6, 3}
+	preferred := []int{30, 7, 12, 13, 8, 26, 20}
+	minimum := []int{3, 1, 2, 2, 2, 2, 6}
 	widths := append([]int(nil), preferred...)
-	target := width - 16
-	if target < minTableWidth-16 {
-		target = minTableWidth - 16
+	target := width - (3*len(widths) + 1)
+	if target < minTableWidth-(3*len(widths)+1) {
+		target = minTableWidth - (3*len(widths) + 1)
 	}
 	if target < sum(widths) {
 		deficit := sum(widths) - target
-		for _, i := range []int{0, 4, 3, 2, 1} {
+		for _, i := range []int{0, 6, 4, 3, 2, 1, 5} {
 			shrink := widths[i] - minimum[i]
 			if shrink > deficit {
 				shrink = deficit
@@ -211,7 +215,7 @@ func renderTable(models []model.Model, width int) string {
 	} else {
 		widths[4] += target - sum(widths)
 	}
-	headers := []string{"Model", "Context", "Input $/M", "Output $/M", "Status/Note"}
+	headers := []string{"Model", "Context", "Input $/M", "Output $/M", "Status", "Q/P", "Note"}
 	var b strings.Builder
 	separator := func() {
 		b.WriteString("+")
@@ -234,7 +238,7 @@ func renderTable(models []model.Model, width int) string {
 	row(headers)
 	separator()
 	for _, m := range models {
-		row([]string{m.DisplayName, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableStatus(m)})
+		row([]string{m.DisplayName, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableStatus(m), m.QualityPriceLabel, tableNote(m)})
 	}
 	separator()
 	return b.String()

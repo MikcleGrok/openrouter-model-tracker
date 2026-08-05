@@ -22,7 +22,7 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table` — показать локальные данные моделей в plain-text таблице без Markdown и сети
+- `openrouter table` — показать локальные данные моделей в plain-text таблице без Markdown и сети; колонки `Status`, `Q/P` (качество/цена) и `Note` разделены
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
