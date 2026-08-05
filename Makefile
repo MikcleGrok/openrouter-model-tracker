@@ -9,7 +9,7 @@ RELEASE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
-.PHONY: build test race vet fmt fmt-check check refresh history release-build clean help FORCE
+.PHONY: build test race vet fmt fmt-check check init refresh history release-build clean help FORCE
 
 build: $(BINARY)
 
@@ -37,6 +37,9 @@ fmt-check:
 check: build
 	$(BINARY) check --data-dir $(DATA_DIR) --output /dev/null
 
+init:
+	./scripts/init.sh
+
 refresh: build
 	$(BINARY) refresh --data-dir $(DATA_DIR) --output $(OUTPUT)
 
@@ -61,6 +64,7 @@ help:
 		'fmt            Format tracked Go files' \
 		'fmt-check      Check tracked Go files without changing them' \
 		'check          Run the read-only CLI check against this checkout' \
+		'init           Build, initialize, refresh, and open the report on macOS' \
 		'refresh        Refresh data and the generated comparison document' \
 		'history        Show price history for this checkout' \
 		'release-build  Build with the exact checked-out git tag' \

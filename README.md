@@ -37,11 +37,43 @@ make vet
 make fmt-check
 make check
 make history
+make init
 ```
 
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
 `docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,
 а `make release-build` собирает бинарник только из checkout на полном git-теге.
+Bootstrap-сценарий для macOS при запуске из корня checkout вызывается так:
+
+```bash
+./scripts/init.sh
+make init
+```
+
+Из произвольного текущего каталога вызовите `<repo>/scripts/init.sh` или укажите
+абсолютный путь к сценарию.
+
+Сценарий определяет root checkout по своему расположению, собирает актуальный
+`bin/openrouter`, затем вызывает безопасный `openrouter init` и `openrouter refresh`.
+`init` только создаёт отсутствующие config/cache и не обращается к сети. `refresh`,
+напротив, обращается к сети, обновляет кэш и domain data, а затем открывает готовый
+отчёт через macOS `open`.
+
+Пути можно переопределить переменными окружения:
+
+```bash
+OPENROUTER_CONFIG="$HOME/.config/openrouter/config.yaml" \
+OPENROUTER_DATA_DIR="/path/to/project-data" \
+OPENROUTER_OUTPUT="/path/to/report.md" \
+<repo>/scripts/init.sh
+```
+
+`OPENROUTER_CONFIG` по умолчанию равен `~/.config/openrouter/config.yaml`,
+`OPENROUTER_DATA_DIR` — root checkout, а `OPENROUTER_OUTPUT` —
+`<root>/docs/openrouter-model-comparison.md`. Для CI/headless-режима отключите
+открытие отчёта: `OPENROUTER_OPEN=0 ./scripts/init.sh`. Другим значением
+`OPENROUTER_OPEN` можно заменить команду macOS `open`.
+
 `make clean` удаляет только `bin/openrouter`; кэш и пользовательские данные не удаляются.
 
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
