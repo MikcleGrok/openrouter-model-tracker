@@ -85,6 +85,19 @@ func TestBuildReportReportsNothingWhenTheCatalogueIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestCatalogDeltaReportsAddedAndRemovedSlugs(t *testing.T) {
+	added, removed := catalogDelta(
+		[]string{"acme/old", "openai/kept"},
+		[]string{"openai/kept", "openai/new"},
+	)
+	if len(added) != 1 || added[0] != "openai/new" {
+		t.Errorf("added = %v, want [openai/new]", added)
+	}
+	if len(removed) != 1 || removed[0] != "acme/old" {
+		t.Errorf("removed = %v, want [acme/old]", removed)
+	}
+}
+
 func TestBuildReportRetiredKeysOffPricesOKNotCatalog(t *testing.T) {
 	entries := []modelmap.Entry{
 		{Slug: "openai/gpt-5.6-luna", Tier: "opus"},
@@ -119,14 +132,16 @@ func TestBuildReportRetiredKeysOffPricesOKNotCatalog(t *testing.T) {
 
 func TestReportString(t *testing.T) {
 	r := Report{
-		NewCandidates: []string{"openai/gpt-5.7-nova"},
-		Retired:       []string{"x-ai/grok-4.1-fast"},
-		NeedsReview:   []string{"openai/gpt-5.6-sol"},
-		NoScore:       []string{"openai/gpt-5.6-sol"},
-		Warnings:      []string{"vals: источник не отвечает"},
+		NewCandidates:  []string{"openai/gpt-5.7-nova"},
+		CatalogAdded:   []string{"openai/gpt-5.8-orbit"},
+		CatalogRemoved: []string{"openai/gpt-5.5-old"},
+		Retired:        []string{"x-ai/grok-4.1-fast"},
+		NeedsReview:    []string{"openai/gpt-5.6-sol"},
+		NoScore:        []string{"openai/gpt-5.6-sol"},
+		Warnings:       []string{"vals: источник не отвечает"},
 	}
 	s := r.String()
-	for _, want := range []string{"openai/gpt-5.7-nova", "x-ai/grok-4.1-fast", "openai/gpt-5.6-sol", "vals: источник не отвечает"} {
+	for _, want := range []string{"openai/gpt-5.7-nova", "openai/gpt-5.8-orbit", "openai/gpt-5.5-old", "x-ai/grok-4.1-fast", "openai/gpt-5.6-sol", "vals: источник не отвечает"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Report.String() does not mention %q:\n%s", want, s)
 		}

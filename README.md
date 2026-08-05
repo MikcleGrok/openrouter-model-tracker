@@ -18,7 +18,9 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 ## Команды
 
 - `openrouter refresh [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
-- `openrouter check` — только отчёт, без записи
+- `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
+  изменения полного каталога OpenRouter с момента последнего успешного `refresh`
+- `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter version`
 
 Конфиг по умолчанию — `~/.config/openrouter/config.yaml` (`data_dir`, `default_output`).
@@ -32,3 +34,29 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
   таблица FLI, справочные цены Claude, оговорки, вручную заданные вендорские оценки.
 
 Сам `.md` — билд-артефакт. Правки в нём не переживут следующий прогон.
+
+`refresh` сохраняет в `cache/last-run-snapshot.json` полный набор slug'ов каталога как
+baseline. `check` сравнивает живой каталог с этим baseline, но не изменяет его, поэтому
+один и тот же delta остаётся видимым до следующего успешного `refresh`; повторный
+`refresh` фиксирует новый baseline и убирает уже обработанные сообщения. Старые snapshot-файлы
+без `catalog_slugs` поддерживаются: первый `check` не считает весь текущий каталог новым,
+а baseline появится после успешного обычного `refresh`. `ignore-candidates.txt` по-прежнему
+фильтрует только кандидатов ручной карты и не скрывает изменения полного каталога.
+
+`refresh` после успешного live lookup цен добавляет observation в отдельное versioned-хранилище
+`cache/price-history.json`. Observation содержит UTC timestamp и числовые поля цены, контекст и
+long-context override для каждого slug; история ограничена последними 365 наблюдениями.
+`document`, `last-run snapshot` и `price-history` подготавливаются и публикуются через общий локальный
+rollback-протокол: обычные ошибки откатываются, но аварийное завершение между отдельными `rename`
+всё ещё может оставить смешанное поколение. Если подготовка history не удалась, основное состояние
+не продвигается без соответствующего observation. Ошибки benchmark-источников не мешают сохранению цен, но fallback-цены,
+`check` и `refresh --dry-run` observation не создают. `check` сравнивает live-цены с последним
+сохранённым observation и остаётся read-only; в выводе видны base input/output/context и long-context
+threshold/override input/output, включая изменения только override-полей. Если истории нет, изменение
+цен не показывается.
+
+`check` и `refresh --dry-run` не изменяют domain snapshot, `price-history.json` и generated document.
+При этом HTTP cache может обновиться из-за сетевого чтения.
+
+Например: `openrouter history --model openai/gpt-5.6-luna --since 2026-08-01 --format tsv`.
+Кэшированные файлы из `cache/` не добавляются в Git.

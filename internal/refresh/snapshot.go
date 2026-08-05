@@ -10,21 +10,27 @@ import (
 	"path/filepath"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 // SnapshotEntry is what one model looked like at the end of the previous run.
 type SnapshotEntry struct {
-	InPerM  float64          `json:"in_per_m"`
-	OutPerM float64          `json:"out_per_m"`
-	Context int              `json:"context"`
-	Score   *model.ScoreInfo `json:"score,omitempty"`
+	InPerM            float64          `json:"in_per_m"`
+	OutPerM           float64          `json:"out_per_m"`
+	Context           int              `json:"context"`
+	HasOverride       bool             `json:"has_long_context_override,omitempty"`
+	OverrideMinTokens int              `json:"long_context_min_tokens,omitempty"`
+	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
+	OverrideOutPerM   float64          `json:"long_context_output_per_million,omitempty"`
+	Score             *model.ScoreInfo `json:"score,omitempty"`
 }
 
 // Snapshot is the previous run's result, used to keep the document intact when
 // a source is down or has changed shape.
 type Snapshot struct {
-	FetchedAt string                   `json:"fetched_at"`
-	Models    map[string]SnapshotEntry `json:"models"`
+	FetchedAt    string                   `json:"fetched_at"`
+	Models       map[string]SnapshotEntry `json:"models"`
+	CatalogSlugs []string                 `json:"catalog_slugs,omitempty"`
 }
 
 // LoadSnapshot reads the snapshot at path. A missing file yields an empty
@@ -63,6 +69,7 @@ func (s *Snapshot) Save(path string) error {
 }
 
 // NewSnapshot captures the current run's values for the next run to fall back to.
+// CatalogSlugs is attached by the orchestrator only after a successful catalogue fetch.
 func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 	s := &Snapshot{FetchedAt: fetchedAt, Models: make(map[string]SnapshotEntry, len(models))}
 	for _, m := range models {
@@ -72,6 +79,24 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 			Context: m.Context,
 			Score:   m.Score,
 		}
+	}
+	return s
+}
+
+// NewSnapshotWithPrices also persists catalogue-only long-context fields that
+// are not part of the rendered model value.
+func NewSnapshotWithPrices(models []model.Model, prices map[string]sources.PriceInfo, fetchedAt string) *Snapshot {
+	s := NewSnapshot(models, fetchedAt)
+	for slug, price := range prices {
+		entry, ok := s.Models[slug]
+		if !ok {
+			continue
+		}
+		entry.HasOverride = price.HasOverride
+		entry.OverrideMinTokens = price.OverrideMinTokens
+		entry.OverrideInPerM = price.OverrideInPerM
+		entry.OverrideOutPerM = price.OverrideOutPerM
+		s.Models[slug] = entry
 	}
 	return s
 }

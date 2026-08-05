@@ -1,6 +1,7 @@
 package refresh
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -26,7 +27,8 @@ func TestLoadSnapshotMissingFileIsEmpty(t *testing.T) {
 func TestSnapshotRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "last-run-snapshot.json")
 	want := &Snapshot{
-		FetchedAt: "2026-08-04",
+		FetchedAt:    "2026-08-04",
+		CatalogSlugs: []string{"minimax/minimax-m3", "openai/gpt-5.6-luna"},
 		Models: map[string]SnapshotEntry{
 			"openai/gpt-5.6-luna": {
 				InPerM: 0.5, OutPerM: 3, Context: 1000000,
@@ -48,7 +50,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSnapshot: %v", err)
 	}
-	if got.FetchedAt != want.FetchedAt || len(got.Models) != 2 {
+	if got.FetchedAt != want.FetchedAt || len(got.Models) != 2 || len(got.CatalogSlugs) != 2 {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 	luna := got.Models["openai/gpt-5.6-luna"]
@@ -60,6 +62,21 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 	if m3 := got.Models["minimax/minimax-m3"]; m3.Score != nil {
 		t.Errorf("m3.Score = %+v, want nil to survive as nil", m3.Score)
+	}
+}
+
+func TestLoadSnapshotWithoutCatalogBaselineRemainsCompatible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "last-run-snapshot.json")
+	legacy := `{"fetched_at":"2026-08-03","models":{"a/model":{"in_per_m":1,"out_per_m":2,"context":1000}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy snapshot: %v", err)
+	}
+	s, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	if len(s.Models) != 1 || len(s.CatalogSlugs) != 0 {
+		t.Fatalf("legacy snapshot = %+v, want models and no catalogue baseline", s)
 	}
 }
 

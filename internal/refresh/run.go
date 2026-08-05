@@ -3,9 +3,11 @@ package refresh
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
@@ -36,10 +39,13 @@ type scoreSource struct {
 
 // deps is the seam that lets run be tested without touching the network.
 type deps struct {
-	prices  func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error)
-	catalog func(ctx context.Context) ([]string, error)
-	sources []scoreSource
-	now     func() time.Time
+	prices      func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error)
+	catalog     func(ctx context.Context) ([]string, error)
+	sources     []scoreSource
+	now         func() time.Time
+	saveHistory func(*pricehistory.History, string) error
+	rename      func(string, string) error
+	remove      func(string) error
 }
 
 func liveDeps(opts Options) deps {
@@ -61,7 +67,10 @@ func liveDeps(opts Options) deps {
 				return sources.FetchValsSWEBench(ctx, c, names)
 			}},
 		},
-		now: time.Now,
+		now:         time.Now,
+		saveHistory: func(history *pricehistory.History, path string) error { return history.Save(path) },
+		rename:      os.Rename,
+		remove:      os.Remove,
 	}
 }
 
@@ -71,6 +80,15 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 }
 
 func run(ctx context.Context, opts Options, d deps) (Report, error) {
+	if d.saveHistory == nil {
+		d.saveHistory = func(history *pricehistory.History, path string) error { return history.Save(path) }
+	}
+	if d.rename == nil {
+		d.rename = os.Rename
+	}
+	if d.remove == nil {
+		d.remove = os.Remove
+	}
 	entries, err := modelmap.Load(filepath.Join(opts.DataDir, "model-map.tsv"))
 	if err != nil {
 		return Report{}, err
@@ -84,14 +102,20 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	historyPath := pricehistory.Path(opts.DataDir)
+	history, err := pricehistory.Load(historyPath)
+	if err != nil {
+		return Report{}, err
+	}
 
 	var (
-		mu       sync.Mutex
-		prices   map[string]sources.PriceInfo
-		pricesOK bool
-		catalog  []string
-		rows     = make(map[string][]sources.ScoreRow, len(d.sources))
-		warnings []string
+		mu        sync.Mutex
+		prices    map[string]sources.PriceInfo
+		pricesOK  bool
+		catalog   []string
+		catalogOK bool
+		rows      = make(map[string][]sources.ScoreRow, len(d.sources))
+		warnings  []string
 	)
 	warn := func(format string, args ...any) {
 		mu.Lock()
@@ -117,6 +141,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		} else {
 			mu.Lock()
 			catalog = c
+			catalogOK = true
 			mu.Unlock()
 		}
 
@@ -164,6 +189,11 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 
 	models := model.Merge(entries, prices, scores, nt)
 	report := BuildReport(entries, catalog, prices, pricesOK, models)
+	report.PriceChanges = priceChanges(history, prices, pricesOK)
+	if catalogOK && len(snap.CatalogSlugs) > 0 {
+		report.CatalogAdded, report.CatalogRemoved = catalogDelta(snap.CatalogSlugs, catalog)
+	}
+	sort.Strings(warnings)
 	report.Warnings = warnings
 
 	// Most of the raw NewCandidates list is preview/dated/distilled variants
@@ -173,6 +203,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	patterns, err := loadIgnorePatterns(filepath.Join(opts.DataDir, "ignore-candidates.txt"))
 	if err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("ignore-candidates.txt: %v", err))
+		sort.Strings(report.Warnings)
 	} else {
 		report.NewCandidates = filterIgnored(report.NewCandidates, patterns)
 	}
@@ -216,16 +247,180 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	if err := Render(&buf, BuildRenderData(models, nt, today)); err != nil {
 		return report, err
 	}
-	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0o755); err != nil {
-		return report, fmt.Errorf("refresh: create output directory: %w", err)
+	newSnapshot := NewSnapshotWithPrices(models, prices, today)
+	if catalogOK {
+		newSnapshot.CatalogSlugs = append([]string(nil), catalog...)
+	} else {
+		// Keep a known-good baseline when this refresh could not fetch the catalogue.
+		newSnapshot.CatalogSlugs = append([]string(nil), snap.CatalogSlugs...)
 	}
-	if err := os.WriteFile(opts.OutputPath, buf.Bytes(), 0o644); err != nil {
-		return report, fmt.Errorf("refresh: write %s: %w", opts.OutputPath, err)
+	files := []publishFile{{path: opts.OutputPath, data: buf.Bytes()}, {path: snapshotPath, save: func(path string) error { return newSnapshot.Save(path) }}}
+	if pricesOK {
+		history.Add(d.now(), prices)
+		files = append(files, publishFile{path: historyPath, save: func(path string) error { return d.saveHistory(history, path) }, errPrefix: "save price history"})
 	}
-	if err := NewSnapshot(models, today).Save(snapshotPath); err != nil {
+	if err := publish(files, d.rename, d.remove); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+type publishFile struct {
+	path      string
+	data      []byte
+	save      func(string) error
+	errPrefix string
+}
+
+type publishedFile struct {
+	publishFile
+	temp        string
+	backup      string
+	hadOriginal bool
+	published   bool
+}
+
+// PostCommitCleanupError means all targets were published, but old backups
+// could not be removed. The published generation must not be rolled back.
+type PostCommitCleanupError struct {
+	Err error
+}
+
+func (e *PostCommitCleanupError) Error() string {
+	return fmt.Sprintf("refresh: publication completed, but cleanup did not complete: %v", e.Err)
+}
+
+func (e *PostCommitCleanupError) Unwrap() error { return e.Err }
+
+func IsPostCommitCleanupError(err error) bool {
+	var cleanupErr *PostCommitCleanupError
+	return errors.As(err, &cleanupErr)
+}
+
+// publish prepares every file before replacing any target, then rolls back
+// earlier replacements if a later rename fails. A process crash between two
+// renames can still leave a mixed generation; ordinary write errors recover.
+func publish(files []publishFile, rename func(string, string) error, remove func(string) error) error {
+	prepared := make([]publishedFile, len(files))
+	for i, file := range files {
+		if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
+			return preparationError(fmt.Errorf("refresh: create directory: %w", err), prepared, remove)
+		}
+		tmp, err := os.CreateTemp(filepath.Dir(file.path), ".refresh-*.tmp")
+		if err != nil {
+			return preparationError(fmt.Errorf("refresh: create temporary file: %w", err), prepared, remove)
+		}
+		tmpName := tmp.Name()
+		prepared[i] = publishedFile{publishFile: file, temp: tmpName}
+		if err := tmp.Chmod(0o644); err != nil {
+			tmp.Close()
+			return preparationError(fmt.Errorf("refresh: chmod temporary file: %w", err), prepared, remove)
+		}
+		if file.data != nil {
+			_, err = tmp.Write(file.data)
+		}
+		if err == nil {
+			err = tmp.Close()
+		} else {
+			tmp.Close()
+		}
+		if err != nil {
+			return preparationError(fmt.Errorf("refresh: prepare %s: %w", file.path, err), prepared, remove)
+		}
+		if file.save != nil {
+			if err := file.save(tmpName); err != nil {
+				if file.errPrefix != "" {
+					return preparationError(fmt.Errorf("refresh: %s: %w", file.errPrefix, err), prepared, remove)
+				}
+				return preparationError(fmt.Errorf("refresh: prepare %s: %w", file.path, err), prepared, remove)
+			}
+		}
+	}
+
+	var cleanupErrs []error
+	for i := range prepared {
+		backup, err := os.CreateTemp(filepath.Dir(prepared[i].path), ".refresh-backup-*")
+		if err != nil {
+			return rollback(prepared, rename, remove, fmt.Errorf("refresh: create backup: %w", err))
+		}
+		backupName := backup.Name()
+		prepared[i].backup = backupName
+		if err := backup.Close(); err != nil {
+			return rollback(prepared, rename, remove, fmt.Errorf("refresh: close backup: %w", err))
+		}
+		if err := remove(backupName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("refresh: cleanup backup placeholder %s: %w", prepared[i].path, err))
+		}
+		if err := rename(prepared[i].path, backupName); err == nil {
+			prepared[i].hadOriginal = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return rollback(prepared, rename, remove, fmt.Errorf("refresh: backup %s: %w", prepared[i].path, err))
+		}
+		if err := rename(prepared[i].temp, prepared[i].path); err != nil {
+			return rollback(prepared, rename, remove, fmt.Errorf("refresh: publish %s: %w", prepared[i].path, err))
+		}
+		prepared[i].published = true
+	}
+	for _, file := range prepared {
+		if file.backup != "" {
+			if err := remove(file.backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("refresh: cleanup backup %s: %w", file.path, err))
+			}
+		}
+	}
+	if len(cleanupErrs) > 0 {
+		return &PostCommitCleanupError{Err: errors.Join(cleanupErrs...)}
+	}
+	return nil
+}
+
+func preparationError(cause error, files []publishedFile, remove func(string) error) error {
+	return errors.Join(cause, cleanupPrepared(files, remove))
+}
+
+func cleanupPrepared(files []publishedFile, remove func(string) error) error {
+	var errs []error
+	for _, file := range files {
+		if file.temp != "" {
+			if err := remove(file.temp); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("refresh: cleanup temporary file %s: %w", file.path, err))
+			}
+		}
+		if file.backup != "" {
+			if err := remove(file.backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("refresh: cleanup backup %s: %w", file.path, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func rollback(files []publishedFile, rename func(string, string) error, remove func(string) error, cause error) error {
+	errs := []error{cause}
+	for i := len(files) - 1; i >= 0; i-- {
+		file := files[i]
+		if file.published {
+			if err := remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("refresh: rollback remove %s: %w", file.path, err))
+			}
+		}
+		if file.hadOriginal {
+			if err := rename(file.backup, file.path); err != nil {
+				errs = append(errs, fmt.Errorf("refresh: rollback restore %s: %w", file.path, err))
+			}
+		}
+		if file.temp != "" {
+			if err := remove(file.temp); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("refresh: rollback cleanup temporary file %s: %w", file.path, err))
+			}
+		}
+		if file.backup != "" {
+			if err := remove(file.backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("refresh: rollback cleanup backup %s: %w", file.path, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // applyFallback fills the gaps a failed source left, from the previous run's
@@ -246,14 +441,7 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 			if !ok {
 				continue
 			}
-			prices[e.Slug] = sources.PriceInfo{
-				Slug:    e.Slug,
-				InPerM:  se.InPerM,
-				OutPerM: se.OutPerM,
-				Context: se.Context,
-				Free:    se.InPerM == 0 && se.OutPerM == 0,
-				Found:   true,
-			}
+			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
 			stalePrices[e.Slug] = true
 		}
 	}
