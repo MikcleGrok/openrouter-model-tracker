@@ -13,6 +13,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/spf13/pflag"
 )
 
 func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
@@ -411,15 +412,10 @@ func TestLimitTableModelsPicksFirstAfterQualityPriceSort(t *testing.T) {
 	}
 }
 
-func TestLimitTableModelsZeroRows(t *testing.T) {
-	output := renderTable(limitTableModels([]model.Model{{Slug: "model"}}, 0), 120, false)
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if strings.HasPrefix(line, "| ") && !strings.Contains(line, "| Name ") {
-			t.Fatalf("zero limit rendered a data row: %q", line)
-		}
-	}
-	if !strings.Contains(output, "| Name ") || strings.Count(output, "| Name ") != 1 {
-		t.Fatalf("zero limit omitted or duplicated header:\n%s", output)
+func TestLimitTableModelsZeroMeansUnlimited(t *testing.T) {
+	models := []model.Model{{Slug: "model"}}
+	if got := limitTableModels(models, 0); !reflect.DeepEqual(got, models) {
+		t.Fatalf("zero limit = %v, want unlimited result %v", got, models)
 	}
 }
 
@@ -452,6 +448,9 @@ func TestTableHelpIncludesUpdatedAliases(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "-n, --limit") || !strings.Contains(output.String(), "after sorting") {
 		t.Fatalf("table help does not describe limit:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "standalone -N is shorthand for -n N") || !strings.Contains(output.String(), "0 means unlimited") {
+		t.Fatalf("table help does not describe numeric shorthand and zero semantics:\n%s", output.String())
 	}
 }
 
@@ -497,6 +496,96 @@ func TestSortTableModelsExplicitSlugRemainsAscending(t *testing.T) {
 	models := []model.Model{{Slug: "z"}, {Slug: "a"}}
 	if err := sortTableModels(models, "slug", false); err != nil || models[0].Slug != "a" {
 		t.Fatalf("explicit slug sort = %+v, err=%v", models, err)
+	}
+}
+
+func TestSortTableModelsSupportsShortAliases(t *testing.T) {
+	models := []model.Model{
+		{Slug: "expensive", MixedPrice: 4, Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 22.5},
+		{Slug: "cheap", MixedPrice: 1, Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 80},
+	}
+	for _, test := range []struct {
+		key, want string
+	}{
+		{key: "Q", want: "expensive"},
+		{key: "P", want: "cheap"},
+		{key: "QP", want: "cheap"},
+	} {
+		copy := append([]model.Model(nil), models...)
+		if err := sortTableModels(copy, test.key, false); err != nil || copy[0].Slug != test.want {
+			t.Errorf("sort %q = %+v, err=%v; first slug = %q, want %q", test.key, copy, err, copy[0].Slug, test.want)
+		}
+	}
+}
+
+func TestFilterTableModelsUsesANDSemantics(t *testing.T) {
+	models := []model.Model{
+		{Slug: "match", Tier: "sonnet", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
+		{Slug: "wrong-tier", Tier: "opus", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
+		{Slug: "wrong-score", Tier: "sonnet", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
+	}
+	filtered, err := filterTableModels(models, []string{"paid", "tier:sonnet", "quality>=90", "context>=100000", "input<=1", "output<=2", "scored"})
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Slug != "match" {
+		t.Fatalf("filtered = %+v, want only match", filtered)
+	}
+}
+
+func TestFilterTableModelsRejectsMalformedAndUnknownFilters(t *testing.T) {
+	for _, filter := range []string{"tier:", "quality>=bad", "quality>=NaN", "quality>=+Inf", "quality>=-Inf", "input<=NaN", "output<=+Inf", "context>=bad", "input<=bad", "unknown"} {
+		if _, err := filterTableModels(nil, []string{filter}); err == nil || !strings.Contains(err.Error(), "filter") {
+			t.Errorf("filter %q error = %v, want filter error", filter, err)
+		}
+	}
+}
+
+func TestFilterTableModelsAcceptsSignedFiniteThresholds(t *testing.T) {
+	models := []model.Model{{Slug: "negative", Context: -1, InPerM: -1, OutPerM: -1, Score: &model.ScoreInfo{Value: -1}, Rankable: true}}
+	if filtered, err := filterTableModels(models, []string{"quality>=-1", "context>=-1", "input<=-1", "output<=-1"}); err != nil || len(filtered) != 1 {
+		t.Fatalf("signed finite filters = %+v, err=%v; want one matching model", filtered, err)
+	}
+}
+
+func TestTableLimitShorthandParsesNegativeLookingNumbers(t *testing.T) {
+	flags := pflag.NewFlagSet("table", pflag.ContinueOnError)
+	limit := -1
+	flags.IntVarP(&limit, "limit", "n", -1, "")
+	for _, test := range []struct {
+		arg  string
+		want int
+	}{
+		{arg: "-1", want: 1},
+		{arg: "-20", want: 20},
+		{arg: "-0", want: 0},
+	} {
+		flags := pflag.NewFlagSet("table", pflag.ContinueOnError)
+		limit := -1
+		flags.IntVarP(&limit, "limit", "n", -1, "")
+		if err := parseTableArgs([]string{test.arg}, flags); err != nil {
+			t.Fatalf("shorthand %q parse: %v", test.arg, err)
+		}
+		if limit != test.want {
+			t.Errorf("shorthand %q limit = %d, want %d", test.arg, limit, test.want)
+		}
+	}
+}
+
+func TestTableLimitShorthandDoesNotRewriteFlagValues(t *testing.T) {
+	for _, args := range [][]string{{"--limit", "-1"}, {"--sort", "-1"}, {"-s", "-1"}, {"--filter", "-1"}, {"-f", "-1"}} {
+		flags := pflag.NewFlagSet("table", pflag.ContinueOnError)
+		limit, sortKey := -1, ""
+		filters := []string(nil)
+		flags.IntVarP(&limit, "limit", "n", -1, "")
+		flags.StringVarP(&sortKey, "sort", "s", "q/p", "")
+		flags.StringArrayVarP(&filters, "filter", "f", nil, "")
+		if err := parseTableArgs(args, flags); err != nil {
+			t.Fatalf("flag value %v parse: %v", args, err)
+		}
+		if args[0] == "--limit" && limit != -1 || (args[0] == "--sort" || args[0] == "-s") && sortKey != "-1" || (args[0] == "--filter" || args[0] == "-f") && !reflect.DeepEqual(filters, []string{"-1"}) {
+			t.Errorf("flag value %v was rewritten: limit=%d sort=%q filter=%v", args, limit, sortKey, filters)
+		}
 	}
 }
 

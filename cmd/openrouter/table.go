@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/spf13/pflag"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
@@ -27,7 +30,7 @@ const defaultTableWidth = 120
 const minTableWidth = 40
 const maxTableIdentityWidth = 40
 
-const tableSortHelp = "name, slug, context, input, output, quality, q/p"
+const tableSortHelp = "name, slug, context, input, output, price, quality (Q), q/p (QP), P"
 
 func loadLocalModels(dataDir string) ([]model.Model, error) {
 	entries, err := modelmap.Load(filepath.Join(dataDir, "model-map.tsv"))
@@ -69,20 +72,20 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 }
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {
-	key = strings.ToLower(key)
-	if key == "q" {
-		key = "quality"
+	key = strings.ToLower(strings.TrimSpace(key))
+	if alias, ok := map[string]string{"q": "quality", "p": "price", "qp": "q/p"}[key]; ok {
+		key = alias
 	}
 	if key == "" {
 		key = "q/p"
 	}
-	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "quality": true, "q/p": true}
+	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "price": true, "quality": true, "q/p": true}
 	if !valid[key] {
 		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
 	}
 	sort.SliceStable(models, func(i, j int) bool {
 		left, right := models[i], models[j]
-		if key == "quality" || key == "q/p" {
+		if key == "quality" || key == "q/p" || key == "price" {
 			leftValue, leftOK := tableNumericSortValue(left, key)
 			rightValue, rightOK := tableNumericSortValue(right, key)
 			if leftOK != rightOK {
@@ -112,6 +115,8 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 			comparison = compareFloats(left.InPerM, right.InPerM)
 		case "output":
 			comparison = compareFloats(left.OutPerM, right.OutPerM)
+		case "price":
+			comparison = compareFloats(left.MixedPrice, right.MixedPrice)
 		}
 		if comparison == 0 {
 			return left.Slug < right.Slug
@@ -121,8 +126,114 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 	return nil
 }
 
+func parseTableArgs(args []string, flags *pflag.FlagSet) error {
+	rewritten := make([]string, 0, len(args)+1)
+	for index, arg := range args {
+		if len(arg) > 1 && arg[0] == '-' && arg[1] >= '0' && arg[1] <= '9' && (index == 0 || !tableFlagExpectsValue(args[index-1], flags)) {
+			value, err := strconv.Atoi(arg[1:])
+			if err != nil {
+				return fmt.Errorf("table: invalid limit shorthand %q: %w", arg, err)
+			}
+			rewritten = append(rewritten, "--limit", strconv.Itoa(value))
+			continue
+		}
+		rewritten = append(rewritten, arg)
+	}
+	if err := flags.Parse(rewritten); err != nil {
+		return fmt.Errorf("table: %w", err)
+	}
+	if len(flags.Args()) > 0 {
+		return fmt.Errorf("table: unexpected argument %q", flags.Args()[0])
+	}
+	return nil
+}
+
+func tableFlagExpectsValue(arg string, flags *pflag.FlagSet) bool {
+	if strings.Contains(arg, "=") || arg == "-" || arg == "--" {
+		return false
+	}
+	var flag *pflag.Flag
+	if strings.HasPrefix(arg, "--") {
+		flag = flags.Lookup(strings.TrimPrefix(arg, "--"))
+	} else if strings.HasPrefix(arg, "-") && len(arg) == 2 {
+		flag = flags.ShorthandLookup(arg[1:])
+	}
+	return flag != nil && flag.NoOptDefVal == ""
+}
+
+func filterTableModels(models []model.Model, filters []string) ([]model.Model, error) {
+	parsed := make([]func(model.Model) bool, 0, len(filters))
+	for _, raw := range filters {
+		filter := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case filter == "paid":
+			parsed = append(parsed, func(m model.Model) bool { return !m.Free })
+		case filter == "free":
+			parsed = append(parsed, func(m model.Model) bool { return m.Free })
+		case filter == "scored":
+			parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable })
+		case strings.HasPrefix(filter, "tier:"):
+			tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
+			if tier == "" {
+				return nil, fmt.Errorf("table: malformed filter %q; tier must not be empty", raw)
+			}
+			parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
+		case strings.HasPrefix(filter, "quality>="):
+			threshold, err := parseFiniteTableThreshold(raw, "quality", strings.TrimSpace(strings.TrimPrefix(filter, "quality>=")))
+			if err != nil {
+				return nil, err
+			}
+			parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable && m.Score.Value >= threshold })
+		case strings.HasPrefix(filter, "context>="):
+			threshold, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(filter, "context>=")))
+			if err != nil {
+				return nil, fmt.Errorf("table: malformed filter %q; context threshold must be an integer", raw)
+			}
+			parsed = append(parsed, func(m model.Model) bool { return m.Context >= threshold })
+		case strings.HasPrefix(filter, "input<="):
+			field, value := "input", strings.TrimSpace(strings.TrimPrefix(filter, "input<="))
+			threshold, err := parseFiniteTableThreshold(raw, field, value)
+			if err != nil {
+				return nil, err
+			}
+			parsed = append(parsed, func(m model.Model) bool { return m.InPerM <= threshold })
+		case strings.HasPrefix(filter, "output<="):
+			field, value := "output", strings.TrimSpace(strings.TrimPrefix(filter, "output<="))
+			threshold, err := parseFiniteTableThreshold(raw, field, value)
+			if err != nil {
+				return nil, err
+			}
+			parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
+		default:
+			return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
+		}
+	}
+	filtered := make([]model.Model, 0, len(models))
+	for _, candidate := range models {
+		matches := true
+		for _, predicate := range parsed {
+			if !predicate(candidate) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered, nil
+}
+
+func parseFiniteTableThreshold(raw, field, value string) (float64, error) {
+	threshold, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) {
+		return 0, fmt.Errorf("table: malformed filter %q; %s threshold must be a finite number", raw, field)
+	}
+	return threshold, nil
+}
+
 func limitTableModels(models []model.Model, limit int) []model.Model {
-	if limit < 0 || limit >= len(models) {
+	if limit <= 0 || limit >= len(models) {
 		return models
 	}
 	return models[:limit]
@@ -149,6 +260,9 @@ func compareFloats(left, right float64) int {
 }
 
 func tableNumericSortValue(m model.Model, key string) (float64, bool) {
+	if key == "price" {
+		return m.MixedPrice, true
+	}
 	if key == "quality" {
 		if m.Score == nil || !m.Rankable {
 			return 0, false

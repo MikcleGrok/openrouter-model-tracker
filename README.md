@@ -18,11 +18,11 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 ## Команды
 
 - `openrouter init [--config PATH] [--data-dir PATH]` — создать пользовательский конфиг и локальный каталог кэша; существующие пути не изменяются
-- `openrouter refresh [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
+- `openrouter refresh|update|up [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию колонки идут в порядке `Name | Claude | Status | Q/P | Context | Input $/M | Output $/M | Note`, а `Name` содержит `m.DisplayName`; `-S/--slug` переключает первую колонку на `Slug` с `m.Slug`; `-n/--limit N` оставляет первые `N` моделей после сортировки. Лимит по умолчанию не задан, а `N=0` выводит только заголовок и разделители.
+- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -47,7 +47,7 @@ make init
 если локальный снимок отсутствует.
 
 По умолчанию таблица сортируется по `q/p` по убыванию. `--sort` принимает только `name`, `slug`,
-`context`, `input`, `output`, `quality` и `q/p`; `-s Q` и `--sort q` являются shorthand/alias для `quality`. Качество сортируется по убыванию, `--reverse`/`-R` меняет его на возрастание, а отсутствующие или неранжируемые quality всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
+`context`, `input`, `output`, `price`, `quality` и `q/p`, а также `Q`, `P`, `QP`; `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Качество сортируется по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые quality всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
 Колонка `Note` рассчитывается по полной display width самого длинного непустого описания и не

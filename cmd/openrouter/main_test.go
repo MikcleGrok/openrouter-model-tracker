@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,17 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRefreshAliasesPreserveRefreshCommand(t *testing.T) {
+	root := newRootCmd()
+	refresh, _, err := root.Find([]string{"refresh"})
+	if err != nil {
+		t.Fatalf("find refresh: %v", err)
+	}
+	if refresh.Use != "refresh" || !reflect.DeepEqual(refresh.Aliases, []string{"update", "up"}) {
+		t.Fatalf("refresh command = use %q, aliases %v", refresh.Use, refresh.Aliases)
 	}
 }
 

@@ -159,6 +159,7 @@ func newRootCmd() *cobra.Command {
 		tableLimit    int
 		tableNoPager  bool
 		tableShowSlug bool
+		tableFilters  []string
 	)
 
 	root := &cobra.Command{
@@ -201,10 +202,11 @@ func newRootCmd() *cobra.Command {
 	}
 
 	refreshCmd := &cobra.Command{
-		Use:   "refresh",
-		Short: "Fetch fresh data and overwrite the document",
-		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, dryRun) },
+		Use:     "refresh",
+		Aliases: []string{"update", "up"},
+		Short:   "Fetch fresh data and overwrite the document",
+		Args:    cobra.NoArgs,
+		RunE:    func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, dryRun) },
 	}
 	refreshCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (overrides config)")
 	refreshCmd.Flags().BoolVar(&dryRun, "dry-run", false, "write nothing: neither the document nor the snapshot")
@@ -244,10 +246,16 @@ func newRootCmd() *cobra.Command {
 	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown or tsv")
 
 	tableCmd := &cobra.Command{
-		Use:   "table",
-		Short: "Show local model data as a plain-text table",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use:                "table",
+		Short:              "Show local model data as a plain-text table",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+				return cmd.Help()
+			}
+			if err := parseTableArgs(args, cmd.Flags()); err != nil {
+				return err
+			}
 			if cmd.Flags().Changed("limit") && tableLimit < 0 {
 				return fmt.Errorf("table: limit must be non-negative, got %d", tableLimit)
 			}
@@ -256,6 +264,10 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			models, err := loadLocalModels(dir)
+			if err != nil {
+				return err
+			}
+			models, err = filterTableModels(models, tableFilters)
 			if err != nil {
 				return err
 			}
@@ -273,7 +285,8 @@ func newRootCmd() *cobra.Command {
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
-	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting")
+	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
+	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "S", false, "show Slug instead of Name as the first column")
 
