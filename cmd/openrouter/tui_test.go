@@ -75,6 +75,9 @@ func TestTUIKeyState(t *testing.T) {
 	if !strings.Contains(m.View(), "openrouter tui keys") {
 		t.Fatal("help overlay missing")
 	}
+	if !strings.Contains(m.View(), "q sorts by quality") || !strings.Contains(m.View(), "p by price") || !strings.Contains(m.View(), "r by quality/price") {
+		t.Fatalf("help page 1 is missing sort shortcuts: %q", m.View())
+	}
 	for _, text := range []string{"Navigation", "IDFT", "English keywords"} {
 		if !strings.Contains(m.View(), text) {
 			t.Fatalf("help page 1 missing %q", text)
@@ -90,6 +93,9 @@ func TestTUIKeyState(t *testing.T) {
 	m = tuiKey(m, "right")
 	if m.helpPage != 2 || !strings.Contains(m.View(), "Auto-refresh") || !strings.Contains(m.View(), "refresh") {
 		t.Fatalf("right did not advance help: page=%d", m.helpPage)
+	}
+	if !strings.Contains(m.View(), "R refreshes") || !strings.Contains(m.View(), "x or Ctrl-C exits") || strings.Contains(m.View(), "r refreshes") {
+		t.Fatalf("help page 3 has stale shortcuts: %q", m.View())
 	}
 	m = tuiKey(m, "up")
 	if m.overlay != "help" || m.helpPage != 2 {
@@ -107,6 +113,56 @@ func TestTUIKeyState(t *testing.T) {
 	m = tuiKey(m, "?")
 	if m.overlay != "" {
 		t.Fatal("repeated ? did not close help")
+	}
+}
+
+func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "low-quality", DisplayName: "Low", QualityPriceLabel: "1.0", Score: &model.ScoreInfo{Value: 1}, Rankable: true, MixedPrice: 1, QualityPrice: 1},
+		{Slug: "high-quality", DisplayName: "High", QualityPriceLabel: "9.0", Score: &model.ScoreInfo{Value: 9}, Rankable: true, MixedPrice: 10, QualityPrice: 9},
+	}
+	for _, test := range []struct {
+		key, sortKey, first string
+	}{
+		{"q", "quality", "high-quality"},
+		{"p", "price", "low-quality"},
+		{"r", "q/p", "high-quality"},
+	} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+		m = tuiKey(m, test.key)
+		if m.sortKey != test.sortKey || len(m.visible) != 2 || m.visible[0].Slug != test.first {
+			t.Fatalf("key %q: sort=%q visible=%+v", test.key, m.sortKey, m.visible)
+		}
+	}
+}
+
+func TestTUIExitAndRefreshShortcuts(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")}); cmd == nil {
+		t.Fatal("x did not quit")
+	}
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyCtrlC}); cmd == nil {
+		t.Fatal("ctrl-c did not quit")
+	}
+	m = tuiKey(m, "q")
+	if m.sortKey != "quality" {
+		t.Fatalf("q sort key = %q", m.sortKey)
+	}
+	before := m.generation
+	var cmd tea.Cmd
+	m, cmd = m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	if cmd == nil || !m.refreshing || m.generation != before+1 {
+		t.Fatalf("R refresh state = refreshing %v generation %d cmd %v", m.refreshing, m.generation, cmd != nil)
+	}
+	msg, ok := cmd().(tuiRefreshMsg)
+	if !ok || msg.generation != before+1 {
+		t.Fatalf("R refresh message = %#v, want tuiRefreshMsg generation %d", msg, before+1)
+	}
+	m.refreshing = false
+	m.generation = before
+	m = tuiKey(m, "r")
+	if m.sortKey != "q/p" || m.refreshing {
+		t.Fatalf("lowercase r state = sort %q refreshing %v", m.sortKey, m.refreshing)
 	}
 }
 
@@ -241,6 +297,29 @@ func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 			if valueEnd != cellEnd {
 				t.Fatalf("%s value was not right-aligned: row=%q value-end=%d cell-end=%d", columns[column+1], row, valueEnd, cellEnd)
 			}
+		}
+	}
+}
+
+func TestTUINameColumnGetsWeightedWidth(t *testing.T) {
+	m := tuiModel{width: 80}
+	columns := []tuiColumn{colName, colContext, colInput}
+	line := m.renderTUILine(columns, nil, false)
+	offsets := tuiSeparatorDisplayOffsets(line)
+	nameWidth := offsets[0] - 2
+	numericWidth := offsets[1] - offsets[0] - 3
+	if nameWidth <= numericWidth {
+		t.Fatalf("name width %d is not greater than numeric width %d: %q", nameWidth, numericWidth, line)
+	}
+}
+
+func TestTUIStatusDescribesShortcuts(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.width, m.height = 100, 10
+	status := m.View()
+	for _, shortcut := range []string{"q quality", "p price", "r q/p", "R refresh", "x quit"} {
+		if !strings.Contains(status, shortcut) {
+			t.Fatalf("status is missing %q: %q", shortcut, status)
 		}
 	}
 }

@@ -197,7 +197,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m.columnKey(key)
 	}
 	switch key {
-	case "q", "ctrl+c":
+	case "x", "ctrl+c":
 		return m, tea.Quit
 	case "up", "k":
 		if len(m.visible) > 0 {
@@ -234,7 +234,10 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode, m.input = "filter", m.filter
 	case "?":
 		m.overlay, m.helpPage = "help", 0
-	case "r":
+	case "q", "p", "r":
+		m.sortKey = map[string]string{"q": "quality", "p": "price", "r": "q/p"}[key]
+		m.rebuild()
+	case "R":
 		if len(m.visible) > 0 {
 			m.selectedSlug = m.visible[m.cursor].Slug
 		}
@@ -397,7 +400,7 @@ func (m tuiModel) View() string {
 		}
 		lines = append(lines, m.renderTUILine(columns, values, prefix == ">"))
 	}
-	status := "↑↓ navigate · s sort · c columns · / filter · r refresh · ? help · q quit"
+	status := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · ? help"
 	if m.refreshing {
 		status = "refreshing... · " + status
 	}
@@ -449,7 +452,7 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 		}
 	}
 	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	cellWidth := max(1, available/len(columns))
+	widths := tuiCellWidths(columns, available)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
 		value := string(col)
@@ -461,9 +464,44 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 			}
 		}
 		value = plainTableText(ansi.Strip(value))
-		parts[i] = tuiPadCell(truncateTable(value, cellWidth), cellWidth, tuiNumericColumn(col))
+		parts[i] = tuiPadCell(truncateTable(value, widths[i]), widths[i], tuiNumericColumn(col))
 	}
 	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
+}
+
+func tuiCellWidths(columns []tuiColumn, available int) []int {
+	widths := make([]int, len(columns))
+	if len(columns) == 0 {
+		return widths
+	}
+	if available < len(columns) {
+		for i := range widths {
+			widths[i] = 1
+		}
+		return widths
+	}
+	weights := 0
+	for _, column := range columns {
+		if column == colName {
+			weights += 2
+			continue
+		}
+		weights++
+	}
+	remaining := available
+	for i, column := range columns {
+		weight := 1
+		if column == colName {
+			weight = 2
+		}
+		widths[i] = max(1, available*weight/weights)
+		remaining -= widths[i]
+	}
+	for i := 0; remaining > 0; i++ {
+		widths[i%len(widths)]++
+		remaining--
+	}
+	return widths
 }
 
 func tuiNumericColumn(column tuiColumn) bool {
@@ -523,11 +561,11 @@ func tuiHelpView(page, width, height int) string {
 func tuiHelpPageContent(page int) string {
 	switch page {
 	case 0:
-		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\ns cycles sort key; S reverses order.\nt toggles Task fit short/long. Short is IDFT; long shows English keywords.\nn switches the last column between Task fit and Note."
+		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nt toggles Task fit short/long. Short is IDFT; long shows English keywords.\nn switches the last column between Task fit and Note."
 	case 1:
 		return "Columns, search, and filters\n\nc opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.\n\n/ searches Name/Slug as plain substring text.\nf edits a structured filter and does not change the search.\nExamples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.\nMultiple filters are comma-separated and use AND."
 	default:
-		return "Refresh and finish\n\nr refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but r still works.\n\nq or Ctrl-C exits. Esc closes this help (and other overlays); ? toggles help.\n\nUse Tab or Right to advance, Left to go back. Up/Down do not leave help."
+		return "Refresh and finish\n\nR refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.\n\nx or Ctrl-C exits. Esc closes this help (and other overlays); ? toggles help.\n\nUse Tab or Right to advance, Left to go back. Up/Down do not leave help."
 	}
 }
 
