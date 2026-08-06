@@ -72,6 +72,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "format: markdown or tsv"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv"}},
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
+		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "automatic live refresh interval"}},
 	}
 
 	for _, tt := range tests {
@@ -204,5 +205,16 @@ func TestResolveOptionsNeedsBothValues(t *testing.T) {
 	}
 	if _, err := resolveOptions(empty, "/data", ""); err == nil || !strings.Contains(err.Error(), "default_output") {
 		t.Errorf("err = %v, want it to name default_output", err)
+	}
+}
+
+func TestResolveTUIOptionsAllowsMinimalConfig(t *testing.T) {
+	cfg := writeConfig(t, "data_dir: /data\n")
+	opts, err := resolveTUIOptions(cfg, "", "")
+	if err != nil {
+		t.Fatalf("resolveTUIOptions: %v", err)
+	}
+	if opts.DataDir != "/data" || opts.OutputPath != "" {
+		t.Fatalf("opts = %+v, want data_dir only", opts)
 	}
 }

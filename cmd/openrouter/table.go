@@ -520,7 +520,7 @@ func tableTaskFit(m model.Model, mode string) string {
 	for _, keyword := range m.TaskFit {
 		short = append(short, tokens[keyword])
 	}
-	return strings.Join(short, "+")
+	return strings.Join(short, "")
 }
 
 func min(left, right int) int {

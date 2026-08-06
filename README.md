@@ -167,9 +167,11 @@ describe suffix.
 
 `task_fit` — качественная taxonomy пригодности, а не score: `implement` (I), `plan` (P),
 `research` (R), `debug` (D), `audit` (A), `refactor` (F), `test` (T). Порядок канонический,
-дубликаты удаляются. Короткий вывод, например, `I+T`; длинный — `implement + test`.
+дубликаты удаляются. Короткий вывод, например, `IT` или `IDFT` без плюсов; длинный — `implement + debug + refactor + test`.
 Пустой список выводится как `n/a` и не означает плохое качество: это означает отсутствие
 классификации.
+
+`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit` и `--slug`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение short/long task-fit (`t`), Task fit/Note (`n`), ручное обновление (`r`) и справка (`?`). Последнюю колонку нельзя снять. `--refresh-interval 0` отключает автоматическое обновление, ручное `r` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
 
 Сам `.md` — билд-артефакт. Правки в нём не переживут следующий прогон.
 

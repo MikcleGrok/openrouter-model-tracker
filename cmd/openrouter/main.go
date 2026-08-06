@@ -71,6 +71,21 @@ func resolveDataDir(cfgPath, dataDir string) (string, error) {
 	return cfg.DataDir, nil
 }
 
+func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error) {
+	dir, err := resolveDataDir(cfgPath, dataDir)
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	if output == "" {
+		output = cfg.DefaultOutput
+	}
+	return refresh.Options{DataDir: dir, OutputPath: output}, nil
+}
+
 func parseSince(value string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, nil
@@ -301,8 +316,41 @@ func newRootCmd() *cobra.Command {
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "S", false, "show Slug instead of Name as the first column")
-	tableCmd.Flags().StringVar(&tableTaskFit, "task-fit", "short", "task-fit display: short (I+T) or long (implement + test); taxonomy: implement, plan, research, debug, audit, refactor, test")
+	tableCmd.Flags().StringVar(&tableTaskFit, "task-fit", "short", "task-fit display: short (IDFT, no plus signs); long: implement + debug + refactor + test; taxonomy: implement, plan, research, debug, audit, refactor, test")
 	tableCmd.Flags().BoolVar(&tableNotes, "notes", false, "show the legacy Note column instead of Task fit")
+
+	var tuiRefreshInterval time.Duration
+	var tuiSort string
+	var tuiReverse bool
+	var tuiFilter string
+	var tuiLimit int
+	var tuiShowSlug bool
+	tuiCmd := &cobra.Command{
+		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if tuiLimit < 0 {
+				return fmt.Errorf("tui: limit must be non-negative, got %d", tuiLimit)
+			}
+			if err := sortTableModels(nil, tuiSort, tuiReverse); err != nil {
+				return err
+			}
+			dir, err := resolveDataDir(cfgPath, dataDir)
+			if err != nil {
+				return err
+			}
+			opts, err := resolveTUIOptions(cfgPath, dataDir, output)
+			if err != nil {
+				return err
+			}
+			return runTUIWithConfig(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug)
+		},
+	}
+	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
+	tuiCmd.Flags().StringVar(&tuiSort, "sort", "q/p", "sort by: "+tableSortHelp)
+	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
+	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N")
+	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")
+	tuiCmd.Flags().BoolVar(&tuiShowSlug, "slug", false, "show Slug instead of Name as the first column")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -329,7 +377,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd)
+	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd)
 	root.AddCommand(tableCmd)
 	return root
 }

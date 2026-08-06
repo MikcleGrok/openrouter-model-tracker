@@ -38,17 +38,25 @@ func TestRenderTableTaskFitShortAndLong(t *testing.T) {
 	short := renderTableMode([]model.Model{row}, 120, false, "short")
 	long := renderTableMode([]model.Model{row}, 120, false, "long")
 	narrowLong := renderTableMode([]model.Model{row}, 40, false, "long")
-	if !strings.Contains(short, "Task fit") || !strings.Contains(short, "I+T") {
+	if !strings.Contains(short, "Task fit") || !strings.Contains(short, "IT") || strings.Contains(short, "I+T") {
 		t.Fatalf("short task fit = %s", short)
 	}
 	if !strings.Contains(long, "implement + test") {
 		t.Fatalf("long task fit = %s", long)
 	}
-	if strings.Contains(long, "I+T") {
+	if strings.Contains(long, "IT") {
 		t.Fatalf("long task fit used short formatting = %s", long)
 	}
 	if !strings.Contains(narrowLong, "implement + test") {
 		t.Fatalf("long task fit at 40 columns was truncated:\n%s", narrowLong)
+	}
+}
+
+func TestRenderTableTaskFitCanonicalShortHasNoPluses(t *testing.T) {
+	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "debug", "refactor", "test"}}
+	short := renderTableMode([]model.Model{row}, 120, false, "short")
+	if !strings.Contains(short, "IDFT") || strings.Contains(short, "I+D+F+T") {
+		t.Fatalf("canonical short task fit = %s", short)
 	}
 }
 
@@ -430,8 +438,8 @@ func TestTableCommandTaskFitModesThroughCLI(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{name: "default short", args: []string{"table", "--config", config}, want: []string{"Task fit", "I+T"}},
-		{name: "explicit short", args: []string{"table", "--config", config, "--task-fit=short"}, want: []string{"Task fit", "I+T"}},
+		{name: "default short", args: []string{"table", "--config", config}, want: []string{"Task fit", "IT"}},
+		{name: "explicit short", args: []string{"table", "--config", config, "--task-fit=short"}, want: []string{"Task fit", "IT"}},
 		{name: "long", args: []string{"table", "--config", config, "--task-fit=long"}, want: []string{"Task fit", "implement + test"}},
 		{name: "legacy notes", args: []string{"table", "--config", config, "--notes"}, want: []string{"Note", "Local fixture"}},
 	}
