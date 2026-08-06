@@ -422,11 +422,19 @@ func plainTableText(value string) string {
 }
 
 func renderTable(models []model.Model, width int, showSlug bool) string {
+	return renderTableMode(models, width, showSlug, "notes")
+}
+
+func renderTableMode(models []model.Model, width int, showSlug bool, columnMode string) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
 	}
-	headers := []string{identityHeader, "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"}
+	columnHeader := "Task fit"
+	if columnMode == "notes" {
+		columnHeader = "Note"
+	}
+	headers := []string{identityHeader, "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", columnHeader}
 	rows := make([][]string, 0, len(models))
 	maxClaudeWidth := 0
 	maxNoteWidth := 0
@@ -435,7 +443,8 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 		if showSlug {
 			identity = m.Slug
 		}
-		values := []string{identity, tableClaude(m), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), tableNote(m)}
+		last := tableTaskFit(m, columnMode)
+		values := []string{identity, tableClaude(m), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}
 		for i := range values {
 			values[i] = plainTableText(values[i])
 		}
@@ -445,7 +454,7 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	}
 	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, 5, 8, 13, 13, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
 	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 3, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
-	// Claude and Note keep their full widths; only structural columns use compact fallback.
+	// Claude keeps its full width; structural columns and the selected last column use compact fallback.
 	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
 	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
@@ -494,6 +503,24 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 	}
 	separator()
 	return b.String()
+}
+
+func tableTaskFit(m model.Model, mode string) string {
+	if mode == "notes" {
+		return tableNote(m)
+	}
+	if len(m.TaskFit) == 0 {
+		return "n/a"
+	}
+	if mode == "long" {
+		return strings.Join(m.TaskFit, " + ")
+	}
+	short := make([]string, 0, len(m.TaskFit))
+	tokens := map[string]string{"implement": "I", "plan": "P", "research": "R", "debug": "D", "audit": "A", "refactor": "F", "test": "T"}
+	for _, keyword := range m.TaskFit {
+		short = append(short, tokens[keyword])
+	}
+	return strings.Join(short, "+")
 }
 
 func min(left, right int) int {

@@ -42,6 +42,7 @@ type Model struct {
 	QualityPrice float64
 
 	Note        string
+	TaskFit     []string
 	Owner       string
 	OpenWeights string
 	ClaudeRef   string
@@ -110,6 +111,7 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 			Context:     price.Context,
 			Free:        price.Free,
 			Note:        nt.ModelNote(e.Slug),
+			TaskFit:     nt.TaskFit(e.Slug),
 			Owner:       nt.Owner(e.Slug),
 			OpenWeights: nt.OpenWeights(e.Slug),
 			ClaudeRef:   nt.ClaudeRef(e.Slug),

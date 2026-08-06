@@ -48,6 +48,7 @@ models:
     owner: OpenAI (C)
     open_weights: "нет"
     note: "Оценка независимая (vals.ai)."
+    task_fit: [test, implement, implement, audit]
   minimax/minimax-m3:
     display: MiniMax M3
     owner: MiniMax (н/д)

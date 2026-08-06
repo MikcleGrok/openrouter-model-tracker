@@ -1,9 +1,13 @@
 package modelmap
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 )
 
 func TestLoad(t *testing.T) {
@@ -40,6 +44,33 @@ func TestLoad(t *testing.T) {
 	free := got[2]
 	if free.Tier != "free" {
 		t.Errorf("entry[2].Tier = %q, want %q", free.Tier, "free")
+	}
+}
+
+func TestTaskFitMetadataUsesProductionLoaderForBothForms(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	content := "models:\n  nested/model:\n    task_fit: [test, implement, test]\ntask_fit:\n  top/model: [audit, implement]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := notes.Load(path)
+	if err != nil {
+		t.Fatalf("notes.Load: %v", err)
+	}
+	if got := parsed.TaskFit("nested/model"); strings.Join(got, ",") != "implement,test" {
+		t.Errorf("nested task_fit = %v", got)
+	}
+	if got := parsed.TaskFit("top/model"); strings.Join(got, ",") != "implement,audit" {
+		t.Errorf("top-level task_fit = %v", got)
+	}
+	if _, err := func() (*notes.Notes, error) {
+		invalidPath := filepath.Join(t.TempDir(), "notes.yaml")
+		if err := os.WriteFile(invalidPath, []byte("models:\n  invalid/model:\n    task_fit: [unknown]\n"), 0o644); err != nil {
+			return nil, err
+		}
+		return notes.Load(invalidPath)
+	}(); err == nil || !strings.Contains(err.Error(), "unknown keyword") {
+		t.Fatalf("invalid task_fit error = %v, want production validation error", err)
 	}
 }
 
@@ -84,5 +115,33 @@ func TestSlugsAndNamesFor(t *testing.T) {
 	}
 	if swe["nvidia/nemotron-3-ultra-550b-a55b:free"] != "Model: nemotron-3-ultra" {
 		t.Errorf("NamesFor(swebench) lost the free row: %v", swe)
+	}
+}
+
+func TestProductionTaskFitMetadataMatchesModelMap(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+	entries, err := Load(filepath.Join(root, "model-map.tsv"))
+	if err != nil {
+		t.Fatalf("production model-map.tsv: %v", err)
+	}
+	parsedNotes, err := notes.Load(filepath.Join(root, "notes.yaml"))
+	if err != nil {
+		t.Fatalf("production notes.yaml: %v", err)
+	}
+	mapSlugs := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		mapSlugs[entry.Slug] = true
+	}
+	for slug := range mapSlugs {
+		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" {
+			t.Errorf("task_fit is missing model-map slug %q", slug)
+		}
+	}
+	if got := parsedNotes.TaskFit("openai/gpt-5.6-luna"); strings.Join(got, ",") != "implement,plan,research,debug,audit,refactor,test" {
+		t.Errorf("production task_fit normalization = %v", got)
 	}
 }

@@ -159,6 +159,8 @@ func newRootCmd() *cobra.Command {
 		tableLimit    int
 		tableNoPager  bool
 		tableShowSlug bool
+		tableTaskFit  string
+		tableNotes    bool
 		tableFilters  []string
 	)
 
@@ -259,6 +261,12 @@ func newRootCmd() *cobra.Command {
 			if cmd.Flags().Changed("limit") && tableLimit < 0 {
 				return fmt.Errorf("table: limit must be non-negative, got %d", tableLimit)
 			}
+			if tableNotes && cmd.Flags().Changed("task-fit") {
+				return errors.New("table: --notes cannot be combined with --task-fit")
+			}
+			if tableTaskFit != "short" && tableTaskFit != "long" {
+				return fmt.Errorf("table: invalid --task-fit %q; allowed values: short, long", tableTaskFit)
+			}
 			dir, err := resolveDataDir(cfgPath, dataDir)
 			if err != nil {
 				return err
@@ -280,7 +288,11 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			shouldPage := tableShouldPage(cmd.OutOrStdout(), tableNoPager)
-			return writeTableOutput(renderTable(models, width, tableShowSlug), cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
+			mode := tableTaskFit
+			if tableNotes {
+				mode = "notes"
+			}
+			return writeTableOutput(renderTableMode(models, width, tableShowSlug, mode), cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
@@ -289,6 +301,8 @@ func newRootCmd() *cobra.Command {
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "S", false, "show Slug instead of Name as the first column")
+	tableCmd.Flags().StringVar(&tableTaskFit, "task-fit", "short", "task-fit display: short (I+T) or long (implement + test); taxonomy: implement, plan, research, debug, audit, refactor, test")
+	tableCmd.Flags().BoolVar(&tableNotes, "notes", false, "show the legacy Note column instead of Task fit")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",

@@ -1,6 +1,7 @@
 package refresh
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,8 +82,9 @@ func TestLoadSnapshotWithoutCatalogBaselineRemainsCompatible(t *testing.T) {
 }
 
 func TestNewSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache", "last-run-snapshot.json")
 	models := []model.Model{
-		{Slug: "a/one", InPerM: 1, OutPerM: 2, Context: 100000, Score: &model.ScoreInfo{Value: 50}},
+		{Slug: "a/one", InPerM: 1, OutPerM: 2, Context: 100000, Score: &model.ScoreInfo{Value: 50}, TaskFit: []string{"implement", "test"}, QualityPrice: 999},
 		{Slug: "a/two", InPerM: 3, OutPerM: 4, Context: 200000},
 	}
 	s := NewSnapshot(models, "2026-08-04")
@@ -94,5 +96,23 @@ func TestNewSnapshot(t *testing.T) {
 	}
 	if s.Models["a/two"].OutPerM != 4 {
 		t.Errorf("NewSnapshot = %+v", s.Models["a/two"])
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	got := loaded.Models["a/one"]
+	if got.InPerM != 1 || got.OutPerM != 2 || got.Context != 100000 || got.Score == nil || got.Score.Value != 50 || got.HasOverride || got.OverrideMinTokens != 0 || got.OverrideInPerM != 0 || got.OverrideOutPerM != 0 {
+		t.Fatalf("loaded entry = %+v, want only dynamic snapshot fields", got)
+	}
+	body, err := json.Marshal(loaded.Models["a/one"])
+	if err != nil {
+		t.Fatalf("marshal loaded entry: %v", err)
+	}
+	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":""}}` {
+		t.Fatalf("loaded entry metadata = %s, want no task-fit or quality/price fields", body)
 	}
 }

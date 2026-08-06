@@ -1,7 +1,10 @@
 package notes
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -29,8 +32,69 @@ func TestModelAccessors(t *testing.T) {
 	if got := n.ModelNote("openai/gpt-5.6-luna"); got != "Оценка независимая (vals.ai)." {
 		t.Errorf("ModelNote = %q", got)
 	}
+	if got := n.TaskFit("openai/gpt-5.6-luna"); len(got) != 3 || got[0] != "implement" || got[1] != "audit" || got[2] != "test" {
+		t.Errorf("TaskFit = %v, want canonical deduplicated order", got)
+	}
 	if got := n.ClaudeRef("nvidia/nemotron-3-ultra-550b-a55b:free"); got != "<≈ Haiku 4.5 (середина диапазона)" {
 		t.Errorf("ClaudeRef = %q", got)
+	}
+}
+
+func TestTaskFitRejectsUnknownKeyword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    task_fit: [implement, scoring]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown keyword") {
+		t.Fatalf("Load error = %v, want unknown keyword", err)
+	}
+}
+
+func TestTopLevelTaskFitNormalizesCanonicalOrderAndDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("task_fit:\n  demo/model: [test, implement, test, audit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := n.TaskFit("demo/model"); !reflect.DeepEqual(got, []string{"implement", "audit", "test"}) {
+		t.Errorf("top-level TaskFit = %v, want canonical deduplicated order", got)
+	}
+}
+
+func TestTaskFitAcceptsEmptyTopLevelList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("task_fit:\n  demo/model: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := n.TaskFit("demo/model"); len(got) != 0 {
+		t.Errorf("empty top-level TaskFit = %v, want empty", got)
+	}
+}
+
+func TestTaskFitTopLevelUnknownKeyword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("task_fit:\n  demo/model: [scoring]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "task_fit.demo/model") || !strings.Contains(err.Error(), "unknown keyword") {
+		t.Fatalf("Load error = %v, want top-level unknown-keyword context", err)
+	}
+}
+
+func TestTaskFitMalformedYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("task_fit: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "notes:") {
+		t.Fatalf("Load error = %v, want malformed YAML error", err)
 	}
 }
 

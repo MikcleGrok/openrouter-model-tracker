@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +21,15 @@ func executeCLI(t *testing.T, args ...string) string {
 		t.Fatalf("execute %v: %v\noutput: %s", args, err, output.String())
 	}
 	return output.String()
+}
+
+func executeCLIError(t *testing.T, args ...string) error {
+	t.Helper()
+	cmd := newRootCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs(args)
+	return cmd.Execute()
 }
 
 func TestVersionFlag(t *testing.T) {

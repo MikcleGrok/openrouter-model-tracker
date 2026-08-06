@@ -67,6 +67,9 @@ func TestMerge(t *testing.T) {
 	if luna.DisplayName != "GPT-5.6 Luna" || luna.Owner != "OpenAI (C)" || luna.OpenWeights != "нет" {
 		t.Errorf("luna prose = %+v, want it pulled from notes.yaml", luna)
 	}
+	if len(luna.TaskFit) != 3 || luna.TaskFit[0] != "implement" {
+		t.Errorf("luna.TaskFit = %v, want propagated normalized metadata", luna.TaskFit)
+	}
 	if luna.Score == nil || luna.Score.Value != 93.0 {
 		t.Fatalf("luna.Score = %+v, want the fetched row", luna.Score)
 	}

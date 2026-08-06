@@ -33,6 +33,32 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	}
 }
 
+func TestRenderTableTaskFitShortAndLong(t *testing.T) {
+	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "test"}}
+	short := renderTableMode([]model.Model{row}, 120, false, "short")
+	long := renderTableMode([]model.Model{row}, 120, false, "long")
+	narrowLong := renderTableMode([]model.Model{row}, 40, false, "long")
+	if !strings.Contains(short, "Task fit") || !strings.Contains(short, "I+T") {
+		t.Fatalf("short task fit = %s", short)
+	}
+	if !strings.Contains(long, "implement + test") {
+		t.Fatalf("long task fit = %s", long)
+	}
+	if strings.Contains(long, "I+T") {
+		t.Fatalf("long task fit used short formatting = %s", long)
+	}
+	if !strings.Contains(narrowLong, "implement + test") {
+		t.Fatalf("long task fit at 40 columns was truncated:\n%s", narrowLong)
+	}
+}
+
+func TestRenderTableTaskFitMissingIsNA(t *testing.T) {
+	output := renderTableMode([]model.Model{{DisplayName: "model"}}, 120, false, "short")
+	if !strings.Contains(output, "Task fit") || !strings.Contains(output, "n/a") {
+		t.Fatalf("missing task fit = %s", output)
+	}
+}
+
 func TestRenderTableKeepsFullNoteAtAnyRequestedWidth(t *testing.T) {
 	note := "full note with enough detail to exceed the preferred column width"
 	models := []model.Model{{DisplayName: "model", Note: note}}
@@ -381,13 +407,91 @@ func TestTableCommandReadsLocalSnapshot(t *testing.T) {
 	if err := copyTableFixture(t, root); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("COLUMNS", "40")
+	t.Setenv("COLUMNS", "120")
 	output := executeCLI(t, "table", "--config", config)
 	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Claude") {
 		t.Fatalf("table output = %q", output)
 	}
 	if got := tableColumnWidths(output); len(got) != 8 {
 		t.Fatalf("CLI table has %d columns, want 8:\n%s", len(got), output)
+	}
+}
+
+func TestTableCommandTaskFitModesThroughCLI(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "default short", args: []string{"table", "--config", config}, want: []string{"Task fit", "I+T"}},
+		{name: "explicit short", args: []string{"table", "--config", config, "--task-fit=short"}, want: []string{"Task fit", "I+T"}},
+		{name: "long", args: []string{"table", "--config", config, "--task-fit=long"}, want: []string{"Task fit", "implement + test"}},
+		{name: "legacy notes", args: []string{"table", "--config", config, "--notes"}, want: []string{"Note", "Local fixture"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := executeCLI(t, tt.args...)
+			for _, want := range tt.want {
+				if !strings.Contains(output, want) {
+					t.Errorf("output does not contain %q:\n%s", want, output)
+				}
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "notes and long conflict", args: []string{"table", "--config", config, "--notes", "--task-fit=long"}, want: "--notes cannot be combined"},
+		{name: "invalid value", args: []string{"table", "--config", config, "--task-fit=invalid"}, want: "invalid --task-fit"},
+		{name: "empty value", args: []string{"table", "--config", config, "--task-fit="}, want: "invalid --task-fit"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := executeCLIError(t, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+
+	output := executeCLI(t, "table", "--config", config, "--task-fit=long")
+	if !strings.Contains(output, "n/a") {
+		t.Fatalf("missing task fit did not render n/a:\n%s", output)
+	}
+}
+
+func TestTableCommandLongTaskFitAtMinimumWidth(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    task_fit: [implement, plan, research, debug, audit, refactor, test]\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "40")
+	output := executeCLI(t, "table", "--config", config, "--no-pager", "--task-fit=long", "--sort", "quality", "-n", "1")
+	longText := "implement + plan + research + debug + audit + refactor + test"
+	if !strings.Contains(output, longText) {
+		t.Fatalf("minimum-width CLI output lost full task-fit text:\n%s", output)
+	}
+	widths := tableColumnWidths(output)
+	if len(widths) != 8 || widths[7] < tableDisplayWidth(longText) {
+		t.Fatalf("task-fit column widths = %v, want final column >= %d:\n%s", widths, tableDisplayWidth(longText), output)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if got := tableDisplayWidth(line); got < 40 {
+			t.Errorf("CLI table line width = %d, want at least 40: %q", got, line)
+		}
 	}
 }
 
@@ -843,7 +947,7 @@ func copyTableFixture(t *testing.T, root string) error {
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/high\ttier=sonnet\ndemo/low\ttier=haiku\ndemo/missing\ttier=free\n"), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    note: Local fixture\n    claude_ref: '**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字'\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/high:\n    display: Demo High\n    note: Local fixture\n    task_fit: [implement, test]\n    claude_ref: '**<≈ Haiku 4.5** | бесплатная, середина диапазона, уточнение漢字'\n  demo/low:\n    display: Demo Low\n  demo/missing:\n    display: Demo Missing\n"), 0o644); err != nil {
 		return err
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
