@@ -23,8 +23,49 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
+- `openrouter completion bash` — сгенерировать Bash completion
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
+
+### Bash completion
+
+Для текущей shell-сессии:
+
+```bash
+source <(openrouter completion bash)
+```
+
+Для постоянной установки в macOS Homebrew:
+
+```bash
+brew install bash-completion@2
+mkdir -p "$(brew --prefix)/etc/bash_completion.d"
+openrouter completion bash > "$(brew --prefix)/etc/bash_completion.d/openrouter"
+BREW_PREFIX="$(brew --prefix)"
+printf '%s\n' 'if [ -r "$(brew --prefix)/etc/profile.d/bash_completion.sh" ]; then' '  source "$(brew --prefix)/etc/profile.d/bash_completion.sh"' 'fi' >> "$HOME/.bash_profile"
+source "$BREW_PREFIX/etc/profile.d/bash_completion.sh"
+```
+
+На Apple Silicon `brew --prefix` обычно равен `/opt/homebrew`, поэтому startup script
+находится в `/opt/homebrew/etc/profile.d/bash_completion.sh`. На Intel macOS и Linux этот
+путь может отличаться; используйте значение, которое возвращает `brew --prefix`.
+Перезапустите shell или перезагрузите конфигурацию `bash-completion`, чтобы файл был подключён.
+
+Для постоянной установки на Linux от имени пользователя:
+
+```bash
+mkdir -p "$HOME/.local/share/bash-completion/completions"
+openrouter completion bash > "$HOME/.local/share/bash-completion/completions/openrouter"
+```
+
+Каталог `~/.local/share/bash-completion/completions` должен загружаться вашей установкой
+`bash-completion`. Универсальная альтернатива — добавить в `~/.bashrc` одну строку:
+
+```bash
+source <(openrouter completion bash)
+```
+
+Completion включает команды и flags, в том числе `tui`, `table`, `--task-fit`, `--sort` и `--filter`.
 
 ## Makefile
 

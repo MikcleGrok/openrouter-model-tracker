@@ -61,6 +61,63 @@ func TestRootHelpIncludesVersion(t *testing.T) {
 	}
 }
 
+func TestBashCompletion(t *testing.T) {
+	output := executeCLI(t, "completion", "bash")
+	if strings.TrimSpace(output) == "" {
+		t.Fatal("bash completion output is empty")
+	}
+}
+
+func completionSuggestions(t *testing.T, args ...string) map[string]bool {
+	t.Helper()
+	output := executeCLI(t, append([]string{"__complete"}, args...)...)
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("completion output has no suggestions and directive: %q", output)
+	}
+	directiveIndex := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, ":") {
+			directiveIndex = i
+			break
+		}
+	}
+	if directiveIndex == -1 {
+		t.Fatalf("completion output has no directive line: %q", output)
+	}
+	suggestions := make(map[string]bool)
+	for _, line := range lines[:directiveIndex] {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			t.Fatalf("completion line has unexpected format %q in %q", line, output)
+		}
+		suggestions[parts[0]] = true
+	}
+	return suggestions
+}
+
+func TestCompletionSuggestions(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "root", args: []string{""}, want: []string{"table", "tui", "completion"}},
+		{name: "tui flags", args: []string{"tui", "--"}, want: []string{"--refresh-interval", "--sort", "--filter", "--limit", "--reverse", "--slug"}},
+		{name: "table flags", args: []string{"table", "--"}, want: []string{"--task-fit", "--sort", "--filter", "--limit", "--notes", "--no-pager", "--reverse", "--slug"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := completionSuggestions(t, tt.args...)
+			for _, want := range tt.want {
+				if !got[want] {
+					t.Errorf("completion suggestions do not contain %q: %v", want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestSubcommandHelpIsEnglish(t *testing.T) {
 	tests := []struct {
 		command string
