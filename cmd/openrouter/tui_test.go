@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
@@ -218,6 +220,159 @@ func TestTUIViewNarrowAndSanitized(t *testing.T) {
 	if len(m.pendingColumns) != 1 {
 		t.Fatal("last column was removed")
 	}
+}
+
+func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
+	m := tuiModel{width: 34}
+	columns := []tuiColumn{colName, colContext, colInput}
+	header := m.renderTUILine(columns, nil, false)
+	for _, values := range [][]string{{"Long model", "7", "1.5"}, {"Long model", "12345", "0.125"}} {
+		row := m.renderTUILine(columns, values, false)
+		selected := m.renderTUILine(columns, values, true)
+		if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(row)) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(selected)) {
+			t.Fatalf("separator display positions differ: header=%q row=%q selected=%q", header, row, selected)
+		}
+		if tableDisplayWidth(header) > m.width || tableDisplayWidth(row) > m.width || tableDisplayWidth(selected) > m.width {
+			t.Fatalf("rendered line exceeds width: header=%q row=%q selected=%q", header, row, selected)
+		}
+		for column, value := range values[1:] {
+			cellEnd := tuiNumericCellDisplayEnd(row, column+1)
+			valueEnd := tuiValueDisplayEnd(row, value, column+1)
+			if valueEnd != cellEnd {
+				t.Fatalf("%s value was not right-aligned: row=%q value-end=%d cell-end=%d", columns[column+1], row, valueEnd, cellEnd)
+			}
+		}
+	}
+}
+
+func TestTUIRenderTUILineUsesDisplayWidthAndStripsANSI(t *testing.T) {
+	m := tuiModel{width: 22}
+	columns := []tuiColumn{colName, colContext}
+	styled := lipgloss.NewStyle().Bold(true).Render("界🙂")
+	row := m.renderTUILine(columns, []string{"界🙂", "7"}, false)
+	styledRow := m.renderTUILine(columns, []string{styled, "7"}, false)
+	plain := m.renderTUILine(columns, []string{"界🙂", "7"}, false)
+	if styledRow != plain {
+		t.Fatalf("ANSI styling changed layout: styled=%q plain=%q", styledRow, plain)
+	}
+	if row != plain {
+		t.Fatalf("ANSI styling changed layout: styled=%q plain=%q", row, plain)
+	}
+	if tableDisplayWidth(row) > m.width {
+		t.Fatalf("Unicode row exceeds width: %q", row)
+	}
+	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false))) {
+		t.Fatalf("Unicode separator display position changed with numeric width: %q", row)
+	}
+}
+
+func TestTUIViewNarrowWidthPreservesTableStructure(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "model"}})
+	m.width, m.height = 6, 10
+	view := m.View()
+	columns := m.renderColumns()
+	if len(columns) != 1 {
+		t.Fatalf("narrow view kept %d columns, want one: %v", len(columns), columns)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if tableDisplayWidth(line) > m.width {
+			t.Fatalf("line exceeds width %d: %q", m.width, line)
+		}
+		if strings.Contains(line, " | ") {
+			t.Fatalf("narrow view retained a multi-column separator: %q", line)
+		}
+	}
+}
+
+func TestTUIViewBoundaryWidthHidesColumnsBeforeRendering(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "local-model", DisplayName: "Local model"}})
+	m.width, m.height = 26, 10
+	view := m.View()
+	columns := m.renderColumns()
+	if len(columns) != 6 {
+		t.Fatalf("boundary view kept %d columns, want 6: %v", len(columns), columns)
+	}
+	wantSeparators := len(columns) - 1
+	var tableLines []string
+	for _, line := range strings.Split(view, "\n") {
+		if tableDisplayWidth(line) > m.width {
+			t.Fatalf("line exceeds width %d: %q", m.width, line)
+		}
+		if !strings.Contains(line, " | ") {
+			continue
+		}
+		tableLines = append(tableLines, line)
+		if got := len(tuiSeparatorDisplayOffsets(line)); got != wantSeparators {
+			t.Fatalf("boundary table line has %d separators, want %d: %q", got, wantSeparators, line)
+		}
+		if strings.Contains(strings.ReplaceAll(line, " | ", ""), "|") {
+			t.Fatalf("boundary table line contains a clipped separator: %q", line)
+		}
+	}
+	if len(tableLines) < 2 {
+		t.Fatalf("boundary view has %d table lines, want header and data: %q", len(tableLines), view)
+	}
+	headerOffsets := tuiSeparatorDisplayOffsets(tableLines[0])
+	for _, line := range tableLines[1:] {
+		if got := tuiSeparatorDisplayOffsets(line); !reflect.DeepEqual(got, headerOffsets) {
+			t.Fatalf("boundary table geometry differs: header=%v row=%v: %q", headerOffsets, got, line)
+		}
+	}
+}
+
+func TestTUIRenderTUILineFitsNarrowWidths(t *testing.T) {
+	columns := []tuiColumn{colName, colContext, colOutput}
+	for width := 1; width <= 12; width++ {
+		m := tuiModel{width: width}
+		for _, values := range [][]string{nil, {"a", "123", "4.5"}} {
+			line := m.renderTUILine(columns, values, false)
+			if tableDisplayWidth(line) > width {
+				t.Fatalf("width %d line exceeds width: %q", width, line)
+			}
+		}
+	}
+}
+
+func tuiSeparatorDisplayOffsets(line string) []int {
+	offsets := make([]int, 0, 2)
+	for index := 0; index < len(line); {
+		separator := strings.Index(line[index:], " | ")
+		if separator < 0 {
+			break
+		}
+		separator += index
+		offsets = append(offsets, tableDisplayWidth(line[:separator])+1)
+		index = separator + len(" | ")
+	}
+	return offsets
+}
+
+func tuiNumericCellDisplayEnd(line string, column int) int {
+	offsets := tuiSeparatorDisplayOffsets(line)
+	end := tableDisplayWidth(line)
+	if column < len(offsets) {
+		end = offsets[column] - 1
+	}
+	return end
+}
+
+func tuiValueDisplayEnd(line, value string, column int) int {
+	index := strings.Index(line, value)
+	if index < 0 {
+		return -1
+	}
+	valueStart := tableDisplayWidth(line[:index])
+	valueEnd := valueStart + tableDisplayWidth(value)
+	cellStart := 0
+	if column > 0 {
+		offsets := tuiSeparatorDisplayOffsets(line)
+		cellStart = offsets[column-1] + 1
+	}
+	cellEnd := tuiNumericCellDisplayEnd(line, column)
+	if valueStart < cellStart || valueEnd > cellEnd {
+		return -1
+	}
+	return valueEnd
 }
 
 func TestTUIOverlayFitsTerminalWidth(t *testing.T) {

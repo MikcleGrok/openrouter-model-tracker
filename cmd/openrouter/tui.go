@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
@@ -427,41 +428,62 @@ func (m tuiModel) renderColumns() []tuiColumn {
 			}
 		}
 		if !removed {
-			break
+			columns = columns[:len(columns)-1]
 		}
 	}
 	return columns
 }
 
 func (m tuiModel) tuiColumnsWidth(columns []tuiColumn) int {
-	return len(columns)*3 + 2
+	return tableDisplayWidth("  ") + len(columns) + 3*(len(columns)-1)
 }
 
 func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected bool) string {
-	available := m.width
-	prefix := ""
-	if values != nil {
-		prefix = " "
-		if selected {
-			prefix = ">"
-		}
-		available -= 2
+	if m.width <= 0 || len(columns) == 0 {
+		return ""
 	}
-	available -= 3 * (len(columns) - 1)
-	cellWidth := max(1, available/max(1, len(columns)))
+	prefix := "  "
+	if values != nil {
+		if selected {
+			prefix = "> "
+		}
+	}
+	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
+	cellWidth := max(1, available/len(columns))
 	parts := make([]string, len(columns))
 	for i, col := range columns {
 		value := string(col)
 		if values != nil {
-			value = values[i]
+			if i < len(values) {
+				value = values[i]
+			} else {
+				value = ""
+			}
 		}
-		parts[i] = truncateTable(plainTableText(value), cellWidth)
+		value = plainTableText(ansi.Strip(value))
+		parts[i] = tuiPadCell(truncateTable(value, cellWidth), cellWidth, tuiNumericColumn(col))
 	}
-	line := strings.Join(parts, " | ")
-	if values != nil {
-		line = prefix + " " + line
+	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
+}
+
+func tuiNumericColumn(column tuiColumn) bool {
+	switch column {
+	case colQuality, colContext, colInput, colOutput:
+		return true
+	default:
+		return false
 	}
-	return truncateTable(line, m.width)
+}
+
+func tuiPadCell(value string, width int, rightAligned bool) string {
+	padding := width - tableDisplayWidth(value)
+	if padding <= 0 {
+		return value
+	}
+	if rightAligned {
+		return strings.Repeat(" ", padding) + value
+	}
+	return value + strings.Repeat(" ", padding)
 }
 func tuiBox(content string, width, height int) string {
 	if width <= 0 || height <= 0 {
