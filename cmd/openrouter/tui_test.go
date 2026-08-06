@@ -78,9 +78,20 @@ func TestTUIKeyState(t *testing.T) {
 	if !strings.Contains(m.View(), "q sorts by quality") || !strings.Contains(m.View(), "p by price") || !strings.Contains(m.View(), "r by quality/price") {
 		t.Fatalf("help page 1 is missing sort shortcuts: %q", m.View())
 	}
-	for _, text := range []string{"Navigation", "IDFT", "English keywords"} {
-		if !strings.Contains(m.View(), text) {
+	helpPage := tuiHelpPageContent(0)
+	for _, text := range []string{"Navigation", "IDFT", "English keywords", "implement + debug + refactor + test", "implement, plan, research, debug, audit, refactor, test", "last column between Task fit and Note"} {
+		if !strings.Contains(helpPage, text) {
 			t.Fatalf("help page 1 missing %q", text)
+		}
+	}
+	if !strings.Contains(m.View(), "IDFT") || !strings.Contains(m.View(), "English keywords") {
+		t.Fatalf("help page 1 view missing task-fit display modes: %q", m.View())
+	}
+	m.width, m.height = 140, 30
+	view := m.View()
+	for _, text := range []string{"long shows English keywords", "Task-fit keywords are: implement, plan, research, debug, audit, refactor, test"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("help page 1 view missing task-fit copy %q: %q", text, view)
 		}
 	}
 	if !strings.Contains(m.View(), "Page 1/3") {
@@ -113,6 +124,35 @@ func TestTUIKeyState(t *testing.T) {
 	m = tuiKey(m, "?")
 	if m.overlay != "" {
 		t.Fatal("repeated ? did not close help")
+	}
+}
+
+func TestTUIStatusIncludesTaskFitShortcutAndTruncates(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.width, m.height = 120, 20
+	findFooter := func(view string) string {
+		for _, line := range strings.Split(view, "\n") {
+			if strings.HasPrefix(line, "↑↓ navigate") {
+				return line
+			}
+		}
+		return ""
+	}
+	wideFooter := findFooter(m.View())
+	if wideFooter == "" || !strings.Contains(wideFooter, "t task-fit") {
+		t.Fatalf("wide TUI footer missing task-fit shortcut: %q", wideFooter)
+	}
+
+	m.width = 20
+	narrowFooter := findFooter(m.View())
+	if narrowFooter == "" {
+		t.Fatal("narrow TUI footer is missing")
+	}
+	if got := tableDisplayWidth(narrowFooter); got > m.width {
+		t.Fatalf("narrow TUI footer exceeds width %d: %q (display width %d)", m.width, narrowFooter, got)
+	}
+	if tableDisplayWidth(wideFooter) <= m.width || narrowFooter == wideFooter || strings.Contains(narrowFooter, "t task-fit") {
+		t.Fatalf("narrow TUI footer was not truncated before task-fit shortcut: wide=%q narrow=%q", wideFooter, narrowFooter)
 	}
 }
 

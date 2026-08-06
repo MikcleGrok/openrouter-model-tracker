@@ -400,7 +400,7 @@ func (m tuiModel) View() string {
 		}
 		lines = append(lines, m.renderTUILine(columns, values, prefix == ">"))
 	}
-	status := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · ? help"
+	status := "↑↓ navigate · q quality · p price · r q/p · t task-fit · R refresh · x quit · ? help"
 	if m.refreshing {
 		status = "refreshing... · " + status
 	}
@@ -561,7 +561,7 @@ func tuiHelpView(page, width, height int) string {
 func tuiHelpPageContent(page int) string {
 	switch page {
 	case 0:
-		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nt toggles Task fit short/long. Short is IDFT; long shows English keywords.\nn switches the last column between Task fit and Note."
+		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nt toggles Task fit short/long: short uses IDFT; long shows English keywords, for example implement + debug + refactor + test.\nTask-fit keywords are: implement, plan, research, debug, audit, refactor, test.\nn switches the last column between Task fit and Note."
 	case 1:
 		return "Columns, search, and filters\n\nc opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.\n\n/ searches Name/Slug as plain substring text.\nf edits a structured filter and does not change the search.\nExamples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.\nMultiple filters are comma-separated and use AND."
 	default:
