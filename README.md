@@ -83,6 +83,32 @@ make install
 exact tag; при явном `VERSION` это значение внедряется в бинарник и полностью
 проверяется до атомарной замены. `TARGET` позволяет выбрать Go package для сборки.
 
+При установке или переустановке через локальную Homebrew formula Bash completion
+генерируется и устанавливается автоматически:
+
+```bash
+brew install bash-completion@2
+brew install --HEAD local/tap/openrouter
+brew reinstall local/tap/openrouter   # обновить бинарник и completion
+```
+
+Один раз убедитесь, что установленный `bash-completion@2` загружает каталог completion
+Homebrew при старте Bash. Например, добавьте в `~/.bash_profile`:
+
+```bash
+if [ -r "$(brew --prefix)/etc/profile.d/bash_completion.sh" ]; then
+  source "$(brew --prefix)/etc/profile.d/bash_completion.sh"
+fi
+```
+
+На Apple Silicon startup script обычно находится в `/opt/homebrew/etc/profile.d/bash_completion.sh`.
+На Intel macOS и Linux путь может отличаться; используйте значение, которое возвращает
+`brew --prefix`. После первоначальной настройки перезапустите shell или загрузите этот
+startup script вручную. Последующая установка или переустановка обновляет completion-файл,
+но не изменяет уже запущенную shell-сессию автоматически.
+
+Для постоянной установки на Linux от имени пользователя:
+
 ```bash
 make install PREFIX="$HOME/.local" BINDIR="$HOME/.local/bin"
 make upgrade PREFIX="$HOME/.local" VERSION=1.15.0
