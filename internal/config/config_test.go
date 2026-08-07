@@ -11,7 +11,8 @@ func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	body := "data_dir: /Users/sergey/projects/openrouter-model-tracker\n" +
-		"default_output: /Users/sergey/projects/bobash/docs/openrouter-model-comparison.md\n"
+		"default_output: /Users/sergey/projects/bobash/docs/openrouter-model-comparison.md\n" +
+		"ranking:\n  mixed_utility:\n    price_weight: 3.5\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -25,6 +26,34 @@ func TestLoad(t *testing.T) {
 	}
 	if got.DefaultOutput != "/Users/sergey/projects/bobash/docs/openrouter-model-comparison.md" {
 		t.Errorf("DefaultOutput = %q", got.DefaultOutput)
+	}
+	if got.MixedUtilityPriceWeight() != 3.5 {
+		t.Errorf("MixedUtilityPriceWeight = %v", got.MixedUtilityPriceWeight())
+	}
+}
+
+func TestMixedUtilityPriceWeightDefaultsWhenMissing(t *testing.T) {
+	got, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.MixedUtilityPriceWeight() != DefaultMixedUtilityPriceWeight {
+		t.Fatalf("MixedUtilityPriceWeight = %v, want %v", got.MixedUtilityPriceWeight(), DefaultMixedUtilityPriceWeight)
+	}
+}
+
+func TestLoadRejectsInvalidMixedUtilityPriceWeight(t *testing.T) {
+	for _, value := range []string{"-1", ".NaN", ".Inf", "-.Inf"} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			body := "ranking:\n  mixed_utility:\n    price_weight: " + value + "\n"
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("Load accepted invalid price weight")
+			}
+		})
 	}
 }
 

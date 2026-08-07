@@ -129,7 +129,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "format: markdown or tsv"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv"}},
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
-		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "automatic live refresh interval"}},
+		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "default mixed-utility", "automatic live refresh interval"}},
 	}
 
 	for _, tt := range tests {
@@ -173,7 +173,7 @@ func TestInitCreatesConfigAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	if string(body) != "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: "+dataDir+"\ndefault_output: docs/openrouter-model-comparison.md\n" {
+	if string(body) != "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: "+dataDir+"\ndefault_output: docs/openrouter-model-comparison.md\nranking:\n    mixed_utility:\n        price_weight: 10\n" {
 		t.Errorf("config = %q", body)
 	}
 	if info, err := os.Stat(filepath.Join(dataDir, "cache")); err != nil || !info.IsDir() {

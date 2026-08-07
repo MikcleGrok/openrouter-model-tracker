@@ -221,18 +221,36 @@ func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
 	}
 }
 
+func TestTUIUsesConfiguredPriceWeight(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "quality", Tier: "sonnet", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 1},
+		{Slug: "value", Tier: "sonnet", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 100},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.priceWeight = 0
+	m.rebuild()
+	if m.visible[0].Slug != "quality" {
+		t.Fatalf("zero-weight TUI first slug = %q, want quality", m.visible[0].Slug)
+	}
+	m.priceWeight = 10
+	m.rebuild()
+	if m.visible[0].Slug != "value" {
+		t.Fatalf("custom-weight TUI first slug = %q, want value", m.visible[0].Slug)
+	}
+}
+
 func TestTUIRankingShortcutTogglesModeAndDisplaysIt(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", Score: &model.ScoreInfo{Value: 1}, Rankable: true}})
-	if !strings.Contains(m.View(), "ranking:tier-priority") {
+	if !strings.Contains(m.View(), "ranking:mixed-utility") {
 		t.Fatalf("initial ranking is not displayed: %s", m.View())
-	}
-	m = tuiKey(m, "m")
-	if m.ranking != rankingMixed || !strings.Contains(m.View(), "ranking:mixed-utility") {
-		t.Fatalf("mixed ranking state = %q, view=%s", m.ranking, m.View())
 	}
 	m = tuiKey(m, "m")
 	if m.ranking != rankingTier || !strings.Contains(m.View(), "ranking:tier-priority") {
 		t.Fatalf("tier ranking state = %q, view=%s", m.ranking, m.View())
+	}
+	m = tuiKey(m, "m")
+	if m.ranking != rankingMixed || !strings.Contains(m.View(), "ranking:mixed-utility") {
+		t.Fatalf("mixed ranking state = %q, view=%s", m.ranking, m.View())
 	}
 }
 

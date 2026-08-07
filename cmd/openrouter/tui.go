@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
@@ -95,10 +96,11 @@ type tuiModel struct {
 	input, inputMode string
 	limit            int
 	ranking          string
+	priceWeight      float64
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -118,6 +120,10 @@ func runTUIWithConfig(ctx context.Context, out io.Writer, dataDir string, opts r
 }
 
 func runTUIWithRankingConfig(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, ranking string) error {
+	return runTUIWithRankingAndWeight(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, ranking, config.DefaultMixedUtilityPriceWeight)
+}
+
+func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, ranking string, priceWeight float64) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
@@ -126,6 +132,7 @@ func runTUIWithRankingConfig(ctx context.Context, out io.Writer, dataDir string,
 		return err
 	}
 	m := newTUIModel(ctx, dataDir, opts, interval, models)
+	m.priceWeight = priceWeight
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
 	m.ranking = ranking
 	if showSlug {
@@ -147,7 +154,7 @@ func (m *tuiModel) rebuild() {
 			return
 		}
 	}
-	_ = sortTableModelsWithRanking(filtered, m.sortKey, m.reverse, m.ranking)
+	_ = sortTableModelsWithRankingAndWeight(filtered, m.sortKey, m.reverse, m.ranking, m.priceWeight)
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -371,7 +378,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m *tuiModel) rebuildWith(filtered []model.Model) {
-	_ = sortTableModelsWithRanking(filtered, m.sortKey, m.reverse, m.ranking)
+	_ = sortTableModelsWithRankingAndWeight(filtered, m.sortKey, m.reverse, m.ranking, m.priceWeight)
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -701,7 +708,7 @@ Home/End or g/G jump; PgUp/PgDown scroll.
 
 Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
-m toggles ranking mode: tier-priority or mixed-utility. The default is tier-priority; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
+m toggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
 R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
 f filter; / or . search; ? or , help.
 
@@ -730,8 +737,8 @@ x or Ctrl-C exits. Esc closes this help. ? or , toggles help.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
-mixed-utility: score dominates; price adds 2*ln(1+Q/P) points. Task-fit is never a multiplier.
-The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, tier-priority sorting is used.
+mixed-utility: rankable first, then tier, and score + price_weight*ln(1+Q/P) within a tier. The weight is configured at ranking.mixed_utility.price_weight and defaults to 10. Task-fit is never a multiplier.
+The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
 
 Help search
 / starts a search in this document. Type text and press Enter to select the first match.
