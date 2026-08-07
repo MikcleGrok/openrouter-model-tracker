@@ -1,6 +1,6 @@
 module github.com/sboborikin/openrouter-model-tracker
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/Masterminds/semver/v3 v3.3.1
