@@ -12,10 +12,12 @@ TAG_IS_CLEAN := $(shell test -z "$(shell git -C $(ROOT) status --porcelain)" && 
 VERSION ?= $(if $(and $(TAG_VERSION),$(TAG_IS_CLEAN)),$(patsubst v%,%,$(TAG_VERSION)),0.0.0-dev)
 VERSIONCHECK := $(GO) run ./cmd/versioncheck
 PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
+FORMULA_TAG ?=
+HOMEBREW_VERSION := $(patsubst v%,%,$(if $(FORMULA_TAG),$(FORMULA_TAG),$(TAG_VERSION)))
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -130,6 +132,21 @@ check-tag: check-version
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release tag checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@test "$$(git -C $(ROOT) rev-parse HEAD)" = "$$(git -C $(ROOT) rev-parse "$(TAG_VERSION)^{commit}")" || { printf '%s\n' 'HEAD must point at the exact release tag'; exit 1; }
 
+check-homebrew-formula:
+	@cd $(ROOT) && ./scripts/verify-distribution.sh --tag "$(FORMULA_TAG)"
+
+sync-homebrew-formula:
+	@cd $(ROOT) && ./scripts/sync-homebrew-formula.sh $(FORMULA_TAG)
+
+homebrew-reinstall: sync-homebrew-formula
+	@test -f "$(shell brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb" || { printf '%s\n' 'Local Homebrew formula is missing'; exit 1; }
+	brew reinstall --formula --build-from-source "$(shell brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
+	@cd $(ROOT) && ./scripts/sync-homebrew-formula.sh --check
+	@test -n "$(HOMEBREW_VERSION)" || { printf '%s\n' 'An exact formula tag is required for installed-version verification'; exit 1; }
+	@test "$$(brew list --versions openrouter)" = "openrouter $(HOMEBREW_VERSION)" || { printf '%s\n' 'Installed Homebrew version does not match the formula tag'; exit 1; }
+	@test "$$(openrouter --version)" = "openrouter version $(HOMEBREW_VERSION)" || { printf '%s\n' 'Installed CLI version does not match the formula tag'; exit 1; }
+	brew test local/tap/openrouter
+
 release-check: check-version build
 	@test -f $(ROOT)CHANGELOG.md && awk '/^## \[Unreleased\]$$/{found=1; next} /^## /{if(found) exit} found && /^- /{bullet=1} END{exit !(found && bullet)}' $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md must contain a non-empty Unreleased section with bullet notes'; exit 1; }
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
@@ -138,18 +155,18 @@ release-check: check-version build
 	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom verify-provenance signature check-docs
 	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
 
-release-build: check-tag
+release-build: check-tag check-homebrew-formula
 	@mkdir -p $(dir $(BINARY))
 	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) ./cmd/openrouter
 
-verify-local-artifact: check-tag
+verify-local-artifact: check-tag check-homebrew-formula
 	@test -x "$(BINARY)" || { printf '%s\n' 'local release artifact is missing or not executable'; exit 1; }
 	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$(TAG_VERSION)" --commit "$$(git rev-parse HEAD)" --version "$(VERSION)"
 	@cd $(ROOT) && test "$$(./bin/openrouter --version)" = "openrouter version $(VERSION)" && test "$$(./bin/openrouter version)" = "openrouter $(VERSION)" && ./bin/openrouter --help >/dev/null
 	@cd $(ROOT) && test "$$(shasum -a 256 bin/openrouter | cut -d ' ' -f 1)" = "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
 	@printf '%s\n' 'Verified local exact-tag artifact only.'
 
-verify-release: check-version
+verify-release: check-version check-homebrew-formula
 	@printf '%s\n' 'BLOCKED: published/stable evidence cannot be cryptographically and semantically verified by this repository; use verify-local-artifact for local evidence.' >&2
 	@exit 1
 
@@ -204,6 +221,9 @@ help:
 		'version        Print the normalized descriptive or release version' \
 		'check-version  Validate version metadata and exact-tag agreement' \
 		'check-tag      Validate a clean checkout at an exact immutable release tag' \
+		'check-homebrew-formula Validate the local formula against the exact tag and revision' \
+		'sync-homebrew-formula Update the local formula from the exact checked-out tag' \
+		'homebrew-reinstall Sync, reinstall, and verify the local Homebrew formula' \
 		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
 		'release-build  Build with the normalized version from the exact checked-out tag' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
