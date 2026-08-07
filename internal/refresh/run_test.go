@@ -134,7 +134,7 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSnapshot: %v", err)
 	}
-	if snap.FetchedAt != "2026-08-04" || len(snap.Models) != 2 {
+	if snap.FetchedAt != "2026-08-04" || snap.UpdatedAt != "2026-08-04T12:00:00Z" || len(snap.Models) != 2 {
 		t.Fatalf("snapshot = %+v", snap)
 	}
 	if len(snap.CatalogSlugs) != 3 || snap.CatalogSlugs[0] != "openai/gpt-5.6-luna" {

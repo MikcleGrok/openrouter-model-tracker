@@ -85,6 +85,7 @@ type tuiModel struct {
 	filter             string
 	taskLong, lastNote bool
 	status, err        string
+	updatedAt          string
 	refreshing         bool
 	generation         uint64
 	selectedSlug       string
@@ -98,6 +99,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", width: 100, height: 24, limit: 0}
+	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
 		m.selectedSlug = m.visible[0].Slug
@@ -193,6 +195,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
+		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 	case tea.KeyMsg:
 		return m.key(msg)
@@ -217,6 +220,8 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			if m.helpPage > 0 {
 				m.helpPage--
 			}
+		case "1", "2", "3":
+			m.helpPage = int(key[0] - '1')
 		}
 		return m, nil
 	}
@@ -411,7 +416,7 @@ func (m tuiModel) View() string {
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
 	title := truncateTable("OpenRouter models", m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("sort:%s%s  filter:%q  models:%d", m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible))), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("sort:%s%s  filter:%q  models:%d  data:%s", m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -629,15 +634,15 @@ const tuiHelpPageCount = 3
 func tuiHelpView(page, width, height int) string {
 	page = max(0, min(page, tuiHelpPageCount-1))
 	lines := strings.Split(tuiHelpPageContent(page), "\n")
-	footer := "Tab next · ←/→ pages · Esc/? close"
+	footer := "1/2/3 select · Tab next · ←/→ pages · Esc/? close"
 	if page == 0 {
-		footer = "Tab next · → next · Esc/? close"
+		footer = "1/2/3 select · Tab next · → next · Esc/? close"
 	}
 	if page == tuiHelpPageCount-1 {
-		footer = "← previous · Esc/? close"
+		footer = "1/2/3 select · ← previous · Esc/? close"
 	}
 	lines = append(lines, "", fmt.Sprintf("Page %d/%d", page+1, tuiHelpPageCount), footer)
-	view := tuiBoxLimited(strings.Join(lines, "\n"), width, height)
+	view := tuiFullscreenText(strings.Join(lines, "\n"), width, height)
 	styledLines := strings.Split(view, "\n")
 	for i, line := range styledLines {
 		plain := ansi.Strip(line)
@@ -661,6 +666,23 @@ func tuiHelpPageContent(page int) string {
 
 func tuiBoxLimited(content string, width, height int) string {
 	return tuiBox(content, width, height)
+}
+
+func tuiFullscreenText(content string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i := range lines {
+		lines[i] = truncateTable(plainTableText(lines[i]), width)
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func tuiCell(m model.Model, col tuiColumn, long, note bool) string {

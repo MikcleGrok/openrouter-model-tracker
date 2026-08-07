@@ -29,6 +29,7 @@ type SnapshotEntry struct {
 // a source is down or has changed shape.
 type Snapshot struct {
 	FetchedAt    string                   `json:"fetched_at"`
+	UpdatedAt    string                   `json:"updated_at,omitempty"`
 	Models       map[string]SnapshotEntry `json:"models"`
 	CatalogSlugs []string                 `json:"catalog_slugs,omitempty"`
 }

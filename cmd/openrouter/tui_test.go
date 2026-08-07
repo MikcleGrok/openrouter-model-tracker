@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -130,6 +131,15 @@ func TestTUIKeyState(t *testing.T) {
 	if m.overlay != "" {
 		t.Fatal("help did not close")
 	}
+	m = tuiKey(m, "?")
+	for key, page := range map[string]int{"1": 0, "2": 1, "3": 2} {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		m = next.(tuiModel)
+		if m.helpPage != page || !strings.Contains(m.View(), fmt.Sprintf("Page %d/3", page+1)) {
+			t.Fatalf("help section %q selected page %d: page=%d view=%q", key, page+1, m.helpPage, m.View())
+		}
+	}
+	m = tuiKey(m, "esc")
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
 	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
@@ -694,6 +704,17 @@ func TestTUIHelpOverlayFitsSmallHeights(t *testing.T) {
 		if m.overlay != "" {
 			t.Fatalf("help was not closed by %q at height %d", key, m.height)
 		}
+	}
+}
+
+func TestTUIHelpUsesFullViewport(t *testing.T) {
+	view := tuiHelpView(0, 80, 20)
+	lines := strings.Split(view, "\n")
+	if len(lines) != 20 {
+		t.Fatalf("help height = %d, want 20", len(lines))
+	}
+	if strings.Contains(view, "╭") || strings.Contains(view, "╰") {
+		t.Fatalf("help still has a box: %q", view)
 	}
 }
 

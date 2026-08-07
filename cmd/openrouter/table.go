@@ -71,6 +71,20 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 	return models, nil
 }
 
+func loadLocalUpdatedAt(dataDir string) string {
+	snapshot, err := refresh.LoadSnapshot(filepath.Join(dataDir, "cache", "last-run-snapshot.json"))
+	if err != nil {
+		return "unknown"
+	}
+	if snapshot.UpdatedAt != "" {
+		return snapshot.UpdatedAt
+	}
+	if snapshot.FetchedAt != "" {
+		return snapshot.FetchedAt
+	}
+	return "unknown"
+}
+
 func sortTableModels(models []model.Model, key string, reverse bool) error {
 	key = strings.ToLower(strings.TrimSpace(key))
 	if alias, ok := map[string]string{"q": "quality", "p": "price", "qp": "q/p"}[key]; ok {
