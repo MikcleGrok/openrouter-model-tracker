@@ -13,13 +13,21 @@
 - `make security` выполняет базовый `go vet` и не заменяет ручной threat-model review.
 - `make secrets-check` ищет tracked private keys и высокоинформативные token patterns.
 - `make dependency-check` требует установленный `govulncheck` и OSV-Scanner, не
-  изменяет `go.mod`, `go.sum` или dependency graph и сохраняет native output и
-  commit/tool-version evidence в `.release/`. Отсутствие scanner является blocker,
-  а не успешным NO-OP.
+  изменяет `go.mod`, `go.sum` или dependency graph и сохраняет strict v2 evidence
+  с `scan_status`, `findings`, `policy_decision`, input digest, tool/database
+  metadata и хешированными native outputs в `.release/`. Отсутствие scanner является `blocked`,
+  ошибка сканера — `error`, смешанный результат — `partial`; ни один из них не
+  считается успешным gate.
 - `make sbom` требует Syft и генерирует SPDX JSON в `.release/sbom.spdx.json`.
 - `make checksums` создаёт SHA-256 checksum локального бинарника.
 - `make verify-local-artifact` проверяет строгую схему manifest/checksum, exact tag и
   commit, а также digest самого локального бинарника.
+- `make release-check` не создаёт manifest/checksum и не утверждает опубликованное
+  evidence; эти локальные артефакты проверяются только после exact tag через
+  `make verify-local-artifact`.
+- `make verify-release` завершается явным `BLOCKED` до любой проверки: published/stable
+  source, registry, signature и provenance требуют внешней криптографической и
+  семантической верификации, которой в этом репозитории нет.
 - `make verify-provenance` и `make signature` являются честными локальными
   NO-OP: в checkout нет CI builder, published artifact или signing identity для
   проверки. Они не утверждают provenance или подпись опубликованного объекта.

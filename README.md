@@ -105,6 +105,9 @@ make check-docs
 Makefile является единственным публичным интерфейсом build/test/security/release
 действий и не зависит от текущего каталога. `dependency-check` и `sbom` требуют
 внешние scanners и завершаются ошибкой при их отсутствии; это не скрытые NO-OP.
+Dependency evidence использует строгую схему v2: статусы `blocked`, `error`,
+`partial` и `passed` не смешиваются, а запись содержит findings, policy decision,
+digest входных файлов, metadata инструментов/базы и native outputs.
 `verify-provenance` и `signature` имеют явный локальный NO-OP, потому что
 репозиторий не публикует артефакты и не содержит CI builder или signing identity.
 Подробный scope находится в `docs/security.md`.
@@ -148,8 +151,10 @@ fallback `≈ Haiku 4.5` для `haiku` и `<≈ Haiku 4.5` для `free`. Не�
 
 `make release-check VERSION=1.0.0` — непубликующий pre-tag gate: проверяет чистоту
 checkout, формат release-версии, локальный commit SHA, diff hygiene, форматирование,
-тесты, vet, security baseline, secret scan, checksum, manifest и Unreleased notes.
-Exact tag для этого target не требуется; planned tag является только metadata.
+тесты, vet, security baseline, secret scan и Unreleased notes; candidate binary
+собирается только для локальной version-проверки. Этот target не создаёт checksum,
+manifest или published evidence. Exact tag для него не требуется; planned tag является
+только metadata.
 После создания exact tag `make release-build` требует чистый checkout ровно на
 `vMAJOR.MINOR.PATCH` (с optional prerelease). Локальная проверка strict evidence
 и собранного бинарника выполняется отдельным `make verify-local-artifact`;

@@ -56,10 +56,8 @@ security:
 	@cd $(ROOT) && $(GO) vet ./... && printf '%s\n' 'Security baseline passed: go vet and repository profile checks.'
 
 dependency-check:
-	@command -v govulncheck >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: govulncheck is required; dependency-check is not a NO-OP.' >&2; exit 1; }
-	@command -v osv-scanner >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: osv-scanner is required; dependency-check is not a NO-OP.' >&2; exit 1; }
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.json; set +e; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; osv-scanner scan source -r . > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; input_digest="$$(git ls-files -co --exclude-standard go.mod go.sum | shasum -a 256 | cut -d ' ' -f 1)"; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/govuln-version.txt .release/osv-version.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=passed; test $$mod_exit -eq 0 || mod_status=error; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; osv-scanner scan source -r . > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; input_digest="$$(shasum -a 256 go.mod go.sum | shasum -a 256 | cut -d ' ' -f 1)"; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
 	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-passed scans are explicit blockers/errors.'
 
 secrets-check:
@@ -126,12 +124,12 @@ check-tag: check-version
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release tag checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@test "$$(git -C $(ROOT) rev-parse HEAD)" = "$$(git -C $(ROOT) rev-parse "$(TAG_VERSION)^{commit}")" || { printf '%s\n' 'HEAD must point at the exact release tag'; exit 1; }
 
-release-check: check-version
+release-check: check-version build
 	@test -f $(ROOT)CHANGELOG.md && awk '/^## \[Unreleased\]$$/{found=1; next} /^## /{if(found) exit} found && /^- /{bullet=1} END{exit !(found && bullet)}' $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md must contain a non-empty Unreleased section with bullet notes'; exit 1; }
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@commit="$$(git -C $(ROOT) rev-parse --verify HEAD)" || exit $$?; printf '%s\n' "release candidate: version=$(VERSION) commit=$$commit planned-tag=v$(VERSION)"
 	@cd $(ROOT) && git diff --check
-	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom checksums manifest verify-provenance signature check-docs
+	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom verify-provenance signature check-docs
 	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
 
 release-build: check-tag
