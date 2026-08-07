@@ -6,11 +6,22 @@
 
 ## Установка и обновление
 
-Локальный tap, без GitHub:
+Локальный disposable tap, без GitHub. Формула `openrouter` закреплена на exact
+tag `v1.0.0`, а бинарник получает нормализованную версию `1.0.0`:
 
 ```bash
-brew install --HEAD local/tap/openrouter
-brew reinstall local/tap/openrouter   # подхватить свежий коммит
+TAP_FORMULA="$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
+brew install --formula --build-from-source "$TAP_FORMULA"
+brew reinstall --formula --build-from-source "$TAP_FORMULA"
+```
+
+Проверка установки и версии:
+
+```bash
+brew info local/tap/openrouter
+test "$(brew list --versions openrouter)" = "openrouter 1.0.0"
+test "$(openrouter --version)" = "openrouter version 1.0.0"
+brew test local/tap/openrouter
 ```
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
