@@ -37,6 +37,33 @@ const (
 var tuiColumns = []tuiColumn{colName, colSlug, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask, colNote}
 var tuiSortKeys = []string{"name", "slug", "context", "input", "output", "price", "quality", "q/p"}
 
+var (
+	tuiTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	tuiMetaStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	tuiHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("87"))
+	tuiSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("24"))
+	tuiStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	tuiErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+	tuiHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+)
+
+var tuiRussianCommandKeys = map[rune]rune{
+	'й': 'q', 'з': 'p', 'к': 'r', 'К': 'R', 'ч': 'x', 'ы': 's', 'Ы': 'S',
+	'с': 'c', 'е': 't', 'т': 'n', 'а': 'f', 'о': 'j', 'л': 'k', 'п': 'g', 'П': 'G',
+	'.': '/', ',': '?',
+}
+
+func tuiCommandKey(msg tea.KeyMsg) string {
+	key := msg.String()
+	if len(msg.Runes) != 1 || key != string(msg.Runes[0]) {
+		return key
+	}
+	if latin, ok := tuiRussianCommandKeys[msg.Runes[0]]; ok {
+		return string(latin)
+	}
+	return key
+}
+
 type tuiRefreshMsg struct {
 	generation uint64
 	models     []model.Model
@@ -174,10 +201,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	key := msg.String()
 	if m.inputMode != "" {
 		return m.inputKey(msg)
 	}
+	key := tuiCommandKey(msg)
 	if m.overlay == "help" {
 		switch key {
 		case "esc", "?":
@@ -383,35 +410,79 @@ func (m tuiModel) View() string {
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
-	title := truncateTable(plainTableText(fmt.Sprintf("OpenRouter models  sort:%s%s  filter:%q", m.sortKey, reverseLabel(m.reverse), m.filter)), m.width)
-	lines := []string{lipgloss.NewStyle().Bold(true).Render(title)}
+	title := truncateTable("OpenRouter models", m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("sort:%s%s  filter:%q  models:%d", m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible))), m.width)
+	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
-	lines = append(lines, m.renderTUILine(columns, nil, false))
-	start := max(0, min(m.cursor-max(1, m.height-8)/2, max(0, len(m.visible)-1)))
-	end := min(len(m.visible), start+max(1, m.height-6))
-	for i := start; i < end; i++ {
-		values := make([]string, len(columns))
-		for j, col := range columns {
-			values[j] = tuiCell(m.visible[i], col, m.taskLong, m.lastNote)
-		}
-		prefix := " "
-		if i == m.cursor {
-			prefix = ">"
-		}
-		lines = append(lines, m.renderTUILine(columns, values, prefix == ">"))
-	}
-	status := "↑↓ navigate · q quality · p price · r q/p · t task-fit · R refresh · x quit · ? help"
+	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
+	status := "status: ready"
 	if m.refreshing {
-		status = "refreshing... · " + status
+		status = "status: refreshing..."
 	}
 	if m.err != "" {
 		status = "error: " + m.err
 	}
-	lines = append(lines, "", truncateTable(plainTableText(status), m.width))
-	if m.inputMode != "" {
-		lines = append(lines, truncateTable(plainTableText("/ "+m.input+"_"), m.width))
+	statusLine := tuiStatusStyle.Render(truncateTable(plainTableText(status), m.width))
+	if m.err != "" {
+		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	return strings.Join(lines, "\n")
+	hints := "↑↓ navigate · q quality/й · p price/з · r q/p/к · R refresh/К · x quit/ч · s sort/ы · S reverse/Ы · t task-fit/е · ? help/,"
+	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
+	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
+	if m.inputMode == "" {
+		inputLine = ""
+	}
+	rowsBudget := m.height - 6
+	if inputLine != "" {
+		rowsBudget--
+	}
+	if rowsBudget > 0 {
+		start := max(0, min(m.cursor-max(1, rowsBudget)/2, max(0, len(m.visible)-1)))
+		end := min(len(m.visible), start+rowsBudget)
+		for i := start; i < end; i++ {
+			values := make([]string, len(columns))
+			for j, col := range columns {
+				values[j] = tuiCell(m.visible[i], col, m.taskLong, m.lastNote)
+			}
+			prefix := " "
+			if i == m.cursor {
+				prefix = ">"
+			}
+			row := m.renderTUILine(columns, values, prefix == ">")
+			if prefix == ">" {
+				row = tuiSelectedStyle.Render(row)
+			}
+			lines = append(lines, row)
+		}
+	}
+	if m.height >= 6 {
+		lines = append(lines, statusLine, hintsLine)
+		if inputLine != "" {
+			lines = append(lines, inputLine)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return m.compactView(lines, statusLine, hintsLine, inputLine)
+}
+
+func (m tuiModel) compactView(lines []string, statusLine, hintsLine, inputLine string) string {
+	if m.height <= 1 {
+		return strings.Join(lines[:1], "\n")
+	}
+	compact := []string{lines[0]}
+	if m.height >= 3 {
+		compact = append(compact, lines[2])
+	}
+	if inputLine != "" && m.height >= 4 {
+		compact = append(compact, inputLine)
+	}
+	if m.height >= 5 {
+		compact = append(compact, hintsLine)
+	}
+	if m.height >= 6 {
+		compact = append(compact, statusLine)
+	}
+	return strings.Join(compact[:min(len(compact), m.height)], "\n")
 }
 
 func (m tuiModel) renderColumns() []tuiColumn {
@@ -527,19 +598,30 @@ func tuiBox(content string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	if width < 10 {
-		parts := strings.Split(content, "\n")
-		for i := range parts {
-			parts[i] = truncateTable(plainTableText(parts[i]), width)
-		}
-		return strings.Join(parts, "\n")
+	lines := strings.Split(content, "\n")
+	if width < 10 || height < 5 {
+		return tuiOverlayPlain(lines, width, height)
 	}
 	innerWidth := max(1, min(width-6, 90))
-	lines := strings.Split(content, "\n")
+	textWidth := max(1, innerWidth-4)
+	contentHeight := height - 4
+	if len(lines) > contentHeight {
+		lines = lines[:contentHeight]
+	}
 	for i := range lines {
-		lines[i] = truncateTable(plainTableText(lines[i]), innerWidth)
+		lines[i] = truncateTable(plainTableText(lines[i]), textWidth)
 	}
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(innerWidth).Render(strings.Join(lines, "\n"))
+}
+
+func tuiOverlayPlain(lines []string, width, height int) string {
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i := range lines {
+		lines[i] = truncateTable(plainTableText(lines[i]), width)
+	}
+	return strings.Join(lines, "\n")
 }
 
 const tuiHelpPageCount = 3
@@ -555,49 +637,30 @@ func tuiHelpView(page, width, height int) string {
 		footer = "← previous · Esc/? close"
 	}
 	lines = append(lines, "", fmt.Sprintf("Page %d/%d", page+1, tuiHelpPageCount), footer)
-	return tuiBoxLimited(strings.Join(lines, "\n"), width, height)
+	view := tuiBoxLimited(strings.Join(lines, "\n"), width, height)
+	styledLines := strings.Split(view, "\n")
+	for i, line := range styledLines {
+		plain := ansi.Strip(line)
+		if strings.Contains(plain, "openrouter tui keys") || strings.Contains(plain, "Columns, search, and filters") || strings.Contains(plain, "Refresh and finish") || strings.Contains(plain, "Navigation") || strings.Contains(plain, "Sort and task view") {
+			styledLines[i] = tuiHeaderStyle.Render(line)
+		}
+	}
+	return strings.Join(styledLines, "\n")
 }
 
 func tuiHelpPageContent(page int) string {
 	switch page {
 	case 0:
-		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nt toggles Task fit short/long: short uses IDFT; long shows English keywords, for example implement + debug + refactor + test.\nTask-fit keywords are: implement, plan, research, debug, audit, refactor, test.\nn switches the last column between Task fit and Note."
+		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nR refreshes; x or Ctrl-C exits. c columns; t task-fit; n switches the last column between Task fit and Note.\nf filter; j down; k up; g home; G end.\nt toggles Task fit short/long: short uses IDFT; long shows English keywords, for example implement + debug + refactor + test.\nTask-fit keywords are: implement, plan, research, debug, audit, refactor, test.\n\nLayout aliases\nRussian: q/й p/з r/к R/К x/ч s/ы S/Ы c/с t/е n/т.\nNavigation: j/о k/л g/п G/П; filter: f/а.\nSearch: / or . (notation: /.)\nHelp: ? or , (notation: ?,)."
 	case 1:
-		return "Columns, search, and filters\n\nc opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.\n\n/ searches Name/Slug as plain substring text.\nf edits a structured filter and does not change the search.\nExamples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.\nMultiple filters are comma-separated and use AND."
+		return "Columns, search, and filters\n\nc/с opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.\n\n/ or . searches Name/Slug as plain substring text (notation: /.).\nf/а edits a structured filter and does not change the search.\nExamples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.\nMultiple filters are comma-separated and use AND."
 	default:
-		return "Refresh and finish\n\nR refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.\n\nx or Ctrl-C exits. Esc closes this help (and other overlays); ? toggles help.\n\nUse Tab or Right to advance, Left to go back. Up/Down do not leave help."
+		return "Refresh and finish\n\nR refreshes the local data now (К also works). Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.\n\nx or Ctrl-C exits (ч also works). Esc closes this help. ? or , toggles help (notation: ?,).\n\nUse Tab or Right to advance, Left to go back. Up/Down do not leave help."
 	}
 }
 
 func tuiBoxLimited(content string, width, height int) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
-	if height < 5 {
-		lines := strings.Split(content, "\n")
-		if len(lines) > height {
-			lines = lines[:height]
-		}
-		for i := range lines {
-			lines[i] = truncateTable(plainTableText(lines[i]), width)
-		}
-		return strings.Join(lines, "\n")
-	}
-	maxLines := height
-	if width >= 10 {
-		maxLines = height - 4
-	}
-	if maxLines < 1 {
-		maxLines = 1
-	}
-	lines := strings.Split(content, "\n")
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-	}
-	for i := range lines {
-		lines[i] = truncateTable(plainTableText(lines[i]), width)
-	}
-	return tuiBox(strings.Join(lines, "\n"), width, height)
+	return tuiBox(content, width, height)
 }
 
 func tuiCell(m model.Model, col tuiColumn, long, note bool) string {
