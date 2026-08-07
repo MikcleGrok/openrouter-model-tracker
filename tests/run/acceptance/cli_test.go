@@ -1,6 +1,7 @@
 package acceptance
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,7 +17,11 @@ func binary(t *testing.T) string {
 
 func TestE2E_Version(t *testing.T) {
 	t.Parallel()
-	assert.Version(t, act.Run(t, binary(t), "--version"), "0.0.0-dev")
+	expectedVersion := os.Getenv("OPENROUTER_EXPECTED_VERSION")
+	if expectedVersion == "" {
+		expectedVersion = "0.0.0-dev"
+	}
+	assert.Version(t, act.Run(t, binary(t), "--version"), expectedVersion)
 }
 
 func TestE2E_Help(t *testing.T) {

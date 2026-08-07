@@ -116,6 +116,10 @@ make signature
 make check-docs
 ```
 
+Acceptance-тест версии использует `OPENROUTER_EXPECTED_VERSION`, который `make test` и
+`make release-check` передают из `VERSION`; при прямом запуске `go test ./tests/...` используется
+локальное dev-значение `0.0.0-dev`.
+
 `test-unit` запускает быстрый набор тестов пакетов `internal/...` и `cmd/...` с
 отключённым test cache. `test-acceptance` сначала собирает `bin/openrouter`, затем
 запускает black-box проверки `tests/run/acceptance` через реальный process boundary.
