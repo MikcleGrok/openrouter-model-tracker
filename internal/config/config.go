@@ -1,6 +1,7 @@
 // Package config reads ~/.config/openrouter/config.yaml, so that a bare
 // `openrouter refresh` already knows where the project data lives and where the
-// generated document goes.
+// generated document goes. Relative runtime paths are anchored to the config
+// file by the command layer.
 package config
 
 import (
@@ -19,7 +20,7 @@ type Config struct {
 	DefaultOutput string `yaml:"default_output"`
 }
 
-const template = "# User configuration for openrouter. Relative paths are resolved from the current directory.\n" +
+const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n"
 
@@ -68,7 +69,11 @@ func Init(path, dataDir string) ([]string, error) {
 		created = append(created, "Created: "+path)
 	}
 
-	cachePath := filepath.Join(dataDir, "cache")
+	cacheRoot := dataDir
+	if !filepath.IsAbs(cacheRoot) {
+		cacheRoot = filepath.Join(filepath.Dir(path), cacheRoot)
+	}
+	cachePath := filepath.Join(cacheRoot, "cache")
 	cacheInfo, cacheErr := os.Stat(cachePath)
 	if cacheErr != nil && !errors.Is(cacheErr, fs.ErrNotExist) {
 		rollbackConfig()
@@ -100,7 +105,7 @@ func configTemplate(dataDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config: encode template: %w", err)
 	}
-	return "# User configuration for openrouter. Relative paths are resolved from the current directory.\n" + string(body), nil
+	return "# User configuration for openrouter. Relative paths are resolved from this config file.\n" + string(body), nil
 }
 
 // Load reads the config. A missing file is not an error: every value it holds

@@ -85,6 +85,29 @@ func TestInitPreservesRelativeDataDir(t *testing.T) {
 	}
 }
 
+func TestInitResolvesRelativeDataDirFromConfigDirectory(t *testing.T) {
+	configDir := t.TempDir()
+	callerDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.yaml")
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(callerDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if _, err := Init(configPath, "data"); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(configDir, "data", "cache")); err != nil || !info.IsDir() {
+		t.Fatalf("config-relative cache stat = %v, info = %+v", err, info)
+	}
+	if _, err := os.Stat(filepath.Join(callerDir, "data")); !os.IsNotExist(err) {
+		t.Fatalf("caller-relative data unexpectedly exists: %v", err)
+	}
+}
+
 func TestInitRejectsCacheFile(t *testing.T) {
 	root := t.TempDir()
 	cachePath := filepath.Join(root, "cache")

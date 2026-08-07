@@ -40,6 +40,6 @@
 Сетевые операции выполняются с context cancellation и конечными timeout; ошибки
 внешних benchmark-источников не маскируются как свежие данные и явно попадают в
 отчёт. TUI применяется только в TTY, а `table`, `check` и `--help` пригодны для
-pipe/cron/CI. CLI-пути из config относительны к текущему рабочему каталогу;
+pipe/cron/CI. CLI-пути из config относительны к каталогу самого config-файла;
 Makefile targets всегда нормализуют root checkout через `make -C`/`ROOT` и не
 зависят от cwd вызывающего процесса.

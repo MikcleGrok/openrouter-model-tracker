@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,7 +42,7 @@ func resolveOptions(cfgPath, dataDir, output string) (refresh.Options, error) {
 	if err != nil {
 		return refresh.Options{}, err
 	}
-	opts := refresh.Options{DataDir: cfg.DataDir, OutputPath: cfg.DefaultOutput}
+	opts := refresh.Options{DataDir: resolveConfigPath(cfgPath, cfg.DataDir), OutputPath: resolveConfigPath(cfgPath, cfg.DefaultOutput)}
 	if dataDir != "" {
 		opts.DataDir = dataDir
 	}
@@ -68,7 +69,7 @@ func resolveDataDir(cfgPath, dataDir string) (string, error) {
 	if cfg.DataDir == "" {
 		return "", errors.New("нет каталога данных: передай --data-dir или задай data_dir в конфиге")
 	}
-	return cfg.DataDir, nil
+	return resolveConfigPath(cfgPath, cfg.DataDir), nil
 }
 
 func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error) {
@@ -81,9 +82,17 @@ func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error)
 		return refresh.Options{}, err
 	}
 	if output == "" {
-		output = cfg.DefaultOutput
+		output = resolveConfigPath(cfgPath, cfg.DefaultOutput)
 	}
 	return refresh.Options{DataDir: dir, OutputPath: output}, nil
+}
+
+// Config-relative paths are anchored to the config file, not the caller's cwd.
+func resolveConfigPath(cfgPath, value string) string {
+	if value == "" || filepath.IsAbs(value) {
+		return value
+	}
+	return filepath.Join(filepath.Dir(cfgPath), value)
 }
 
 func parseSince(value string) (time.Time, error) {

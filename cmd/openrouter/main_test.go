@@ -173,7 +173,7 @@ func TestInitCreatesConfigAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	if string(body) != "# User configuration for openrouter. Relative paths are resolved from the current directory.\ndata_dir: "+dataDir+"\ndefault_output: docs/openrouter-model-comparison.md\n" {
+	if string(body) != "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: "+dataDir+"\ndefault_output: docs/openrouter-model-comparison.md\n" {
 		t.Errorf("config = %q", body)
 	}
 	if info, err := os.Stat(filepath.Join(dataDir, "cache")); err != nil || !info.IsDir() {
@@ -239,6 +239,19 @@ func TestResolveOptionsFromConfig(t *testing.T) {
 	}
 	if opts.DataDir != "/data" || opts.OutputPath != "/out/doc.md" {
 		t.Errorf("opts = %+v, want the config values", opts)
+	}
+}
+
+func TestResolveOptionsAnchorsRelativeConfigPathsToConfigDirectory(t *testing.T) {
+	cfg := writeConfig(t, "data_dir: data\ndefault_output: reports/doc.md\n")
+
+	opts, err := resolveOptions(cfg, "", "")
+	if err != nil {
+		t.Fatalf("resolveOptions: %v", err)
+	}
+	wantRoot := filepath.Dir(cfg)
+	if opts.DataDir != filepath.Join(wantRoot, "data") || opts.OutputPath != filepath.Join(wantRoot, "reports/doc.md") {
+		t.Errorf("opts = %+v, want paths relative to %s", opts, wantRoot)
 	}
 }
 

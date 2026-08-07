@@ -204,7 +204,9 @@ openrouter init
 ```
 
 Будут созданы `~/.config/openrouter/config.yaml` и `<data_dir>/cache/`, если их ещё нет.
-Шаблон конфига не содержит machine-specific абсолютных путей:
+Шаблон конфига не содержит machine-specific абсолютных путей. Относительные
+пути из config разрешаются относительно самого config-файла, поэтому запуск из
+другого cwd не меняет runtime scope:
 
 ```yaml
 data_dir: .
