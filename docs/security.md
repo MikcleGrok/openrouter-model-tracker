@@ -25,9 +25,10 @@
 - `make release-check` не создаёт manifest/checksum и не утверждает опубликованное
   evidence; эти локальные артефакты проверяются только после exact tag через
   `make verify-local-artifact`.
-- `make verify-release` завершается явным `BLOCKED` до любой проверки: published/stable
-  source, registry, signature и provenance требуют внешней криптографической и
-  семантической верификации, которой в этом репозитории нет.
+- `make verify-release` выполняет только read-only проверку локального stable Homebrew
+  channel: exact tag/version/commit, clean checkout, локальную formula, установленную
+  версию, оба варианта CLI version и `brew test`. Источник formula намеренно `file://`;
+  это не доказательство GitHub publication, подписи или provenance.
 - `make verify-provenance` и `make signature` являются честными локальными
   NO-OP: в checkout нет CI builder, published artifact или signing identity для
   проверки. Они не утверждают provenance или подпись опубликованного объекта.

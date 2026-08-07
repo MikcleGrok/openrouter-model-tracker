@@ -7,7 +7,7 @@
 ## Установка и обновление
 
 Локальный disposable tap, без GitHub. Формула `openrouter` должна быть закреплена
-на том же exact published tag и immutable commit revision, что и checkout проекта.
+на том же exact release tag и immutable commit revision, что и checkout проекта.
 Источник синхронизации не хранит старую версию в Makefile или скрипте:
 
 ```bash
@@ -35,8 +35,8 @@ brew install --formula --build-from-source "$TAP_FORMULA"
 
 Этот workflow является distribution contract: после exact tag он проверяет tag и
 immutable revision formula до любой reinstall. Stable install не использует
-`--HEAD`, branch или hardcoded old version. Если локального tap или published
-asset нет, `make check-homebrew-formula` завершается blocker вместо проверки
+`--HEAD`, branch или hardcoded old version. Если локального tap или formula
+нет, `make check-homebrew-formula` завершается blocker вместо проверки
 случайного текущего checkout.
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
@@ -227,8 +227,10 @@ tap. Затем `make release-build` требует чистый checkout ров
 `vMAJOR.MINOR.PATCH` (с optional prerelease) и падает, если формула содержит другой
 tag или revision. Локальная проверка strict evidence
 и собранного бинарника выполняется отдельным `make verify-local-artifact`;
-`make verify-release` завершается явным BLOCKED, поскольку published/stable source,
-registry, signature и provenance проверки в этом репозитории не автоматизированы.
+`make verify-release` read-only проверяет локальный stable Homebrew channel: exact
+tag/version/commit, clean checkout и formula, установленную версию, оба CLI version
+вывода и `brew test`. `file://` formula не является доказательством GitHub publication,
+подписи или provenance; эти проверки остаются внешними.
 Ни один из этих target не создаёт tag,
 не публикует, не устанавливает пакет и не меняет remote.
 Bootstrap-сценарий для macOS при запуске из корня checkout вызывается так:

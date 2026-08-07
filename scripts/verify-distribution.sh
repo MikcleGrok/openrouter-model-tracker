@@ -8,7 +8,7 @@ else printf '%s\n' 'ERROR: brew is unavailable; set FORMULA_PATH explicitly.' >&
 safe_args=()
 while test "$#" -gt 0; do
   case "$1" in
-    --tag|--version|--format|--output) test "$#" -ge 2 || { printf '%s\n' "$1 requires a value" >&2; exit 2; }; safe_args+=("$1" "$2"); shift 2;;
+    --tag|--version|--format|--output|--installed-package|--installed-version|--brew-test) test "$#" -ge 2 || { printf '%s\n' "$1 requires a value" >&2; exit 2; }; safe_args+=("$1" "$2"); shift 2;;
     --check|--help|-h) safe_args+=("$1"); shift;;
     *) printf 'ERROR: unsupported wrapper argument: %s\n' "$1" >&2; exit 2;;
   esac

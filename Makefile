@@ -166,9 +166,11 @@ verify-local-artifact: check-tag check-homebrew-formula
 	@cd $(ROOT) && test "$$(shasum -a 256 bin/openrouter | cut -d ' ' -f 1)" = "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
 	@printf '%s\n' 'Verified local exact-tag artifact only.'
 
-verify-release: check-version check-homebrew-formula
-	@printf '%s\n' 'BLOCKED: published/stable evidence cannot be cryptographically and semantically verified by this repository; use verify-local-artifact for local evidence.' >&2
-	@exit 1
+verify-release: check-tag
+	@cd $(ROOT) && ./scripts/verify-distribution.sh --tag "$(TAG_VERSION)" --version "$(VERSION)" --installed-package openrouter --installed-version "$(VERSION)" --brew-test local/tap/openrouter
+	@cd $(ROOT) && test "$$(openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'Installed CLI --version does not match VERSION'; exit 1; }
+	@cd $(ROOT) && test "$$(openrouter version)" = "openrouter $(VERSION)" || { printf '%s\n' 'Installed CLI version does not match VERSION'; exit 1; }
+	@printf '%s\n' 'Verified local stable Homebrew channel only; no GitHub publication or provenance claim made.'
 
 whats-new:
 	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
@@ -227,7 +229,7 @@ help:
 		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
 		'release-build  Build with the normalized version from the exact checked-out tag' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
-		'verify-release Verify published/stable distribution evidence (blocked when unavailable)' \
+		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \
 		'docs           Validate required project documentation' \
 		'clean           Remove only bin/openrouter' \

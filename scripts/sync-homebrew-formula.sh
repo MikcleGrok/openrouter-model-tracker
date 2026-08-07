@@ -37,7 +37,7 @@ done
 if test -z "$TAG"; then
   TAG="$(git -C "$ROOT" describe --tags --exact-match 2>/dev/null || true)"
 fi
-test -n "$TAG" || { printf '%s\n' 'An exact published tag is required.' >&2; exit 1; }
+test -n "$TAG" || { printf '%s\n' 'An exact release tag is required.' >&2; exit 1; }
 case "$TAG" in
   v[0-9]*.[0-9]*.[0-9]*) ;;
   *) printf '%s\n' "Tag must be a vMAJOR.MINOR.PATCH tag: $TAG" >&2; exit 1 ;;
