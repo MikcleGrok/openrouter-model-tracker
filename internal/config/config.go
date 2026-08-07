@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -16,13 +17,28 @@ import (
 
 // Config is the whole configuration file.
 type Config struct {
-	DataDir       string `yaml:"data_dir"`
-	DefaultOutput string `yaml:"default_output"`
+	DataDir       string        `yaml:"data_dir"`
+	DefaultOutput string        `yaml:"default_output"`
+	Ranking       RankingConfig `yaml:"ranking"`
 }
+
+type RankingConfig struct {
+	MixedUtility MixedUtilityConfig `yaml:"mixed_utility"`
+}
+
+type MixedUtilityConfig struct {
+	PriceWeight *float64 `yaml:"price_weight"`
+}
+
+const DefaultMixedUtilityPriceWeight = 10
 
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
-	"default_output: docs/openrouter-model-comparison.md\n"
+	"default_output: docs/openrouter-model-comparison.md\n" +
+	"\n" +
+	"ranking:\n" +
+	"  mixed_utility:\n" +
+	"    price_weight: 10\n"
 
 // Init creates the user config and the cache directory without replacing existing paths.
 func Init(path, dataDir string) ([]string, error) {
@@ -101,7 +117,8 @@ func configTemplate(dataDir string) (string, error) {
 	if dataDir == "." {
 		return template, nil
 	}
-	body, err := yaml.Marshal(Config{DataDir: dataDir, DefaultOutput: "docs/openrouter-model-comparison.md"})
+	weight := float64(DefaultMixedUtilityPriceWeight)
+	body, err := yaml.Marshal(Config{DataDir: dataDir, DefaultOutput: "docs/openrouter-model-comparison.md", Ranking: RankingConfig{MixedUtility: MixedUtilityConfig{PriceWeight: &weight}}})
 	if err != nil {
 		return "", fmt.Errorf("config: encode template: %w", err)
 	}
@@ -122,7 +139,17 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
+	if weight := c.Ranking.MixedUtility.PriceWeight; weight != nil && (*weight < 0 || math.IsNaN(*weight) || math.IsInf(*weight, 0)) {
+		return Config{}, fmt.Errorf("config: %s: ranking.mixed_utility.price_weight must be a finite non-negative number", path)
+	}
 	return c, nil
+}
+
+func (c Config) MixedUtilityPriceWeight() float64 {
+	if c.Ranking.MixedUtility.PriceWeight == nil {
+		return DefaultMixedUtilityPriceWeight
+	}
+	return *c.Ranking.MixedUtility.PriceWeight
 }
 
 // DefaultPath is where the config lives unless --config says otherwise.

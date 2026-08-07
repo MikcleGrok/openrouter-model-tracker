@@ -87,6 +87,14 @@ func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error)
 	return refresh.Options{DataDir: dir, OutputPath: output}, nil
 }
 
+func resolveMixedUtilityPriceWeight(cfgPath string) (float64, error) {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return 0, err
+	}
+	return cfg.MixedUtilityPriceWeight(), nil
+}
+
 // Config-relative paths are anchored to the config file, not the caller's cwd.
 func resolveConfigPath(cfgPath, value string) string {
 	if value == "" || filepath.IsAbs(value) {
@@ -296,6 +304,10 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			priceWeight, err := resolveMixedUtilityPriceWeight(cfgPath)
+			if err != nil {
+				return err
+			}
 			models, err := loadLocalModels(dir)
 			if err != nil {
 				return err
@@ -305,7 +317,7 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			tableRanking = normalizeRanking(tableRanking)
-			if err := sortTableModelsWithRanking(models, tableSort, tableReverse, tableRanking); err != nil {
+			if err := sortTableModelsWithRankingAndWeight(models, tableSort, tableReverse, tableRanking, priceWeight); err != nil {
 				return err
 			}
 			models = limitTableModels(models, tableLimit)
@@ -326,7 +338,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
-	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default tier-priority")
+	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
@@ -356,16 +368,20 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			priceWeight, err := resolveMixedUtilityPriceWeight(cfgPath)
+			if err != nil {
+				return err
+			}
 			opts, err := resolveTUIOptions(cfgPath, dataDir, output)
 			if err != nil {
 				return err
 			}
-			return runTUIWithRankingConfig(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking)
+			return runTUIWithRankingAndWeight(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, priceWeight)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
 	tuiCmd.Flags().StringVar(&tuiSort, "sort", "q/p", "sort by: "+tableSortHelp)
-	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default tier-priority")
+	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
 	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N")
 	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")

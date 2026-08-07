@@ -1,11 +1,11 @@
 # What's New
 
-## [1.0.0]
+## [1.2.0]
 
-- Use canonical SemVer release tags and normalized versions in release binaries.
-- Provide Makefile-first candidate and exact-tag local artifact verification gates.
+- Make mixed-utility ranking the default for table and TUI output, with tier-aware ordering.
+- Add configurable `ranking.mixed_utility.price_weight` for balancing quality and price.
+- Preserve legacy Q/P and tier-priority ranking modes through explicit `--ranking` values.
 
 ## [Unreleased]
 
-- Use canonical SemVer release tags and normalized versions in release binaries.
-- Provide Makefile-first candidate and exact-tag release verification gates.
+- Continue documenting changes here before the next release.

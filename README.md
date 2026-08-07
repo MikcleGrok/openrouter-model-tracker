@@ -160,8 +160,7 @@ digest входных файлов, metadata инструментов/базы �
 Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
 через `scripts/verify-distribution.sh`; путь можно переопределить через `GUIDE_TOOLS_ROOT`.
 
-По умолчанию таблица сортируется в режиме `tier-priority`: сначала rankable-модели, затем Opus,
-Sonnet, Haiku, score и Q/P. `--sort` принимает только `name`, `slug`,
+По умолчанию таблица сортируется в режиме `mixed-utility`: сначала идут rankable-модели, затем при различии tier — более высокий tier; внутри tier используется `score + price_weight*ln(1+Q/P)`. Вес задаётся в `ranking.mixed_utility.price_weight` и по умолчанию равен `10`. `--sort` принимает только `name`, `slug`,
 `context`, `input`, `output`, `price`, `quality` и `q/p`, а также `Q`, `P`, `QP`; `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Качество сортируется по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые quality всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
@@ -171,9 +170,9 @@ Sonnet, Haiku, score и Q/P. `--sort` принимает только `name`, `s
 Для рейтинга моделей можно явно выбрать `--ranking=legacy`, `--ranking=tier` или `--ranking=mixed`.
 `legacy` сохраняет прежнюю сортировку по Q/P и включается только явно. `tier` использует
 лексикографический ключ `rankable, tier, score, Q/P, price`: Opus существенно выше Sonnet/Haiku,
-а цена учитывается только после качества внутри тира. `mixed` использует `score + 2*ln(1+Q/P)`:
+а цена учитывается только после качества внутри тира. `mixed` использует `score + price_weight*ln(1+Q/P)` внутри каждого tier; `price_weight` берётся из `ranking.mixed_utility.price_weight` и по умолчанию равен `10`:
 абсолютное качество остаётся главным, но цена заметно влияет на близкие результаты. `task_fit`
-не участвует в формуле и не является multiplier. Без `--ranking` используется `tier-priority`.
+не участвует в формуле и не является multiplier. Без `--ranking` используется `mixed-utility`.
 В TUI `m` переключает `tier-priority` и `mixed-utility`, а
 текущий режим показывается в верхней meta-строке.
 Колонка `Claude` использует ручной `tier` из `model-map.tsv` как источник соответствующей ссылки.

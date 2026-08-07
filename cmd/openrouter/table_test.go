@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,8 +11,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/spf13/pflag"
 )
@@ -584,7 +587,7 @@ func TestSortTableModelsUsesTypedValuesAndSlugTiebreaker(t *testing.T) {
 	}
 }
 
-func TestSortTableModelsDefaultUsesTierPriority(t *testing.T) {
+func TestSortTableModelsDefaultUsesMixedUtility(t *testing.T) {
 	models := []model.Model{
 		{Slug: "missing"},
 		{Slug: "deepseek", Tier: "haiku", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 90},
@@ -619,8 +622,85 @@ func TestRankingModesKeepTierPriorityAndQualityDominanceSeparate(t *testing.T) {
 	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
 		t.Fatal(err)
 	}
-	if rows[0].Slug != "deepseek" {
-		t.Fatalf("mixed ranking = %q, want deepseek first", rows[0].Slug)
+	if rows[0].Slug != "luna" {
+		t.Fatalf("mixed ranking = %q, want luna first by tier", rows[0].Slug)
+	}
+}
+
+func TestMixedUtilityUsesStrongPriceWeight(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "minimax/minimax-m3", DisplayName: "MiniMax M3", Tier: "sonnet", Score: &model.ScoreInfo{Value: 70}, Rankable: true, QualityPrice: 100},
+		{Slug: "moonshotai/kimi-k3", DisplayName: "Kimi K3", Tier: "sonnet", Score: &model.ScoreInfo{Value: 75}, Rankable: true, QualityPrice: 50},
+		{Slug: "x-ai/grok-4.5", DisplayName: "Grok 4.5", Tier: "sonnet", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 25},
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
+		t.Fatalf("mixed ranking: %v", err)
+	}
+	if got, want := []string{rows[0].DisplayName, rows[1].DisplayName, rows[2].DisplayName}, []string{"MiniMax M3", "Kimi K3", "Grok 4.5"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed ranking within Sonnet = %v, want %v", got, want)
+	}
+}
+
+func TestMixedUtilityRanksLunaByComputedUtility(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "openai/gpt-5.6-luna", DisplayName: "GPT-5.6 Luna", Tier: "opus", Score: &model.ScoreInfo{Value: 93}, Rankable: true, InPerM: 0.10, OutPerM: 0.60},
+		{Slug: "openai/gpt-5.6-sol", DisplayName: "GPT-5.6 Sol", Tier: "opus", Score: &model.ScoreInfo{Value: 96.2}, Rankable: true, InPerM: 5.00, OutPerM: 30.00},
+	}
+	for i := range rows {
+		rows[i].MixedPrice = pricing.MixedPrice(rows[i].InPerM, rows[i].OutPerM)
+		rows[i].QualityPrice = pricing.QualityPrice(rows[i].Score.Value, rows[i].MixedPrice)
+	}
+	if got, want := rows[0].QualityPrice, 413.33; math.Abs(got-want) > 0.01 {
+		t.Fatalf("Luna Q/P = %v, want approximately %v", got, want)
+	}
+	if got, want := rows[1].QualityPrice, 8.55; math.Abs(got-want) > 0.01 {
+		t.Fatalf("Sol Q/P = %v, want approximately %v", got, want)
+	}
+	if rows[1].QualityPrice >= rows[0].QualityPrice {
+		t.Fatalf("Sol Q/P = %v, want less than Luna Q/P = %v", rows[1].QualityPrice, rows[0].QualityPrice)
+	}
+	lunaUtility := rows[0].Score.Value + config.DefaultMixedUtilityPriceWeight*math.Log1p(rows[0].QualityPrice)
+	solUtility := rows[1].Score.Value + config.DefaultMixedUtilityPriceWeight*math.Log1p(rows[1].QualityPrice)
+	if lunaUtility <= solUtility {
+		t.Fatalf("test data does not make Luna utility higher: Luna=%v Sol=%v", lunaUtility, solUtility)
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
+		t.Fatalf("mixed ranking: %v", err)
+	}
+	if got, want := rows[0].Slug, "openai/gpt-5.6-luna"; got != want {
+		t.Fatalf("mixed ranking first slug = %q, want %q by utility", got, want)
+	}
+}
+
+func TestMixedUtilityUsesConfiguredPriceWeight(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "quality", Tier: "sonnet", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 1},
+		{Slug: "value", Tier: "sonnet", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 100},
+	}
+	if err := sortTableModelsWithRankingAndWeight(rows, "q/p", false, rankingMixed, 0); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Slug != "quality" {
+		t.Fatalf("zero-weight ranking first slug = %q, want quality", rows[0].Slug)
+	}
+	if err := sortTableModelsWithRankingAndWeight(rows, "q/p", false, rankingMixed, 10); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Slug != "value" {
+		t.Fatalf("custom-weight ranking first slug = %q, want value", rows[0].Slug)
+	}
+}
+
+func TestTierPriorityKeepsTierAheadOfMixedUtility(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "haiku/cheap", Tier: "haiku", Score: &model.ScoreInfo{Value: 95}, Rankable: true, QualityPrice: 100},
+		{Slug: "opus/expensive", Tier: "opus", Score: &model.ScoreInfo{Value: 60}, Rankable: true, QualityPrice: 1},
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingTier); err != nil {
+		t.Fatalf("tier-priority ranking: %v", err)
+	}
+	if got, want := rows[0].Slug, "opus/expensive"; got != want {
+		t.Fatalf("tier-priority first model = %q, want %q", got, want)
 	}
 }
 
@@ -868,7 +948,7 @@ func TestTableCLIQualitySortAliasesAndFlags(t *testing.T) {
 	}
 }
 
-func TestTableCLIDefaultSortUsesQualityPrice(t *testing.T) {
+func TestTableCLIDefaultSortUsesMixedUtility(t *testing.T) {
 	root := t.TempDir()
 	config := writeConfig(t, "data_dir: "+root+"\n")
 	if err := copyTableFixture(t, root); err != nil {
@@ -878,7 +958,7 @@ func TestTableCLIDefaultSortUsesQualityPrice(t *testing.T) {
 
 	output := executeCLI(t, "table", "--config", config, "--no-pager", "-S")
 	if got := tableFirstCell(output, 0); got != "demo/high" {
-		t.Fatalf("default tier-priority first table slug = %q, want demo/high:\n%s", got, output)
+		t.Fatalf("default mixed-utility first table slug = %q, want demo/high:\n%s", got, output)
 	}
 
 	output = executeCLI(t, "table", "--config", config, "--no-pager", "-S", "--ranking=legacy")
