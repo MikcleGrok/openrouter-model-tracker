@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,6 +17,71 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
+
+func TestTUIModelUsesConfiguredRanking(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	body := "ranking:\n  mixed_utility:\n    price:\n      input_weight: 1\n      output_weight: 1\n    tier_factors:\n      sonnet: 1\n      haiku: 2\n    formula:\n      op: sub\n      args:\n        - var: score\n        - op: mul\n          args:\n            - var: tier_factor\n            - var: price_mix\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := resolveMixedUtilityConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Model{
+		{Slug: "high", Tier: "sonnet", Score: &model.ScoreInfo{Value: 90}, Rankable: true, InPerM: 100, OutPerM: 100},
+		{Slug: "low", Tier: "haiku", Score: &model.ScoreInfo{Value: 10}, Rankable: true, InPerM: 1, OutPerM: 1},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.rankingConfig, m.rankingConfigSet = compiled, true
+	m.rebuild()
+	if len(m.visible) != 2 || m.visible[0].Slug != "low" {
+		t.Fatalf("configured TUI ranking = %+v, want low first", m.visible)
+	}
+}
+
+func TestTUIModelShowsRuntimeFormulaError(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	body := "ranking:\n  mixed_utility:\n    formula:\n      op: log\n      args:\n        - const: 0\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := resolveMixedUtilityConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "broken", Score: &model.ScoreInfo{Value: 1}, Rankable: true, InPerM: 1, OutPerM: 1}})
+	m.rankingConfig, m.rankingConfigSet = compiled, true
+	m.rebuild()
+	if !strings.Contains(m.err, "log domain") {
+		t.Fatalf("TUI error = %q, want formula runtime error", m.err)
+	}
+	if len(m.visible) != 0 {
+		t.Fatalf("TUI retained sorted rows after error: %+v", m.visible)
+	}
+}
+
+func TestTUIInteractiveFilterClearsRowsOnRuntimeFormulaError(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	body := "ranking:\n  mixed_utility:\n    formula:\n      op: log\n      args:\n        - const: 0\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := resolveMixedUtilityConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "broken", DisplayName: "Broken", Score: &model.ScoreInfo{Value: 1}, Rankable: true, InPerM: 1, OutPerM: 1}})
+	m.rankingConfig, m.rankingConfigSet = compiled, true
+	m.inputMode, m.input = "filter", "scored"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(m.err, "log domain") {
+		t.Fatalf("TUI error = %q, want formula runtime error", m.err)
+	}
+	if len(m.visible) != 0 {
+		t.Fatalf("TUI retained rows after interactive filter error: %+v", m.visible)
+	}
+}
 
 func tuiKey(m tuiModel, key string) tuiModel {
 	next, _ := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})

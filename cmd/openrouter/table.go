@@ -22,6 +22,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 	"golang.org/x/term"
@@ -112,10 +113,20 @@ func sortTableModelsWithRanking(models []model.Model, key string, reverse bool, 
 	return sortTableModelsWithRankingAndWeight(models, key, reverse, ranking, config.DefaultMixedUtilityPriceWeight)
 }
 
-func sortTableModelsWithRankingAndWeight(models []model.Model, key string, reverse bool, ranking string, priceWeight float64) error {
-	ranking = normalizeRanking(ranking)
-	if ranking != rankingLegacy && ranking != rankingTier && ranking != rankingMixed {
-		return fmt.Errorf("table: invalid --ranking %q; allowed values: legacy, tier, tier-priority, mixed, mixed-utility", ranking)
+func sortTableModelsWithRankingAndWeight(models []model.Model, key string, reverse bool, rankingName string, priceWeight float64) error {
+	c := ranking.DefaultConfig()
+	c.PriceWeight = &priceWeight
+	compiled, err := ranking.Compile(c)
+	if err != nil {
+		return err
+	}
+	return sortTableModelsWithRankingAndConfig(models, key, reverse, rankingName, compiled)
+}
+
+func sortTableModelsWithRankingAndConfig(models []model.Model, key string, reverse bool, rankingName string, compiled ranking.Compiled) error {
+	rankingName = normalizeRanking(rankingName)
+	if rankingName != rankingLegacy && rankingName != rankingTier && rankingName != rankingMixed {
+		return fmt.Errorf("table: invalid --ranking %q; allowed values: legacy, tier, tier-priority, mixed, mixed-utility", rankingName)
 	}
 	key = strings.ToLower(strings.TrimSpace(key))
 	if alias, ok := map[string]string{"q": "quality", "p": "price", "qp": "q/p"}[key]; ok {
@@ -128,9 +139,13 @@ func sortTableModelsWithRankingAndWeight(models []model.Model, key string, rever
 	if !valid[key] {
 		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
 	}
-	if ranking != rankingLegacy && key == "q/p" {
+	if rankingName != rankingLegacy && key == "q/p" {
+		utilities, err := rankingUtilities(models, compiled)
+		if err != nil {
+			return err
+		}
 		sort.SliceStable(models, func(i, j int) bool {
-			comparison := compareRanking(models[i], models[j], ranking, priceWeight)
+			comparison := compareRanking(models[i], models[j], rankingName, utilities)
 			if comparison == 0 {
 				return models[i].Slug < models[j].Slug
 			}
@@ -184,7 +199,22 @@ func sortTableModelsWithRankingAndWeight(models []model.Model, key string, rever
 	return nil
 }
 
-func compareRanking(left, right model.Model, ranking string, priceWeight float64) int {
+func rankingUtilities(models []model.Model, compiled ranking.Compiled) (map[string]float64, error) {
+	utilities := make(map[string]float64, len(models))
+	for _, m := range models {
+		if m.Score == nil || !m.Rankable || m.Free {
+			continue
+		}
+		utility, err := mixedUtility(m, compiled)
+		if err != nil {
+			return nil, fmt.Errorf("table: cannot rank model %q: %w", m.Slug, err)
+		}
+		utilities[m.Slug] = utility
+	}
+	return utilities, nil
+}
+
+func compareRanking(left, right model.Model, rankingName string, utilities map[string]float64) int {
 	leftRankable, rightRankable := left.Score != nil && left.Rankable, right.Score != nil && right.Rankable
 	if leftRankable != rightRankable {
 		if leftRankable {
@@ -195,7 +225,7 @@ func compareRanking(left, right model.Model, ranking string, priceWeight float64
 	if !leftRankable {
 		return compareFloats(left.MixedPrice, right.MixedPrice)
 	}
-	if ranking == rankingTier {
+	if rankingName == rankingTier {
 		if leftTier, rightTier := rankingTierValue(left.Tier), rankingTierValue(right.Tier); leftTier != rightTier {
 			return compareInts(rightTier, leftTier)
 		}
@@ -204,12 +234,26 @@ func compareRanking(left, right model.Model, ranking string, priceWeight float64
 		}
 		return compareFloats(right.QualityPrice, left.QualityPrice)
 	}
-	if leftTier, rightTier := rankingTierValue(left.Tier), rankingTierValue(right.Tier); leftTier != rightTier {
-		return compareInts(rightTier, leftTier)
+	if left.Free || right.Free {
+		if left.Free && right.Free {
+			return compareFloats(right.Score.Value, left.Score.Value)
+		}
+		return compareInts(rankingTierValue(right.Tier), rankingTierValue(left.Tier))
 	}
-	leftUtility := left.Score.Value + priceWeight*math.Log1p(left.QualityPrice)
-	rightUtility := right.Score.Value + priceWeight*math.Log1p(right.QualityPrice)
-	return compareFloats(rightUtility, leftUtility)
+	leftUtility := utilities[left.Slug]
+	rightUtility := utilities[right.Slug]
+	if comparison := compareFloats(rightUtility, leftUtility); comparison != 0 {
+		return comparison
+	}
+	return compareInts(rankingTierValue(right.Tier), rankingTierValue(left.Tier))
+}
+
+func mixedUtility(m model.Model, compiled ranking.Compiled) (float64, error) {
+	context := compiled.Context(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
+	if m.InPerM == 0 && m.OutPerM == 0 {
+		context.QualityPrice = m.QualityPrice
+	}
+	return compiled.Evaluate(context)
 }
 
 func rankingTierValue(tier string) int {

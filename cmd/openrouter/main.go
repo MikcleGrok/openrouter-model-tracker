@@ -20,6 +20,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
 
@@ -87,12 +88,12 @@ func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error)
 	return refresh.Options{DataDir: dir, OutputPath: output}, nil
 }
 
-func resolveMixedUtilityPriceWeight(cfgPath string) (float64, error) {
+func resolveMixedUtilityConfig(cfgPath string) (ranking.Compiled, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return 0, err
+		return ranking.Compiled{}, err
 	}
-	return cfg.MixedUtilityPriceWeight(), nil
+	return cfg.CompiledMixedUtility()
 }
 
 // Config-relative paths are anchored to the config file, not the caller's cwd.
@@ -304,7 +305,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			priceWeight, err := resolveMixedUtilityPriceWeight(cfgPath)
+			compiledRanking, err := resolveMixedUtilityConfig(cfgPath)
 			if err != nil {
 				return err
 			}
@@ -317,7 +318,7 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			tableRanking = normalizeRanking(tableRanking)
-			if err := sortTableModelsWithRankingAndWeight(models, tableSort, tableReverse, tableRanking, priceWeight); err != nil {
+			if err := sortTableModelsWithRankingAndConfig(models, tableSort, tableReverse, tableRanking, compiledRanking); err != nil {
 				return err
 			}
 			models = limitTableModels(models, tableLimit)
@@ -368,7 +369,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			priceWeight, err := resolveMixedUtilityPriceWeight(cfgPath)
+			compiledRanking, err := resolveMixedUtilityConfig(cfgPath)
 			if err != nil {
 				return err
 			}
@@ -376,7 +377,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runTUIWithRankingAndWeight(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, priceWeight)
+			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")

@@ -32,6 +32,17 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsFormulaAndPriceWeightTogether(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "ranking:\n  mixed_utility:\n    price_weight: 0\n    formula:\n      op: neg\n      args:\n        - var: score\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "formula cannot be combined with price_weight") {
+		t.Fatalf("Load error = %v, want clear formula/price_weight conflict", err)
+	}
+}
+
 func TestMixedUtilityPriceWeightDefaultsWhenMissing(t *testing.T) {
 	got, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
 	if err != nil {

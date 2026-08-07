@@ -428,6 +428,31 @@ func TestTableCommandReadsLocalSnapshot(t *testing.T) {
 	}
 }
 
+func TestTableCommandUsesFormulaFromConfig(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\nranking:\n  mixed_utility:\n    price:\n      input_weight: 1\n      output_weight: 1\n    tier_factors:\n      sonnet: 1\n      haiku: 2\n    formula:\n      op: sub\n      args:\n        - var: score\n        - op: mul\n          args:\n            - var: tier_factor\n            - var: price_mix\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+	output := executeCLI(t, "table", "--config", config, "--no-pager", "--slug", "-n", "1")
+	if got := tableFirstCell(output, 0); got != "demo/low" {
+		t.Fatalf("configured formula first table slug = %q, want demo/low:\n%s", got, output)
+	}
+}
+
+func TestTableCommandRejectsRuntimeFormulaError(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\nranking:\n  mixed_utility:\n    formula:\n      op: div\n      args:\n        - const: 1\n        - const: 0\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	err := executeCLIError(t, "table", "--config", config, "--no-pager")
+	if err == nil || !strings.Contains(err.Error(), `cannot rank model "demo/high"`) || !strings.Contains(err.Error(), "division by zero") {
+		t.Fatalf("table error = %v, want propagated formula runtime error", err)
+	}
+}
+
 func TestTableCommandTaskFitModesThroughCLI(t *testing.T) {
 	root := t.TempDir()
 	config := writeConfig(t, "data_dir: "+root+"\n")
@@ -596,8 +621,8 @@ func TestSortTableModelsDefaultUsesMixedUtility(t *testing.T) {
 	if err := sortTableModels(models, "", false); err != nil {
 		t.Fatalf("default sort error = %v", err)
 	}
-	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"opus", "deepseek", "missing"}) {
-		t.Fatalf("default sort = %v, want [opus deepseek missing]", got)
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"deepseek", "opus", "missing"}) {
+		t.Fatalf("default sort = %v, want [deepseek opus missing]", got)
 	}
 	if err := sortTableModelsWithRanking(models, "", false, rankingLegacy); err != nil {
 		t.Fatalf("explicit legacy sort error = %v", err)
@@ -622,8 +647,34 @@ func TestRankingModesKeepTierPriorityAndQualityDominanceSeparate(t *testing.T) {
 	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
 		t.Fatal(err)
 	}
-	if rows[0].Slug != "luna" {
-		t.Fatalf("mixed ranking = %q, want luna first by tier", rows[0].Slug)
+	if rows[0].Slug != "deepseek" {
+		t.Fatalf("mixed ranking = %q, want deepseek first by tier-adjusted utility", rows[0].Slug)
+	}
+}
+
+func TestMixedUtilityRanksRealModelsByGlobalTierAdjustedUtility(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "openai/gpt-5.6-luna", DisplayName: "GPT-5.6 Luna", Tier: "opus", Score: &model.ScoreInfo{Value: 93.0}, Rankable: true, InPerM: 0.10, OutPerM: 0.60},
+		{Slug: "minimax/minimax-m3", DisplayName: "MiniMax M3", Tier: "sonnet", Score: &model.ScoreInfo{Value: 80.5}, Rankable: true, InPerM: 0.30, OutPerM: 1.20},
+		{Slug: "moonshotai/kimi-k3", DisplayName: "Kimi K3", Tier: "sonnet", Score: &model.ScoreInfo{Value: 93.4}, Rankable: true, InPerM: 3.00, OutPerM: 15.00},
+		{Slug: "x-ai/grok-4.5", DisplayName: "Grok 4.5", Tier: "sonnet", Score: &model.ScoreInfo{Value: 86.6}, Rankable: true, InPerM: 2.00, OutPerM: 6.00},
+		{Slug: "openai/gpt-5.6-sol", DisplayName: "GPT-5.6 Sol", Tier: "opus", Score: &model.ScoreInfo{Value: 96.2}, Rankable: true, InPerM: 5.00, OutPerM: 30.00},
+		{Slug: "deepseek/deepseek-v4-flash", DisplayName: "DeepSeek V4 Flash", Tier: "haiku", Score: &model.ScoreInfo{Value: 76.35}, Rankable: true, InPerM: 0.09, OutPerM: 0.18},
+	}
+	for i := range rows {
+		rows[i].MixedPrice = pricing.MixedPrice(rows[i].InPerM, rows[i].OutPerM)
+		rows[i].QualityPrice = pricing.QualityPrice(rows[i].Score.Value, rows[i].MixedPrice)
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
+		t.Fatalf("mixed ranking: %v", err)
+	}
+	got := make([]string, len(rows))
+	for i := range rows {
+		got[i] = rows[i].DisplayName
+	}
+	want := []string{"GPT-5.6 Luna", "MiniMax M3", "Kimi K3", "Grok 4.5", "GPT-5.6 Sol", "DeepSeek V4 Flash"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed ranking = %v, want %v", got, want)
 	}
 }
 

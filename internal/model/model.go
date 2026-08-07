@@ -40,6 +40,8 @@ type Model struct {
 	Score        *ScoreInfo
 	MixedPrice   float64
 	QualityPrice float64
+	InputPrice   float64
+	OutputPrice  float64
 
 	Note        string
 	TaskFit     []string
@@ -117,6 +119,7 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 			ClaudeRef:   nt.ClaudeRef(e.Slug),
 		}
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
+		m.InputPrice, m.OutputPrice = m.InPerM, m.OutPerM
 		m.Tokens10In = pricing.Tokens10(m.InPerM)
 		m.Tokens10Out = pricing.Tokens10(m.OutPerM)
 		m.Tokens10Mixed = pricing.Tokens10(m.MixedPrice)

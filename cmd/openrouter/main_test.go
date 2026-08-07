@@ -173,7 +173,8 @@ func TestInitCreatesConfigAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	if string(body) != "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: "+dataDir+"\ndefault_output: docs/openrouter-model-comparison.md\nranking:\n    mixed_utility:\n        price_weight: 10\n" {
+	want := "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: " + dataDir + "\ndefault_output: docs/openrouter-model-comparison.md\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n"
+	if string(body) != want {
 		t.Errorf("config = %q", body)
 	}
 	if info, err := os.Stat(filepath.Join(dataDir, "cache")); err != nil || !info.IsDir() {

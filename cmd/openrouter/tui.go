@@ -16,6 +16,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"golang.org/x/term"
 )
@@ -97,10 +98,13 @@ type tuiModel struct {
 	limit            int
 	ranking          string
 	priceWeight      float64
+	rankingConfig    ranking.Compiled
+	rankingConfigSet bool
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, width: 100, height: 24, limit: 0}
+	compiled, _ := ranking.Compile(ranking.DefaultConfig())
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -123,7 +127,17 @@ func runTUIWithRankingConfig(ctx context.Context, out io.Writer, dataDir string,
 	return runTUIWithRankingAndWeight(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, ranking, config.DefaultMixedUtilityPriceWeight)
 }
 
-func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, ranking string, priceWeight float64) error {
+func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, priceWeight float64) error {
+	c := ranking.DefaultConfig()
+	c.PriceWeight = &priceWeight
+	compiled, err := ranking.Compile(c)
+	if err != nil {
+		return err
+	}
+	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled)
+}
+
+func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
@@ -132,9 +146,10 @@ func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir stri
 		return err
 	}
 	m := newTUIModel(ctx, dataDir, opts, interval, models)
-	m.priceWeight = priceWeight
+	m.rankingConfig = compiled
+	m.rankingConfigSet = true
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
-	m.ranking = ranking
+	m.ranking = rankingName
 	if showSlug {
 		m.replaceColumn(colName, colSlug)
 	}
@@ -154,7 +169,17 @@ func (m *tuiModel) rebuild() {
 			return
 		}
 	}
-	_ = sortTableModelsWithRankingAndWeight(filtered, m.sortKey, m.reverse, m.ranking, m.priceWeight)
+	compiled := m.rankingConfig
+	if !m.rankingConfigSet {
+		c := ranking.DefaultConfig()
+		c.PriceWeight = &m.priceWeight
+		compiled, _ = ranking.Compile(c)
+	}
+	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, compiled); err != nil {
+		m.err = err.Error()
+		m.visible = nil
+		return
+	}
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -378,7 +403,11 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m *tuiModel) rebuildWith(filtered []model.Model) {
-	_ = sortTableModelsWithRankingAndWeight(filtered, m.sortKey, m.reverse, m.ranking, m.priceWeight)
+	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, m.rankingConfig); err != nil {
+		m.err = err.Error()
+		m.visible = nil
+		return
+	}
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -737,7 +766,7 @@ x or Ctrl-C exits. Esc closes this help. ? or , toggles help.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
-mixed-utility: rankable first, then tier, and score + price_weight*ln(1+Q/P) within a tier. The weight is configured at ranking.mixed_utility.price_weight and defaults to 10. Task-fit is never a multiplier.
+mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
 The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
 
 Help search

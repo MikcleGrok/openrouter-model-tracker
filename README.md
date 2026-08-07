@@ -160,7 +160,7 @@ digest входных файлов, metadata инструментов/базы �
 Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
 через `scripts/verify-distribution.sh`; путь можно переопределить через `GUIDE_TOOLS_ROOT`.
 
-По умолчанию таблица сортируется в режиме `mixed-utility`: сначала идут rankable-модели, затем при различии tier — более высокий tier; внутри tier используется `score + price_weight*ln(1+Q/P)`. Вес задаётся в `ranking.mixed_utility.price_weight` и по умолчанию равен `10`. `--sort` принимает только `name`, `slug`,
+По умолчанию таблица сортируется в режиме `mixed-utility`: сначала идут rankable-модели, а платные модели сравниваются по безопасной YAML expression formula. Без `formula` действует совместимая формула `score + price_weight*tier_factor*ln(1+quality_price)`, где `price_weight=10`, price mix равен 3:1, а факторы `opus=1`, `sonnet=1`, `haiku=0.5`, `free=0`. Бесплатные rankable-модели сравниваются по score. `--sort` принимает только `name`, `slug`,
 `context`, `input`, `output`, `price`, `quality` и `q/p`, а также `Q`, `P`, `QP`; `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Качество сортируется по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые quality всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
@@ -170,11 +170,33 @@ digest входных файлов, metadata инструментов/базы �
 Для рейтинга моделей можно явно выбрать `--ranking=legacy`, `--ranking=tier` или `--ranking=mixed`.
 `legacy` сохраняет прежнюю сортировку по Q/P и включается только явно. `tier` использует
 лексикографический ключ `rankable, tier, score, Q/P, price`: Opus существенно выше Sonnet/Haiku,
-а цена учитывается только после качества внутри тира. `mixed` использует `score + price_weight*ln(1+Q/P)` внутри каждого tier; `price_weight` берётся из `ranking.mixed_utility.price_weight` и по умолчанию равен `10`:
+а цена учитывается только после качества внутри тира. `mixed` использует глобальную tier-adjusted utility
+`score + price_weight*tierPriceFactor*ln(1+Q/P)`; `price_weight` берётся из `ranking.mixed_utility.price_weight` и по умолчанию равен `10`:
 абсолютное качество остаётся главным, но цена заметно влияет на близкие результаты. `task_fit`
 не участвует в формуле и не является multiplier. Без `--ranking` используется `mixed-utility`.
 В TUI `m` переключает `tier-priority` и `mixed-utility`, а
 текущий режим показывается в верхней meta-строке.
+
+### Настройка mixed utility
+
+```yaml
+ranking:
+  mixed_utility:
+    price_weight: 10
+    price: {input_weight: 3, output_weight: 1}
+    tier_factors: {opus: 1, sonnet: 1, haiku: 0.5, free: 0, default: 0}
+    formula:
+      op: add
+      args:
+        - var: score
+        - op: mul
+          args:
+            - var: tier_factor
+            - op: log1p
+              args: [{var: quality_price}]
+```
+
+`formula` и `price_weight` нельзя указывать одновременно: конфигурация завершается ясной ошибкой вместо выбора одной из неоднозначных семантик. Разрешены vars `score`, `input_price`, `output_price`, `price_mix`, `quality_price`, `tier_value`, `tier_factor` и операции `add`, `sub`, `mul`, `div`, `neg`, `log`, `log1p`, `min`, `max`, `clamp`. Arity строгая, глубина максимум 16, узлов максимум 64. Все числа finite, price weights неотрицательны и имеют положительную сумму. Неизвестные ключи/vars/ops, деление на ноль и ошибки домена `log`/`log1p` отклоняются.
 Колонка `Claude` использует ручной `tier` из `model-map.tsv` как источник соответствующей ссылки.
 Для `opus` выводится `>≈ Opus 5`, для `sonnet` — `≈ Sonnet 5`; для `haiku` и `free`
 с rankable Score применяются пороги 70 и 60 относительно `Claude Haiku 4.5`, а без score используются

@@ -7,11 +7,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,14 +25,10 @@ type Config struct {
 }
 
 type RankingConfig struct {
-	MixedUtility MixedUtilityConfig `yaml:"mixed_utility"`
+	MixedUtility ranking.Config `yaml:"mixed_utility"`
 }
 
-type MixedUtilityConfig struct {
-	PriceWeight *float64 `yaml:"price_weight"`
-}
-
-const DefaultMixedUtilityPriceWeight = 10
+const DefaultMixedUtilityPriceWeight = ranking.DefaultPriceWeight
 
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
@@ -38,7 +36,12 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"\n" +
 	"ranking:\n" +
 	"  mixed_utility:\n" +
-	"    price_weight: 10\n"
+	"    price_weight: 10\n" +
+	"    price:\n" +
+	"      input_weight: 3\n" +
+	"      output_weight: 1\n" +
+	"    tier_factors: {opus: 1, sonnet: 1, haiku: 0.5, free: 0, default: 0}\n" +
+	"    # formula and price_weight cannot be used together; see README for the whitelist.\n"
 
 // Init creates the user config and the cache directory without replacing existing paths.
 func Init(path, dataDir string) ([]string, error) {
@@ -117,12 +120,7 @@ func configTemplate(dataDir string) (string, error) {
 	if dataDir == "." {
 		return template, nil
 	}
-	weight := float64(DefaultMixedUtilityPriceWeight)
-	body, err := yaml.Marshal(Config{DataDir: dataDir, DefaultOutput: "docs/openrouter-model-comparison.md", Ranking: RankingConfig{MixedUtility: MixedUtilityConfig{PriceWeight: &weight}}})
-	if err != nil {
-		return "", fmt.Errorf("config: encode template: %w", err)
-	}
-	return "# User configuration for openrouter. Relative paths are resolved from this config file.\n" + string(body), nil
+	return fmt.Sprintf("# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: %s\ndefault_output: docs/openrouter-model-comparison.md\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n", dataDir), nil
 }
 
 // Load reads the config. A missing file is not an error: every value it holds
@@ -136,11 +134,13 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
 	var c Config
-	if err := yaml.Unmarshal(b, &c); err != nil {
+	decoder := yaml.NewDecoder(strings.NewReader(string(b)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&c); err != nil && err != io.EOF {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
-	if weight := c.Ranking.MixedUtility.PriceWeight; weight != nil && (*weight < 0 || math.IsNaN(*weight) || math.IsInf(*weight, 0)) {
-		return Config{}, fmt.Errorf("config: %s: ranking.mixed_utility.price_weight must be a finite non-negative number", path)
+	if _, err := ranking.Compile(c.Ranking.MixedUtility); err != nil {
+		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return c, nil
 }
@@ -150,6 +150,10 @@ func (c Config) MixedUtilityPriceWeight() float64 {
 		return DefaultMixedUtilityPriceWeight
 	}
 	return *c.Ranking.MixedUtility.PriceWeight
+}
+
+func (c Config) CompiledMixedUtility() (ranking.Compiled, error) {
+	return ranking.Compile(c.Ranking.MixedUtility)
 }
 
 // DefaultPath is where the config lives unless --config says otherwise.
