@@ -248,6 +248,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		return report, err
 	}
 	newSnapshot := NewSnapshotWithPrices(models, prices, today)
+	newSnapshot.UpdatedAt = d.now().UTC().Format(time.RFC3339)
 	if catalogOK {
 		newSnapshot.CatalogSlugs = append([]string(nil), catalog...)
 	} else {
