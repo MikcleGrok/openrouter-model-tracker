@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -79,73 +79,50 @@ func TestTUIKeyState(t *testing.T) {
 	if !strings.Contains(m.View(), "q sorts by quality") || !strings.Contains(m.View(), "p by price") || !strings.Contains(m.View(), "r by quality/price") {
 		t.Fatalf("help page 1 is missing sort shortcuts: %q", m.View())
 	}
-	helpPage := tuiHelpPageContent(0)
-	for page := 0; page < tuiHelpPageCount; page++ {
-		if strings.ContainsAny(tuiHelpPageContent(page), "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя") {
-			t.Fatalf("help page %d mentions Cyrillic keyboard aliases: %q", page+1, tuiHelpPageContent(page))
+	for _, r := range tuiHelpDocument {
+		if unicode.Is(unicode.Cyrillic, r) {
+			t.Fatalf("help document mentions Cyrillic keyboard aliases: %q", tuiHelpDocument)
 		}
 	}
-	for _, text := range []string{"Navigation", "IDFT", "English keywords", "implement + debug + refactor + test", "implement, plan, research, debug, audit, refactor, test", "last column between Task fit and Note"} {
-		if !strings.Contains(helpPage, text) {
-			t.Fatalf("help page 1 missing %q", text)
+	for _, text := range []string{"Navigation", "Task-fit", "t toggles Task fit short/long", "n switches the last column between Task fit and Note", "IDFT", "English keywords", "Short codes are: I, P, R, D, A, F, T", "implement + debug + refactor + test", "implement, plan, research, debug, audit, refactor, test", "No task-fit classification is shown as n/a", "Auto-refresh"} {
+		if !strings.Contains(tuiHelpDocument, text) {
+			t.Fatalf("help document missing %q", text)
 		}
 	}
-	if !strings.Contains(m.View(), "IDFT") || !strings.Contains(m.View(), "English keywords") {
-		t.Fatalf("help page 1 view missing task-fit display modes: %q", m.View())
-	}
-	m.width, m.height = 140, 30
-	view := m.View()
-	for _, text := range []string{"long shows English keywords", "Task-fit keywords are: implement, plan, research, debug, audit, refactor, test"} {
-		if !strings.Contains(view, text) {
-			t.Fatalf("help page 1 view missing task-fit copy %q: %q", text, view)
-		}
-	}
-	if !strings.Contains(m.View(), "Page 1/3") {
-		t.Fatal("help page indicator missing")
-	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.width, m.height = 140, 12
+	initial := m.View()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = next.(tuiModel)
-	if m.overlay != "help" || m.helpPage != 1 || !strings.Contains(m.View(), "quality>=N") || !strings.Contains(m.View(), "Columns") || !strings.Contains(m.View(), "structured filter") {
-		t.Fatalf("tab did not advance help: overlay=%q page=%d view=%q", m.overlay, m.helpPage, m.View())
+	if m.helpOffset != 1 || initial == m.View() {
+		t.Fatalf("help did not scroll: offset=%d", m.helpOffset)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	for i := 0; i < len(tuiHelpLines())+10; i++ {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(tuiModel)
+	}
+	if m.helpOffset != tuiHelpMaxOffset(m.height) {
+		t.Fatalf("help offset exceeded lower bound: got %d, max %d", m.helpOffset, tuiHelpMaxOffset(m.height))
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
 	m = next.(tuiModel)
-	if m.helpPage != 2 || !strings.Contains(m.View(), "Auto-refresh") || !strings.Contains(m.View(), "refresh") {
-		t.Fatalf("right did not advance help: page=%d", m.helpPage)
+	if m.helpOffset != 0 {
+		t.Fatalf("help home offset = %d, want 0", m.helpOffset)
 	}
-	if !strings.Contains(m.View(), "R refreshes") || !strings.Contains(m.View(), "x or Ctrl-C exits") || strings.Contains(m.View(), "r refreshes") {
-		t.Fatalf("help page 3 has stale shortcuts: %q", m.View())
+	m = tuiKey(m, "/")
+	m.input = "refresh"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.inputMode != "" || len(m.helpMatches) == 0 || !strings.Contains(m.View(), "refresh") {
+		t.Fatalf("help search state = %+v", m)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.overlay != "help" || m.helpPage != 2 {
-		t.Fatal("up left help overlay")
-	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	m = next.(tuiModel)
-	if m.helpPage != 1 {
-		t.Fatalf("left did not return to previous help page: %d", m.helpPage)
+	if m.helpMatch != 1%len(m.helpMatches) {
+		t.Fatalf("Enter did not advance search match: %d", m.helpMatch)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = next.(tuiModel)
 	if m.overlay != "" {
 		t.Fatal("help did not close")
-	}
-	m = tuiKey(m, "?")
-	for key, page := range map[string]int{"1": 0, "2": 1, "3": 2} {
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-		m = next.(tuiModel)
-		if m.helpPage != page || !strings.Contains(m.View(), fmt.Sprintf("Page %d/3", page+1)) {
-			t.Fatalf("help section %q selected page %d: page=%d view=%q", key, page+1, m.helpPage, m.View())
-		}
-	}
-	m = tuiKey(m, "esc")
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
-	m = next.(tuiModel)
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
-	m = next.(tuiModel)
-	if m.overlay != "" {
-		t.Fatal("repeated ? did not close help")
 	}
 }
 
@@ -178,16 +155,11 @@ func TestTUIStatusIncludesTaskFitShortcutAndTruncates(t *testing.T) {
 	}
 }
 
-func TestTUICommandKeysMatchRussianLayout(t *testing.T) {
-	for _, test := range []struct{ latin, russian string }{
-		{"q", "й"}, {"p", "з"}, {"r", "к"}, {"R", "К"}, {"x", "ч"}, {"s", "ы"}, {"S", "Ы"},
-		{"c", "с"}, {"t", "е"}, {"n", "т"}, {"f", "а"}, {"j", "о"}, {"k", "л"}, {"g", "п"}, {"G", "П"},
-		{"/", "."}, {"?", ","},
-	} {
-		latinKey := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.latin)})
-		russianKey := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.russian)})
-		if latinKey != russianKey || latinKey != test.latin {
-			t.Fatalf("%q/%q normalized to %q/%q, want %q", test.latin, test.russian, latinKey, russianKey, test.latin)
+func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
+	for _, test := range []struct{ key, want string }{{".", "/"}, {",", "?"}} {
+		got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
+		if got != test.want {
+			t.Fatalf("%q normalized to %q, want %q", test.key, got, test.want)
 		}
 	}
 	for _, test := range []struct {
@@ -200,47 +172,15 @@ func TestTUICommandKeysMatchRussianLayout(t *testing.T) {
 	}
 }
 
-func TestTUIRussianShortcutsHaveLatinStateTransitions(t *testing.T) {
-	rows := []model.Model{{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1}, {Slug: "high", Score: &model.ScoreInfo{Value: 9}, Rankable: true, QualityPrice: 9}}
-	for _, test := range []struct{ latin, russian string }{{"q", "й"}, {"p", "з"}, {"r", "к"}, {"s", "ы"}, {"S", "Ы"}, {"j", "о"}, {"k", "л"}, {"g", "п"}, {"G", "П"}, {"t", "е"}, {"n", "т"}, {"c", "с"}} {
-		latinModel, _ := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.latin)})
-		russianModel, _ := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.russian)})
-		latin := latinModel.(tuiModel)
-		russian := russianModel.(tuiModel)
-		if latin.sortKey != russian.sortKey || latin.reverse != russian.reverse || latin.cursor != russian.cursor || latin.overlay != russian.overlay || latin.taskLong != russian.taskLong || latin.lastNote != russian.lastNote {
-			t.Fatalf("shortcut %q/%q diverged: latin=%+v russian=%+v", test.latin, test.russian, latin, russian)
-		}
-	}
-}
-
-func TestTUIRussianShortcutsThroughUpdate(t *testing.T) {
-	rows := []model.Model{{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1}, {Slug: "high", Score: &model.ScoreInfo{Value: 9}, Rankable: true, QualityPrice: 9}}
-	for _, test := range []struct{ latin, russian string }{{"q", "й"}, {"p", "з"}, {"r", "к"}, {"s", "ы"}, {"S", "Ы"}, {"c", "с"}, {"t", "е"}, {"n", "т"}, {"f", "а"}, {"j", "о"}, {"k", "л"}, {"g", "п"}, {"G", "П"}} {
-		latin, russian := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows), newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
-		latinModel, _ := latin.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.latin)})
-		russianModel, _ := russian.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.russian)})
-		if !reflect.DeepEqual(latinModel.(tuiModel), russianModel.(tuiModel)) {
-			t.Fatalf("Update shortcut %q/%q diverged: latin=%+v russian=%+v", test.latin, test.russian, latinModel, russianModel)
-		}
-	}
-	for _, key := range []string{"G", "П"} {
-		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-		if next.(tuiModel).cursor != len(rows)-1 {
-			t.Fatalf("%s did not move to the distinguishable end state: %+v", key, next)
-		}
-	}
-}
-
-func TestTUIInputModeKeepsRussianRunes(t *testing.T) {
-	for _, key := range []string{"й", "з"} {
+func TestTUIInputModeKeepsNonASCIIInput(t *testing.T) {
+	for _, key := range []string{"é", "界"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 		m.inputMode = "search"
 		beforeSort, beforeOverlay := m.sortKey, m.overlay
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		m = next.(tuiModel)
 		if m.input != key || m.sortKey != beforeSort || m.overlay != beforeOverlay || m.inputMode != "search" {
-			t.Fatalf("Russian input %q was routed as command: input=%q sort=%q mode=%q overlay=%q", key, m.input, m.sortKey, m.inputMode, m.overlay)
+			t.Fatalf("non-ASCII input %q was routed as command: input=%q sort=%q mode=%q overlay=%q", key, m.input, m.sortKey, m.inputMode, m.overlay)
 		}
 	}
 }
@@ -296,9 +236,9 @@ func TestTUIExitAndRefreshShortcuts(t *testing.T) {
 	}
 }
 
-func TestTUIRussianRefreshQuitSearchAndHelpThroughUpdate(t *testing.T) {
+func TestTUIRefreshQuitSearchAndHelpThroughUpdate(t *testing.T) {
 	rows := []model.Model{{Slug: "alpha", DisplayName: "Alpha"}, {Slug: "beta", DisplayName: "Beta"}}
-	for _, key := range []string{"R", "К"} {
+	for _, key := range []string{"R"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
 		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		updated := next.(tuiModel)
@@ -309,7 +249,7 @@ func TestTUIRussianRefreshQuitSearchAndHelpThroughUpdate(t *testing.T) {
 			t.Fatalf("%s refresh message = %#v", key, message)
 		}
 	}
-	for _, key := range []string{"x", "ч"} {
+	for _, key := range []string{"x"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
 		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		if cmd == nil {
@@ -672,16 +612,14 @@ func TestTUIColumnsOverlayFitsSmallHeights(t *testing.T) {
 }
 
 func TestTUIHelpOverlayFitsSmallHeights(t *testing.T) {
-	for _, page := range []int{0, 1, 2} {
-		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
-		m.overlay, m.helpPage = "help", page
-		for _, height := range []int{1, 2, 3, 4, 5, 6, 7} {
-			m.width, m.height = 40, height
-			view := m.View()
-			assertTUIViewFits(t, view, m.width, m.height, "help")
-			if strings.TrimSpace(view) == "" {
-				t.Fatalf("help page %d at height %d rendered empty view", page+1, height)
-			}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay = "help"
+	for _, height := range []int{1, 2, 3, 4, 5, 6, 7} {
+		m.width, m.height = 40, height
+		view := m.View()
+		assertTUIViewFits(t, view, m.width, m.height, "help")
+		if strings.TrimSpace(view) == "" {
+			t.Fatalf("help at height %d rendered empty view", height)
 		}
 	}
 
@@ -708,7 +646,7 @@ func TestTUIHelpOverlayFitsSmallHeights(t *testing.T) {
 }
 
 func TestTUIHelpUsesFullViewport(t *testing.T) {
-	view := tuiHelpView(0, 80, 20)
+	view := tuiHelpView(0, "", 80, 20)
 	lines := strings.Split(view, "\n")
 	if len(lines) != 20 {
 		t.Fatalf("help height = %d, want 20", len(lines))
