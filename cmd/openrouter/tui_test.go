@@ -79,6 +79,11 @@ func TestTUIKeyState(t *testing.T) {
 		t.Fatalf("help page 1 is missing sort shortcuts: %q", m.View())
 	}
 	helpPage := tuiHelpPageContent(0)
+	for page := 0; page < tuiHelpPageCount; page++ {
+		if strings.ContainsAny(tuiHelpPageContent(page), "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя") {
+			t.Fatalf("help page %d mentions Cyrillic keyboard aliases: %q", page+1, tuiHelpPageContent(page))
+		}
+	}
 	for _, text := range []string{"Navigation", "IDFT", "English keywords", "implement + debug + refactor + test", "implement, plan, research, debug, audit, refactor, test", "last column between Task fit and Note"} {
 		if !strings.Contains(helpPage, text) {
 			t.Fatalf("help page 1 missing %q", text)
