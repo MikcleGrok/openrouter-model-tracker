@@ -1,5 +1,10 @@
 # What's New
 
+## [1.2.3]
+
+- Add a configurable ranking formula for tuning the balance between model quality and price.
+- Add local read-only release verification for the stable formula, installed package, release tag, and CLI checks without reinstalling or publishing.
+
 ## [1.2.1]
 
 - Make `verify-release` a read-only check of the local stable Homebrew formula and installed package.
