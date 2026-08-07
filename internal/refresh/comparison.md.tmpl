@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|---|---|
 {{- range .Favorites}}
 {{- if .Model}}
-| {{.TierLabel}} | {{.Model.DisplayName}} | ${{price .Model.InPerM}} / ${{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Reason}} |
+| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Reason}} |
 {{- else}}
 | {{.TierLabel}} | {{.Fallback}} | — | — | — | — | — | {{.Reason}} |
 {{- end}}
@@ -57,7 +57,7 @@
 | Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | SWE-bench Verified | Качество/цена | Владелец (FLI) | Открытые веса | Примечание |
 |---|---|---|---|---|---|---|---|---|---|
 {{- range .Rows}}
-| {{.DisplayName}} | {{.Slug}} | ${{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | ${{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
+| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
 {{- end}}
 {{end}}
 ## Сколько токенов даст $10

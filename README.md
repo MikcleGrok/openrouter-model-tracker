@@ -27,6 +27,11 @@ brew reinstall local/tap/openrouter   # подхватить свежий ком
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
+Версия release-бинарника является нормализованным SemVer 2.0.0 без префикса `v`.
+Единственный источник release-версии — чистый checkout на exact immutable tag
+`vMAJOR.MINOR.PATCH` с optional prerelease (`-rc.1`); build metadata (`+...`) запрещена.
+Обычная локальная сборка по-прежнему показывает descriptive version от `git describe`.
+
 ### Bash completion
 
 Для текущей shell-сессии:
@@ -81,7 +86,28 @@ make check
 make history
 make table
 make init
+make version
+make check-version
+make check-tag
+make release-check VERSION=1.0.0
+make verify-release
+make whats-new
+make security
+make dependency-check
+make secrets-check
+make sbom
+make checksums
+make verify-provenance
+make signature
+make check-docs
 ```
+
+Makefile является единственным публичным интерфейсом build/test/security/release
+действий и не зависит от текущего каталога. `dependency-check` и `sbom` требуют
+внешние scanners и завершаются ошибкой при их отсутствии; это не скрытые NO-OP.
+`verify-provenance` и `signature` имеют явный локальный NO-OP, потому что
+репозиторий не публикует артефакты и не содержит CI builder или signing identity.
+Подробный scope находится в `docs/security.md`.
 
 `openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный
 снимок из `cache/last-run-snapshot.json`. Они не обращаются к сети и завершаются с ошибкой,
@@ -94,6 +120,13 @@ make init
 Колонка `Task fit` рассчитывается по полной display width самого длинного значения и не
 обрезается; если таблица шире терминала, `less -S` позволяет прокручивать её по горизонтали,
 а pipe или файл сохраняют полный текст.
+Для рейтинга моделей можно явно выбрать `--ranking=tier` или `--ranking=mixed`. `tier` использует
+лексикографический ключ `rankable, tier, score, Q/P, price`: Opus существенно выше Sonnet/Haiku,
+а цена учитывается только после качества внутри тира. `mixed` использует `score + 2*ln(1+Q/P)`:
+абсолютное качество остаётся главным, но цена заметно влияет на близкие результаты. `task_fit`
+не участвует в формуле и не является multiplier. Без `--ranking` сохраняется прежняя сортировка
+`q/p` для обратной совместимости. В TUI `m` переключает `tier-priority` и `mixed-utility`, а
+текущий режим показывается в верхней meta-строке.
 Колонка `Claude` использует ручной `tier` из `model-map.tsv` как источник соответствующей ссылки.
 Для `opus` выводится `>≈ Opus 5`, для `sonnet` — `≈ Sonnet 5`; для `haiku` и `free`
 с rankable Score применяются пороги 70 и 60 относительно `Claude Haiku 4.5`, а без score используются
@@ -111,8 +144,19 @@ fallback `≈ Haiku 4.5` для `haiku` и `<≈ Haiku 4.5` для `free`. Не�
 остальные колонки.
 
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
-`docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`,
-а `make release-build` собирает бинарник только из checkout на полном git-теге.
+`docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`.
+
+`make release-check VERSION=1.0.0` — непубликующий pre-tag gate: проверяет чистоту
+checkout, формат release-версии, локальный commit SHA, diff hygiene, форматирование,
+тесты, vet, security baseline, secret scan, checksum, manifest и Unreleased notes.
+Exact tag для этого target не требуется; planned tag является только metadata.
+После создания exact tag `make release-build` требует чистый checkout ровно на
+`vMAJOR.MINOR.PATCH` (с optional prerelease). Локальная проверка strict evidence
+и собранного бинарника выполняется отдельным `make verify-local-artifact`;
+`make verify-release` завершается явным BLOCKED, поскольку published/stable source,
+registry, signature и provenance проверки в этом репозитории не автоматизированы.
+Ни один из этих target не создаёт tag,
+не публикует, не устанавливает пакет и не меняет remote.
 Bootstrap-сценарий для macOS при запуске из корня checkout вызывается так:
 
 ```bash
@@ -167,10 +211,10 @@ default_output: docs/openrouter-model-comparison.md
 конфиг. Команда не обращается к сети и не создаёт snapshot, price history, HTTP cache или
 сгенерированный документ.
 
-Версия сборки берётся из `git describe --tags --always --dirty` и передаётся в Go через
-`-X main.version`. Поэтому checkout на точном теге показывает чистую версию, а commit после
-тега — стандартный suffix `-N-g<sha>`; изменённый checkout дополнительно получает `-dirty`.
-Для release-сборки `make release-build` требует чистый checkout ровно на полном git-теге:
+Локальная descriptive версия берётся из `git describe --tags --always --dirty`, нормализуется
+удалением только tag-префикса `v` и передаётся в Go через `-X main.version`. Поэтому checkout
+на точном теге показывает SemVer без `v`, а commit после тега — descriptive suffix; изменённый
+checkout дополнительно получает `-dirty`.
 
 ```bash
 make release-build
@@ -180,17 +224,21 @@ make release-build
 
 ```text
 $ ./bin/openrouter --help
-Version: v0.1.0
+Version: 0.1.0
 
 openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com
 and vals.ai using the manual model-map.tsv mapping, then regenerates the markdown document.
 
 $ ./bin/openrouter --version
-openrouter version v0.1.0
+openrouter version 0.1.0
 ```
 
 В обычной локальной сборке root help показывает текущее значение `git describe`, включая
 suffix для commit после тега или `-dirty` для изменённого checkout.
+
+`make whats-new VERSION=1.0.0` печатает только exact section `## [1.0.0]` из
+`CHANGELOG.md` и завершается ошибкой, если такой section отсутствует. `release-check`
+отдельно использует `## [Unreleased]` как pre-tag candidate notes.
 
 Локальная Homebrew formula находится вне этого репозитория и во время сборки вычисляет ту же
 версию через `git describe` из checkout в `buildpath`, поэтому Homebrew больше не подставляет
@@ -212,7 +260,7 @@ describe suffix.
 Пустой список выводится как `n/a` и не означает плохое качество: это означает отсутствие
 классификации.
 
-`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit` и `--slug`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение short/long task-fit (`t`), Task fit/Note (`n`), ручное обновление (`r`) и справка (`?`). Последнюю колонку нельзя снять. `--refresh-interval 0` отключает автоматическое обновление, ручное `r` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
+`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit` и `--slug`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение Task fit/Note (`n`), ручное обновление (`r`) и справка (`?`). Task fit в TUI показывается только компактными кодами. Последнюю колонку нельзя снять. `--refresh-interval 0` отключает автоматическое обновление, ручное `r` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
 
 В справке TUI разделы можно сразу выбрать клавишами `1`, `2` или `3`; справка занимает весь viewport. В верхней строке TUI показывается RFC3339-время последнего успешного обновления данных.
 

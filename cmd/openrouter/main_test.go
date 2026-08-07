@@ -103,8 +103,8 @@ func TestCompletionSuggestions(t *testing.T) {
 		want []string
 	}{
 		{name: "root", args: []string{""}, want: []string{"table", "tui", "completion"}},
-		{name: "tui flags", args: []string{"tui", "--"}, want: []string{"--refresh-interval", "--sort", "--filter", "--limit", "--reverse", "--slug"}},
-		{name: "table flags", args: []string{"table", "--"}, want: []string{"--task-fit", "--sort", "--filter", "--limit", "--notes", "--no-pager", "--reverse", "--slug"}},
+		{name: "tui flags", args: []string{"tui", "--"}, want: []string{"--refresh-interval", "--ranking", "--sort", "--filter", "--limit", "--reverse", "--slug"}},
+		{name: "table flags", args: []string{"table", "--"}, want: []string{"--ranking", "--task-fit", "--sort", "--filter", "--limit", "--notes", "--no-pager", "--reverse", "--slug"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "format: markdown or tsv"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv"}},
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
-		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "automatic live refresh interval"}},
+		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "automatic live refresh interval"}},
 	}
 
 	for _, tt := range tests {
@@ -208,15 +208,15 @@ func TestInitIsIdempotentAndDoesNotOverwrite(t *testing.T) {
 func TestReleaseLikeVersionInjection(t *testing.T) {
 	original := version
 	defer func() { version = original }()
-	version = "v0.1.0"
+	version = "0.1.0"
 
-	if got := executeCLI(t, "--version"); got != "openrouter version v0.1.0\n" {
-		t.Errorf("release-like --version = %q, want %q", got, "openrouter version v0.1.0\\n")
+	if got := executeCLI(t, "--version"); got != "openrouter version 0.1.0\n" {
+		t.Errorf("release-like --version = %q, want %q", got, "openrouter version 0.1.0\\n")
 	}
-	if got := executeCLI(t, "version"); got != "openrouter v0.1.0\n" {
-		t.Errorf("release-like version = %q, want %q", got, "openrouter v0.1.0\\n")
+	if got := executeCLI(t, "version"); got != "openrouter 0.1.0\n" {
+		t.Errorf("release-like version = %q, want %q", got, "openrouter 0.1.0\\n")
 	}
-	if output := executeCLI(t, "--help"); !strings.Contains(output, "Version: v0.1.0") {
+	if output := executeCLI(t, "--help"); !strings.Contains(output, "Version: 0.1.0") {
 		t.Errorf("release-like root help does not show the version:\n%s", output)
 	}
 }

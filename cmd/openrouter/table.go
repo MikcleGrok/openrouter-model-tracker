@@ -32,6 +32,23 @@ const maxTableIdentityWidth = 40
 
 const tableSortHelp = "name, slug, context, input, output, price, quality (Q), q/p (QP), P"
 
+const (
+	rankingLegacy = "legacy"
+	rankingTier   = "tier"
+	rankingMixed  = "mixed"
+)
+
+func normalizeRanking(ranking string) string {
+	switch ranking {
+	case "tier-priority":
+		return rankingTier
+	case "mixed-utility":
+		return rankingMixed
+	default:
+		return ranking
+	}
+}
+
 func loadLocalModels(dataDir string) ([]model.Model, error) {
 	entries, err := modelmap.Load(filepath.Join(dataDir, "model-map.tsv"))
 	if err != nil {
@@ -86,6 +103,14 @@ func loadLocalUpdatedAt(dataDir string) string {
 }
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {
+	return sortTableModelsWithRanking(models, key, reverse, rankingLegacy)
+}
+
+func sortTableModelsWithRanking(models []model.Model, key string, reverse bool, ranking string) error {
+	ranking = normalizeRanking(ranking)
+	if ranking != rankingLegacy && ranking != rankingTier && ranking != rankingMixed {
+		return fmt.Errorf("table: invalid --ranking %q; allowed values: tier, tier-priority, mixed, mixed-utility", ranking)
+	}
 	key = strings.ToLower(strings.TrimSpace(key))
 	if alias, ok := map[string]string{"q": "quality", "p": "price", "qp": "q/p"}[key]; ok {
 		key = alias
@@ -96,6 +121,19 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "price": true, "quality": true, "q/p": true}
 	if !valid[key] {
 		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
+	}
+	if ranking != rankingLegacy && key == "q/p" {
+		sort.SliceStable(models, func(i, j int) bool {
+			comparison := compareRanking(models[i], models[j], ranking)
+			if comparison == 0 {
+				return models[i].Slug < models[j].Slug
+			}
+			if reverse {
+				return comparison > 0
+			}
+			return comparison < 0
+		})
+		return nil
 	}
 	sort.SliceStable(models, func(i, j int) bool {
 		left, right := models[i], models[j]
@@ -138,6 +176,58 @@ func sortTableModels(models []model.Model, key string, reverse bool) error {
 		return (comparison < 0) != reverse
 	})
 	return nil
+}
+
+func compareRanking(left, right model.Model, ranking string) int {
+	leftRankable, rightRankable := left.Score != nil && left.Rankable, right.Score != nil && right.Rankable
+	if leftRankable != rightRankable {
+		if leftRankable {
+			return -1
+		}
+		return 1
+	}
+	if !leftRankable {
+		return compareFloats(left.MixedPrice, right.MixedPrice)
+	}
+	if ranking == rankingTier {
+		if leftTier, rightTier := rankingTierValue(left.Tier), rankingTierValue(right.Tier); leftTier != rightTier {
+			return compareInts(rightTier, leftTier)
+		}
+		if left.Score.Value != right.Score.Value {
+			return compareFloats(right.Score.Value, left.Score.Value)
+		}
+		return compareFloats(right.QualityPrice, left.QualityPrice)
+	}
+	leftUtility := left.Score.Value + 2*math.Log1p(left.QualityPrice)
+	rightUtility := right.Score.Value + 2*math.Log1p(right.QualityPrice)
+	return compareFloats(rightUtility, leftUtility)
+}
+
+func rankingTierValue(tier string) int {
+	switch strings.ToLower(tier) {
+	case "opus":
+		return 3
+	case "sonnet":
+		return 2
+	case "haiku":
+		return 1
+	case "free":
+		return 0
+	default:
+		return -1
+	}
+}
+
+func rankingLabel(ranking string) string {
+	ranking = normalizeRanking(ranking)
+	switch ranking {
+	case rankingTier:
+		return "tier-priority"
+	case rankingMixed:
+		return "mixed-utility"
+	default:
+		return "q/p (legacy)"
+	}
 }
 
 func parseTableArgs(args []string, flags *pflag.FlagSet) error {

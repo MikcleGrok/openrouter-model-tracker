@@ -122,10 +122,9 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 		m.Tokens10Mixed = pricing.Tokens10(m.MixedPrice)
 		if price.HasOverride {
 			threshold := pricing.FormatContext(price.OverrideMinTokens)
-			m.LongContextPriceLabel = fmt.Sprintf("$%s / $%s от %s+",
-				pricing.FormatPrice(price.OverrideInPerM), pricing.FormatPrice(price.OverrideOutPerM), threshold)
-			m.LongContextInLabel = fmt.Sprintf("$%s от %s+", pricing.FormatPrice(price.OverrideInPerM), threshold)
-			m.LongContextOutLabel = fmt.Sprintf("$%s от %s+", pricing.FormatPrice(price.OverrideOutPerM), threshold)
+			m.LongContextPriceLabel = fmt.Sprintf("%s / %s от %s+", pricing.FormatDollar(price.OverrideInPerM), pricing.FormatDollar(price.OverrideOutPerM), threshold)
+			m.LongContextInLabel = fmt.Sprintf("%s от %s+", pricing.FormatDollar(price.OverrideInPerM), threshold)
+			m.LongContextOutLabel = fmt.Sprintf("%s от %s+", pricing.FormatDollar(price.OverrideOutPerM), threshold)
 		}
 
 		if row, has := firstRow[e.Slug]; has {

@@ -83,20 +83,51 @@ func TestFormatPrice(t *testing.T) {
 		in   float64
 		want string
 	}{
-		{0, "0"},
+		{0, "0.00"},
 		{0.5, "0.50"},
 		{3, "3.00"},
 		{30, "30.00"},
 		{0.14, "0.14"},
-		{0.132, "0.132"},
-		{0.435, "0.435"},
-		{1.475, "1.475"},
-		{0.6818, "0.6818"},
+		{0.132, "0.13"},
+		{0.435, "0.44"},
+		{1.475, "1.48"},
+		{0.6818, "0.68"},
 	}
 	for _, c := range cases {
 		if got := FormatPrice(c.in); got != c.want {
 			t.Errorf("FormatPrice(%v) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestFormatPriceSubCentAndHalfCentBoundaries(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want string
+	}{
+		{0, "0.00"},
+		{0.0049, ""},
+		{0.0099, ""},
+		{0.01, "0.01"},
+		{1.004, "1.00"},
+		{1.0049999995, "1.00"},
+		{1.005, "1.01"},
+		{1.006, "1.01"},
+		{12.3, "12.30"},
+	}
+	for _, c := range cases {
+		if got := FormatPrice(c.in); got != c.want {
+			t.Errorf("FormatPrice(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFormatDollarOmitsSubCentCurrencyMarker(t *testing.T) {
+	if got := FormatDollar(0.009); got != "" {
+		t.Fatalf("FormatDollar(0.009) = %q, want empty", got)
+	}
+	if got := FormatDollar(0); got != "$0.00" {
+		t.Fatalf("FormatDollar(0) = %q, want $0.00", got)
 	}
 }
 

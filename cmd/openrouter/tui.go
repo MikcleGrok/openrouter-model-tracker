@@ -68,36 +68,37 @@ type tuiRefreshMsg struct {
 type tuiTickMsg struct{}
 
 type tuiModel struct {
-	ctx                context.Context
-	dataDir            string
-	refreshOpts        refresh.Options
-	interval           time.Duration
-	models, visible    []model.Model
-	columns            []tuiColumn
-	sortKey            string
-	reverse            bool
-	cursor             int
-	width, height      int
-	filter             string
-	taskLong, lastNote bool
-	status, err        string
-	updatedAt          string
-	refreshing         bool
-	generation         uint64
-	selectedSlug       string
-	overlay            string
-	helpOffset         int
-	helpSearch         string
-	helpMatches        []int
-	helpMatch          int
-	columnCursor       int
-	pendingColumns     []tuiColumn
-	input, inputMode   string
-	limit              int
+	ctx              context.Context
+	dataDir          string
+	refreshOpts      refresh.Options
+	interval         time.Duration
+	models, visible  []model.Model
+	columns          []tuiColumn
+	sortKey          string
+	reverse          bool
+	cursor           int
+	width, height    int
+	filter           string
+	lastNote         bool
+	status, err      string
+	updatedAt        string
+	refreshing       bool
+	generation       uint64
+	selectedSlug     string
+	overlay          string
+	helpOffset       int
+	helpSearch       string
+	helpMatches      []int
+	helpMatch        int
+	columnCursor     int
+	pendingColumns   []tuiColumn
+	input, inputMode string
+	limit            int
+	ranking          string
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingLegacy, width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -113,6 +114,10 @@ func runTUI(ctx context.Context, out io.Writer, dataDir string, opts refresh.Opt
 }
 
 func runTUIWithConfig(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool) error {
+	return runTUIWithRankingConfig(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingLegacy)
+}
+
+func runTUIWithRankingConfig(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, ranking string) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
@@ -122,6 +127,7 @@ func runTUIWithConfig(ctx context.Context, out io.Writer, dataDir string, opts r
 	}
 	m := newTUIModel(ctx, dataDir, opts, interval, models)
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
+	m.ranking = ranking
 	if showSlug {
 		m.replaceColumn(colName, colSlug)
 	}
@@ -141,7 +147,7 @@ func (m *tuiModel) rebuild() {
 			return
 		}
 	}
-	_ = sortTableModels(filtered, m.sortKey, m.reverse)
+	_ = sortTableModelsWithRanking(filtered, m.sortKey, m.reverse, m.ranking)
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -255,13 +261,19 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "s":
 		m.sortKey = tuiSortKeys[(indexOf(tuiSortKeys, m.sortKey)+1)%len(tuiSortKeys)]
 		m.rebuild()
+	case "m":
+		if m.ranking == rankingTier {
+			m.ranking = rankingMixed
+		} else {
+			m.ranking = rankingTier
+		}
+		m.sortKey = "q/p"
+		m.rebuild()
 	case "S":
 		m.reverse = !m.reverse
 		m.rebuild()
 	case "c":
 		m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
-	case "t":
-		m.taskLong = !m.taskLong
 	case "n":
 		m.lastNote = !m.lastNote
 		m.toggleLastColumn()
@@ -359,7 +371,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m *tuiModel) rebuildWith(filtered []model.Model) {
-	_ = sortTableModels(filtered, m.sortKey, m.reverse)
+	_ = sortTableModelsWithRanking(filtered, m.sortKey, m.reverse, m.ranking)
 	filtered = limitTableModels(filtered, m.limit)
 	m.visible = filtered
 	m.restoreSelection()
@@ -445,7 +457,7 @@ func (m tuiModel) View() string {
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
 	title := truncateTable("OpenRouter models", m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("sort:%s%s  filter:%q  models:%d  data:%s", m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  sort:%s%s  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -460,7 +472,7 @@ func (m tuiModel) View() string {
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · s sort · S reverse · t task-fit · ? help/,"
+	hints := "↑↓ navigate · m ranking · q quality · p price · r q/p · R refresh · x quit · s sort · S reverse · ? help/,"
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
 	if m.inputMode == "" {
@@ -476,7 +488,7 @@ func (m tuiModel) View() string {
 		for i := start; i < end; i++ {
 			values := make([]string, len(columns))
 			for j, col := range columns {
-				values[j] = tuiCell(m.visible[i], col, m.taskLong, m.lastNote)
+				values[j] = tuiCell(m.visible[i], col, m.lastNote)
 			}
 			prefix := " "
 			if i == m.cursor {
@@ -689,16 +701,20 @@ Home/End or g/G jump; PgUp/PgDown scroll.
 
 Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
-s cycles sort key; S reverses order.
-R refreshes; x or Ctrl-C exits. c columns; t task-fit; n switches the last column between Task fit and Note.
+m toggles ranking mode: tier-priority or mixed-utility. s cycles sort key; S reverses order.
+R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
 f filter; / or . search; ? or , help.
 
 Task-fit
-t toggles Task fit short/long: short uses IDFT; long shows English keywords.
 n switches the last column between Task fit and Note.
-Task-fit values are: implement, plan, research, debug, audit, refactor, test.
-Short codes are: I, P, R, D, A, F, T. Long values use " + " between keywords.
-Example long value: implement + debug + refactor + test.
+Task-fit codes:
+I - implement: write or change production code.
+P - plan: define scope, steps, and decisions.
+R - research: investigate options, evidence, or behavior.
+D - debug: find and fix a defect or failure.
+A - audit: inspect quality, safety, or compliance.
+F - refactor: improve structure without changing behavior.
+T - test: add or improve automated verification.
 No task-fit classification is shown as n/a.
 
 Columns, search, and filters
@@ -711,6 +727,11 @@ Multiple filters are comma-separated and use AND.
 Refresh and finish
 R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.
 x or Ctrl-C exits. Esc closes this help. ? or , toggles help.
+
+Ranking modes
+tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
+mixed-utility: score dominates; price adds 2*ln(1+Q/P) points. Task-fit is never a multiplier.
+The CLI --ranking flag accepts tier, tier-priority, mixed, or mixed-utility; without it, legacy q/p sorting is preserved.
 
 Help search
 / starts a search in this document. Type text and press Enter to select the first match.
@@ -742,18 +763,6 @@ func (m *tuiModel) helpNextMatch(direction int) {
 	m.helpOffset = max(0, min(tuiHelpMaxOffset(m.height), m.helpMatches[m.helpMatch]-max(0, m.height/2)))
 }
 
-/*
-	switch page {
-	case 0:
-		return "openrouter tui keys\n\nNavigation\nUp/Down or j/k move through models.\nHome/End or g/G jump; PgUp/PgDown scroll.\n\nSort and task view\nq sorts by quality; p by price; r by quality/price ratio (q/p).\ns cycles sort key; S reverses order.\nR refreshes; x or Ctrl-C exits. c columns; t task-fit; n switches the last column between Task fit and Note.\nf filter; j down; k up; g home; G end.\nt toggles Task fit short/long: short uses IDFT; long shows English keywords, for example implement + debug + refactor + test.\nTask-fit keywords are: implement, plan, research, debug, audit, refactor, test.\n\nSearch: / or . (notation: /.)\nHelp: ? or , (notation: ?,)."
-	case 1:
-		return "Columns, search, and filters\n\nc opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.\n\n/ or . searches Name/Slug as plain substring text (notation: /.).\nf edits a structured filter and does not change the search.\nExamples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.\nMultiple filters are comma-separated and use AND."
-	default:
-		return "Refresh and finish\n\nR refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.\n\nx or Ctrl-C exits. Esc closes this help. ? or , toggles help (notation: ?,).\n\nUse Tab or Right to advance, Left to go back. Up/Down do not leave help."
-	}
-}
-*/
-
 func tuiBoxLimited(content string, width, height int) string {
 	return tuiBox(content, width, height)
 }
@@ -775,7 +784,7 @@ func tuiFullscreenText(content string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func tuiCell(m model.Model, col tuiColumn, long, note bool) string {
+func tuiCell(m model.Model, col tuiColumn, note bool) string {
 	var value string
 	switch col {
 	case colName:
@@ -797,10 +806,6 @@ func tuiCell(m model.Model, col tuiColumn, long, note bool) string {
 	case colTask:
 		if note {
 			value = tableNote(m)
-			break
-		}
-		if long {
-			value = tableTaskFit(m, "long")
 			break
 		}
 		value = tableTaskFit(m, "short")

@@ -61,7 +61,7 @@ type RenderData struct {
 }
 
 var tmpl = template.Must(template.New("comparison").Funcs(template.FuncMap{
-	"price": pricing.FormatPrice,
+	"price": pricing.FormatDollar,
 	"ctx":   pricing.FormatContext,
 	"tok":   pricing.FormatTokens10,
 }).Parse(comparisonTemplate))
