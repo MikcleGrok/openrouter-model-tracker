@@ -4,12 +4,14 @@ BINARY := $(ROOT)bin/openrouter
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
-GO_FILES := $(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go')
+GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go'))
 
 DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
 TAG_VERSION := $(shell git -C $(ROOT) describe --tags --exact-match 2>/dev/null)
-VERSION ?= $(patsubst v%,%,$(DESCRIBE_VERSION))
+TAG_IS_CLEAN := $(shell test -z "$(shell git -C $(ROOT) status --porcelain)" && printf 'yes')
+VERSION ?= $(if $(and $(TAG_VERSION),$(TAG_IS_CLEAN)),$(patsubst v%,%,$(TAG_VERSION)),0.0.0-dev)
 VERSIONCHECK := $(GO) run ./cmd/versioncheck
+PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 
 .DEFAULT_GOAL := help
 
@@ -57,8 +59,8 @@ dependency-check:
 	@command -v govulncheck >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: govulncheck is required; dependency-check is not a NO-OP.' >&2; exit 1; }
 	@command -v osv-scanner >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: osv-scanner is required; dependency-check is not a NO-OP.' >&2; exit 1; }
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.txt && $(GO) mod verify && govulncheck ./... > .release/govulncheck.txt && osv-scanner scan source -r . > .release/osv-scanner.txt && { printf 'commit=%s\n' "$$(git rev-parse HEAD)"; printf 'govulncheck=%s\n' "$$(govulncheck -version 2>&1 | tr '\n' ' ')"; printf 'osv-scanner=%s\n' "$$(osv-scanner --version 2>&1 | tr '\n' ' ')"; printf 'govulncheck-output=.release/govulncheck.txt\nosv-scanner-output=.release/osv-scanner.txt\nstatus=passed\n'; } > .release/dependency-evidence.txt
-	@printf '%s\n' 'Dependency scans passed; native output is in .release/.'
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.json; set +e; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; osv-scanner scan source -r . > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; input_digest="$$(git ls-files -co --exclude-standard go.mod go.sum | shasum -a 256 | cut -d ' ' -f 1)"; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
+	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-passed scans are explicit blockers/errors.'
 
 secrets-check:
 	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
@@ -143,8 +145,8 @@ verify-local-artifact: check-tag
 	@cd $(ROOT) && test "$$(shasum -a 256 bin/openrouter | cut -d ' ' -f 1)" = "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
 	@printf '%s\n' 'Verified local exact-tag artifact only.'
 
-verify-release: verify-local-artifact
-	@printf '%s\n' 'BLOCKED: published/stable distribution evidence is unavailable; use verify-local-artifact for local evidence.' >&2
+verify-release: check-version
+	@printf '%s\n' 'BLOCKED: published/stable evidence cannot be cryptographically and semantically verified by this repository; use verify-local-artifact for local evidence.' >&2
 	@exit 1
 
 whats-new:

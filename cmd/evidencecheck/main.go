@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -23,6 +24,19 @@ type manifest struct {
 	Digest   string `json:"digest"`
 }
 
+type publishedEvidence struct {
+	Schema     string `json:"schema"`
+	Version    string `json:"version"`
+	Tag        string `json:"tag"`
+	Commit     string `json:"commit"`
+	Artifact   string `json:"artifact"`
+	Digest     string `json:"digest"`
+	Source     string `json:"source"`
+	Checksum   string `json:"checksum"`
+	Signature  string `json:"signature"`
+	Provenance string `json:"provenance"`
+}
+
 func main() {
 	manifestPath := flag.String("manifest", "", "manifest path")
 	checksumPath := flag.String("checksum", "", "checksum path")
@@ -30,8 +44,15 @@ func main() {
 	tag := flag.String("tag", "", "expected exact tag")
 	commit := flag.String("commit", "", "expected commit")
 	version := flag.String("version", "", "expected normalized version")
+	publishedEvidencePath := flag.String("published-evidence", "", "published evidence path")
 	flag.Parse()
-	if err := validate(*manifestPath, *checksumPath, *artifactPath, *tag, *commit, *version); err != nil {
+	var err error
+	if *publishedEvidencePath != "" {
+		err = validatePublished(*publishedEvidencePath, *tag, *commit, *version)
+	} else {
+		err = validate(*manifestPath, *checksumPath, *artifactPath, *tag, *commit, *version)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -68,6 +89,23 @@ func validate(manifestPath, checksumPath, artifactPath, tag, commit, version str
 	if !commitPattern.MatchString(got.Commit) || !shaPattern.MatchString(got.Digest) {
 		return errors.New("manifest commit or digest has invalid schema")
 	}
+	root := filepath.Dir(filepath.Dir(manifestPath))
+	expectedArtifact, err := filepath.Abs(filepath.Join(root, got.Artifact))
+	if err != nil {
+		return fmt.Errorf("resolve manifest artifact: %w", err)
+	}
+	actualArtifact, err := filepath.Abs(artifactPath)
+	if err != nil || filepath.Clean(actualArtifact) != filepath.Clean(expectedArtifact) {
+		return errors.New("artifact path does not match manifest artifact identity")
+	}
+	expectedChecksum, err := filepath.Abs(filepath.Join(root, ".release", "openrouter.sha256"))
+	if err != nil {
+		return fmt.Errorf("resolve manifest checksum: %w", err)
+	}
+	actualChecksum, err := filepath.Abs(checksumPath)
+	if err != nil || filepath.Clean(actualChecksum) != filepath.Clean(expectedChecksum) {
+		return errors.New("checksum path does not match the local release evidence")
+	}
 	checksum, err := os.ReadFile(checksumPath)
 	if err != nil {
 		return fmt.Errorf("read checksum: %w", err)
@@ -85,4 +123,8 @@ func validate(manifestPath, checksumPath, artifactPath, tag, commit, version str
 		return errors.New("artifact digest does not match manifest")
 	}
 	return nil
+}
+
+func validatePublished(path, tag, commit, version string) error {
+	return errors.New("BLOCKED: published evidence requires cryptographic and semantic verification by the external registry, signer, and provenance service")
 }

@@ -17,10 +17,16 @@ func TestValidateRequiresAllArguments(t *testing.T) {
 
 func TestValidateChecksExactIdentityAndDigest(t *testing.T) {
 	dir := t.TempDir()
-	artifactPath := filepath.Join(dir, "openrouter")
-	checksumPath := filepath.Join(dir, "openrouter.sha256")
-	manifestPath := filepath.Join(dir, "manifest.json")
+	artifactPath := filepath.Join(dir, "bin", "openrouter")
+	checksumPath := filepath.Join(dir, ".release", "openrouter.sha256")
+	manifestPath := filepath.Join(dir, ".release", "manifest.json")
 	artifact := []byte("local artifact")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(checksumPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(artifactPath, artifact, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -39,5 +45,20 @@ func TestValidateChecksExactIdentityAndDigest(t *testing.T) {
 	}
 	if err := validate(manifestPath, checksumPath, artifactPath, "v1.2.4", "0123456789012345678901234567890123456789", "1.2.4"); err == nil {
 		t.Fatal("validate() accepted evidence for a different release")
+	}
+	if err := validate(manifestPath, checksumPath, filepath.Join(dir, "other"), "v1.2.3", "0123456789012345678901234567890123456789", "1.2.3"); err == nil {
+		t.Fatal("validate() accepted an artifact outside the manifest path")
+	}
+}
+
+func TestValidatePublishedStopsBeforeClaimingExternalVerification(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "published-evidence.json")
+	data := `{"schema":"openrouter-model-tracker/published-evidence/v1","version":"1.2.3","tag":"v1.2.3","commit":"0123456789012345678901234567890123456789","artifact":"bin/openrouter","digest":"0123456789012345678901234567890123456789012345678901234567890123","source":"registry","checksum":"registry-checksum","signature":"signature","provenance":"provenance"}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePublished(path, "v1.2.3", "0123456789012345678901234567890123456789", "1.2.3"); err == nil || !strings.HasPrefix(err.Error(), "BLOCKED:") {
+		t.Fatalf("validatePublished() = %v, want BLOCKED", err)
 	}
 }
