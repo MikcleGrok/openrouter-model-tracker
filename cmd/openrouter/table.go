@@ -33,9 +33,10 @@ const maxTableIdentityWidth = 40
 const tableSortHelp = "name, slug, context, input, output, price, quality (Q), q/p (QP), P"
 
 const (
-	rankingLegacy = "legacy"
-	rankingTier   = "tier"
-	rankingMixed  = "mixed"
+	rankingLegacy  = "legacy"
+	rankingTier    = "tier"
+	rankingMixed   = "mixed"
+	rankingDefault = rankingTier
 )
 
 func normalizeRanking(ranking string) string {
@@ -103,13 +104,13 @@ func loadLocalUpdatedAt(dataDir string) string {
 }
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {
-	return sortTableModelsWithRanking(models, key, reverse, rankingLegacy)
+	return sortTableModelsWithRanking(models, key, reverse, rankingDefault)
 }
 
 func sortTableModelsWithRanking(models []model.Model, key string, reverse bool, ranking string) error {
 	ranking = normalizeRanking(ranking)
 	if ranking != rankingLegacy && ranking != rankingTier && ranking != rankingMixed {
-		return fmt.Errorf("table: invalid --ranking %q; allowed values: tier, tier-priority, mixed, mixed-utility", ranking)
+		return fmt.Errorf("table: invalid --ranking %q; allowed values: legacy, tier, tier-priority, mixed, mixed-utility", ranking)
 	}
 	key = strings.ToLower(strings.TrimSpace(key))
 	if alias, ok := map[string]string{"q": "quality", "p": "price", "qp": "q/p"}[key]; ok {

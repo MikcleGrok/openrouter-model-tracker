@@ -223,16 +223,16 @@ func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
 
 func TestTUIRankingShortcutTogglesModeAndDisplaysIt(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", Score: &model.ScoreInfo{Value: 1}, Rankable: true}})
-	if !strings.Contains(m.View(), "ranking:q/p (legacy)") {
+	if !strings.Contains(m.View(), "ranking:tier-priority") {
 		t.Fatalf("initial ranking is not displayed: %s", m.View())
-	}
-	m = tuiKey(m, "m")
-	if m.ranking != rankingTier || !strings.Contains(m.View(), "ranking:tier-priority") {
-		t.Fatalf("tier ranking state = %q, view=%s", m.ranking, m.View())
 	}
 	m = tuiKey(m, "m")
 	if m.ranking != rankingMixed || !strings.Contains(m.View(), "ranking:mixed-utility") {
 		t.Fatalf("mixed ranking state = %q, view=%s", m.ranking, m.View())
+	}
+	m = tuiKey(m, "m")
+	if m.ranking != rankingTier || !strings.Contains(m.View(), "ranking:tier-priority") {
+		t.Fatalf("tier ranking state = %q, view=%s", m.ranking, m.View())
 	}
 }
 

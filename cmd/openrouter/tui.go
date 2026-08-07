@@ -98,7 +98,7 @@ type tuiModel struct {
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingLegacy, width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -114,7 +114,7 @@ func runTUI(ctx context.Context, out io.Writer, dataDir string, opts refresh.Opt
 }
 
 func runTUIWithConfig(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool) error {
-	return runTUIWithRankingConfig(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingLegacy)
+	return runTUIWithRankingConfig(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingDefault)
 }
 
 func runTUIWithRankingConfig(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, ranking string) error {
@@ -701,7 +701,7 @@ Home/End or g/G jump; PgUp/PgDown scroll.
 
 Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
-m toggles ranking mode: tier-priority or mixed-utility. s cycles sort key; S reverses order.
+m toggles ranking mode: tier-priority or mixed-utility. The default is tier-priority; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
 R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
 f filter; / or . search; ? or , help.
 
@@ -731,7 +731,7 @@ x or Ctrl-C exits. Esc closes this help. ? or , toggles help.
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
 mixed-utility: score dominates; price adds 2*ln(1+Q/P) points. Task-fit is never a multiplier.
-The CLI --ranking flag accepts tier, tier-priority, mixed, or mixed-utility; without it, legacy q/p sorting is preserved.
+The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, tier-priority sorting is used.
 
 Help search
 / starts a search in this document. Type text and press Enter to select the first match.

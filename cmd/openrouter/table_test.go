@@ -499,6 +499,9 @@ func TestTableCommandLongTaskFitAtMinimumWidth(t *testing.T) {
 		t.Fatalf("task-fit column widths = %v, want final column >= %d:\n%s", widths, tableDisplayWidth(longText), output)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if strings.HasPrefix(line, "Ranking:") {
+			continue
+		}
 		if got := tableDisplayWidth(line); got < 40 {
 			t.Errorf("CLI table line width = %d, want at least 40: %q", got, line)
 		}
@@ -581,28 +584,23 @@ func TestSortTableModelsUsesTypedValuesAndSlugTiebreaker(t *testing.T) {
 	}
 }
 
-func TestSortTableModelsDefaultRemainsDescendingQualityPrice(t *testing.T) {
+func TestSortTableModelsDefaultUsesTierPriority(t *testing.T) {
 	models := []model.Model{
 		{Slug: "missing"},
-		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
-		{Slug: "high", Score: &model.ScoreInfo{Value: 3}, Rankable: true, QualityPrice: 3},
+		{Slug: "deepseek", Tier: "haiku", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 90},
+		{Slug: "opus", Tier: "opus", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 1},
 	}
 	if err := sortTableModels(models, "", false); err != nil {
 		t.Fatalf("default sort error = %v", err)
 	}
-	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"high", "low", "missing"}) {
-		t.Fatalf("default sort = %v, want [high low missing]", got)
+	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"opus", "deepseek", "missing"}) {
+		t.Fatalf("default sort = %v, want [opus deepseek missing]", got)
 	}
-	models = []model.Model{
-		{Slug: "missing"},
-		{Slug: "low", Score: &model.ScoreInfo{Value: 1}, Rankable: true, QualityPrice: 1},
-		{Slug: "high", Score: &model.ScoreInfo{Value: 3}, Rankable: true, QualityPrice: 3},
+	if err := sortTableModelsWithRanking(models, "", false, rankingLegacy); err != nil {
+		t.Fatalf("explicit legacy sort error = %v", err)
 	}
-	if err := sortTableModels(models, "", true); err != nil {
-		t.Fatalf("reverse default sort error = %v", err)
-	}
-	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"low", "high", "missing"}) {
-		t.Fatalf("reverse default sort = %v, want [low high missing]", got)
+	if models[0].Slug != "deepseek" {
+		t.Fatalf("explicit legacy first model = %q, want deepseek", models[0].Slug)
 	}
 }
 
@@ -687,7 +685,11 @@ func TestSortTableModelsSupportsShortAliases(t *testing.T) {
 		{key: "QP", want: "cheap"},
 	} {
 		copy := append([]model.Model(nil), models...)
-		if err := sortTableModels(copy, test.key, false); err != nil || copy[0].Slug != test.want {
+		ranking := rankingDefault
+		if test.key == "QP" {
+			ranking = rankingLegacy
+		}
+		if err := sortTableModelsWithRanking(copy, test.key, false, ranking); err != nil || copy[0].Slug != test.want {
 			t.Errorf("sort %q = %+v, err=%v; first slug = %q, want %q", test.key, copy, err, copy[0].Slug, test.want)
 		}
 	}
@@ -783,7 +785,11 @@ func TestSortTableModelsSupportsEverySortKey(t *testing.T) {
 	}
 	for _, test := range tests {
 		models := append([]model.Model(nil), base...)
-		if err := sortTableModels(models, test.key, false); err != nil || models[0].Slug != test.want {
+		ranking := rankingDefault
+		if test.key == "q/p" {
+			ranking = rankingLegacy
+		}
+		if err := sortTableModelsWithRanking(models, test.key, false, ranking); err != nil || models[0].Slug != test.want {
 			t.Errorf("%s sort = %+v, err=%v", test.key, models, err)
 		}
 	}
@@ -871,8 +877,13 @@ func TestTableCLIDefaultSortUsesQualityPrice(t *testing.T) {
 	t.Setenv("COLUMNS", "120")
 
 	output := executeCLI(t, "table", "--config", config, "--no-pager", "-S")
+	if got := tableFirstCell(output, 0); got != "demo/high" {
+		t.Fatalf("default tier-priority first table slug = %q, want demo/high:\n%s", got, output)
+	}
+
+	output = executeCLI(t, "table", "--config", config, "--no-pager", "-S", "--ranking=legacy")
 	if got := tableFirstCell(output, 0); got != "demo/low" {
-		t.Fatalf("default Q/P first table slug = %q, want demo/low:\n%s", got, output)
+		t.Fatalf("explicit legacy first table slug = %q, want demo/low:\n%s", got, output)
 	}
 }
 
