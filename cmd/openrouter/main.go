@@ -177,6 +177,7 @@ func newRootCmd() *cobra.Command {
 		tableTaskFit  string
 		tableNotes    bool
 		tableFilters  []string
+		tableRanking  string
 	)
 
 	root := &cobra.Command{
@@ -294,7 +295,8 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := sortTableModels(models, tableSort, tableReverse); err != nil {
+			tableRanking = normalizeRanking(tableRanking)
+			if err := sortTableModelsWithRanking(models, tableSort, tableReverse, tableRanking); err != nil {
 				return err
 			}
 			models = limitTableModels(models, tableLimit)
@@ -307,10 +309,15 @@ func newRootCmd() *cobra.Command {
 			if tableNotes {
 				mode = "notes"
 			}
-			return writeTableOutput(renderTableMode(models, width, tableShowSlug, mode), cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
+			output := renderTableMode(models, width, tableShowSlug, mode)
+			if tableRanking != rankingLegacy {
+				output = "Ranking: " + rankingLabel(tableRanking) + "\n" + output
+			}
+			return writeTableOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
+	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingLegacy, "ranking mode: tier or tier-priority; mixed or mixed-utility; default preserves legacy q/p")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
@@ -325,15 +332,17 @@ func newRootCmd() *cobra.Command {
 	var tuiFilter string
 	var tuiLimit int
 	var tuiShowSlug bool
+	var tuiRanking string
 	tuiCmd := &cobra.Command{
 		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if tuiLimit < 0 {
 				return fmt.Errorf("tui: limit must be non-negative, got %d", tuiLimit)
 			}
-			if err := sortTableModels(nil, tuiSort, tuiReverse); err != nil {
+			if err := sortTableModelsWithRanking(nil, tuiSort, tuiReverse, tuiRanking); err != nil {
 				return err
 			}
+			tuiRanking = normalizeRanking(tuiRanking)
 			dir, err := resolveDataDir(cfgPath, dataDir)
 			if err != nil {
 				return err
@@ -342,11 +351,12 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runTUIWithConfig(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug)
+			return runTUIWithRankingConfig(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
 	tuiCmd.Flags().StringVar(&tuiSort, "sort", "q/p", "sort by: "+tableSortHelp)
+	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingLegacy, "ranking mode: tier or tier-priority; mixed or mixed-utility; default preserves legacy q/p")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
 	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N")
 	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")

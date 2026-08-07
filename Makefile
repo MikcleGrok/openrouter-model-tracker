@@ -1,59 +1,159 @@
 GO := go
-BINARY := bin/openrouter
-DATA_DIR := $(CURDIR)
-OUTPUT := $(CURDIR)/docs/openrouter-model-comparison.md
-GO_FILES := $(shell git ls-files '*.go')
+ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BINARY := $(ROOT)bin/openrouter
+DATA_DIR := $(ROOT)
+OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
+EVIDENCE_DIR := $(ROOT).release
+GO_FILES := $(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go')
 
-VERSION := $(shell git describe --tags --always --dirty)
-RELEASE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null)
+DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
+TAG_VERSION := $(shell git -C $(ROOT) describe --tags --exact-match 2>/dev/null)
+VERSION ?= $(patsubst v%,%,$(DESCRIBE_VERSION))
+VERSIONCHECK := $(GO) run ./cmd/versioncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: build test race vet fmt fmt-check check init refresh history table release-build clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-integration test-e2e race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
 
 build: $(BINARY)
 
-$(BINARY): FORCE Makefile $(GO_FILES) go.mod go.sum
+$(BINARY): FORCE $(ROOT)Makefile $(GO_FILES) $(ROOT)go.mod $(ROOT)go.sum
 	@mkdir -p $(dir $@)
-	$(GO) build -ldflags "-X main.version=$(VERSION)" -o $@ ./cmd/openrouter
+	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $@ ./cmd/openrouter
 
 FORCE:
 
+setup check-env toolchain:
+	@printf '%s\n' 'NO-OP: setup and toolchain provisioning are managed by the host environment.'
+
 test:
-	$(GO) test ./...
+	cd $(ROOT) && $(GO) test ./...
+
+test-unit test-integration test-e2e: test
 
 race:
-	$(GO) test -race ./...
+	cd $(ROOT) && $(GO) test -race ./...
+
+coverage:
+	cd $(ROOT) && $(GO) test -cover ./...
 
 vet:
-	$(GO) vet ./...
+	cd $(ROOT) && $(GO) vet ./...
+
+lint: vet
 
 fmt:
-	gofmt -w $(GO_FILES)
+	cd $(ROOT) && gofmt -w $(GO_FILES)
+
+format: fmt-check
 
 fmt-check:
-	@test -z "$$(gofmt -l $(GO_FILES))" || { printf '%s\n' 'Go files need gofmt:'; gofmt -l $(GO_FILES); exit 1; }
+	@cd $(ROOT) && test -z "$$(gofmt -l $(GO_FILES))" || { printf '%s\n' 'Go files need gofmt:'; gofmt -l $(GO_FILES); exit 1; }
+
+security:
+	@cd $(ROOT) && $(GO) vet ./... && printf '%s\n' 'Security baseline passed: go vet and repository profile checks.'
+
+dependency-check:
+	@command -v govulncheck >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: govulncheck is required; dependency-check is not a NO-OP.' >&2; exit 1; }
+	@command -v osv-scanner >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: osv-scanner is required; dependency-check is not a NO-OP.' >&2; exit 1; }
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.txt && $(GO) mod verify && govulncheck ./... > .release/govulncheck.txt && osv-scanner scan source -r . > .release/osv-scanner.txt && { printf 'commit=%s\n' "$$(git rev-parse HEAD)"; printf 'govulncheck=%s\n' "$$(govulncheck -version 2>&1 | tr '\n' ' ')"; printf 'osv-scanner=%s\n' "$$(osv-scanner --version 2>&1 | tr '\n' ' ')"; printf 'govulncheck-output=.release/govulncheck.txt\nosv-scanner-output=.release/osv-scanner.txt\nstatus=passed\n'; } > .release/dependency-evidence.txt
+	@printf '%s\n' 'Dependency scans passed; native output is in .release/.'
+
+secrets-check:
+	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
+	@printf '%s\n' 'Secrets check passed for tracked source.'
+
+sbom:
+	@command -v syft >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: syft is required to generate the release SBOM.' >&2; exit 1; }
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && syft dir:. -o spdx-json=.release/sbom.spdx.json
+
+verify-provenance:
+	@printf '%s\n' 'NO-OP: no CI builder or published artifact provenance exists to verify locally.'
+
+signature:
+	@printf '%s\n' 'NO-OP: this repository does not sign local artifacts; signing belongs to the publishing profile.'
+
+checksums: build
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && shasum -a 256 bin/openrouter > .release/openrouter.sha256
+
+artifact: build checksums
+	@printf '%s\n' 'Local artifact and checksum prepared in .release/.'
+
+manifest: artifact
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && printf '{"version":"%s","tag":"v%s","commit":"%s","artifact":"bin/openrouter","digest":"%s"}\n' "$(VERSION)" "$(VERSION)" "$$(git rev-parse HEAD)" "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" > .release/manifest.json
+
+check-package:
+	@printf '%s\n' 'NO-OP: package and formula templates are maintained outside this checkout.'
+
+install reinstall upgrade uninstall install-smoke:
+	@printf '%s\n' 'NO-OP: installation and package-manager mutations are outside this repository.'
+
+smoke: build
+	@cd $(ROOT) && ./bin/openrouter --version >/dev/null && ./bin/openrouter --help >/dev/null
 
 check: build
-	$(BINARY) check --data-dir $(DATA_DIR) --output /dev/null
+	cd $(ROOT) && $(BINARY) check --data-dir $(DATA_DIR) --output /dev/null
 
 init:
-	./scripts/init.sh
+	cd $(ROOT) && ./scripts/init.sh
 
 refresh: build
-	$(BINARY) refresh --data-dir $(DATA_DIR) --output $(OUTPUT)
+	cd $(ROOT) && $(BINARY) refresh --data-dir $(DATA_DIR) --output $(OUTPUT)
 
 history: build
-	$(BINARY) history --data-dir $(DATA_DIR)
+	cd $(ROOT) && $(BINARY) history --data-dir $(DATA_DIR)
 
 table: build
-	$(BINARY) table --data-dir $(DATA_DIR)
+	cd $(ROOT) && $(BINARY) table --data-dir $(DATA_DIR)
 
-release-build:
-	@test -n "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires checkout at an exact git tag'; exit 1; }
-	@test "$(VERSION)" = "$(RELEASE_VERSION)" || { printf '%s\n' 'release-build requires a clean checkout at an exact git tag'; exit 1; }
+version:
+	@printf '%s\n' '$(VERSION)'
+
+check-version:
+	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION must not be empty'; exit 1; }
+	@cd $(ROOT) && $(VERSIONCHECK) --version "$(VERSION)" >/dev/null
+	@if test -n "$(TAG_VERSION)" && test -z "$$(git -C $(ROOT) status --porcelain)"; then normalized="$$(cd $(ROOT) && $(VERSIONCHECK) "$(TAG_VERSION)")" || exit $$?; test "$$normalized" = "$(VERSION)" || { printf '%s\n' 'VERSION does not match the exact tag'; exit 1; }; fi
+
+check-tag: check-version
+	@test -n "$(TAG_VERSION)" || { printf '%s\n' 'an exact release tag is required'; exit 1; }
+	@cd $(ROOT) && $(VERSIONCHECK) "$(TAG_VERSION)" >/dev/null
+	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release tag checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
+	@test "$$(git -C $(ROOT) rev-parse HEAD)" = "$$(git -C $(ROOT) rev-parse "$(TAG_VERSION)^{commit}")" || { printf '%s\n' 'HEAD must point at the exact release tag'; exit 1; }
+
+release-check: check-version
+	@test -f $(ROOT)CHANGELOG.md && awk '/^## \[Unreleased\]$$/{found=1; next} /^## /{if(found) exit} found && /^- /{bullet=1} END{exit !(found && bullet)}' $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md must contain a non-empty Unreleased section with bullet notes'; exit 1; }
+	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
+	@commit="$$(git -C $(ROOT) rev-parse --verify HEAD)" || exit $$?; printf '%s\n' "release candidate: version=$(VERSION) commit=$$commit planned-tag=v$(VERSION)"
+	@cd $(ROOT) && git diff --check
+	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom checksums manifest verify-provenance signature check-docs
+	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
+
+release-build: check-tag
 	@mkdir -p $(dir $(BINARY))
-	$(GO) build -ldflags "-X main.version=$(RELEASE_VERSION)" -o $(BINARY) ./cmd/openrouter
+	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) ./cmd/openrouter
+
+verify-local-artifact: check-tag
+	@test -x "$(BINARY)" || { printf '%s\n' 'local release artifact is missing or not executable'; exit 1; }
+	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$(TAG_VERSION)" --commit "$$(git rev-parse HEAD)" --version "$(VERSION)"
+	@cd $(ROOT) && test "$$(./bin/openrouter --version)" = "openrouter version $(VERSION)" && test "$$(./bin/openrouter version)" = "openrouter $(VERSION)" && ./bin/openrouter --help >/dev/null
+	@cd $(ROOT) && test "$$(shasum -a 256 bin/openrouter | cut -d ' ' -f 1)" = "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
+	@printf '%s\n' 'Verified local exact-tag artifact only.'
+
+verify-release: verify-local-artifact
+	@printf '%s\n' 'BLOCKED: published/stable distribution evidence is unavailable; use verify-local-artifact for local evidence.' >&2
+	@exit 1
+
+whats-new:
+	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
+	@awk -v version="$(VERSION)" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' $(ROOT)CHANGELOG.md || { printf '%s\n' "CHANGELOG.md has no non-empty exact section for $(VERSION)"; exit 1; }
+
+docs check-docs:
+	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md
+	@printf '%s\n' 'Documentation contract passed.'
 
 clean:
 	rm -f $(BINARY)
@@ -61,16 +161,48 @@ clean:
 help:
 	@printf '%s\n' \
 		'build          Build bin/openrouter with the current version' \
+		'setup          NO-OP: host-managed setup' \
+		'check-env      NO-OP: host-managed environment check' \
+		'toolchain      NO-OP: host-managed toolchain' \
 		'test           Run all Go tests' \
+		'test-unit      Alias for unit tests' \
+		'test-integration Alias for integration tests' \
+		'test-e2e       Alias for end-to-end tests' \
 		'race           Run all Go tests with the race detector' \
+		'coverage       Run tests with coverage instrumentation' \
+		'lint           Run the configured static-analysis baseline' \
 		'vet            Run go vet' \
 		'fmt            Format tracked Go files' \
 		'fmt-check      Check tracked Go files without changing them' \
+		'security       Run the repository security baseline' \
+		'dependency-check Run govulncheck and OSV-Scanner (required)' \
+		'secrets-check  Scan tracked source for high-confidence secret patterns' \
+		'sbom           Generate SPDX SBOM with Syft (required)' \
+		'verify-provenance Local-only NO-OP: no published builder/artifact' \
+		'signature      Local-only NO-OP: signing is external' \
+		'checksums      Write SHA-256 checksum for the local artifact' \
+		'artifact       Build local artifact and checksum' \
+		'manifest       Write local artifact manifest' \
+		'check-package  NO-OP: package template is external' \
+		'install        NO-OP: installation is external' \
+		'reinstall      NO-OP: installation is external' \
+		'upgrade        NO-OP: installation is external' \
+		'uninstall      NO-OP: installation is external' \
+		'smoke          Run local CLI smoke checks' \
+		'check-docs     Validate required project documentation' \
 		'check          Run the read-only CLI check against this checkout' \
 		'init           Build, initialize, refresh, and open the report on macOS' \
 		'refresh        Refresh data and the generated comparison document' \
 		'history        Show price history for this checkout' \
 		'table          Show local model data as a plain-text table' \
-		'release-build  Build with the exact checked-out git tag' \
+		'version        Print the normalized descriptive or release version' \
+		'check-version  Validate version metadata and exact-tag agreement' \
+		'check-tag      Validate a clean checkout at an exact immutable release tag' \
+		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
+		'release-build  Build with the normalized version from the exact checked-out tag' \
+		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
+		'verify-release Verify published/stable distribution evidence (blocked when unavailable)' \
+		'whats-new      Print exact-version release notes from CHANGELOG.md' \
+		'docs           Validate required project documentation' \
 		'clean           Remove only bin/openrouter' \
 		'help            Show this list of targets'

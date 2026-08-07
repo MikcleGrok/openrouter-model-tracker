@@ -5,6 +5,7 @@ package pricing
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -59,18 +60,27 @@ func FormatTokens10(v float64) string {
 	return strconv.FormatFloat(v, 'f', digits, 64)
 }
 
-// FormatPrice prints a $/M price the way the document does: at least two
-// decimals, trailing zeros beyond that trimmed, up to four decimals kept.
+// FormatPrice prints a $/M price with exactly two decimals. Positive values
+// below one cent are omitted because they are not meaningful at this precision.
 func FormatPrice(v float64) string {
-	if v == 0 {
-		return "0"
+	if v > 0 && v < 0.01 {
+		return ""
 	}
-	s := strings.TrimRight(strconv.FormatFloat(v, 'f', 4, 64), "0")
-	dot := strings.IndexByte(s, '.')
-	for len(s)-dot-1 < 2 {
-		s += "0"
+	decimal := strconv.FormatFloat(v, 'f', -1, 64)
+	rounded, ok := new(big.Rat).SetString(decimal)
+	if !ok {
+		return ""
 	}
-	return s
+	return rounded.FloatString(2)
+}
+
+// FormatDollar formats a displayed $/M price, omitting the currency marker
+// together with prices that are too small to display.
+func FormatDollar(v float64) string {
+	if price := FormatPrice(v); price != "" {
+		return "$" + price
+	}
+	return ""
 }
 
 // FormatContext prints a context window: millions above 1M, thousands below.

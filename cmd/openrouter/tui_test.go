@@ -53,8 +53,8 @@ func TestTUIKeyState(t *testing.T) {
 		t.Fatal("column cancel changed applied columns")
 	}
 	m = tuiKey(m, "t")
-	if !m.taskLong {
-		t.Fatal("long task fit not enabled")
+	if m.overlay != "" || m.inputMode != "" {
+		t.Fatal("t unexpectedly triggered a TUI action")
 	}
 	m = tuiKey(m, "n")
 	if !m.lastNote || !containsColumn(m.columns, colNote) {
@@ -84,9 +84,14 @@ func TestTUIKeyState(t *testing.T) {
 			t.Fatalf("help document mentions Cyrillic keyboard aliases: %q", tuiHelpDocument)
 		}
 	}
-	for _, text := range []string{"Navigation", "Task-fit", "t toggles Task fit short/long", "n switches the last column between Task fit and Note", "IDFT", "English keywords", "Short codes are: I, P, R, D, A, F, T", "implement + debug + refactor + test", "implement, plan, research, debug, audit, refactor, test", "No task-fit classification is shown as n/a", "Auto-refresh"} {
+	for _, text := range []string{"Navigation", "Task-fit", "n switches the last column between Task fit and Note", "Task-fit codes:", "I - implement: write or change production code.", "P - plan:", "R - research:", "D - debug:", "A - audit:", "F - refactor:", "T - test:", "No task-fit classification is shown as n/a", "Auto-refresh"} {
 		if !strings.Contains(tuiHelpDocument, text) {
 			t.Fatalf("help document missing %q", text)
+		}
+	}
+	for _, text := range []string{"t toggles", "English keywords", "implement + debug + refactor + test"} {
+		if strings.Contains(tuiHelpDocument, text) {
+			t.Fatalf("help document still contains removed long-output text %q", text)
 		}
 	}
 	m.width, m.height = 140, 12
@@ -126,7 +131,7 @@ func TestTUIKeyState(t *testing.T) {
 	}
 }
 
-func TestTUIStatusIncludesTaskFitShortcutAndTruncates(t *testing.T) {
+func TestTUIStatusOmitsRemovedTaskFitShortcutAndTruncates(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.width, m.height = 120, 20
 	findFooter := func(view string) string {
@@ -138,8 +143,8 @@ func TestTUIStatusIncludesTaskFitShortcutAndTruncates(t *testing.T) {
 		return ""
 	}
 	wideFooter := findFooter(m.View())
-	if wideFooter == "" || !strings.Contains(wideFooter, "t task-fit") {
-		t.Fatalf("wide TUI footer missing task-fit shortcut: %q", wideFooter)
+	if wideFooter == "" || strings.Contains(wideFooter, "t task-fit") {
+		t.Fatalf("wide TUI footer contains removed task-fit shortcut: %q", wideFooter)
 	}
 
 	m.width = 20
@@ -150,8 +155,18 @@ func TestTUIStatusIncludesTaskFitShortcutAndTruncates(t *testing.T) {
 	if got := lipgloss.Width(narrowFooter); got > m.width {
 		t.Fatalf("narrow TUI footer exceeds width %d: %q (display width %d)", m.width, narrowFooter, got)
 	}
-	if lipgloss.Width(wideFooter) <= m.width || narrowFooter == wideFooter || strings.Contains(narrowFooter, "t task-fit") {
-		t.Fatalf("narrow TUI footer was not truncated before task-fit shortcut: wide=%q narrow=%q", wideFooter, narrowFooter)
+	if lipgloss.Width(wideFooter) <= m.width || narrowFooter == wideFooter {
+		t.Fatalf("narrow TUI footer was not truncated: wide=%q narrow=%q", wideFooter, narrowFooter)
+	}
+}
+
+func TestTUITaskFitUsesCompactCodes(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{TaskFit: []string{"implement", "debug", "refactor", "test"}}})
+	if got := tuiCell(m.models[0], colTask, false); got != "IDFT" {
+		t.Fatalf("task-fit cell = %q, want compact codes", got)
+	}
+	if strings.Contains(m.View(), "implement + debug + refactor + test") {
+		t.Fatal("TUI rendered long task-fit keywords")
 	}
 }
 
@@ -203,6 +218,21 @@ func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
 		if m.sortKey != test.sortKey || len(m.visible) != 2 || m.visible[0].Slug != test.first {
 			t.Fatalf("key %q: sort=%q visible=%+v", test.key, m.sortKey, m.visible)
 		}
+	}
+}
+
+func TestTUIRankingShortcutTogglesModeAndDisplaysIt(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", Score: &model.ScoreInfo{Value: 1}, Rankable: true}})
+	if !strings.Contains(m.View(), "ranking:q/p (legacy)") {
+		t.Fatalf("initial ranking is not displayed: %s", m.View())
+	}
+	m = tuiKey(m, "m")
+	if m.ranking != rankingTier || !strings.Contains(m.View(), "ranking:tier-priority") {
+		t.Fatalf("tier ranking state = %q, view=%s", m.ranking, m.View())
+	}
+	m = tuiKey(m, "m")
+	if m.ranking != rankingMixed || !strings.Contains(m.View(), "ranking:mixed-utility") {
+		t.Fatalf("mixed ranking state = %q, view=%s", m.ranking, m.View())
 	}
 }
 

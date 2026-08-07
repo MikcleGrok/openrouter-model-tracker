@@ -442,6 +442,8 @@ func TestTableCommandTaskFitModesThroughCLI(t *testing.T) {
 		{name: "explicit short", args: []string{"table", "--config", config, "--task-fit=short"}, want: []string{"Task fit", "IT"}},
 		{name: "long", args: []string{"table", "--config", config, "--task-fit=long"}, want: []string{"Task fit", "implement + test"}},
 		{name: "legacy notes", args: []string{"table", "--config", config, "--notes"}, want: []string{"Note", "Local fixture"}},
+		{name: "long tier ranking", args: []string{"table", "--config", config, "--ranking=tier-priority"}, want: []string{"Ranking: tier-priority"}},
+		{name: "long mixed ranking", args: []string{"table", "--config", config, "--ranking=mixed-utility"}, want: []string{"Ranking: mixed-utility"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -601,6 +603,67 @@ func TestSortTableModelsDefaultRemainsDescendingQualityPrice(t *testing.T) {
 	}
 	if got := []string{models[0].Slug, models[1].Slug, models[2].Slug}; !reflect.DeepEqual(got, []string{"low", "high", "missing"}) {
 		t.Fatalf("reverse default sort = %v, want [low high missing]", got)
+	}
+}
+
+func TestRankingModesKeepTierPriorityAndQualityDominanceSeparate(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "deepseek", Tier: "haiku", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 90},
+		{Slug: "luna", Tier: "opus", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 1},
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingTier); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Slug != "luna" {
+		t.Fatalf("tier ranking = %q, want luna first", rows[0].Slug)
+	}
+	rows[0], rows[1] = rows[1], rows[0]
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingMixed); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Slug != "deepseek" {
+		t.Fatalf("mixed ranking = %q, want deepseek first", rows[0].Slug)
+	}
+}
+
+func TestRankingLongNamesMatchShortNames(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "deepseek", Tier: "haiku", Score: &model.ScoreInfo{Value: 90}, Rankable: true, QualityPrice: 90},
+		{Slug: "luna", Tier: "opus", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 1},
+	}
+	for _, test := range []struct {
+		short, long string
+	}{
+		{short: rankingTier, long: "tier-priority"},
+		{short: rankingMixed, long: "mixed-utility"},
+	} {
+		shortRows := append([]model.Model(nil), rows...)
+		longRows := append([]model.Model(nil), rows...)
+		if err := sortTableModelsWithRanking(shortRows, "q/p", false, test.short); err != nil {
+			t.Fatalf("short ranking %q: %v", test.short, err)
+		}
+		if err := sortTableModelsWithRanking(longRows, "q/p", false, test.long); err != nil {
+			t.Fatalf("long ranking %q: %v", test.long, err)
+		}
+		if got, want := []string{longRows[0].Slug, longRows[1].Slug}, []string{shortRows[0].Slug, shortRows[1].Slug}; !reflect.DeepEqual(got, want) {
+			t.Errorf("ranking %q = %v, want %v", test.long, got, want)
+		}
+		if got := rankingLabel(test.long); got != test.long {
+			t.Errorf("rankingLabel(%q) = %q, want %q", test.long, got, test.long)
+		}
+	}
+}
+
+func TestRankingDoesNotUseTaskFit(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "z", Tier: "haiku", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 2, TaskFit: []string{"implement"}},
+		{Slug: "a", Tier: "haiku", Score: &model.ScoreInfo{Value: 80}, Rankable: true, QualityPrice: 2, TaskFit: []string{"test"}},
+	}
+	if err := sortTableModelsWithRanking(rows, "q/p", false, rankingTier); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Slug != "a" {
+		t.Fatalf("task fit affected tie-break: %+v", rows)
 	}
 }
 
