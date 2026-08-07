@@ -91,6 +91,9 @@ Completion включает команды и flags, в том числе `tui`,
 make help
 make build
 make test
+make test-unit
+make test-acceptance
+make test-all
 make vet
 make fmt-check
 make check
@@ -112,6 +115,17 @@ make verify-provenance
 make signature
 make check-docs
 ```
+
+Acceptance-тест версии использует `OPENROUTER_EXPECTED_VERSION`, который `make test` и
+`make release-check` передают из `VERSION`; при прямом запуске `go test ./tests/...` используется
+локальное dev-значение `0.0.0-dev`.
+
+`test-unit` запускает быстрый набор тестов пакетов `internal/...` и `cmd/...` с
+отключённым test cache. `test-acceptance` сначала собирает `bin/openrouter`, затем
+запускает black-box проверки `tests/run/acceptance` через реальный process boundary.
+`test-all` объединяет оба набора. Сетевой `refresh` намеренно не входит в быстрый
+CI-гейт: функциональные тесты источников используют `httptest`, а production-like
+прогон требует отдельного контролируемого окружения.
 
 Makefile является единственным публичным интерфейсом build/test/security/release
 действий и не зависит от текущего каталога. `dependency-check` и `sbom` требуют
