@@ -15,7 +15,7 @@ PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-integration test-e2e race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -29,12 +29,18 @@ setup check-env toolchain:
 	@printf '%s\n' 'NO-OP: setup and toolchain provisioning are managed by the host environment.'
 
 test:
-	cd $(ROOT) && $(GO) test ./...
+	$(MAKE) -C $(ROOT) test-all
 
-test-unit test-integration test-e2e: test
+test-unit:
+	cd $(ROOT) && $(GO) test -count=1 ./internal/... ./cmd/...
+
+test-acceptance: build
+	cd $(ROOT) && $(GO) test -count=1 ./tests/...
+
+test-all: test-unit test-acceptance
 
 race:
-	cd $(ROOT) && $(GO) test -race ./...
+	cd $(ROOT) && $(GO) test -race -count=1 ./...
 
 coverage:
 	cd $(ROOT) && $(GO) test -cover ./...
