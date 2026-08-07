@@ -6,23 +6,38 @@
 
 ## Установка и обновление
 
-Локальный disposable tap, без GitHub. Формула `openrouter` закреплена на exact
-tag `v1.0.0`, а бинарник получает нормализованную версию `1.0.0`:
+Локальный disposable tap, без GitHub. Формула `openrouter` должна быть закреплена
+на том же exact published tag и immutable commit revision, что и checkout проекта.
+Источник синхронизации не хранит старую версию в Makefile или скрипте:
 
 ```bash
 TAP_FORMULA="$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
-brew install --formula --build-from-source "$TAP_FORMULA"
-brew reinstall --formula --build-from-source "$TAP_FORMULA"
+make sync-homebrew-formula
+make homebrew-reinstall
 ```
 
-Проверка установки и версии:
+`make sync-homebrew-formula` требует exact `vMAJOR.MINOR.PATCH` tag и вычисляет
+его commit через Git. Он атомарно меняет только `tag` и `revision` в локальной
+формуле; tap не публикуется и remote не изменяется. Для read-only проверки:
 
 ```bash
-brew info local/tap/openrouter
-test "$(brew list --versions openrouter)" = "openrouter 1.0.0"
-test "$(openrouter --version)" = "openrouter version 1.0.0"
-brew test local/tap/openrouter
+make check-homebrew-formula
 ```
+
+`make homebrew-reinstall` сначала синхронизирует формулу, затем выполняет
+`brew reinstall --build-from-source`, проверяет `brew list`, `openrouter --version`
+и `brew test`. Для первой установки вместо reinstall используйте:
+
+```bash
+make sync-homebrew-formula
+brew install --formula --build-from-source "$TAP_FORMULA"
+```
+
+Этот workflow является distribution contract: после exact tag он проверяет tag и
+immutable revision formula до любой reinstall. Stable install не использует
+`--HEAD`, branch или hardcoded old version. Если локального tap или published
+asset нет, `make check-homebrew-formula` завершается blocker вместо проверки
+случайного текущего checkout.
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
 
@@ -103,6 +118,7 @@ make init
 make version
 make check-version
 make check-tag
+make check-homebrew-formula
 make release-check VERSION=1.0.0
 make verify-release
 make whats-new
@@ -140,6 +156,9 @@ digest входных файлов, metadata инструментов/базы �
 `openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный
 снимок из `cache/last-run-snapshot.json`. Они не обращаются к сети и завершаются с ошибкой,
 если локальный снимок отсутствует.
+
+Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
+через `scripts/verify-distribution.sh`; путь можно переопределить через `GUIDE_TOOLS_ROOT`.
 
 По умолчанию таблица сортируется в режиме `tier-priority`: сначала rankable-модели, затем Opus,
 Sonnet, Haiku, score и Q/P. `--sort` принимает только `name`, `slug`,
@@ -182,8 +201,10 @@ checkout, формат release-версии, локальный commit SHA, diff
 собирается только для локальной version-проверки. Этот target не создаёт checksum,
 manifest или published evidence. Exact tag для него не требуется; planned tag является
 только metadata.
-После создания exact tag `make release-build` требует чистый checkout ровно на
-`vMAJOR.MINOR.PATCH` (с optional prerelease). Локальная проверка strict evidence
+После создания exact tag сначала выполните `make sync-homebrew-formula` в локальном
+tap. Затем `make release-build` требует чистый checkout ровно на
+`vMAJOR.MINOR.PATCH` (с optional prerelease) и падает, если формула содержит другой
+tag или revision. Локальная проверка strict evidence
 и собранного бинарника выполняется отдельным `make verify-local-artifact`;
 `make verify-release` завершается явным BLOCKED, поскольку published/stable source,
 registry, signature и provenance проверки в этом репозитории не автоматизированы.
@@ -274,7 +295,8 @@ suffix для commit после тега или `-dirty` для изменённ
 `CHANGELOG.md` и завершается ошибкой, если такой section отсутствует. `release-check`
 отдельно использует `## [Unreleased]` как pre-tag candidate notes.
 
-Локальная Homebrew formula находится вне этого репозитория и во время сборки вычисляет ту же
+Локальная Homebrew formula находится вне этого репозитория. `make sync-homebrew-formula`
+вычисляет tag и immutable revision из checkout, а во время сборки формула вычисляет ту же
 версию через `git describe` из checkout в `buildpath`, поэтому Homebrew больше не подставляет
 свой `HEAD-<sha>` в Go ldflags. Exact tag показывает чистую версию, а commit после тега —
 describe suffix.
