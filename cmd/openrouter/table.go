@@ -79,10 +79,6 @@ func normalizeRanking(ranking string) string {
 	}
 }
 
-func loadLocalModels(dataDir string) ([]model.Model, error) {
-	return loadLocalModelsForSource(dataDir, scoreSourceDefault)
-}
-
 // loadLocalModelsForSource reads the last run's snapshot and returns the rows
 // already projected onto one score source, so no caller can accidentally
 // hand a mixed set to the renderer.
