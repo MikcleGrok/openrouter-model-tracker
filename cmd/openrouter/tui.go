@@ -97,6 +97,7 @@ type tuiModel struct {
 	input, inputMode string
 	limit            int
 	ranking          string
+	scoreSource      string
 	priceWeight      float64
 	rankingConfig    ranking.Compiled
 	rankingConfigSet bool
@@ -104,7 +105,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -134,14 +135,14 @@ func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir stri
 	if err != nil {
 		return err
 	}
-	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled)
+	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSourceDefault)
 }
 
-func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled) error {
+func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource string) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
-	models, err := loadLocalModels(dataDir)
+	models, err := loadLocalModelsForSource(dataDir, scoreSource)
 	if err != nil {
 		return err
 	}
@@ -150,6 +151,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	m.rankingConfigSet = true
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
 	m.ranking = rankingName
+	m.scoreSource = scoreSource
 	if showSlug {
 		m.replaceColumn(colName, colSlug)
 	}
@@ -193,7 +195,7 @@ func (m tuiModel) Init() tea.Cmd {
 }
 func tuiTick(d time.Duration) tea.Cmd { return func() tea.Msg { time.Sleep(d); return tuiTickMsg{} } }
 func (m tuiModel) refreshCmd() tea.Cmd {
-	generation, opts, dir := m.generation, m.refreshOpts, m.dataDir
+	generation, opts, dir, source := m.generation, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
 		if opts.OutputPath == "" {
 			return tuiRefreshMsg{generation: generation, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
@@ -202,7 +204,9 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		if err != nil {
 			return tuiRefreshMsg{generation: generation, err: err}
 		}
-		rows, err := loadLocalModels(dir)
+		// Reload through the same projection the session started with, so a
+		// refresh can never swap the table back to the other source.
+		rows, err := loadLocalModelsForSource(dir, source)
 		return tuiRefreshMsg{generation: generation, models: rows, err: err}
 	}
 }
@@ -493,7 +497,7 @@ func (m tuiModel) View() string {
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
 	title := truncateTable("OpenRouter models", m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  sort:%s%s  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -524,7 +528,7 @@ func (m tuiModel) View() string {
 		for i := start; i < end; i++ {
 			values := make([]string, len(columns))
 			for j, col := range columns {
-				values[j] = tuiCell(m.visible[i], col, m.lastNote)
+				values[j] = tuiCell(m.visible[i], col, m.lastNote, m.scoreSource)
 			}
 			prefix := " "
 			if i == m.cursor {
@@ -769,6 +773,11 @@ tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
 mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
 The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
 
+Score sources
+swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
+arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
+The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source; there is no auto mode, and the generated markdown document is always swebench.
+
 Help search
 / starts a search in this document. Type text and press Enter to select the first match.
 Enter goes to the next match; Up/Down go to the previous/next match. Esc cancels search.`
@@ -820,7 +829,7 @@ func tuiFullscreenText(content string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func tuiCell(m model.Model, col tuiColumn, note bool) string {
+func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
 	var value string
 	switch col {
 	case colName:
@@ -828,7 +837,7 @@ func tuiCell(m model.Model, col tuiColumn, note bool) string {
 	case colSlug:
 		value = m.Slug
 	case colClaude:
-		value = tableClaude(m)
+		value = tableClaudeForSource(m, scoreSource)
 	case colStatus:
 		value = tableStatus(m)
 	case colQuality:

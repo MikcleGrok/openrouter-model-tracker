@@ -229,7 +229,7 @@ func TestTUIStatusOmitsRemovedTaskFitShortcutAndTruncates(t *testing.T) {
 
 func TestTUITaskFitUsesCompactCodes(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{TaskFit: []string{"implement", "debug", "refactor", "test"}}})
-	if got := tuiCell(m.models[0], colTask, false); got != "IDFT" {
+	if got := tuiCell(m.models[0], colTask, false, m.scoreSource); got != "IDFT" {
 		t.Fatalf("task-fit cell = %q, want compact codes", got)
 	}
 	if strings.Contains(m.View(), "implement + debug + refactor + test") {
@@ -787,5 +787,80 @@ func assertTUIViewFits(t *testing.T, view string, width, height int, mode string
 func TestTUIHelpAndNonTTYGuard(t *testing.T) {
 	if err := runTUI(nil, io.Discard, "", refresh.Options{}, 0); err == nil || !strings.Contains(err.Error(), "requires a TTY") {
 		t.Fatalf("non-TTY error = %v", err)
+	}
+}
+
+func TestTUIModelShowsTheActiveScoreSource(t *testing.T) {
+	rows := []model.Model{{
+		Slug: "demo/arena", DisplayName: "Demo Arena", Tier: "sonnet",
+		InPerM: 1, OutPerM: 3, Context: 128000,
+		ScoreLabel: "1300 Elo", QualityPriceLabel: "0",
+	}}
+	m := newTUIModel(context.Background(), t.TempDir(), refresh.Options{}, 0, rows)
+	m.scoreSource = scoreSourceArena
+	m.width, m.height = 200, 24
+	m.rebuild()
+
+	view := m.View()
+	if !strings.Contains(view, "score:arena") {
+		t.Errorf("the meta line does not say which score source is active:\n%s", view)
+	}
+	if !strings.Contains(view, "1300 Elo") {
+		t.Errorf("the Status column lost the Arena label:\n%s", view)
+	}
+}
+
+func TestTUIModelDefaultsToSWEBench(t *testing.T) {
+	m := newTUIModel(context.Background(), t.TempDir(), refresh.Options{}, 0, nil)
+	if m.scoreSource != scoreSourceDefault {
+		t.Errorf("scoreSource = %q, want %q", m.scoreSource, scoreSourceDefault)
+	}
+}
+
+func TestTUICommandRejectsUnknownScoreSource(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	err := executeCLIError(t, "tui", "--config", config, "--score-source=auto")
+	if err == nil || !strings.Contains(err.Error(), "invalid --score-source") {
+		t.Errorf("error = %v, want a rejection of --score-source=auto", err)
+	}
+}
+
+// TestTUIScoreSourceClaudeColumnNeverBlendsScales is the TUI-side mirror of
+// TestTableScoreSourceClaudeColumnNeverBlendsScales in table_test.go: tui.go
+// has its own, separate Claude-column rendering (tuiCell's colClaude case),
+// which must also stop applying SWE-bench-calibrated percentage thresholds
+// (>=70, >=60) to a haiku/free-tier row's Score.Value once that number is a
+// min-max-normalized Arena position instead of a SWE-bench percentage. A
+// tier=haiku row with only an Arena number, rendered through the full TUI
+// View() in arena mode, must not show a Claude-tier capability claim.
+func TestTUIScoreSourceClaudeColumnNeverBlendsScales(t *testing.T) {
+	rows := []model.Model{{
+		Slug: "demo/haiku-arena", DisplayName: "Demo Haiku Arena", Tier: "haiku",
+		InPerM: 1, OutPerM: 3, Context: 128000, Rankable: true,
+		Score: &model.ScoreInfo{Value: 82}, ScoreLabel: "1400 Elo", QualityPriceLabel: "0",
+	}}
+	m := newTUIModel(context.Background(), t.TempDir(), refresh.Options{}, 0, rows)
+	m.scoreSource = scoreSourceArena
+	m.width, m.height = 200, 24
+	m.rebuild()
+
+	view := m.View()
+	if strings.Contains(view, "≈ Haiku 4.5") {
+		t.Errorf("arena-mode TUI view claims a SWE-bench-calibrated Claude tier for a haiku row with no SWE-bench score:\n%s", view)
+	}
+}
+
+// TestTUICellClaudeColumnUsesActiveScoreSource is the tuiCell-level unit
+// test behind TestTUIScoreSourceClaudeColumnNeverBlendsScales: the exact
+// same row must resolve to the normal SWE-bench-calibrated Claude label in
+// swebench mode, and to н/д in arena mode.
+func TestTUICellClaudeColumnUsesActiveScoreSource(t *testing.T) {
+	row := model.Model{Tier: "haiku", Score: &model.ScoreInfo{Value: 82}, Rankable: true}
+	if got := tuiCell(row, colClaude, false, scoreSourceSWEBench); got != "≈ Haiku 4.5" {
+		t.Fatalf("swebench-mode Claude cell = %q, want ≈ Haiku 4.5", got)
+	}
+	if got := tuiCell(row, colClaude, false, scoreSourceArena); got != "н/д" {
+		t.Fatalf("arena-mode Claude cell = %q, want н/д (must not blend Arena and SWE-bench scales)", got)
 	}
 }

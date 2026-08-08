@@ -363,6 +363,7 @@ func newRootCmd() *cobra.Command {
 	var tuiLimit int
 	var tuiShowSlug bool
 	var tuiRanking string
+	var tuiScoreSource string
 	tuiCmd := &cobra.Command{
 		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -370,6 +371,9 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("tui: limit must be non-negative, got %d", tuiLimit)
 			}
 			if err := sortTableModelsWithRanking(nil, tuiSort, tuiReverse, tuiRanking); err != nil {
+				return err
+			}
+			if err := validateScoreSource(tuiScoreSource); err != nil {
 				return err
 			}
 			tuiRanking = normalizeRanking(tuiRanking)
@@ -385,12 +389,13 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking)
+			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking, tuiScoreSource)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
 	tuiCmd.Flags().StringVar(&tuiSort, "sort", "q/p", "sort by: "+tableSortHelp)
 	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
+	tuiCmd.Flags().StringVar(&tuiScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
 	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N")
 	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")
