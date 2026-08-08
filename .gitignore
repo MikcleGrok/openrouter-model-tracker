@@ -1,3 +1,11 @@
 cache/
 bin/
 .release/
+
+# Static cosign signing key material MUST never be committed. Only the
+# public half (cosign.pub, tracked in the repo root) is a source artifact.
+# The private key is generated and stored outside this repo entirely; these
+# patterns are defense-in-depth in case it is ever generated inside the
+# working tree by mistake.
+cosign.key
+*.cosign.key
