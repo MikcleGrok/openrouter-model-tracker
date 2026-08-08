@@ -778,7 +778,7 @@ func TestApplyArenaFallbackKeepsQuietWhenArenaSucceeded(t *testing.T) {
 // representative shape neither fallback test above exercises: a single
 // model-map.tsv row that declares both a SWE-bench-family token (vals=) and
 // an arena= token, in a run where exactly one family's source failed and the
-// other succeeded. 17 of the real rows in model-map.tsv have this dual
+// other succeeded. 20 of the real rows in model-map.tsv have this dual
 // shape today. applyFallback and applyArenaFallback must each look only at
 // their own family's sourceOK entries — a failure in one family must never
 // leak a stale (or a live) value into the other family's column for the
