@@ -41,6 +41,32 @@ const (
 	rankingDefault = rankingMixed
 )
 
+const (
+	scoreSourceSWEBench = model.ScoreSourceSWEBench
+	scoreSourceArena    = model.ScoreSourceArena
+	scoreSourceDefault  = scoreSourceSWEBench
+)
+
+// validateScoreSource rejects anything but the two registered views. There
+// is deliberately no "auto": picking a source per row, or blending them, is
+// exactly what two separate views exist to prevent — an Elo and a SWE-bench
+// percentage are not the same kind of number and must never share a column.
+func validateScoreSource(source string) error {
+	if source != scoreSourceSWEBench && source != scoreSourceArena {
+		return fmt.Errorf("table: invalid --score-source %q; allowed values: swebench, arena", source)
+	}
+	return nil
+}
+
+// scoreSourceLabel is the one-line banner that says which scale the Status
+// and Q/P columns are on.
+func scoreSourceLabel(source string) string {
+	if source == scoreSourceArena {
+		return "arena (LMArena Elo; для ранжирования нормализован в 0-100)"
+	}
+	return "swebench (SWE-bench Verified, %)"
+}
+
 func normalizeRanking(ranking string) string {
 	switch ranking {
 	case "tier-priority":
@@ -53,6 +79,13 @@ func normalizeRanking(ranking string) string {
 }
 
 func loadLocalModels(dataDir string) ([]model.Model, error) {
+	return loadLocalModelsForSource(dataDir, scoreSourceDefault)
+}
+
+// loadLocalModelsForSource reads the last run's snapshot and returns the rows
+// already projected onto one score source, so no caller can accidentally
+// hand a mixed set to the renderer.
+func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 	entries, err := modelmap.Load(filepath.Join(dataDir, "model-map.tsv"))
 	if err != nil {
 		return nil, err
@@ -73,6 +106,7 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 	}
 	prices := make(map[string]sources.PriceInfo, len(snapshot.Models))
 	scores := make([]sources.ScoreRow, 0, len(snapshot.Models))
+	arena := make([]sources.ScoreRow, 0, len(snapshot.Models))
 	for slug, entry := range snapshot.Models {
 		prices[slug] = sources.PriceInfo{
 			Slug: slug, InPerM: entry.InPerM, OutPerM: entry.OutPerM, Context: entry.Context,
@@ -83,12 +117,15 @@ func loadLocalModels(dataDir string) ([]model.Model, error) {
 		if entry.Score != nil {
 			scores = append(scores, sources.ScoreRow{Slug: slug, Metric: entry.Score.Metric, Value: entry.Score.Value, VariantMeasured: entry.Score.VariantMeasured, SourceURL: entry.Score.SourceURL, Checked: entry.Score.Checked})
 		}
+		if entry.ArenaScore != nil {
+			arena = append(arena, sources.ScoreRow{Slug: slug, Metric: entry.ArenaScore.Metric, Value: entry.ArenaScore.Value, VariantMeasured: entry.ArenaScore.VariantMeasured, SourceURL: entry.ArenaScore.SourceURL, Checked: entry.ArenaScore.Checked})
+		}
 	}
-	models := model.Merge(entries, prices, scores, nt)
+	models := model.MergeWithArena(entries, prices, scores, arena, nt)
 	if len(models) == 0 {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
-	return models, nil
+	return model.ForScoreSource(models, source), nil
 }
 
 func loadLocalUpdatedAt(dataDir string) string {

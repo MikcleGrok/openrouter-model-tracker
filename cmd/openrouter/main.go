@@ -183,19 +183,20 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string) (st
 
 func newRootCmd() *cobra.Command {
 	var (
-		cfgPath       string
-		dataDir       string
-		output        string
-		dryRun        bool
-		tableSort     string
-		tableReverse  bool
-		tableLimit    int
-		tableNoPager  bool
-		tableShowSlug bool
-		tableTaskFit  string
-		tableNotes    bool
-		tableFilters  []string
-		tableRanking  string
+		cfgPath          string
+		dataDir          string
+		output           string
+		dryRun           bool
+		tableSort        string
+		tableReverse     bool
+		tableLimit       int
+		tableNoPager     bool
+		tableShowSlug    bool
+		tableTaskFit     string
+		tableNotes       bool
+		tableFilters     []string
+		tableRanking     string
+		tableScoreSource string
 	)
 
 	root := &cobra.Command{
@@ -301,6 +302,9 @@ func newRootCmd() *cobra.Command {
 			if tableTaskFit != "short" && tableTaskFit != "long" {
 				return fmt.Errorf("table: invalid --task-fit %q; allowed values: short, long", tableTaskFit)
 			}
+			if err := validateScoreSource(tableScoreSource); err != nil {
+				return err
+			}
 			dir, err := resolveDataDir(cfgPath, dataDir)
 			if err != nil {
 				return err
@@ -309,7 +313,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			models, err := loadLocalModels(dir)
+			models, err := loadLocalModelsForSource(dir, tableScoreSource)
 			if err != nil {
 				return err
 			}
@@ -335,11 +339,15 @@ func newRootCmd() *cobra.Command {
 			if tableRanking != rankingLegacy {
 				output = "Ranking: " + rankingLabel(tableRanking) + "\n" + output
 			}
+			if tableScoreSource != scoreSourceDefault {
+				output = "Score source: " + scoreSourceLabel(tableScoreSource) + "\n" + output
+			}
 			return writeTableOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
 	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
+	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")

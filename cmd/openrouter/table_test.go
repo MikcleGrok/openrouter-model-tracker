@@ -1178,3 +1178,91 @@ func copyTableFixture(t *testing.T, root string) error {
 func removeTableSnapshot(root string) error {
 	return os.Remove(filepath.Join(root, "cache", "last-run-snapshot.json"))
 }
+
+func copyScoreSourceFixture(t *testing.T, root string) error {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/swe\ttier=sonnet\tvals=demo/swe\ndemo/arena\ttier=sonnet\tarena=demo-arena\ndemo/both\ttier=sonnet\tvals=demo/both\tarena=demo-both\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/swe:\n    display: Demo SWE\n  demo/arena:\n    display: Demo Arena\n  demo/both:\n    display: Demo Both\n"), 0o644); err != nil {
+		return err
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
+		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1300, VariantMeasured: "demo-arena"}},
+		"demo/both":  {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 60}, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1500, VariantMeasured: "demo-both"}},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
+}
+
+func TestTableScoreSourceSwitchesTheWholeView(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	swe := executeCLI(t, "table", "--config", config)
+	if !strings.Contains(swe, "70.0%") || !strings.Contains(swe, "60.0%") {
+		t.Errorf("default view lost its SWE-bench numbers:\n%s", swe)
+	}
+	if strings.Contains(swe, "Elo") {
+		t.Errorf("default view leaked an Arena number:\n%s", swe)
+	}
+
+	arena := executeCLI(t, "table", "--config", config, "--score-source=arena")
+	if !strings.Contains(arena, "1300 Elo") || !strings.Contains(arena, "1500 Elo") {
+		t.Errorf("arena view lost its Elo numbers:\n%s", arena)
+	}
+	if strings.Contains(arena, "70.0%") || strings.Contains(arena, "60.0%") {
+		t.Errorf("arena view leaked a SWE-bench number:\n%s", arena)
+	}
+	if !strings.Contains(arena, "Score source: arena") {
+		t.Errorf("arena view does not say which scale it is on:\n%s", arena)
+	}
+}
+
+func TestTableScoreSourceRejectsUnknownValues(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"auto", "lmarena", ""} {
+		err := executeCLIError(t, "table", "--config", config, "--score-source="+value)
+		if err == nil || !strings.Contains(err.Error(), "invalid --score-source") {
+			t.Errorf("--score-source=%q error = %v, want a rejection; there is deliberately no auto mode", value, err)
+		}
+	}
+}
+
+func TestTableScoreSourceRanksByTheActiveSource(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	arena := executeCLI(t, "table", "--config", config, "--score-source=arena", "--slug")
+	both := strings.Index(arena, "demo/both")
+	only := strings.Index(arena, "demo/arena")
+	swe := strings.Index(arena, "demo/swe")
+	if both < 0 || only < 0 || swe < 0 {
+		t.Fatalf("a tracked model is missing from the arena view:\n%s", arena)
+	}
+	if !(both < only) {
+		t.Errorf("demo/both (1500 Elo) must outrank demo/arena (1300 Elo):\n%s", arena)
+	}
+	if !(only < swe) {
+		t.Errorf("a row with no Arena number must sink below the ranked ones:\n%s", arena)
+	}
+}
