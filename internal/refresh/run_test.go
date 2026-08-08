@@ -774,6 +774,82 @@ func TestApplyArenaFallbackKeepsQuietWhenArenaSucceeded(t *testing.T) {
 	}
 }
 
+// TestDualFamilyFallbacksActIndependently covers the most production-
+// representative shape neither fallback test above exercises: a single
+// model-map.tsv row that declares both a SWE-bench-family token (vals=) and
+// an arena= token, in a run where exactly one family's source failed and the
+// other succeeded. 17 of the real rows in model-map.tsv have this dual
+// shape today. applyFallback and applyArenaFallback must each look only at
+// their own family's sourceOK entries — a failure in one family must never
+// leak a stale (or a live) value into the other family's column for the
+// same slug.
+func TestDualFamilyFallbacksActIndependently(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "dual/model", Tier: "sonnet", Names: map[string]string{"vals": "dual/model", "arena": "dual-model-arena"}},
+	}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"dual/model": {
+			Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 61, VariantMeasured: "dual/model", Checked: "2026-07-20"},
+			ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1420, VariantMeasured: "dual-model-arena", Checked: "2026-07-20"},
+		},
+	}}
+	prices := map[string]sources.PriceInfo{"dual/model": {Slug: "dual/model", InPerM: 1, OutPerM: 3, Found: true}}
+	nt := loadTestNotes(t, "{}")
+
+	t.Run("vals fails, arena succeeds", func(t *testing.T) {
+		sourceOK := map[string]bool{"vals": false, "arena": true}
+
+		// SWE-bench family: vals failed this run and nothing was fetched for
+		// this slug — must fall back to the snapshot's Score and be marked
+		// stale.
+		_, scores, _, staleScores := applyFallback(entries, prices, true, nil, sourceOK, nt, snap)
+		if len(scores) != 1 || scores[0].Slug != "dual/model" || scores[0].Value != 61 {
+			t.Fatalf("scores = %+v, want the snapshot's SWE-bench row for dual/model", scores)
+		}
+		if !staleScores["dual/model"] {
+			t.Error("staleScores does not mark dual/model stale even though its only SWE-bench-family source (vals) failed")
+		}
+
+		// Arena family: arena succeeded this run and already produced a live
+		// row — applyArenaFallback must leave it untouched, not overwrite it
+		// with the (older) snapshot value.
+		liveArena := []sources.ScoreRow{{Slug: "dual/model", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "dual-model-arena"}}
+		arena, staleArena := applyArenaFallback(entries, liveArena, sourceOK, snap)
+		if len(arena) != 1 || arena[0].Value != 1500 {
+			t.Fatalf("arena = %+v, want the live row (1500) untouched, not the stale snapshot value (1420)", arena)
+		}
+		if len(staleArena) != 0 {
+			t.Errorf("staleArena = %v, want empty: arena succeeded this run for dual/model", staleArena)
+		}
+	})
+
+	t.Run("arena fails, vals succeeds", func(t *testing.T) {
+		sourceOK := map[string]bool{"vals": true, "arena": false}
+
+		// SWE-bench family: vals succeeded this run and already produced a
+		// live row — applyFallback must leave it untouched.
+		liveScores := []sources.ScoreRow{{Slug: "dual/model", Metric: "SWE-bench Verified", Value: 70, VariantMeasured: "dual/model"}}
+		_, scores, _, staleScores := applyFallback(entries, prices, true, liveScores, sourceOK, nt, snap)
+		if len(scores) != 1 || scores[0].Value != 70 {
+			t.Fatalf("scores = %+v, want the live row (70) untouched, not the stale snapshot value (61)", scores)
+		}
+		if len(staleScores) != 0 {
+			t.Errorf("staleScores = %v, want empty: vals succeeded this run for dual/model", staleScores)
+		}
+
+		// Arena family: arena failed this run and nothing was fetched for
+		// this slug — must fall back to the snapshot's ArenaScore and be
+		// marked stale.
+		arena, staleArena := applyArenaFallback(entries, nil, sourceOK, snap)
+		if len(arena) != 1 || arena[0].Slug != "dual/model" || arena[0].Value != 1420 {
+			t.Fatalf("arena = %+v, want the snapshot's Arena row for dual/model", arena)
+		}
+		if !staleArena["dual/model"] {
+			t.Error("staleArena does not mark dual/model stale even though its only Arena-family source (arena) failed")
+		}
+	})
+}
+
 func TestMarkStaleLabelsTheArenaColumn(t *testing.T) {
 	models := []model.Model{{
 		Slug:       "a/down",

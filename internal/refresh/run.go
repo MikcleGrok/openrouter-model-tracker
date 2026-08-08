@@ -244,8 +244,8 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 
 	// A whole-catalogue failure with no snapshot fallback for some tracked slug
-	// would make model.Merge silently drop it — never overwrite the document
-	// with fewer rows than are actually tracked.
+	// would make model.MergeWithArena silently drop it — never overwrite the
+	// document with fewer rows than are actually tracked.
 	if !pricesOK {
 		var missing []string
 		for _, e := range entries {
@@ -261,8 +261,8 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 
 	// A live price lookup that succeeds but reports every tracked slug as gone
-	// (e.g. OpenRouter renamed its slug scheme) would make Merge drop every
-	// entry — never overwrite the document with an empty document.
+	// (e.g. OpenRouter renamed its slug scheme) would make MergeWithArena drop
+	// every entry — never overwrite the document with an empty document.
 	if len(models) == 0 {
 		return report, fmt.Errorf("refresh: no tracked model has usable price data this run — refusing to overwrite the document")
 	}
