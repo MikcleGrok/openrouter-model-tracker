@@ -130,6 +130,47 @@ func TestBuildReportRetiredKeysOffPricesOKNotCatalog(t *testing.T) {
 	}
 }
 
+func TestBuildReportSeparatesTheTwoSourceFamilies(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/arena-only-token", Tier: "sonnet", Names: map[string]string{"arena": "a-arena"}},
+		{Slug: "a/swe-token", Tier: "sonnet", Names: map[string]string{"vals": "a/swe"}},
+		{Slug: "a/both-tokens", Tier: "sonnet", Names: map[string]string{"vals": "a/both", "arena": "a-both"}},
+		// Declares both tokens and got a real score back from both — the
+		// negative case for ArenaOnly: having an Arena score is not enough,
+		// it must ALSO be missing a real SWE-bench score.
+		{Slug: "a/fully-scored", Tier: "sonnet", Names: map[string]string{"vals": "a/full", "arena": "a-full"}},
+	}
+	models := []model.Model{
+		{Slug: "a/arena-only-token", ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400}},
+		{Slug: "a/swe-token"},
+		{Slug: "a/both-tokens", Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
+		{Slug: "a/fully-scored",
+			Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 80},
+			ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1500}},
+	}
+	r := BuildReport(entries, nil, nil, true, models)
+
+	if len(r.NoScore) != 1 || r.NoScore[0] != "a/swe-token" {
+		t.Errorf("NoScore = %v, want only the slug that declared a SWE-bench source and got nothing", r.NoScore)
+	}
+	if len(r.NoArenaScore) != 1 || r.NoArenaScore[0] != "a/both-tokens" {
+		t.Errorf("NoArenaScore = %v, want only the slug that declared arena= and got nothing", r.NoArenaScore)
+	}
+	if len(r.ArenaOnly) != 1 || r.ArenaOnly[0] != "a/arena-only-token" {
+		t.Errorf("ArenaOnly = %v, want only the row whose sole quality signal is a crowd Elo — a/fully-scored has a real SWE-bench score too and must not appear here", r.ArenaOnly)
+	}
+}
+
+func TestReportStringShowsTheArenaSections(t *testing.T) {
+	out := Report{NoArenaScore: []string{"a/x"}, ArenaOnly: []string{"a/y"}}.String()
+	if !strings.Contains(out, "a/x") || !strings.Contains(out, "arena=") {
+		t.Errorf("report does not name the Arena mapping gap:\n%s", out)
+	}
+	if !strings.Contains(out, "a/y") || !strings.Contains(out, "только Arena") {
+		t.Errorf("report does not show the Arena-only section:\n%s", out)
+	}
+}
+
 func TestReportString(t *testing.T) {
 	r := Report{
 		NewCandidates:  []string{"openai/gpt-5.7-nova"},

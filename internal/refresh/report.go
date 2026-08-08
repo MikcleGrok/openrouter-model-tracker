@@ -21,6 +21,8 @@ type Report struct {
 	Retired        []string
 	NeedsReview    []string
 	NoScore        []string
+	NoArenaScore   []string
+	ArenaOnly      []string
 	Warnings       []string
 	PriceChanges   []PriceChange
 }
@@ -87,13 +89,20 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		}
 	}
 
-	// A model with no declared source in model-map.tsv has no wrong-spelling
-	// bug possible: its score, if any, comes entirely from a manual notes.yaml
-	// override or is absent by design. Flagging it in NoScore is pure noise
-	// that buries the real signal — a declared source that still came back empty.
-	hasSource := make(map[string]bool, len(entries))
+	// The two families are counted apart: an arena= token alone must not make
+	// the SWE-bench section shout about a model that never declared a
+	// SWE-bench source, and vice versa.
+	hasScoreSource := make(map[string]bool, len(entries))
+	hasArenaSource := make(map[string]bool, len(entries))
 	for _, e := range entries {
-		hasSource[e.Slug] = len(e.Names) > 0
+		for sourceID := range e.Names {
+			switch model.SourceFamily[sourceID] {
+			case model.ScoreSourceArena:
+				hasArenaSource[e.Slug] = true
+			case model.ScoreSourceSWEBench:
+				hasScoreSource[e.Slug] = true
+			}
+		}
 	}
 
 	for _, m := range models {
@@ -101,8 +110,16 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 			(m.Free && m.ClaudeRef == notes.NeedsReview) {
 			r.NeedsReview = append(r.NeedsReview, m.Slug)
 		}
-		if m.Score == nil && hasSource[m.Slug] {
+		if m.Score == nil && hasScoreSource[m.Slug] {
 			r.NoScore = append(r.NoScore, m.Slug)
+		}
+		if m.ArenaScore == nil && hasArenaSource[m.Slug] {
+			r.NoArenaScore = append(r.NoArenaScore, m.Slug)
+		}
+		// A row whose only quality signal is a crowd-sourced Elo is exactly
+		// where a real coding benchmark is still worth looking for.
+		if m.ArenaScore != nil && m.Score == nil {
+			r.ArenaOnly = append(r.ArenaOnly, m.Slug)
 		}
 	}
 
@@ -110,6 +127,8 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 	sort.Strings(r.Retired)
 	sort.Strings(r.NeedsReview)
 	sort.Strings(r.NoScore)
+	sort.Strings(r.NoArenaScore)
+	sort.Strings(r.ArenaOnly)
 	return r
 }
 
@@ -133,6 +152,8 @@ func (r Report) String() string {
 	section(&b, "➖", "slug'ов больше нет в каталоге OpenRouter", r.Retired)
 	section(&b, "📝", "нет прозы в notes.yaml", r.NeedsReview)
 	section(&b, "❓", "нет оценки — проверь имя модели на источнике в model-map.tsv", r.NoScore)
+	section(&b, "🎯", "нет строки на Arena — проверь arena= в model-map.tsv", r.NoArenaScore)
+	section(&b, "🔍", "только Arena-оценка, настоящего coding-бенчмарка нет", r.ArenaOnly)
 	if len(r.PriceChanges) > 0 {
 		b.WriteString("💰 изменения цен с последнего live-наблюдения:\n")
 		for _, change := range r.PriceChanges {
