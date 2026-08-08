@@ -282,6 +282,41 @@ func fillArenaDerived(models []Model) {
 	}
 }
 
+// ForScoreSource returns the rows projected onto one score source: the
+// chosen source's number, label and quality/price land in the fields every
+// consumer already reads, and the other source's data is simply not there.
+// Nothing downstream — the ranking, the filters, the renderer, the TUI —
+// needs to know a second source exists, and no table can end up showing two
+// scales at once.
+//
+// The Arena view carries the normalised 0–100 value in Score.Value, because
+// that is what the ranking formula is tuned for, and the raw Elo in
+// ScoreLabel, because that is what a human should see. The input slice is
+// never mutated: the caller keeps a row that still knows both sources.
+func ForScoreSource(models []Model, source string) []Model {
+	if source != ScoreSourceArena {
+		return models
+	}
+	out := make([]Model, len(models))
+	copy(out, models)
+	for i := range out {
+		m := &out[i]
+		m.Score, m.Rankable, m.ScoreLabel = nil, m.ArenaRankable, m.ArenaLabel
+		if m.ArenaScore != nil {
+			m.Score = &ScoreInfo{
+				Metric:          m.ArenaScore.Metric,
+				Value:           m.ArenaNormalized,
+				VariantMeasured: m.ArenaScore.VariantMeasured,
+				SourceURL:       m.ArenaScore.SourceURL,
+				Checked:         m.ArenaScore.Checked,
+				Stale:           m.ArenaScore.Stale,
+			}
+		}
+		m.QualityPrice, m.QualityPriceLabel = m.ArenaQualityPrice, m.ArenaQualityPriceLabel
+	}
+	return out
+}
+
 // RankFavorites returns the rankable models of one tier, best first. Paid tiers
 // rank by quality/price; the free tier ranks by score, because every free model
 // costs $0 and quality/price is undefined there.

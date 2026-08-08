@@ -307,3 +307,51 @@ func TestSourceFamilyRegistry(t *testing.T) {
 		t.Errorf("SourceFamily[unknown] = %q, want the empty string so unknown ids feed neither view", got)
 	}
 }
+
+func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
+	models := []Model{
+		{
+			Slug: "a/both", Tier: "sonnet", MixedPrice: 2,
+			Score: &ScoreInfo{Metric: "SWE-bench Verified", Value: 70}, ScoreLabel: "70.0%", Rankable: true,
+			QualityPrice: 35, QualityPriceLabel: "35",
+			ArenaScore:      &ScoreInfo{Metric: "LMArena Elo", Value: 1500, VariantMeasured: "a-both", SourceURL: "u", Checked: "2026-08-06"},
+			ArenaNormalized: 100, ArenaLabel: "1500 Elo", ArenaRankable: true,
+			ArenaQualityPrice: 50, ArenaQualityPriceLabel: "50",
+		},
+		{
+			Slug: "a/swe-only", Tier: "sonnet", MixedPrice: 2,
+			Score: &ScoreInfo{Metric: "SWE-bench Verified", Value: 60}, ScoreLabel: "60.0%", Rankable: true,
+			QualityPrice: 30, QualityPriceLabel: "30",
+			ArenaLabel: "н/д", ArenaQualityPriceLabel: "н/д (нет оценки на LMArena)",
+		},
+	}
+
+	same := ForScoreSource(models, ScoreSourceSWEBench)
+	if same[0].ScoreLabel != "70.0%" || same[1].ScoreLabel != "60.0%" {
+		t.Errorf("the swebench view changed the rows: %+v", same)
+	}
+
+	arena := ForScoreSource(models, ScoreSourceArena)
+	if arena[0].Score == nil || arena[0].Score.Value != 100 {
+		t.Errorf("a/both Score = %+v, want the normalised 100, because that is what the formula is tuned for", arena[0].Score)
+	}
+	if arena[0].Score.Metric != "LMArena Elo" || arena[0].Score.Checked != "2026-08-06" {
+		t.Errorf("a/both provenance = %+v, want the Arena metric and date", arena[0].Score)
+	}
+	if arena[0].ScoreLabel != "1500 Elo" {
+		t.Errorf("a/both ScoreLabel = %q, want the raw Elo, which is what a human should read", arena[0].ScoreLabel)
+	}
+	if arena[0].QualityPriceLabel != "50" || arena[0].QualityPrice != 50 {
+		t.Errorf("a/both quality/price = %v / %q, want the Arena view's own numbers", arena[0].QualityPrice, arena[0].QualityPriceLabel)
+	}
+	if arena[1].Score != nil || arena[1].Rankable {
+		t.Errorf("a/swe-only = %+v / rankable %v, want no number at all in the Arena view", arena[1].Score, arena[1].Rankable)
+	}
+	if arena[1].ScoreLabel != "н/д" {
+		t.Errorf("a/swe-only ScoreLabel = %q, want н/д even though it has a real SWE-bench score", arena[1].ScoreLabel)
+	}
+
+	if models[0].ScoreLabel != "70.0%" || models[1].Score == nil {
+		t.Errorf("ForScoreSource mutated its input: %+v", models)
+	}
+}
