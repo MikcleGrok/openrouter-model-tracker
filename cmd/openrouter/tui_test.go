@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
 
@@ -863,4 +864,58 @@ func TestTUICellClaudeColumnUsesActiveScoreSource(t *testing.T) {
 	if got := tuiCell(row, colClaude, false, scoreSourceArena); got != "н/д" {
 		t.Fatalf("arena-mode Claude cell = %q, want н/д (must not blend Arena and SWE-bench scales)", got)
 	}
+}
+
+// TestNewConfiguredTUIModelAppliesScoreSourceEndToEnd exercises the real
+// construction path — newConfiguredTUIModel, the part of
+// runTUIWithRankingConfigCompiled that the TTY gate and tea.NewProgram make
+// otherwise unreachable from a test — instead of setting m.scoreSource by
+// hand the way every other TUI test in this file does. It fails if either
+// half of the flag→session wiring regresses: dropping `m.scoreSource =
+// scoreSource` (caught by the field assertion below) or reverting the
+// loader call back to loadLocalModels/scoreSourceDefault (caught by the
+// Status-cell assertion, since demo/haiku-arena has no SWE-bench number and
+// would render н/д there instead of 1400 Elo).
+func TestNewConfiguredTUIModelAppliesScoreSourceEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	if err := copyScoreSourceClaudeFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := ranking.Compile(ranking.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := newConfiguredTUIModel(context.Background(), root, refresh.Options{}, 0, "q/p", false, "", 0, false, rankingDefault, compiled, scoreSourceArena)
+	if err != nil {
+		t.Fatalf("newConfiguredTUIModel: %v", err)
+	}
+	if m.scoreSource != scoreSourceArena {
+		t.Fatalf("scoreSource = %q, want %q", m.scoreSource, scoreSourceArena)
+	}
+
+	m.width, m.height = 200, 24
+	view := m.View()
+	line := tuiFindRowLine(t, view, "Demo Haiku Arena")
+	cells := strings.Split(line, " | ")
+	if len(cells) < 3 {
+		t.Fatalf("unexpected row shape: %q", line)
+	}
+	if got := strings.TrimSpace(cells[1]); got != "н/д" {
+		t.Errorf("Claude cell = %q, want н/д; a haiku row with only an Arena number must not claim a SWE-bench-calibrated tier:\n%s", got, view)
+	}
+	if got := strings.TrimSpace(cells[2]); got != "1400 Elo" {
+		t.Errorf("Status cell = %q, want 1400 Elo; loadLocalModelsForSource was not asked for the arena source:\n%s", got, view)
+	}
+}
+
+func tuiFindRowLine(t *testing.T, view, identity string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, identity) {
+			return line
+		}
+	}
+	t.Fatalf("row containing %q not found in view:\n%s", identity, view)
+	return ""
 }

@@ -142,9 +142,26 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
-	models, err := loadLocalModelsForSource(dataDir, scoreSource)
+	m, err := newConfiguredTUIModel(ctx, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSource)
 	if err != nil {
 		return err
+	}
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
+	_, err = p.Run()
+	return err
+}
+
+// newConfiguredTUIModel builds the tuiModel exactly the way
+// runTUIWithRankingConfigCompiled does, minus the TTY gate and
+// tea.NewProgram/p.Run() call — the two things that make that function
+// unreachable from a test. It exists so a test can call the real
+// construction path directly and assert both that scoreSource lands on the
+// model and that loadLocalModelsForSource was actually asked for it,
+// instead of every test poking m.scoreSource by hand after the fact.
+func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource string) (tuiModel, error) {
+	models, err := loadLocalModelsForSource(dataDir, scoreSource)
+	if err != nil {
+		return tuiModel{}, err
 	}
 	m := newTUIModel(ctx, dataDir, opts, interval, models)
 	m.rankingConfig = compiled
@@ -156,9 +173,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.replaceColumn(colName, colSlug)
 	}
 	m.rebuild()
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
-	_, err = p.Run()
-	return err
+	return m, nil
 }
 
 func (m *tuiModel) rebuild() {
