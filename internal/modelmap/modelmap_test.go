@@ -194,4 +194,49 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 	if got := NamesFor(entries, "swebench"); !reflect.DeepEqual(got, wantSWE) {
 		t.Errorf("NamesFor(swebench) =\n  %v\nwant\n  %v", got, wantSWE)
 	}
+
+	wantArena := map[string]string{
+		"openai/gpt-5.6-luna":                    "gpt-5.6-luna-xhigh-text",
+		"openai/gpt-5.6-sol":                     "gpt-5.6-sol-xhigh-text",
+		"openai/gpt-5.6-terra":                   "gpt-5.6-terra-xhigh-text",
+		"minimax/minimax-m3":                     "minimax-m3",
+		"meta/muse-spark-1.1":                    "super-nova-ext-3tam-text",
+		"qwen/qwen3.7-plus":                      "qwen3.7-plus",
+		"qwen/qwen3.8-max":                       "kinsley-mrp8",
+		"x-ai/grok-4.5":                          "grok-4.5-text",
+		"mistralai/mistral-medium-3-5":           "mistral-medium-3.5-text",
+		"google/gemini-3.1-pro-preview":          "gemini-3.1-pro-preview",
+		"deepseek/deepseek-v4-pro":               "deepseek-v4-pro-ch1-text",
+		"google/gemini-3.6-flash":                "gemini-3.6-flash",
+		"deepseek/deepseek-v4-flash":             "deepseek-v4-ch3-text",
+		"tencent/hy3":                            "hy3-tencent-cloud-text",
+		"deepseek/deepseek-v3.2":                 "deepseek-v3.2",
+		"qwen/qwen3-coder":                       "qwen3-coder-480b-a35b-instruct",
+		"xiaomi/mimo-v2.5-pro":                   "mimo-v2.5-pro-text",
+		"xiaomi/mimo-v2.5":                       "mimo-v2.5-text",
+		"meta-llama/llama-4-maverick":            "llama-4-maverick-17b-128e-instruct",
+		"meta-llama/llama-4-scout":               "llama-4-scout-17b-16e-instruct",
+		"openai/gpt-5-mini":                      "gpt-5-mini-high",
+		"google/gemma-4-26b-a4b-it":              "significant-otter-text",
+		"google/gemma-4-31b-it":                  "pteronura-text",
+		"nvidia/nemotron-3-ultra-550b-a55b":      "may26-chatbot4-3x57",
+		"nvidia/nemotron-3-super-120b-a12b":      "march26-chatbot1",
+		"nvidia/nemotron-3-nano-30b-a3b":         "nvidia-nemotron-3-nano-30b-a3b-bf16",
+		"nvidia/nemotron-3-ultra-550b-a55b:free": "may26-chatbot4-3x57",
+		"openai/gpt-oss-20b:free":                "gpt-oss-20b",
+		"google/gemma-4-31b-it:free":             "pteronura-text",
+		"google/gemma-4-26b-a4b-it:free":         "significant-otter-text",
+		"nvidia/nemotron-3-super-120b-a12b:free": "march26-chatbot1",
+		"nvidia/nemotron-3-nano-30b-a3b:free":    "nvidia-nemotron-3-nano-30b-a3b-bf16",
+	}
+	if got := NamesFor(entries, "arena"); !reflect.DeepEqual(got, wantArena) {
+		t.Errorf("NamesFor(arena) =\n  %v\nwant\n  %v", got, wantArena)
+	}
+	for _, e := range entries {
+		for sourceID := range e.Names {
+			if sourceID != "swebench" && sourceID != "vals" && sourceID != "arena" {
+				t.Errorf("%s declares an unknown source id %q; it would silently feed no view at all", e.Slug, sourceID)
+			}
+		}
+	}
 }
