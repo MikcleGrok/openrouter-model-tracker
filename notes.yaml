@@ -343,7 +343,6 @@ models:
     display: DeepSeek V4 Pro
     owner: DeepSeek (F)
     open_weights: "**да, MIT**"
-    no_score_reason: "н/д (оценка не для этого варианта)"
     note: >-
       Заявленная оценка ~80.6% измерена для варианта «V4-Pro-Max», которого на OpenRouter
       не существует — это не тот продукт, что продаётся под `deepseek/deepseek-v4-pro`.
@@ -353,7 +352,6 @@ models:
     display: GLM-5.2
     owner: Z.ai / Zhipu AI (D−)
     open_weights: "**да, MIT**"
-    no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
     note: >-
       Официальная документация Z.AI SWE-bench Verified не публикует — там только
       SWE-bench Pro 62.1% и Terminal-Bench 2.1 81.0% (другие метрики). Независимая
@@ -364,7 +362,6 @@ models:
     display: Gemini 3.6 Flash
     owner: Google DeepMind (C)
     open_weights: "нет"
-    no_score_reason: "н/д (оценка не для этого варианта)"
     note: >-
       Независимая оценка SWE-bench Verified теперь есть на vals.ai (79.6%) — на официальной
       странице Google DeepMind по-прежнему только **SWE-bench Pro 58.7% (другая метрика)**.
@@ -569,7 +566,6 @@ models:
     display: Llama 4 Maverick
     owner: Meta (D+)
     open_weights: "**да** (Llama 4 Community License, ограничения при >700M MAU)"
-    no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
     note: >-
       Старое поколение (апрель 2025), больше не флагман Meta (теперь — Muse Spark).
       Независимая оценка SWE-bench Verified теперь есть на swebench.com (21.0%) — заметно
@@ -615,7 +611,6 @@ models:
     display: Mistral Large 3
     owner: Mistral AI (F)
     open_weights: "**да, Apache 2.0**"
-    no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
     note: >-
       Универсальный флагман Mistral; преемника (Large 4) на дату проверки не существует,
       анонсов нет. Независимая оценка SWE-bench Verified есть на vals.ai (41.4%).
