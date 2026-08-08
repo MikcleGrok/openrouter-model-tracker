@@ -335,7 +335,7 @@ func newRootCmd() *cobra.Command {
 			if tableNotes {
 				mode = "notes"
 			}
-			output := renderTableMode(models, width, tableShowSlug, mode)
+			output := renderTableMode(models, width, tableShowSlug, mode, tableScoreSource)
 			if tableRanking != rankingLegacy {
 				output = "Ranking: " + rankingLabel(tableRanking) + "\n" + output
 			}

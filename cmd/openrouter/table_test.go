@@ -38,9 +38,9 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 
 func TestRenderTableTaskFitShortAndLong(t *testing.T) {
 	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "test"}}
-	short := renderTableMode([]model.Model{row}, 120, false, "short")
-	long := renderTableMode([]model.Model{row}, 120, false, "long")
-	narrowLong := renderTableMode([]model.Model{row}, 40, false, "long")
+	short := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
+	long := renderTableMode([]model.Model{row}, 120, false, "long", scoreSourceDefault)
+	narrowLong := renderTableMode([]model.Model{row}, 40, false, "long", scoreSourceDefault)
 	if !strings.Contains(short, "Task fit") || !strings.Contains(short, "IT") || strings.Contains(short, "I+T") {
 		t.Fatalf("short task fit = %s", short)
 	}
@@ -57,14 +57,14 @@ func TestRenderTableTaskFitShortAndLong(t *testing.T) {
 
 func TestRenderTableTaskFitCanonicalShortHasNoPluses(t *testing.T) {
 	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "debug", "refactor", "test"}}
-	short := renderTableMode([]model.Model{row}, 120, false, "short")
+	short := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
 	if !strings.Contains(short, "IDFT") || strings.Contains(short, "I+D+F+T") {
 		t.Fatalf("canonical short task fit = %s", short)
 	}
 }
 
 func TestRenderTableTaskFitMissingIsNA(t *testing.T) {
-	output := renderTableMode([]model.Model{{DisplayName: "model"}}, 120, false, "short")
+	output := renderTableMode([]model.Model{{DisplayName: "model"}}, 120, false, "short", scoreSourceDefault)
 	if !strings.Contains(output, "Task fit") || !strings.Contains(output, "n/a") {
 		t.Fatalf("missing task fit = %s", output)
 	}
@@ -1264,5 +1264,105 @@ func TestTableScoreSourceRanksByTheActiveSource(t *testing.T) {
 	}
 	if !(only < swe) {
 		t.Errorf("a row with no Arena number must sink below the ranked ones:\n%s", arena)
+	}
+}
+
+// copyScoreSourceClaudeFixture is a two-model, haiku-tier-only fixture for
+// exercising ClaudeEquivalent's percentage thresholds specifically: one row
+// has only a SWE-bench number, the other only an Arena number, so the two
+// modes disagree about which row is "scored" and which threshold branch (if
+// any) may run.
+func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/haiku-swe\ttier=haiku\tvals=demo/haiku-swe\ndemo/haiku-arena\ttier=haiku\tarena=demo-haiku-arena\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/haiku-swe:\n    display: Demo Haiku SWE\n  demo/haiku-arena:\n    display: Demo Haiku Arena\n"), 0o644); err != nil {
+		return err
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/haiku-swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 75}},
+		"demo/haiku-arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400, VariantMeasured: "demo-haiku-arena"}},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
+}
+
+// TestTableScoreSourceClaudeColumnNeverBlendsScales guards against exactly
+// the bug a review caught live: ClaudeEquivalent's haiku/free thresholds
+// (>=70, >=60) are calibrated on SWE-bench Verified percentage points. After
+// projection through model.ForScoreSource, an arena-mode Score.Value holds a
+// min-max-normalized Arena position instead, so applying those thresholds to
+// it silently reads an Elo rank as if it were a SWE-bench score — the exact
+// cross-scale blending --score-source exists to prevent. A row with a real
+// SWE-bench score and no Arena data must not claim a SWE-bench-calibrated
+// Claude tier once the view has moved to Arena: its Status cell already says
+// н/д, and the Claude cell must agree rather than contradict it. A row that
+// does have real Arena data fares no better: there is no established mapping
+// from a normalized Arena position onto a Claude tier, so the threshold
+// logic must not run for it either in arena mode.
+func TestTableScoreSourceClaudeColumnNeverBlendsScales(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceClaudeFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	swe := executeCLI(t, "table", "--config", config, "--slug")
+	if got := tableRowCell(t, swe, "demo/haiku-swe", 1); got != "≈ Haiku 4.5" {
+		t.Errorf("swebench-mode Claude cell for demo/haiku-swe (score 75 >= 70) = %q, want %q:\n%s", got, "≈ Haiku 4.5", swe)
+	}
+
+	arena := executeCLI(t, "table", "--config", config, "--score-source=arena", "--slug")
+	if got := tableRowCell(t, arena, "demo/haiku-swe", 2); got != "н/д" {
+		t.Fatalf("test setup: demo/haiku-swe Status in arena mode = %q, want н/д (it has no Arena number):\n%s", got, arena)
+	}
+	if got := tableRowCell(t, arena, "demo/haiku-swe", 1); got != "н/д" {
+		t.Errorf("arena-mode Claude cell for demo/haiku-swe = %q, want %q; it must not claim a SWE-bench-calibrated tier next to a н/д Status:\n%s", got, "н/д", arena)
+	}
+	if got := tableRowCell(t, arena, "demo/haiku-arena", 2); got != "1400 Elo" {
+		t.Fatalf("test setup: demo/haiku-arena Status in arena mode = %q, want 1400 Elo:\n%s", got, arena)
+	}
+	if got := tableRowCell(t, arena, "demo/haiku-arena", 1); got != "н/д" {
+		t.Errorf("arena-mode Claude cell for demo/haiku-arena = %q, want %q; there is no established Elo-to-Claude-tier mapping:\n%s", got, "н/д", arena)
+	}
+}
+
+// TestTableScoreSourceFilterScoredTracksTheActiveSource pins down that
+// --filter scored (and, by the same mechanism, quality>=N) reads whichever
+// source is currently projected onto Score/Rankable, so its meaning silently
+// changes with --score-source: "has a SWE-bench number" in swebench mode,
+// "has an Arena number" in arena mode. This is existing, already-correct
+// behavior (ForScoreSource runs before filterTableModels); the test exists so
+// a future refactor cannot regress it unnoticed.
+func TestTableScoreSourceFilterScoredTracksTheActiveSource(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	arena := executeCLI(t, "table", "--config", config, "--score-source=arena", "--filter", "scored", "--slug")
+	if strings.Contains(arena, "demo/swe") {
+		t.Errorf("arena --filter scored kept demo/swe, which has no Arena number:\n%s", arena)
+	}
+	if !strings.Contains(arena, "demo/arena") || !strings.Contains(arena, "demo/both") {
+		t.Errorf("arena --filter scored dropped a row that does have an Arena number:\n%s", arena)
+	}
+
+	swe := executeCLI(t, "table", "--config", config, "--filter", "scored", "--slug")
+	if strings.Contains(swe, "demo/arena") {
+		t.Errorf("swebench --filter scored kept demo/arena, which has no SWE-bench number:\n%s", swe)
+	}
+	if !strings.Contains(swe, "demo/swe") || !strings.Contains(swe, "demo/both") {
+		t.Errorf("swebench --filter scored dropped a row that does have a SWE-bench number:\n%s", swe)
 	}
 }

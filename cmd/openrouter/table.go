@@ -595,6 +595,25 @@ func tableClaude(m model.Model) string {
 	return refresh.ClaudeEquivalent(m)
 }
 
+// tableClaudeForSource neutralizes the Claude cell for haiku/free-tier rows
+// when the active score source is arena. ClaudeEquivalent's haiku/free
+// thresholds (>=70, >=60) are calibrated on SWE-bench Verified percentage
+// points; after projection through model.ForScoreSource, an arena-mode
+// Score.Value instead holds a min-max-normalized Arena position, so running
+// those thresholds on it would silently read an Elo rank as a SWE-bench
+// score — exactly the cross-scale blending --score-source exists to prevent.
+// There is no established mapping from a normalized Arena position onto a
+// Claude tier, so this deliberately does not attempt one, regardless of
+// whether the row actually has an Arena number. Opus/sonnet rows are
+// unaffected: ClaudeEquivalent derives their label from Tier alone, never
+// from a score value, so it stays correct under either source.
+func tableClaudeForSource(m model.Model, source string) string {
+	if source == scoreSourceArena && (m.Tier == "haiku" || m.Tier == "free") {
+		return "н/д"
+	}
+	return tableClaude(m)
+}
+
 func tableNote(m model.Model) string {
 	if m.Note == "" || m.Note == notes.NeedsReview {
 		return ""
@@ -616,10 +635,10 @@ func plainTableText(value string) string {
 }
 
 func renderTable(models []model.Model, width int, showSlug bool) string {
-	return renderTableMode(models, width, showSlug, "notes")
+	return renderTableMode(models, width, showSlug, "notes", scoreSourceDefault)
 }
 
-func renderTableMode(models []model.Model, width int, showSlug bool, columnMode string) string {
+func renderTableMode(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -638,7 +657,7 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 			identity = m.Slug
 		}
 		last := tableTaskFit(m, columnMode)
-		values := []string{identity, tableClaude(m), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}
+		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}
 		for i := range values {
 			values[i] = plainTableText(values[i])
 		}
