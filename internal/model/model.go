@@ -12,6 +12,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
@@ -25,6 +26,32 @@ type ScoreInfo struct {
 	Checked         string  `json:"checked"`
 	Stale           bool    `json:"stale,omitempty"`
 }
+
+// ScoreSourceSWEBench and ScoreSourceArena name the two independent score
+// sources a rendered table can be built from. They are never blended: one
+// table shows one of them, and a model with no number on the active source
+// shows "н/д" even when it has a number on the other one.
+const (
+	ScoreSourceSWEBench = "swebench"
+	ScoreSourceArena    = "arena"
+)
+
+// SourceFamily maps a model-map.tsv source id onto the score source it
+// feeds. Two ids of one family (swebench.com and vals.ai) are
+// priority-ordered alternatives for the same number; two families never
+// merge into one column. An unknown id maps to the empty string and feeds
+// neither view, which is the safe default for a typo in the map.
+var SourceFamily = map[string]string{
+	"swebench": ScoreSourceSWEBench,
+	"vals":     ScoreSourceSWEBench,
+	"arena":    ScoreSourceArena,
+}
+
+// arenaNoScoreLabel fills the quality/price cell of a row the Arena view has
+// no number for. It deliberately does not reuse notes.yaml's NoScoreReason:
+// that text names SWE-bench, which is exactly the confusion two separate
+// views exist to prevent.
+const arenaNoScoreLabel = "н/д (нет оценки на LMArena)"
 
 // Model is one rendered row.
 type Model struct {
@@ -71,6 +98,20 @@ type Model struct {
 	// Such a row never ranks and never becomes a favourite.
 	Rankable bool
 
+	// Arena is the second, fully independent score source. Its number never
+	// mixes with Score: --score-source picks one view or the other, and
+	// ForScoreSource projects the chosen one onto the fields the renderer and
+	// the ranking already read. ArenaScore.Value is the raw Elo, as fetched
+	// and as persisted in the snapshot; ArenaNormalized is that Elo rescaled
+	// onto 0–100 over the current Arena set, which is what the mixed-utility
+	// formula consumes.
+	ArenaScore             *ScoreInfo
+	ArenaNormalized        float64
+	ArenaLabel             string
+	ArenaRankable          bool
+	ArenaQualityPrice      float64
+	ArenaQualityPriceLabel string
+
 	// PriceStale is set when the price came from the previous run's snapshot
 	// because the live lookup failed.
 	PriceStale bool
@@ -85,15 +126,37 @@ func FormatScore(v float64) string {
 	return strconv.FormatFloat(v, 'f', 1, 64) + "%"
 }
 
-// Merge builds the rendered rows. A slug with no live price entry, or one the
-// catalogue does not know, is dropped: report.go tells the human about it.
+// FormatArenaScore prints an Elo rating the way the Status column does when
+// the Arena view is active. The unit is spelled out because the number is
+// not a percentage and must never be read as one.
+func FormatArenaScore(v float64) string {
+	return strconv.FormatFloat(v, 'f', 0, 64) + " Elo"
+}
+
+// Merge builds the rendered rows with the SWE-bench column only. It stays
+// for callers that have no Arena data to pass.
 func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores []sources.ScoreRow, nt *notes.Notes) []Model {
-	// First row for a slug wins. The caller controls source priority by the
-	// order it concatenates the sources' results.
+	return MergeWithArena(entries, prices, scores, nil, nt)
+}
+
+// MergeWithArena builds the rendered rows from both score sources at once,
+// into two separate sets of fields. A slug with no live price entry, or one
+// the catalogue does not know, is dropped: report.go tells the human about it.
+func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow, nt *notes.Notes) []Model {
+	// First row for a slug wins, per source. The caller controls priority
+	// inside one source by the order it concatenates that source's results.
+	// The two sources have their own maps and never fall through to one
+	// another: an Elo is not a SWE-bench percentage.
 	firstRow := map[string]sources.ScoreRow{}
 	for _, r := range scores {
 		if _, seen := firstRow[r.Slug]; !seen {
 			firstRow[r.Slug] = r
+		}
+	}
+	firstArena := map[string]sources.ScoreRow{}
+	for _, r := range arena {
+		if _, seen := firstArena[r.Slug]; !seen {
+			firstArena[r.Slug] = r
 		}
 	}
 
@@ -153,6 +216,23 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 			m.ScoreLabel = "н/д"
 		}
 
+		// The Arena column has no notes.yaml fallback: manual overrides in
+		// notes.yaml describe SWE-bench Verified, and reusing them here would
+		// put a percentage on an Elo scale.
+		if row, has := firstArena[e.Slug]; has {
+			m.ArenaScore = &ScoreInfo{
+				Metric:          row.Metric,
+				Value:           row.Value,
+				VariantMeasured: row.VariantMeasured,
+				SourceURL:       row.SourceURL,
+				Checked:         row.Checked,
+			}
+			m.ArenaLabel = FormatArenaScore(row.Value)
+			m.ArenaRankable = true
+		} else {
+			m.ArenaLabel = "н/д"
+		}
+
 		switch {
 		case m.Free:
 			m.QualityPriceLabel = "н/д (цена $0)"
@@ -165,7 +245,41 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 
 		out = append(out, m)
 	}
+
+	// Min-max normalisation needs the whole set at once, so the Arena view's
+	// derived numbers are filled after the loop, not inside it.
+	fillArenaDerived(out)
 	return out
+}
+
+// fillArenaDerived rescales every row's raw Elo onto 0–100 over the current
+// Arena set and computes that view's quality/price cell.
+func fillArenaDerived(models []Model) {
+	indexes := make([]int, 0, len(models))
+	raw := make([]float64, 0, len(models))
+	for i := range models {
+		if models[i].ArenaScore == nil {
+			continue
+		}
+		indexes = append(indexes, i)
+		raw = append(raw, models[i].ArenaScore.Value)
+	}
+	normalized := ranking.NormalizeMinMax(raw)
+	for n, i := range indexes {
+		models[i].ArenaNormalized = normalized[n]
+	}
+	for i := range models {
+		m := &models[i]
+		switch {
+		case m.Free:
+			m.ArenaQualityPriceLabel = "н/д (цена $0)"
+		case m.ArenaRankable && m.ArenaScore != nil:
+			m.ArenaQualityPrice = pricing.QualityPrice(m.ArenaNormalized, m.MixedPrice)
+			m.ArenaQualityPriceLabel = pricing.FormatQualityPrice(m.ArenaQualityPrice)
+		default:
+			m.ArenaQualityPriceLabel = arenaNoScoreLabel
+		}
+	}
 }
 
 // RankFavorites returns the rankable models of one tier, best first. Paid tiers

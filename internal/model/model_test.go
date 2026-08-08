@@ -230,3 +230,80 @@ func TestTierRowsPutsUnrankableRowsLastByPrice(t *testing.T) {
 	equalSlugs(t, "TierRows(sonnet)", TierRows(rankSet(), "sonnet"),
 		[]string{"s/cheap", "s/mid", "s/dear", "s/noscore", "s/dearer-noscore"})
 }
+
+func TestMergeWithArenaKeepsTheTwoSourcesApart(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/high", Tier: "sonnet", Names: map[string]string{"vals": "a/high", "arena": "a-high"}},
+		{Slug: "a/low", Tier: "sonnet", Names: map[string]string{"arena": "a-low"}},
+		{Slug: "a/none", Tier: "sonnet", Names: map[string]string{"vals": "a/none"}},
+	}
+	prices := map[string]sources.PriceInfo{
+		"a/high": {Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+		"a/low":  {Slug: "a/low", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+		"a/none": {Slug: "a/none", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+	}
+	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70}}
+	arena := []sources.ScoreRow{
+		{Slug: "a/high", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "a-high"},
+		{Slug: "a/low", Metric: sources.MetricArenaElo, Value: 1300, VariantMeasured: "a-low"},
+	}
+	models := MergeWithArena(entries, prices, scores, arena, testNotes(t))
+	byslug := map[string]Model{}
+	for _, m := range models {
+		byslug[m.Slug] = m
+	}
+
+	high := byslug["a/high"]
+	if high.Score == nil || high.Score.Value != 70 || high.ScoreLabel != "70.0%" {
+		t.Errorf("a/high SWE-bench cell = %+v / %q, want the untouched 70%%", high.Score, high.ScoreLabel)
+	}
+	if high.ArenaScore == nil || high.ArenaScore.Value != 1500 {
+		t.Errorf("a/high ArenaScore = %+v, want the raw Elo 1500", high.ArenaScore)
+	}
+	if high.ArenaLabel != "1500 Elo" {
+		t.Errorf("a/high ArenaLabel = %q, want %q", high.ArenaLabel, "1500 Elo")
+	}
+	if high.ArenaNormalized != 100 {
+		t.Errorf("a/high ArenaNormalized = %v, want 100 (it is the set maximum)", high.ArenaNormalized)
+	}
+
+	low := byslug["a/low"]
+	if low.Score != nil || low.ScoreLabel != "н/д" {
+		t.Errorf("a/low SWE-bench cell = %+v / %q, want no number at all — an Arena Elo must never fill it", low.Score, low.ScoreLabel)
+	}
+	if low.ArenaNormalized != 0 || !low.ArenaRankable {
+		t.Errorf("a/low arena = %v / rankable %v, want 0 and rankable", low.ArenaNormalized, low.ArenaRankable)
+	}
+
+	none := byslug["a/none"]
+	if none.ArenaScore != nil || none.ArenaRankable {
+		t.Errorf("a/none arena = %+v / rankable %v, want nothing", none.ArenaScore, none.ArenaRankable)
+	}
+	if none.ArenaLabel != "н/д" {
+		t.Errorf("a/none ArenaLabel = %q, want %q", none.ArenaLabel, "н/д")
+	}
+	if none.ArenaQualityPriceLabel != "н/д (нет оценки на LMArena)" {
+		t.Errorf("a/none ArenaQualityPriceLabel = %q, want the Arena-specific reason, not the SWE-bench one", none.ArenaQualityPriceLabel)
+	}
+}
+
+func TestMergeStillWorksWithoutArena(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/high", Tier: "sonnet", Names: map[string]string{"vals": "a/high"}}}
+	prices := map[string]sources.PriceInfo{"a/high": {Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000, Found: true}}
+	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70}}
+	models := Merge(entries, prices, scores, testNotes(t))
+	if len(models) != 1 || models[0].ScoreLabel != "70.0%" || models[0].ArenaScore != nil {
+		t.Errorf("Merge = %+v, want the pre-existing behaviour and an empty Arena column", models)
+	}
+}
+
+func TestSourceFamilyRegistry(t *testing.T) {
+	for id, want := range map[string]string{"swebench": ScoreSourceSWEBench, "vals": ScoreSourceSWEBench, "arena": ScoreSourceArena} {
+		if got := SourceFamily[id]; got != want {
+			t.Errorf("SourceFamily[%q] = %q, want %q", id, got, want)
+		}
+	}
+	if got := SourceFamily["not-a-source"]; got != "" {
+		t.Errorf("SourceFamily[unknown] = %q, want the empty string so unknown ids feed neither view", got)
+	}
+}
