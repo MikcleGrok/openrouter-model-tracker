@@ -40,3 +40,36 @@ func DataDir(t *testing.T, marker string) string {
 	}
 	return root
 }
+
+const scoreSourceModelMap = "demo/swe\ttier=sonnet\tvals=demo/swe\ndemo/arena\ttier=sonnet\tarena=demo-arena\n"
+
+const scoreSourceNotes = "models:\n  demo/swe:\n    display: Demo SWE\n  demo/arena:\n    display: Demo Arena\n"
+
+// ScoreSourceDataDir is DataDir's sibling for the two-score-source CLI: one
+// model has only a SWE-bench number, the other only an Arena Elo, so a view
+// that leaks the other source's data is immediately visible.
+func ScoreSourceDataDir(t *testing.T, marker string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte(scoreSourceModelMap), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte(scoreSourceNotes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := refresh.Snapshot{FetchedAt: marker, Models: map[string]refresh.SnapshotEntry{
+		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
+		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "demo-arena"}},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}

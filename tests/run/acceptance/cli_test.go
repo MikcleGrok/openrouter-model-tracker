@@ -3,6 +3,7 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sboborikin/openrouter-model-tracker/tests/support/act"
@@ -37,6 +38,30 @@ func TestE2E_Table(t *testing.T) {
 	result := act.Run(t, binary(t), "table", "--config", config, "--no-pager", "--slug", "--task-fit", "long", "--limit", "1")
 	assert.Table(t, result)
 	assert.TableRows(t, result.Stdout, assert.TableExpected{Rows: []string{"demo/high", "implement + test"}})
+}
+
+func TestE2E_ScoreSource(t *testing.T) {
+	t.Parallel()
+	marker := arrange.UniqueID(t, "score-source")
+	dataDir := arrange.ScoreSourceDataDir(t, marker)
+	config := arrange.Config(t, dataDir)
+
+	swe := act.Run(t, binary(t), "table", "--config", config, "--no-pager", "--slug")
+	assert.Success(t, swe)
+	assert.Contains(t, swe, "70.0%")
+	if strings.Contains(swe.Stdout, "Elo") {
+		t.Errorf("the default swebench view leaked an Arena number:\n%s", swe.Stdout)
+	}
+
+	arena := act.Run(t, binary(t), "table", "--config", config, "--no-pager", "--slug", "--score-source=arena")
+	assert.Success(t, arena)
+	assert.Contains(t, arena, "1453 Elo", "Score source: arena")
+	if strings.Contains(arena.Stdout, "70.0%") {
+		t.Errorf("the arena view leaked a SWE-bench number:\n%s", arena.Stdout)
+	}
+
+	bad := act.Run(t, binary(t), "table", "--config", config, "--no-pager", "--score-source=auto")
+	assert.Failure(t, bad, "invalid --score-source")
 }
 
 func TestE2E_Check(t *testing.T) {

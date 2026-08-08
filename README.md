@@ -48,7 +48,7 @@ immutable revision formula до любой reinstall. Stable install не исп
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
+- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter completion bash` — сгенерировать Bash completion
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
@@ -177,6 +177,17 @@ digest входных файлов, metadata инструментов/базы �
 В TUI `m` переключает `tier-priority` и `mixed-utility`, а
 текущий режим показывается в верхней meta-строке.
 
+Источник оценки выбирается отдельно от режима ранжирования:
+`--score-source=swebench` (по умолчанию) — SWE-bench Verified в процентах,
+`--score-source=arena` — рейтинг Elo с `arena.ai/leaderboard/text`. Это два полностью
+независимых представления: в режиме `arena` модель без Arena-строки показывает `н/д`,
+даже если у неё есть настоящий SWE-bench-счёт, и наоборот. Значения `auto` нет — числа
+двух источников никогда не смешиваются в одной колонке. Elo показывается сырым
+(`1453 Elo`), а в формулу ранжирования попадает после min-max нормализации в 0–100 по
+текущему набору Arena-моделей, так что `price_weight` и tier-факторы остаются теми же.
+Генерируемый `docs/openrouter-model-comparison.md` всегда собирается в семантике
+`swebench`.
+
 ### Настройка mixed utility
 
 ```yaml
@@ -304,8 +315,8 @@ make release-build
 $ ./bin/openrouter --help
 Version: 0.1.0
 
-openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com
-and vals.ai using the manual model-map.tsv mapping, then regenerates the markdown document.
+openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com,
+vals.ai and arena.ai using the manual model-map.tsv mapping, then regenerates the markdown document.
 
 $ ./bin/openrouter --version
 openrouter version 0.1.0
@@ -339,7 +350,7 @@ describe suffix.
 Пустой список выводится как `n/a` и не означает плохое качество: это означает отсутствие
 классификации.
 
-`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit` и `--slug`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение Task fit/Note (`n`), ручное обновление (`r`) и справка (`?`). Task fit в TUI показывается только компактными кодами. Последнюю колонку нельзя снять. `--refresh-interval 0` отключает автоматическое обновление, ручное `r` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
+`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit`, `--slug` и `--score-source`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение Task fit/Note (`n`), ручное обновление (`r`) и справка (`?`). Task fit в TUI показывается только компактными кодами. Последнюю колонку нельзя снять. `--refresh-interval 0` отключает автоматическое обновление, ручное `r` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
 
 В справке TUI разделы можно сразу выбрать клавишами `1`, `2` или `3`; справка занимает весь viewport. В верхней строке TUI показывается RFC3339-время последнего успешного обновления данных.
 

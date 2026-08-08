@@ -19,4 +19,5 @@
 
 ## [Unreleased]
 
-- Continue documenting changes here before the next release.
+- Extend `model-map.tsv` with 23 more manual model declarations (SWE-bench Verified sources), cutting the local table's `н/д` Status count from 34/56 to 24/56.
+- Add an LMSYS Arena score source with the `--score-source=swebench|arena` flag on `table` and `tui`, an independent Elo-based view (`arena.ai/leaderboard/text`) that never blends with SWE-bench Verified numbers; the generated `docs/openrouter-model-comparison.md` stays SWE-bench-only.

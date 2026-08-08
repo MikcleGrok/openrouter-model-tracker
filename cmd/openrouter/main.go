@@ -204,8 +204,8 @@ func newRootCmd() *cobra.Command {
 		Version: version,
 		Short:   "Regenerate the OpenRouter model comparison from live prices and benchmark leaderboards",
 		Long: fmt.Sprintf("Version: %s\n\n", version) +
-			"openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com\n" +
-			"and vals.ai using the manual model-map.tsv mapping, then regenerates the markdown document.\n" +
+			"openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com,\n" +
+			"vals.ai and arena.ai using the manual model-map.tsv mapping, then regenerates the markdown document.\n" +
 			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.",
 		SilenceUsage: true,
 	}
