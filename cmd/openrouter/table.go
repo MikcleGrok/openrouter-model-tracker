@@ -62,7 +62,8 @@ func validateScoreSource(source string) error {
 // and Q/P columns are on.
 func scoreSourceLabel(source string) string {
 	if source == scoreSourceArena {
-		return "arena (LMArena Elo; для ранжирования нормализован в 0-100)"
+		return "arena (LMArena Elo; нормализован в 0-100 для ранжирования и для " +
+			"показанного Q/P — диапазон зависит от текущего набора моделей)"
 	}
 	return "swebench (SWE-bench Verified, %)"
 }
