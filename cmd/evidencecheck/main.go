@@ -125,6 +125,79 @@ func validate(manifestPath, checksumPath, artifactPath, tag, commit, version str
 	return nil
 }
 
+// validatePublished checks the published-evidence.json written by
+// scripts/verify-provenance.sh after it has already run the real
+// cryptographic checks (cosign verify-blob / verify-blob-attestation
+// against the committed cosign.pub) and the manifest content cross-checks
+// (tag/commit/version, artifact digest, SBOM digest) — see
+// ~/projects/tools/guide-tools/.task/go-guide-compliance/signing-design.md
+// §5.5/§7. This function does not itself perform cryptographic
+// verification (evidencecheck has no cosign dependency); it is the
+// content-shape gate that confirms the evidence the shell script wrote is
+// self-consistent and matches the exact release under test, the same role
+// validate() plays for the plain local manifest above.
 func validatePublished(path, tag, commit, version string) error {
-	return errors.New("BLOCKED: published evidence requires cryptographic and semantic verification by the external registry, signer, and provenance service")
+	if path == "" || tag == "" || commit == "" || version == "" {
+		return errors.New("all evidencecheck arguments are required")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read published evidence: %w", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("published evidence is not valid JSON: %w", err)
+	}
+	expectedKeys := map[string]bool{
+		"schema": true, "version": true, "tag": true, "commit": true, "artifact": true,
+		"digest": true, "source": true, "checksum": true, "signature": true, "provenance": true,
+	}
+	if len(raw) != len(expectedKeys) {
+		return errors.New("published evidence schema has missing or extra fields")
+	}
+	for key := range raw {
+		if !expectedKeys[key] {
+			return fmt.Errorf("published evidence has unknown field %q", key)
+		}
+	}
+	var got publishedEvidence
+	if err := json.Unmarshal(data, &got); err != nil {
+		return fmt.Errorf("decode published evidence: %w", err)
+	}
+	if got.Schema != "openrouter-model-tracker/published-evidence/v1" {
+		return fmt.Errorf("published evidence has unexpected schema %q", got.Schema)
+	}
+	if got.Version != version || got.Tag != tag || got.Commit != commit || got.Artifact != "bin/openrouter" {
+		return errors.New("published evidence identity does not match the exact tag, commit, version, or artifact")
+	}
+	if !commitPattern.MatchString(got.Commit) || !shaPattern.MatchString(got.Digest) {
+		return errors.New("published evidence commit or digest has invalid schema")
+	}
+	if strings.TrimSpace(got.Source) == "" {
+		return errors.New("published evidence source must not be empty")
+	}
+	root := filepath.Dir(filepath.Dir(path))
+	for _, ref := range []struct{ name, value string }{
+		{"checksum", got.Checksum}, {"signature", got.Signature}, {"provenance", got.Provenance},
+	} {
+		if strings.TrimSpace(ref.value) == "" {
+			return fmt.Errorf("published evidence %s must not be empty", ref.name)
+		}
+		info, err := os.Stat(filepath.Join(root, ref.value))
+		if err != nil {
+			return fmt.Errorf("published evidence %s references a missing file: %w", ref.name, err)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("published evidence %s references an empty file: %s", ref.name, ref.value)
+		}
+	}
+	checksumData, err := os.ReadFile(filepath.Join(root, got.Checksum))
+	if err != nil {
+		return fmt.Errorf("read published evidence checksum: %w", err)
+	}
+	parts := strings.Split(strings.TrimSuffix(string(checksumData), "\n"), "  ")
+	if len(parts) != 2 || parts[1] != "bin/openrouter" || !shaPattern.MatchString(parts[0]) || parts[0] != got.Digest {
+		return errors.New("published evidence checksum does not match the declared digest")
+	}
+	return nil
 }

@@ -15,9 +15,28 @@ PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 FORMULA_TAG ?=
 HOMEBREW_VERSION := $(patsubst v%,%,$(if $(FORMULA_TAG),$(FORMULA_TAG),$(TAG_VERSION)))
 
+# Signed release provenance (static cosign key-pair, no Fulcio/Rekor — see
+# ~/projects/tools/guide-tools/.task/go-guide-compliance/signing-design.md
+# §5.5). Evidence file paths are relative-to-root literals (not built from
+# EVIDENCE_DIR, which is an absolute path used only for `mkdir -p`) so they
+# match what gets written into release-manifest.json / published-evidence.json
+# and stay resolvable after `cd $(ROOT)`.
+COSIGN_PUBLIC_KEY := cosign.pub
+COSIGN_PRIVATE_KEY_REF ?= env://COSIGN_PRIVATE_KEY
+RELEASE_MANIFEST := .release/release-manifest.json
+RELEASE_MANIFEST_SIG := .release/release-manifest.json.sig.bundle.json
+RELEASE_MANIFEST_ATT := .release/release-manifest.json.att.bundle.json
+PROVENANCE_PREDICATE := .release/provenance-predicate.json
+SBOM_FILE := .release/sbom.spdx.json
+# candidate: applicability no-op (no tag/signed evidence exists yet, e.g. PR
+# gates via release-check). published: real cosign verification.
+PROVENANCE_PROFILE ?= published
+GITHUB_REPOSITORY ?= MikcleGrok/openrouter-model-tracker
+GITHUB_RUN_ID ?= local
+
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -77,11 +96,43 @@ sbom:
 	@mkdir -p $(EVIDENCE_DIR)
 	@cd $(ROOT) && syft dir:. -o spdx-json=.release/sbom.spdx.json
 
-verify-provenance:
-	@printf '%s\n' 'NO-OP: no CI builder or published artifact provenance exists to verify locally.'
+release-manifest: check-tag artifact sbom
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && printf '{"schema":"guide-tools/release-manifest-v1","project":"openrouter-model-tracker","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[{"name":"openrouter","path":"bin/openrouter","sha256":"%s"}],"sbom":{"path":"%s","sha256":"%s"},"builder":{"platform":"github-actions","repository":"%s","workflow":"release.yml","run_id":"%s"}}\n' \
+		'$(VERSION)' '$(TAG_VERSION)' "$$(git rev-parse HEAD)" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		"$$(cut -d ' ' -f1 .release/openrouter.sha256)" \
+		'$(SBOM_FILE)' "$$(openssl dgst -sha256 -r $(SBOM_FILE) | cut -d' ' -f1)" \
+		'$(GITHUB_REPOSITORY)' '$(GITHUB_RUN_ID)' \
+		> $(RELEASE_MANIFEST)
+	@test -s $(RELEASE_MANIFEST)
+
+provenance-predicate: check-tag
+	@mkdir -p $(EVIDENCE_DIR)
+	@cd $(ROOT) && printf '{"buildDefinition":{"buildType":"https://guide-tools.local/cosign-static-key/v1","externalParameters":{"tag":"%s","commit":"%s"}},"runDetails":{"builder":{"id":"self-reported:github-actions:%s:release.yml:%s"},"metadata":{"invocationId":"%s"}}}\n' \
+		'$(TAG_VERSION)' "$$(git rev-parse HEAD)" '$(GITHUB_REPOSITORY)' '$(GITHUB_RUN_ID)' '$(GITHUB_RUN_ID)' \
+		> $(PROVENANCE_PREDICATE)
+	@test -s $(PROVENANCE_PREDICATE)
+
+sign: release-manifest
+	@command -v cosign >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: cosign is required to sign the release manifest'; exit 1; }
+	@test -s $(COSIGN_PUBLIC_KEY) || { printf '%s\n' 'BLOCKED: $(COSIGN_PUBLIC_KEY) is missing; cannot sign without the committed key pair'; exit 1; }
+	cd $(ROOT) && cosign sign-blob --key '$(COSIGN_PRIVATE_KEY_REF)' --yes --tlog-upload=false --use-signing-config=false --bundle $(RELEASE_MANIFEST_SIG) $(RELEASE_MANIFEST)
+	@test -s $(RELEASE_MANIFEST_SIG)
+	@grep -q '"tlogEntries"' $(RELEASE_MANIFEST_SIG) && { printf '%s\n' 'BLOCKED: signature bundle contains a transparency log entry; refusing to publish'; exit 1; } || true
+
+attest: provenance-predicate
+	@command -v cosign >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: cosign is required to attest the release manifest'; exit 1; }
+	@test -s $(RELEASE_MANIFEST) || { printf '%s\n' 'BLOCKED: $(RELEASE_MANIFEST) is missing; run make release-manifest (or make sign) first -- attest MUST NOT regenerate it, or it would attest different content than sign signed'; exit 1; }
+	cd $(ROOT) && cosign attest-blob --predicate $(PROVENANCE_PREDICATE) --type slsaprovenance1 --key '$(COSIGN_PRIVATE_KEY_REF)' --yes --tlog-upload=false --use-signing-config=false --bundle $(RELEASE_MANIFEST_ATT) $(RELEASE_MANIFEST)
+	@test -s $(RELEASE_MANIFEST_ATT)
+	@grep -q '"tlogEntries"' $(RELEASE_MANIFEST_ATT) && { printf '%s\n' 'BLOCKED: attestation bundle contains a transparency log entry; refusing to publish'; exit 1; } || true
 
 signature:
-	@printf '%s\n' 'NO-OP: this repository does not sign local artifacts; signing belongs to the publishing profile.'
+	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_SIG='$(RELEASE_MANIFEST_SIG)' ./scripts/verify-provenance.sh signature
+
+verify-provenance: signature
+	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_ATT='$(RELEASE_MANIFEST_ATT)' BIN='bin/openrouter' SBOM_FILE='$(SBOM_FILE)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' PUBLISHED_EVIDENCE='$(PUBLISHED_EVIDENCE)' ./scripts/verify-provenance.sh full
+	@if [ '$(PROVENANCE_PROFILE)' = 'published' ]; then cd $(ROOT) && $(GO) run ./cmd/evidencecheck --published-evidence '$(PUBLISHED_EVIDENCE)' --tag '$(TAG_VERSION)' --commit "$$(git rev-parse HEAD)" --version '$(VERSION)'; fi
 
 checksums: build
 	@mkdir -p $(EVIDENCE_DIR)
@@ -152,7 +203,7 @@ release-check: check-version build
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@commit="$$(git -C $(ROOT) rev-parse --verify HEAD)" || exit $$?; printf '%s\n' "release candidate: version=$(VERSION) commit=$$commit planned-tag=v$(VERSION)"
 	@cd $(ROOT) && git diff --check
-	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom verify-provenance signature check-docs
+	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom verify-provenance signature check-docs PROVENANCE_PROFILE=candidate
 	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
 
 release-build: check-tag check-homebrew-formula
@@ -203,8 +254,12 @@ help:
 		'dependency-check Run govulncheck and OSV-Scanner (required)' \
 		'secrets-check  Scan tracked source for high-confidence secret patterns' \
 		'sbom           Generate SPDX SBOM with Syft (required)' \
-		'verify-provenance Local-only NO-OP: no published builder/artifact' \
-		'signature      Local-only NO-OP: signing is external' \
+		'release-manifest Write and checksum-bind the signed release-manifest.json' \
+		'provenance-predicate Write the SLSA v1 provenance predicate' \
+		'sign           Sign release-manifest.json with the static cosign key (no tlog upload)' \
+		'attest         Attest release-manifest.json with the SLSA predicate (no tlog upload)' \
+		'signature      Verify the cosign signature only (PROVENANCE_PROFILE=candidate|published)' \
+		'verify-provenance Verify cosign signature+attestation and manifest content (PROVENANCE_PROFILE=candidate|published)' \
 		'checksums      Write SHA-256 checksum for the local artifact' \
 		'artifact       Build local artifact and checksum' \
 		'manifest       Write local artifact manifest' \
