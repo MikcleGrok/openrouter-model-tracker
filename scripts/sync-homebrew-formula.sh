@@ -54,8 +54,13 @@ fi
 test -f "$FORMULA_PATH" || { printf '%s\n' "Formula not found: $FORMULA_PATH" >&2; exit 1; }
 
 EXPECTED_URL="  url \"file://$ROOT\", using: :git, tag: \"$TAG\", revision: \"$REVISION\""
+EXPECTED_VERSION="  version \"$VERSION\""
 ACTUAL_URL="$(awk '/^[[:space:]]*url \"/ { print; count++ } END { if (count != 1) exit 2 }' "$FORMULA_PATH")" || {
   printf '%s\n' 'Formula must contain exactly one url declaration.' >&2
+  exit 1
+}
+ACTUAL_VERSION="$(awk '/^[[:space:]]*version \"/ { print; count++ } END { if (count > 1) exit 2 }' "$FORMULA_PATH")" || {
+  printf '%s\n' 'Formula must contain at most one version declaration.' >&2
   exit 1
 }
 awk '/assert_equal "openrouter #\{version\}\\n"/ { found=1 } END { exit !found }' "$FORMULA_PATH" || {
@@ -64,9 +69,10 @@ awk '/assert_equal "openrouter #\{version\}\\n"/ { found=1 } END { exit !found }
 }
 
 if test "$MODE" = check; then
-  test "$ACTUAL_URL" = "$EXPECTED_URL" || {
+  test "$ACTUAL_URL" = "$EXPECTED_URL" && test "$ACTUAL_VERSION" = "$EXPECTED_VERSION" || {
     printf '%s\n' "Formula is stale for $TAG:"
     printf 'expected: %s\nactual:   %s\n' "$EXPECTED_URL" "$ACTUAL_URL"
+    printf 'expected: %s\nactual:   %s\n' "$EXPECTED_VERSION" "${ACTUAL_VERSION:-missing}"
     exit 1
   }
   printf '%s\n' "Homebrew formula is synchronized: tag=$TAG revision=$REVISION version=$VERSION"
@@ -75,8 +81,16 @@ fi
 
 TMP="$(mktemp "${FORMULA_PATH}.tmp.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
-awk -v expected="$EXPECTED_URL" '
-  /^[[:space:]]*url "/ { print expected; next }
+awk -v url="$EXPECTED_URL" -v ver="$EXPECTED_VERSION" '
+  /^[[:space:]]*url "/ {
+    print url
+    if (!seen_version) { print ver; seen_version = 1 }
+    next
+  }
+  /^[[:space:]]*version "/ {
+    if (!seen_version) { print ver; seen_version = 1 }
+    next
+  }
   { print }
 ' "$FORMULA_PATH" > "$TMP"
 cmp -s "$FORMULA_PATH" "$TMP" || mv "$TMP" "$FORMULA_PATH"
