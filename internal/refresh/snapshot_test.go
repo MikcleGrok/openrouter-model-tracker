@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
@@ -114,5 +115,43 @@ func TestNewSnapshot(t *testing.T) {
 	}
 	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":""}}` {
 		t.Fatalf("loaded entry metadata = %s, want no task-fit or quality/price fields", body)
+	}
+}
+
+func TestSnapshotRoundTripsTheArenaScore(t *testing.T) {
+	models := []model.Model{{
+		Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000,
+		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70},
+		ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "hy3", SourceURL: "u", Checked: "2026-08-06"},
+	}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry := loaded.Models["a/high"]
+	if entry.Score == nil || entry.Score.Value != 70 {
+		t.Errorf("Score = %+v, want the SWE-bench number preserved", entry.Score)
+	}
+	if entry.ArenaScore == nil || entry.ArenaScore.Value != 1453 || entry.ArenaScore.Metric != "LMArena Elo" {
+		t.Errorf("ArenaScore = %+v, want the raw Elo preserved so the next run can fall back to it", entry.ArenaScore)
+	}
+}
+
+func TestSnapshotOmitsAnEmptyArenaScore(t *testing.T) {
+	models := []model.Model{{Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(body), "arena_score") {
+		t.Errorf("an empty Arena score must not appear in the snapshot:\n%s", body)
 	}
 }

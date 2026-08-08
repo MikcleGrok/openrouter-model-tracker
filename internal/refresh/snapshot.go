@@ -23,6 +23,10 @@ type SnapshotEntry struct {
 	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
 	OverrideOutPerM   float64          `json:"long_context_output_per_million,omitempty"`
 	Score             *model.ScoreInfo `json:"score,omitempty"`
+	// ArenaScore is the raw Elo, kept apart from Score for the same reason the
+	// two columns are apart: one source going down must never put its number
+	// into the other's view on the next run's fallback.
+	ArenaScore *model.ScoreInfo `json:"arena_score,omitempty"`
 }
 
 // Snapshot is the previous run's result, used to keep the document intact when
@@ -75,10 +79,11 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 	s := &Snapshot{FetchedAt: fetchedAt, Models: make(map[string]SnapshotEntry, len(models))}
 	for _, m := range models {
 		s.Models[m.Slug] = SnapshotEntry{
-			InPerM:  m.InPerM,
-			OutPerM: m.OutPerM,
-			Context: m.Context,
-			Score:   m.Score,
+			InPerM:     m.InPerM,
+			OutPerM:    m.OutPerM,
+			Context:    m.Context,
+			Score:      m.Score,
+			ArenaScore: m.ArenaScore,
 		}
 	}
 	return s
