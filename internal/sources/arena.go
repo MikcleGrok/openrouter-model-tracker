@@ -1,10 +1,14 @@
 package sources
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/httpcache"
 )
 
 // ArenaURL is the LMArena text leaderboard. Unlike the two SWE-bench sources
@@ -111,4 +115,60 @@ func arenaEntries(flight string) ([]arenaEntry, error) {
 		return nil, fmt.Errorf("decode entries: %w", err)
 	}
 	return entries, nil
+}
+
+// FetchArenaElo returns one row per tracked slug present on the text arena
+// leaderboard. names maps a slug to the exact modelKey the site uses, e.g.
+// "hy3-tencent-cloud-text"; matching is an exact map lookup and never a
+// guess, exactly as for the two SWE-bench sources.
+//
+// Value is the raw Elo rating. Rescaling it onto the 0–100 range the ranking
+// formula is tuned for happens in internal/model, once the whole set is
+// known — min-max needs every value at once, and the snapshot must keep the
+// raw number so the provenance stays readable.
+func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]string) ([]ScoreRow, error) {
+	body, err := c.Get(ctx, ArenaURL)
+	if err != nil {
+		return nil, fmt.Errorf("arena: fetch: %w", err)
+	}
+	flight := arenaFlight(body)
+	if flight == "" {
+		return nil, fmt.Errorf("arena: %s: no self.__next_f.push chunk on the page", ArenaURL)
+	}
+	entries, err := arenaEntries(flight)
+	if err != nil {
+		return nil, fmt.Errorf("arena: %s: %w", ArenaURL, err)
+	}
+
+	checked := ""
+	if m := arenaVoteCutoffRe.FindStringSubmatch(flight); m != nil {
+		checked, _, _ = strings.Cut(m[1], "T")
+	}
+
+	// modelKey -> entry, so matching is an exact map lookup and never a guess.
+	byKey := make(map[string]arenaEntry, len(entries))
+	for _, e := range entries {
+		if e.ModelKey == "" {
+			continue
+		}
+		byKey[e.ModelKey] = e
+	}
+
+	out := make([]ScoreRow, 0, len(names))
+	for slug, key := range names {
+		e, ok := byKey[key]
+		if !ok {
+			continue // tracked, but not on this leaderboard: report.go tells the human
+		}
+		out = append(out, ScoreRow{
+			Slug:            slug,
+			Metric:          MetricArenaElo,
+			Value:           e.Rating,
+			VariantMeasured: e.ModelDisplayName,
+			SourceURL:       ArenaURL,
+			Checked:         checked,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out, nil
 }

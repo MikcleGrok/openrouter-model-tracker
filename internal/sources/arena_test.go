@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -58,5 +59,71 @@ func TestArenaArrayEndIgnoresBracketsInsideStrings(t *testing.T) {
 	}
 	if in[:end] != `[{"name":"a]b[c","v":1},{"name":"\"]\"","v":2}]` {
 		t.Errorf("arenaArrayEnd cut at %d: %q", end, in[:end])
+	}
+}
+
+func TestFetchArenaElo(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/arena.html")
+	old := ArenaURL
+	ArenaURL = srv.URL
+	t.Cleanup(func() { ArenaURL = old })
+
+	rows, err := FetchArenaElo(context.Background(), c, map[string]string{
+		"openai/gpt-5.6-sol":      "gpt-5.6-sol-xhigh-text",
+		"tencent/hy3":             "hy3-tencent-cloud-text",
+		"openai/gpt-oss-20b:free": "gpt-oss-20b",
+		"minimax/minimax-m3":      "minimax-m3", // такой записи на лидерборде нет
+	})
+	if err != nil {
+		t.Fatalf("FetchArenaElo: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3 (a tracked slug with no arena row is silently absent): %+v", len(rows), rows)
+	}
+
+	byslug := map[string]ScoreRow{}
+	for _, r := range rows {
+		byslug[r.Slug] = r
+	}
+	hy3 := byslug["tencent/hy3"]
+	if hy3.Value != 1453 {
+		t.Errorf("hy3.Value = %v, want the raw Elo 1453, not a normalised number", hy3.Value)
+	}
+	if hy3.Metric != "LMArena Elo" {
+		t.Errorf("hy3.Metric = %q, want %q", hy3.Metric, "LMArena Elo")
+	}
+	if hy3.VariantMeasured != "hy3" {
+		t.Errorf("hy3.VariantMeasured = %q, want the arena display name", hy3.VariantMeasured)
+	}
+	if hy3.Checked != "2026-08-06" {
+		t.Errorf("hy3.Checked = %q, want the vote cutoff date", hy3.Checked)
+	}
+	if hy3.SourceURL != srv.URL {
+		t.Errorf("hy3.SourceURL = %q, want %q", hy3.SourceURL, srv.URL)
+	}
+	if rows[0].Slug > rows[1].Slug || rows[1].Slug > rows[2].Slug {
+		t.Errorf("rows are not sorted by slug: %+v", rows)
+	}
+}
+
+func TestFetchArenaEloErrorsWhenChunksAreGone(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/openrouter-models.json") // страница без __next_f
+	old := ArenaURL
+	ArenaURL = srv.URL
+	t.Cleanup(func() { ArenaURL = old })
+
+	if _, err := FetchArenaElo(context.Background(), c, map[string]string{"a/b": "x"}); err == nil {
+		t.Fatal("want an error when the page carries no RSC chunks, so the orchestrator falls back to the snapshot")
+	}
+}
+
+func TestFetchArenaEloErrorsOnTruncatedPayload(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/arena-truncated.html")
+	old := ArenaURL
+	ArenaURL = srv.URL
+	t.Cleanup(func() { ArenaURL = old })
+
+	if _, err := FetchArenaElo(context.Background(), c, map[string]string{"a/b": "x"}); err == nil {
+		t.Fatal("want an error for a half-delivered leaderboard, never a partial table")
 	}
 }
