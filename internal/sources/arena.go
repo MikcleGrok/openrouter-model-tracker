@@ -169,6 +169,17 @@ func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]st
 			Checked:         checked,
 		})
 	}
+	// A specific request (len(names) > 0) that matched nothing is treated as a
+	// failure, not as "these 0 models are legitimately absent": if the page's
+	// structure ever changes so arenaEntriesKey anchors onto the wrong array
+	// first, every entry would fail to match and this would otherwise return
+	// an empty slice with a nil error — indistinguishable from a genuine
+	// zero-overlap leaderboard, and invisible to applyArenaFallback in
+	// internal/refresh/run.go, which only falls back to the snapshot on an
+	// error. An empty names map (nothing was requested at all) is left alone.
+	if len(names) > 0 && len(out) == 0 {
+		return nil, fmt.Errorf("arena: fetched %d entries but none matched the %d requested names", len(entries), len(names))
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out, nil
 }

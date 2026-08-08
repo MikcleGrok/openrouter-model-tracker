@@ -127,3 +127,46 @@ func TestFetchArenaEloErrorsOnTruncatedPayload(t *testing.T) {
 		t.Fatal("want an error for a half-delivered leaderboard, never a partial table")
 	}
 }
+
+// TestFetchArenaEloErrorsWhenNoRequestedNameMatches guards against a parsing
+// regression that finds a real, well-formed entries array — just not the
+// leaderboard's own (e.g. "entries":[ now matches some other array earlier
+// in the page first). arenaEntries would happily decode it, and if none of
+// its rows carry a modelKey we asked for, the naive result is an empty slice
+// with a nil error — indistinguishable from "none of these models are on
+// Arena today". That would silently bypass applyArenaFallback in
+// internal/refresh/run.go (which only engages on an error) and wipe every
+// Arena score from the snapshot. When names is non-empty but nothing
+// matched, FetchArenaElo must return an error instead.
+func TestFetchArenaEloErrorsWhenNoRequestedNameMatches(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/arena.html")
+	old := ArenaURL
+	ArenaURL = srv.URL
+	t.Cleanup(func() { ArenaURL = old })
+
+	_, err := FetchArenaElo(context.Background(), c, map[string]string{
+		"some/model": "not-on-this-leaderboard",
+	})
+	if err == nil {
+		t.Fatal("want an error when none of the requested names matched a real, well-formed entries array, so the orchestrator falls back to the snapshot instead of silently wiping every Arena score")
+	}
+}
+
+// TestFetchArenaEloDoesNotErrorWhenNoNamesRequested guards the other half of
+// the fix: an empty names map is a legitimate "nothing was requested" case
+// (e.g. no model-map.tsv row declares arena= at all), not a failure, and
+// must not be turned into a spurious error.
+func TestFetchArenaEloDoesNotErrorWhenNoNamesRequested(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/arena.html")
+	old := ArenaURL
+	ArenaURL = srv.URL
+	t.Cleanup(func() { ArenaURL = old })
+
+	rows, err := FetchArenaElo(context.Background(), c, map[string]string{})
+	if err != nil {
+		t.Fatalf("FetchArenaElo with no requested names: %v, want no error", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows, want 0", len(rows))
+	}
+}
