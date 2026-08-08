@@ -748,12 +748,18 @@ func TestApplyArenaFallbackUsesTheSnapshotWhenArenaIsDown(t *testing.T) {
 		"a/swe":  {ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1200}},
 	}}
 
-	arena, stale := applyArenaFallback(entries, nil, map[string]bool{"vals": true, "arena": false}, snap)
+	// vals is down too, not just arena: if the family guard inside
+	// applyArenaFallback were ever dropped and it fell back to a plain
+	// "any declared source failed" check, a/swe (vals= only) would
+	// incorrectly qualify for arena-fallback. With vals healthy this test
+	// would pass either way, since a/swe would already be excluded on other
+	// grounds — see the review that caught this.
+	arena, stale := applyArenaFallback(entries, nil, map[string]bool{"vals": false, "arena": false}, snap)
 	if len(arena) != 1 || arena[0].Slug != "a/down" || arena[0].Value != 1400 {
 		t.Fatalf("arena = %+v, want exactly the snapshot row for a/down", arena)
 	}
 	if !stale["a/down"] || stale["a/swe"] {
-		t.Errorf("stale = %v, want only a/down: a slug that declares no arena= source has nothing that could have failed", stale)
+		t.Errorf("stale = %v, want only a/down: a slug whose only declared source is a different family has nothing that could have failed for this column", stale)
 	}
 }
 
@@ -780,5 +786,76 @@ func TestMarkStaleLabelsTheArenaColumn(t *testing.T) {
 	}
 	if models[0].ArenaLabel != "1400 Elo (не удалось проверить на 2026-08-08)" {
 		t.Errorf("ArenaLabel = %q, want the staleness suffix", models[0].ArenaLabel)
+	}
+}
+
+// TestLiveDepsSourcesAllHaveASourceFamily guards the registration in liveDeps
+// against a source id with no matching model.SourceFamily entry. Such an id
+// would fall into the split's default branch — its rows dropped rather than
+// silently mistaken for the SWE-bench family — but the safer failure is to
+// catch the missing registration here, at test time, before it ever reaches
+// that runtime default.
+func TestLiveDepsSourcesAllHaveASourceFamily(t *testing.T) {
+	d := liveDeps(Options{DataDir: t.TempDir()})
+	if len(d.sources) == 0 {
+		t.Fatal("liveDeps registered no sources")
+	}
+	for _, s := range d.sources {
+		if model.SourceFamily[s.id] == "" {
+			t.Errorf("liveDeps source id %q has no model.SourceFamily entry — its rows would be silently dropped by the family split instead of feeding either view", s.id)
+		}
+	}
+}
+
+// TestRunSplitsArenaRowsFromSWEBenchRows is a run-level test, exercising the
+// family split with all three real source ids wired through a full run(),
+// not just model.MergeWithArena directly (that invariant is already covered
+// by TestArenaRowsNeverFillTheSWEBenchColumn). The split lives inline in
+// run(), between the fetch goroutines and applyFallback/applyArenaFallback —
+// deleting it (reverting to one shared, unconditionally-concatenated slice)
+// must make this test fail even though every other test in the package
+// stays green.
+func TestRunSplitsArenaRowsFromSWEBenchRows(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model-map.tsv"), []byte("a/only-arena\ttier=sonnet\tarena=a-only-arena\n"), 0o644); err != nil {
+		t.Fatalf("write model-map.tsv: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.yaml"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write notes.yaml: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "doc.md")
+
+	d := deps{
+		prices: func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+			return map[string]sources.PriceInfo{"a/only-arena": {Slug: "a/only-arena", InPerM: 1, OutPerM: 3, Context: 1000, Found: true}}, nil
+		},
+		catalog: func(ctx context.Context) ([]string, error) { return []string{"a/only-arena"}, nil },
+		sources: []scoreSource{
+			{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+			{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+			{id: "arena", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+				return []sources.ScoreRow{{Slug: "a/only-arena", Metric: sources.MetricArenaElo, Value: 1400, VariantMeasured: "a-only-arena"}}, nil
+			}},
+		},
+		now: fixedNow,
+	}
+
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	snap, err := LoadSnapshot(filepath.Join(dir, "cache", "last-run-snapshot.json"))
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry, ok := snap.Models["a/only-arena"]
+	if !ok {
+		t.Fatalf("snapshot has no entry for a/only-arena")
+	}
+	if entry.Score != nil {
+		t.Errorf("Score = %+v, want nil: a source that fed the arena= column must never fill the SWE-bench one", entry.Score)
+	}
+	if entry.ArenaScore == nil || entry.ArenaScore.Value != 1400 {
+		t.Errorf("ArenaScore = %+v, want the fetched Elo of 1400", entry.ArenaScore)
 	}
 }

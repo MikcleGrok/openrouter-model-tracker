@@ -179,13 +179,24 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	// Rows are split by family, never concatenated into one slice: Merge takes
 	// the first row per slug, so a single shared slice would let an Arena Elo
 	// silently win the SWE-bench column of a model that has no SWE-bench row.
+	// The switch is exhaustive and explicit on purpose: an id with no
+	// model.SourceFamily entry — a typo, or a new source registered in
+	// liveDeps before its family is wired up — must never fall through to
+	// the SWE-bench branch by default. It is dropped instead, with a warning,
+	// which is the same "safe default" model.SourceFamily itself documents
+	// for an unknown id.
 	var scores, arenaScores []sources.ScoreRow
 	for _, s := range d.sources {
-		if model.SourceFamily[s.id] == model.ScoreSourceArena {
+		switch model.SourceFamily[s.id] {
+		case model.ScoreSourceSWEBench:
+			scores = append(scores, rows[s.id]...)
+		case model.ScoreSourceArena:
 			arenaScores = append(arenaScores, rows[s.id]...)
-			continue
+		default:
+			if n := len(rows[s.id]); n > 0 {
+				warn("%s: у источника нет записи в model.SourceFamily — %d строк(и) отброшены, а не объединены ни с одним представлением", s.id, n)
+			}
 		}
-		scores = append(scores, rows[s.id]...)
 	}
 
 	// A source "succeeded" if its rows entry was ever set — even to an empty
