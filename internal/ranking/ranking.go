@@ -276,3 +276,41 @@ func eval(expr Expr, c Context) (float64, error) {
 	}
 	return result, nil
 }
+
+// NormalizeMinMax rescales raw values onto 0–100 by the observed minimum and
+// maximum of the set itself, so a source with its own scale (LMArena Elo,
+// roughly 950–1550) can enter the same formula, with the same price_weight
+// and the same tier factors, as a source already expressed in percent.
+// Without it the score term would dwarf the price term and the mixed-utility
+// order would collapse into a plain sort by raw Elo.
+//
+// The mapping is deliberately relative: it moves whenever the set's own
+// extremes move, which is the documented trade-off of not hand-tuning a
+// separate weight for every source. A set with no spread — one element, or
+// all values equal — maps to 100, because there is nothing to rank against
+// and 0 would read as "worst possible".
+func NormalizeMinMax(raw []float64) []float64 {
+	out := make([]float64, len(raw))
+	if len(raw) == 0 {
+		return out
+	}
+	low, high := raw[0], raw[0]
+	for _, value := range raw {
+		if value < low {
+			low = value
+		}
+		if value > high {
+			high = value
+		}
+	}
+	if high == low {
+		for i := range out {
+			out[i] = 100
+		}
+		return out
+	}
+	for i, value := range raw {
+		out[i] = (value - low) * 100 / (high - low)
+	}
+	return out
+}
