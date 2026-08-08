@@ -3,6 +3,7 @@ package modelmap
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -143,5 +144,54 @@ func TestProductionTaskFitMetadataMatchesModelMap(t *testing.T) {
 	}
 	if got := parsedNotes.TaskFit("openai/gpt-5.6-luna"); strings.Join(got, ",") != "implement,plan,research,debug,audit,refactor,test" {
 		t.Errorf("production task_fit normalization = %v", got)
+	}
+}
+
+func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+	entries, err := Load(filepath.Join(root, "model-map.tsv"))
+	if err != nil {
+		t.Fatalf("production model-map.tsv: %v", err)
+	}
+	wantVals := map[string]string{
+		"openai/gpt-5.6-luna":                    "openai/gpt-5.6-luna",
+		"openai/gpt-5.6-sol":                     "openai/gpt-5.6-sol",
+		"openai/gpt-5.6-terra":                   "openai/gpt-5.6-terra",
+		"minimax/minimax-m3":                     "minimax/MiniMax-M3",
+		"meta/muse-spark-1.1":                    "meta/muse_spark_1_1",
+		"qwen/qwen3.7-max":                       "alibaba/qwen3.7-max",
+		"x-ai/grok-4.5":                          "grok/grok-4.5",
+		"mistralai/mistral-medium-3-5":           "mistralai/mistral-medium-3.5",
+		"google/gemini-3.1-pro-preview":          "google/gemini-3.1-pro-preview",
+		"moonshotai/kimi-k3":                     "kimi/kimi-k3",
+		"deepseek/deepseek-v4-pro":               "deepseek/deepseek-v4-pro",
+		"z-ai/glm-5.2":                           "zai/glm-5.2",
+		"google/gemini-3.6-flash":                "google/gemini-3.6-flash",
+		"deepseek/deepseek-v4-flash":             "deepseek/deepseek-v4-flash-0731",
+		"xiaomi/mimo-v2.5-pro":                   "xiaomi/mimo-v2.5-pro",
+		"moonshotai/kimi-k2.7-code":              "kimi/kimi-k2.7-code",
+		"xiaomi/mimo-v2.5":                       "xiaomi/mimo-v2.5",
+		"mistralai/mistral-large-2512":           "mistralai/mistral-large-2512",
+		"nvidia/nemotron-3-ultra-550b-a55b":      "nvidia/nemotron-3-ultra-550b-a55b",
+		"nvidia/nemotron-3-ultra-550b-a55b:free": "nvidia/nemotron-3-ultra-550b-a55b",
+		"inclusionai/ling-3.0-flash:free":        "ant/ling-3.0-flash-2607",
+	}
+	wantSWE := map[string]string{
+		"deepseek/deepseek-v3.2":      "Model: deepseek-v3.2",
+		"qwen/qwen3-coder":            "Model: Qwen3-Coder-480B-A35B-Instruct",
+		"moonshotai/kimi-k2.5":        "Model: kimi-k2.5",
+		"meta-llama/llama-4-maverick": "Model: llama-4-maverick-instruct",
+		"meta-llama/llama-4-scout":    "Model: llama-4-scout-instruct",
+		"openai/gpt-5-mini":           "Model: gpt-5-mini-2025-08-07",
+	}
+	if got := NamesFor(entries, "vals"); !reflect.DeepEqual(got, wantVals) {
+		t.Errorf("NamesFor(vals) =\n  %v\nwant\n  %v", got, wantVals)
+	}
+	if got := NamesFor(entries, "swebench"); !reflect.DeepEqual(got, wantSWE) {
+		t.Errorf("NamesFor(swebench) =\n  %v\nwant\n  %v", got, wantSWE)
 	}
 }
