@@ -709,3 +709,76 @@ func TestApplyFallbackPrefersScoreOverrideOverStaleSnapshot(t *testing.T) {
 		t.Fatalf("merged model does not carry the notes.yaml override, got: %+v", merged)
 	}
 }
+
+func TestArenaRowsNeverFillTheSWEBenchColumn(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/only-arena", Tier: "sonnet", Names: map[string]string{"arena": "a-only-arena"}}}
+	prices := map[string]sources.PriceInfo{"a/only-arena": {Slug: "a/only-arena", InPerM: 1, OutPerM: 3, Context: 1000, Found: true}}
+	arena := []sources.ScoreRow{{Slug: "a/only-arena", Metric: sources.MetricArenaElo, Value: 1400, VariantMeasured: "a-only-arena"}}
+
+	models := model.MergeWithArena(entries, prices, nil, arena, loadTestNotes(t, "{}"))
+	if len(models) != 1 {
+		t.Fatalf("got %d models, want 1", len(models))
+	}
+	if models[0].Score != nil || models[0].ScoreLabel != "н/д" {
+		t.Errorf("SWE-bench cell = %+v / %q, want it empty: an Elo is not a SWE-bench percentage", models[0].Score, models[0].ScoreLabel)
+	}
+}
+
+func TestApplyFallbackIgnoresAnArenaOnlyFailure(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/only-arena", Tier: "sonnet", Names: map[string]string{"arena": "a-only-arena"}}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/only-arena": {InPerM: 1, OutPerM: 3, Context: 1000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
+	}}
+	sourceOK := map[string]bool{"swebench": true, "vals": true, "arena": false}
+
+	_, scores, _, staleScores := applyFallback(entries, map[string]sources.PriceInfo{}, true, nil, sourceOK, loadTestNotes(t, "{}"), snap)
+	if len(scores) != 0 || len(staleScores) != 0 {
+		t.Errorf("scores = %+v, stale = %v; an Arena outage must never resurrect a SWE-bench number", scores, staleScores)
+	}
+}
+
+func TestApplyArenaFallbackUsesTheSnapshotWhenArenaIsDown(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/down", Tier: "sonnet", Names: map[string]string{"arena": "a-down"}},
+		{Slug: "a/absent", Tier: "sonnet", Names: map[string]string{"arena": "a-absent"}},
+		{Slug: "a/swe", Tier: "sonnet", Names: map[string]string{"vals": "a/swe"}},
+	}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/down": {ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400, VariantMeasured: "a-down", SourceURL: "u", Checked: "2026-08-01"}},
+		"a/swe":  {ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1200}},
+	}}
+
+	arena, stale := applyArenaFallback(entries, nil, map[string]bool{"vals": true, "arena": false}, snap)
+	if len(arena) != 1 || arena[0].Slug != "a/down" || arena[0].Value != 1400 {
+		t.Fatalf("arena = %+v, want exactly the snapshot row for a/down", arena)
+	}
+	if !stale["a/down"] || stale["a/swe"] {
+		t.Errorf("stale = %v, want only a/down: a slug that declares no arena= source has nothing that could have failed", stale)
+	}
+}
+
+func TestApplyArenaFallbackKeepsQuietWhenArenaSucceeded(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/gone", Tier: "sonnet", Names: map[string]string{"arena": "a-gone"}}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/gone": {ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400}},
+	}}
+	arena, stale := applyArenaFallback(entries, nil, map[string]bool{"arena": true}, snap)
+	if len(arena) != 0 || len(stale) != 0 {
+		t.Errorf("arena = %+v, stale = %v; a model that simply dropped off the leaderboard is a genuine absence, not a failure", arena, stale)
+	}
+}
+
+func TestMarkStaleLabelsTheArenaColumn(t *testing.T) {
+	models := []model.Model{{
+		Slug:       "a/down",
+		ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400},
+		ArenaLabel: "1400 Elo",
+	}}
+	markStale(models, nil, nil, map[string]bool{"a/down": true}, "2026-08-08")
+	if !models[0].ArenaScore.Stale {
+		t.Error("ArenaScore.Stale is false, want true")
+	}
+	if models[0].ArenaLabel != "1400 Elo (не удалось проверить на 2026-08-08)" {
+		t.Errorf("ArenaLabel = %q, want the staleness suffix", models[0].ArenaLabel)
+	}
+}

@@ -57,14 +57,19 @@ func liveDeps(opts Options) deps {
 		catalog: func(ctx context.Context) ([]string, error) {
 			return sources.CatalogSlugs(ctx, c)
 		},
-		// Order is priority: the first source with a row for a slug wins, and
-		// two numbers are never averaged.
+		// Order is priority *within one family*: the first source of a
+		// family with a row for a slug wins, and two numbers are never
+		// averaged. Sources of different families feed different views and
+		// never compete at all — see model.SourceFamily.
 		sources: []scoreSource{
 			{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
 				return sources.FetchSWEBenchVerified(ctx, c, names)
 			}},
 			{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
 				return sources.FetchValsSWEBench(ctx, c, names)
+			}},
+			{id: "arena", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+				return sources.FetchArenaElo(ctx, c, names)
 			}},
 		},
 		now:         time.Now,
@@ -171,8 +176,15 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 	wg.Wait()
 
-	var scores []sources.ScoreRow
+	// Rows are split by family, never concatenated into one slice: Merge takes
+	// the first row per slug, so a single shared slice would let an Arena Elo
+	// silently win the SWE-bench column of a model that has no SWE-bench row.
+	var scores, arenaScores []sources.ScoreRow
 	for _, s := range d.sources {
+		if model.SourceFamily[s.id] == model.ScoreSourceArena {
+			arenaScores = append(arenaScores, rows[s.id]...)
+			continue
+		}
 		scores = append(scores, rows[s.id]...)
 	}
 
@@ -186,8 +198,9 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 
 	today := d.now().Format("2006-01-02")
 	prices, scores, stalePrices, staleScores := applyFallback(entries, prices, pricesOK, scores, sourceOK, nt, snap)
+	arenaScores, staleArena := applyArenaFallback(entries, arenaScores, sourceOK, snap)
 
-	models := model.Merge(entries, prices, scores, nt)
+	models := model.MergeWithArena(entries, prices, scores, arenaScores, nt)
 	report := BuildReport(entries, catalog, prices, pricesOK, models)
 	report.PriceChanges = priceChanges(history, prices, pricesOK)
 	if catalogOK && len(snap.CatalogSlugs) > 0 {
@@ -210,7 +223,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 
 	// markStale runs after BuildReport: it appends to Note/ScoreLabel, and
 	// BuildReport's NeedsReview check needs to see the original, unmutated Note.
-	markStale(models, stalePrices, staleScores, today)
+	markStale(models, stalePrices, staleScores, staleArena, today)
 
 	// Report generation above is a cheap, useful diagnostic even on a dry run
 	// (`openrouter check`) — a pure read-only report must never hard-fail, so
@@ -452,19 +465,23 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 		scored[r.Slug] = true
 	}
 	for _, e := range entries {
-		// A model that declares no source has nothing that could have failed:
-		// its number, if any, comes from notes.yaml and is never stale.
-		if scored[e.Slug] || len(e.Names) == 0 {
+		if scored[e.Slug] {
 			continue
 		}
 		// Only consider a slug for score-fallback if at least one of its
-		// declared sources actually failed this run. If every declared
-		// source succeeded but simply had no row for this slug, that is a
+		// declared SWE-bench-family sources actually failed this run. If every
+		// such source succeeded but simply had no row for this slug, that is a
 		// genuine absence (model dropped off the leaderboard, or the
 		// model-map name is wrong) — not a failure, and injecting a stale
-		// snapshot value here would hide both.
+		// snapshot value here would hide both. A model that declares no
+		// SWE-bench-family source at all — including one that declares only
+		// arena= — has nothing that could have failed for this column: its
+		// number, if any, comes from notes.yaml and is never stale.
 		anySourceFailed := false
 		for sourceID := range e.Names {
+			if model.SourceFamily[sourceID] != model.ScoreSourceSWEBench {
+				continue
+			}
 			if !sourceOK[sourceID] {
 				anySourceFailed = true
 				break
@@ -497,9 +514,52 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 	return prices, scores, stalePrices, staleScores
 }
 
+// applyArenaFallback does for the Arena column what applyFallback does for
+// the SWE-bench one, and stays a separate function for the same reason the
+// two columns are separate: one source's outage must never put a number into
+// the other's view. There is no notes.yaml equivalent to consult here —
+// manual overrides describe SWE-bench Verified only.
+func applyArenaFallback(entries []modelmap.Entry, arena []sources.ScoreRow, sourceOK map[string]bool, snap *Snapshot) ([]sources.ScoreRow, map[string]bool) {
+	staleArena := map[string]bool{}
+	scored := make(map[string]bool, len(arena))
+	for _, r := range arena {
+		scored[r.Slug] = true
+	}
+	for _, e := range entries {
+		if scored[e.Slug] {
+			continue
+		}
+		failed := false
+		for sourceID := range e.Names {
+			if model.SourceFamily[sourceID] == model.ScoreSourceArena && !sourceOK[sourceID] {
+				failed = true
+				break
+			}
+		}
+		if !failed {
+			continue
+		}
+		se, ok := snap.Models[e.Slug]
+		if !ok || se.ArenaScore == nil {
+			continue
+		}
+		arena = append(arena, sources.ScoreRow{
+			Slug:            e.Slug,
+			Metric:          se.ArenaScore.Metric,
+			Value:           se.ArenaScore.Value,
+			VariantMeasured: se.ArenaScore.VariantMeasured,
+			SourceURL:       se.ArenaScore.SourceURL,
+			Checked:         se.ArenaScore.Checked,
+		})
+		staleArena[e.Slug] = true
+	}
+	return arena, staleArena
+}
+
 // markStale labels the rows whose values came from the snapshot rather than
-// from this run, in the document itself.
-func markStale(models []model.Model, stalePrices, staleScores map[string]bool, date string) {
+// from this run, in the document itself. The two score columns are labelled
+// independently, because they can go stale independently.
+func markStale(models []model.Model, stalePrices, staleScores, staleArena map[string]bool, date string) {
 	for i := range models {
 		m := &models[i]
 		if stalePrices[m.Slug] {
@@ -509,6 +569,10 @@ func markStale(models []model.Model, stalePrices, staleScores map[string]bool, d
 		if staleScores[m.Slug] && m.Score != nil {
 			m.Score.Stale = true
 			m.ScoreLabel += " (не удалось проверить на " + date + ")"
+		}
+		if staleArena[m.Slug] && m.ArenaScore != nil {
+			m.ArenaScore.Stale = true
+			m.ArenaLabel += " (не удалось проверить на " + date + ")"
 		}
 	}
 }
