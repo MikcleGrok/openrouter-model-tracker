@@ -36,7 +36,7 @@ GITHUB_RUN_ID ?= local
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -58,7 +58,7 @@ test-unit:
 test-acceptance: build
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -count=1 ./tests/...
 
-test-all: test-unit test-acceptance
+test-all: test-unit test-acceptance sign-flags-check
 
 race:
 	cd $(ROOT) && $(GO) test -race -count=1 ./...
@@ -90,6 +90,9 @@ dependency-check:
 secrets-check:
 	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
 	@printf '%s\n' 'Secrets check passed for tracked source.'
+
+sign-flags-check:
+	@$(ROOT)scripts/sign_flags_test.sh
 
 sbom:
 	@command -v syft >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: syft is required to generate the release SBOM.' >&2; exit 1; }
