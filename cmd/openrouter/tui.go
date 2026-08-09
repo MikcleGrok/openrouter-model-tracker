@@ -1053,6 +1053,9 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 // Wrapping happens here, before any scrolling maths, so detailOffset
 // counts the same physical lines the terminal shows. now is a parameter
 // rather than a time.Now() call inside so a test can pin the release age.
+// scoreSource must be the same source m was projected with by
+// model.ForScoreSource; passing a mismatched pair defeats the SWE-bench
+// block's gate against printing Arena data under the wrong heading.
 func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
 	context := "н/д"
 	if m.Context > 0 {
