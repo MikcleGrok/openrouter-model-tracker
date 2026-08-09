@@ -2168,9 +2168,9 @@ func tuiViewHasPlainLine(view, want string) bool {
 // прямой страж пропущенного класса. Он утверждает о строках, которые
 // вернул View() В МОМЕНТ набора (inputMode == "help-search", до Enter), а
 // не о полях tuiModel после Enter, и идёт пользовательским путём:
-// клавиша ? открывает справку, / включает поиск, руны едят через Update.
+// клавиша ? открывает справку, / включает поиск, руны едут через Update.
 // Существующие проверки в TestTUIKeyState присваивают m.input напрямую и
-// сразу жмют Enter, поэтому единственное состояние, в котором жил баг, на
+// сразу жмут Enter, поэтому единственное состояние, в котором жил баг, на
 // экран там ни разу не выводится.
 func TestTUIHelpSearchRendersTheQueryWhileTyping(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
@@ -2183,8 +2183,10 @@ func TestTUIHelpSearchRendersTheQueryWhileTyping(t *testing.T) {
 	if m.inputMode != "help-search" {
 		t.Fatalf("test setup: inputMode = %q, want %q", m.inputMode, "help-search")
 	}
-	if !tuiViewHasPlainLine(m.View(), "/ _") {
-		t.Fatalf("сразу после / справка не показывает пустую строку ввода %q:\n%s", "/ _", m.View())
+	view := m.View()
+	assertTUIViewFits(t, view, m.width, m.height, "help typing")
+	if !tuiViewHasPlainLine(view, "/ _") {
+		t.Fatalf("сразу после / справка не показывает пустую строку ввода %q:\n%s", "/ _", view)
 	}
 	for _, step := range []struct{ key, want string }{
 		{"r", "/ r_"},
@@ -2207,7 +2209,7 @@ func TestTUIHelpSearchRendersTheQueryWhileTyping(t *testing.T) {
 	if m.inputMode != "" || m.helpSearch != "ref" {
 		t.Fatalf("Enter не зафиксировал запрос: inputMode = %q, helpSearch = %q", m.inputMode, m.helpSearch)
 	}
-	view := m.View()
+	view = m.View()
 	assertTUIViewFits(t, view, m.width, m.height, "help after enter")
 	for _, line := range strings.Split(view, "\n") {
 		plain := ansi.Strip(line)
@@ -2240,6 +2242,7 @@ func TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore(t *testing.T) {
 		t.Fatalf("test setup: input = %q, want %q", m.input, "search_")
 	}
 	view := m.View()
+	assertTUIViewFits(t, view, m.width, m.height, "help typing")
 	// После plainTableText обработки "/ search__" становится "/ search" (двойное
 	// подчеркивание удаляется как markdown bold).
 	// Проверяем, что эта строка присутствует в выводе.
@@ -2359,11 +2362,17 @@ func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
 // TestTUIHelpInputLineIsNeverStyledAsAHeading фиксирует инвариант из
 // spec.md: пост-проход подсветки заголовков в tuiHelpView — текстовое
 // правило по суффиксу, и любая новая строка вывода обязана быть проверена
-// на ложное срабатывание. Строка ввода всегда оканчивается маркером
-// курсора "_", поэтому HasSuffix(plain, "search") ей недостижим, а
-// plain == "Task-fit" — тем более. Цветовой профиль форсирован: без него
-// lipgloss отдаёт термен Ascii, Render возвращает вход как есть, и тест
-// прошёл бы при любой стилизации.
+// на ложное срабатывание. Строку ввода это правило не спасает по её
+// содержимому: plainTableText вычищает markdown-маркер "__" из каждой
+// строки, так что запрос, заканчивающийся на "_", вместе с добавленным
+// курсором вполне может схлопнуться в текст с суффиксом "search" — ровно
+// это и пинит TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore
+// ("search_" → "/ search__" → "/ search"). Настоящая защита — tuiHelpView
+// запоминает индекс строки ввода (inputLineIndex) и пропускает её по
+// этому индексу в цикле стилизации, а не полагается на какое-либо
+// свойство её текста. Цветовой профиль форсирован: без него lipgloss
+// отдаёт термен Ascii, Render возвращает вход как есть, и тест прошёл бы
+// при любой стилизации.
 func TestTUIHelpInputLineIsNeverStyledAsAHeading(t *testing.T) {
 	tuiForceColorProfile(t)
 	for _, input := range []string{"", "search", "Task-fit", "keys", "view"} {
@@ -2372,6 +2381,7 @@ func TestTUIHelpInputLineIsNeverStyledAsAHeading(t *testing.T) {
 		m.inputMode, m.input = "help-search", input
 		want := "/ " + input + "_"
 		view := m.View()
+		assertTUIViewFits(t, view, m.width, m.height, "help typing")
 		found := ""
 		for _, line := range strings.Split(view, "\n") {
 			if ansi.Strip(line) == want {
@@ -2407,7 +2417,9 @@ func TestTUIHelpSearchSeedsTheInputLineWithThePreviousQuery(t *testing.T) {
 	if m.inputMode != "help-search" || m.input != "refresh" {
 		t.Fatalf("повторный / не засеял поле ввода: inputMode = %q, input = %q", m.inputMode, m.input)
 	}
-	if !tuiViewHasPlainLine(m.View(), "/ refresh_") {
-		t.Fatalf("повторный / не показал затравку предыдущим запросом:\n%s", m.View())
+	view := m.View()
+	assertTUIViewFits(t, view, m.width, m.height, "help typing")
+	if !tuiViewHasPlainLine(view, "/ refresh_") {
+		t.Fatalf("повторный / не показал затравку предыдущим запросом:\n%s", view)
 	}
 }

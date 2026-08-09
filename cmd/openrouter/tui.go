@@ -809,10 +809,11 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 
 // tuiHelpView renders the full-screen help overlay. It takes the whole
 // model rather than the four scalars it used to, the way tuiDetailView
-// already does: six positional parameters — two adjacent strings and two
-// adjacent ints — is the signature that eventually gets called with its
-// arguments swapped, and the overlay needs more of the model than it
-// used to.
+// already does: growing past four scalars would have meant a
+// six-parameter form — two adjacent strings and two adjacent ints — which
+// is exactly the signature shape that eventually gets called with its
+// arguments swapped, and the overlay needs more of the model than it used
+// to.
 //
 // While a help search is being typed — m.inputMode == "help-search",
 // before Enter — one extra line "/ <input>_" is inserted between the
@@ -821,8 +822,25 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // input line and its rowsBudget-- (View, above): without the shrink the
 // overlay would build height+2 lines and tuiFullscreenText would clip the
 // input line away again, leaving the bug exactly where it was. m.input is
-// appended raw because tuiFullscreenText already runs plainTableText and
-// truncateTable over every line it is given.
+// run through plainTableText before it is appended, exactly like the
+// model list's own inputLine (View, above): tuiFullscreenText splits its
+// input on "\n" before sanitizing each resulting line, so a raw m.input
+// containing an embedded newline (reachable via bracketed paste, which
+// this program leaves enabled) would silently split into two screen rows
+// instead of being neutralised into one; pre-sanitizing here is what
+// actually prevents that. Running plainTableText again inside
+// tuiFullscreenText's own per-line pass is harmless on already-plain text
+// and stays as defense in depth.
+//
+// The input line is skipped in the styling post-pass below by its
+// tracked index (inputLineIndex), not by any property of its trailing
+// text. plainTableText strips markdown "__" and "**" markers from every
+// line before that pass runs, so a query ending in "_" can lose its
+// cursor marker to that stripping — "search_" plus the cursor becomes
+// "/ search__", which plainTableText reduces to "/ search", matching the
+// HasSuffix(plain, "search") heading rule below. Skipping by index is
+// what actually prevents that false match; nothing about how the line
+// ends does.
 func tuiHelpView(m tuiModel) string {
 	lines := tuiHelpLines()
 	body := m.height
@@ -838,7 +856,7 @@ func tuiHelpView(m tuiModel) string {
 	inputLineIndex := -1
 	if inputActive {
 		inputLineIndex = len(lines)
-		lines = append(lines, "/ "+m.input+"_")
+		lines = append(lines, plainTableText("/ "+m.input+"_"))
 	}
 	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+body), len(tuiHelpLines()))
 	if m.helpSearch != "" {
