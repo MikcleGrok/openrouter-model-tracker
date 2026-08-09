@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
@@ -89,6 +90,33 @@ func TestTUIInteractiveFilterClearsRowsOnRuntimeFormulaError(t *testing.T) {
 	}
 }
 
+func TestTUIInteractiveFilterPersistsAndClears(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}})
+	m.configPath = configPath
+	m.inputMode, m.input = "filter", "paid"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != "paid" || len(m.visible) != 1 || m.visible[0].Slug != "paid" {
+		t.Fatalf("saved filter = %q, visible = %+v", cfg.TUIFilter, m.visible)
+	}
+	m.inputMode, m.input = "filter", ""
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	cfg, err = config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != "" || len(m.visible) != 2 {
+		t.Fatalf("cleared filter = %q, visible = %+v", cfg.TUIFilter, m.visible)
+	}
+}
+
 func tuiKeyCmd(m tuiModel, key string) (tuiModel, tea.Cmd) {
 	return m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 }
@@ -149,7 +177,7 @@ func TestTUIKeyState(t *testing.T) {
 	if m.filter != "" {
 		t.Fatalf("substring search changed structured filter to %q", m.filter)
 	}
-	m = tuiKey(m, "?")
+	m = tuiKey(m, "f1")
 	if !strings.Contains(m.View(), "openrouter tui keys") {
 		t.Fatal("help overlay missing")
 	}
@@ -205,6 +233,45 @@ func TestTUIKeyState(t *testing.T) {
 	m = next.(tuiModel)
 	if m.overlay != "" {
 		t.Fatal("help did not close")
+	}
+}
+
+func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m = tuiKey(m, "?")
+	if m.overlay != "help" || m.helpMode != "shortcuts" {
+		t.Fatalf("question-mark help state = overlay %q, mode %q", m.overlay, m.helpMode)
+	}
+	if strings.Contains(m.View(), "Model detail view") || strings.Contains(m.View(), "Score sources") {
+		t.Fatalf("question-mark help contains non-shortcut full-help sections: %q", m.View())
+	}
+	if !strings.Contains(m.View(), "F1 full help") {
+		t.Fatalf("shortcut help does not document F1: %q", m.View())
+	}
+	for _, r := range tuiShortcutHelpDocument {
+		if unicode.Is(unicode.Cyrillic, r) {
+			t.Fatalf("shortcut help is not English-only: %q", tuiShortcutHelpDocument)
+		}
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF1})
+	m = next.(tuiModel)
+	m.height = len(tuiHelpLines()) + 2
+	if m.helpMode != "full" || !strings.Contains(m.View(), "Model detail view") {
+		t.Fatalf("F1 did not open full help: mode=%q view=%q", m.helpMode, m.View())
+	}
+}
+
+func TestTUICommandKeySupportsRussianLayout(t *testing.T) {
+	for russian, english := range map[string]string{"й": "q", "с": "c", "р": "h", "П": "G"} {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(russian)}
+		if got := tuiCommandKey(msg); got != english {
+			t.Errorf("tuiCommandKey(%q) = %q, want %q", russian, got, english)
+		}
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}, {Slug: "b"}})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("й")})
+	if next.(tuiModel).sortKey != "quality" {
+		t.Fatalf("Russian-layout q shortcut did not work: sort=%q", next.(tuiModel).sortKey)
 	}
 }
 
@@ -879,6 +946,38 @@ func TestTUIHelpUsesFullViewport(t *testing.T) {
 	}
 	if strings.Contains(view, "╭") || strings.Contains(view, "╰") {
 		t.Fatalf("help still has a box: %q", view)
+	}
+}
+
+func TestTUIHelpSearchMaxOffsetIncludesInputRow(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 5, inputMode: "help-search"}
+	if got, want := m.helpMaxOffset(), len(tuiHelpLines())-4; got != want {
+		t.Fatalf("help search max offset = %d, want %d", got, want)
+	}
+	m.helpOffset = m.helpMaxOffset()
+	lines := strings.Split(tuiHelpView(m), "\n")
+	if got, want := ansi.Strip(lines[3]), tuiHelpLines()[len(tuiHelpLines())-1]; got != want {
+		t.Fatalf("last visible help line = %q, want %q", got, want)
+	}
+}
+
+func TestTUIHelpModeSwitchRebuildsSearchMatches(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 24, helpSearch: "source"}
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = 1
+	m = tuiKey(m, "?")
+	if m.overlay != "" {
+		t.Fatalf("question mark did not close help: overlay=%q", m.overlay)
+	}
+	m = tuiKey(m, "?")
+	wantShortcuts := tuiHelpSearchInLines(m.helpSearch, tuiShortcutHelpLines())
+	if !reflect.DeepEqual(m.helpMatches, wantShortcuts) || m.helpMatch != -1 {
+		t.Fatalf("shortcut help kept full-help search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantShortcuts)
+	}
+	m = tuiKey(m, "f1")
+	wantFull := tuiHelpSearchInLines(m.helpSearch, tuiHelpLines())
+	if !reflect.DeepEqual(m.helpMatches, wantFull) || m.helpMatch != -1 {
+		t.Fatalf("full help kept shortcut-help search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantFull)
 	}
 }
 

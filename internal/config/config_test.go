@@ -32,6 +32,31 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestSaveTUIFilterPreservesConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "# keep this comment\ndata_dir: project\nranking:\n  mixed_utility:\n    price_weight: 3.5\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveTUIFilter(path, "paid,quality>=90"); err != nil {
+		t.Fatalf("SaveTUIFilter: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TUIFilter != "paid,quality>=90" || got.DataDir != "project" || got.MixedUtilityPriceWeight() != 3.5 {
+		t.Fatalf("config after save = %+v", got)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "keep this comment") {
+		t.Fatalf("SaveTUIFilter dropped comment: %q", updated)
+	}
+}
+
 func TestLoadRejectsFormulaAndPriceWeightTogether(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := "ranking:\n  mixed_utility:\n    price_weight: 0\n    formula:\n      op: neg\n      args:\n        - var: score\n"

@@ -130,6 +130,7 @@ type tuiTickMsg struct{}
 type tuiModel struct {
 	ctx                   context.Context
 	dataDir               string
+	configPath            string
 	refreshOpts           refresh.Options
 	interval              time.Duration
 	models, visible       []model.Model
@@ -148,6 +149,7 @@ type tuiModel struct {
 	selectedSlug          string
 	overlay               string
 	helpOffset            int
+	helpMode              string
 	detailOffset          int
 	helpSearch            string
 	helpMatches           []int
@@ -199,13 +201,16 @@ func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir stri
 	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSourceDefault)
 }
 
-func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource string) error {
+func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource string, configPath ...string) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
 	m, err := newConfiguredTUIModel(ctx, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSource)
 	if err != nil {
 		return err
+	}
+	if len(configPath) > 0 {
+		m.configPath = configPath[0]
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
@@ -348,20 +353,22 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		switch key {
 		case "esc", "?":
 			m.overlay = ""
+		case "f1":
+			m.setHelpMode("full")
 		case "/":
 			m.inputMode, m.input = "help-search", m.helpSearch
 		case "up", "k":
 			m.helpOffset = max(0, m.helpOffset-1)
 		case "down", "j":
-			m.helpOffset = min(tuiHelpMaxOffset(m.height), m.helpOffset+1)
+			m.helpOffset = min(m.helpMaxOffset(), m.helpOffset+1)
 		case "pgup":
 			m.helpOffset = max(0, m.helpOffset-max(1, m.height-1))
 		case "pgdown":
-			m.helpOffset = min(tuiHelpMaxOffset(m.height), m.helpOffset+max(1, m.height-1))
+			m.helpOffset = min(m.helpMaxOffset(), m.helpOffset+max(1, m.height-1))
 		case "home", "g":
 			m.helpOffset = 0
 		case "end", "G":
-			m.helpOffset = tuiHelpMaxOffset(m.height)
+			m.helpOffset = m.helpMaxOffset()
 		case "enter":
 			m.helpNextMatch(1)
 		}
@@ -443,7 +450,11 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "o":
 		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
-		m.overlay, m.helpOffset = "help", 0
+		m.overlay = "help"
+		m.setHelpMode("shortcuts")
+	case "f1":
+		m.overlay = "help"
+		m.setHelpMode("full")
 	case "enter", "right", "l":
 		if len(m.visible) > 0 {
 			m.overlay, m.detailOffset = "detail", 0
@@ -488,12 +499,13 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "enter":
 		if m.inputMode == "help-search" {
 			m.helpSearch, m.inputMode = m.input, ""
-			m.helpMatches = tuiHelpSearch(m.helpSearch)
+			m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
 			m.helpMatch = -1
 			m.helpNextMatch(1)
 			return m, nil
 		}
 		candidate := m.input
+		inputMode := m.inputMode
 		if m.inputMode == "search" {
 			needle := strings.ToLower(plainTableText(candidate))
 			filtered := make([]model.Model, 0, len(m.models))
@@ -510,6 +522,11 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode = ""
 		if strings.TrimSpace(candidate) == "" {
 			m.filter, m.err = "", ""
+			if inputMode == "filter" && m.configPath != "" {
+				if err := config.SaveTUIFilter(m.configPath, ""); err != nil {
+					m.err = err.Error()
+				}
+			}
 			m.rebuild()
 			return m, nil
 		}
@@ -519,6 +536,11 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			return m, nil
 		}
 		m.filter, m.err = candidate, ""
+		if inputMode == "filter" && m.configPath != "" {
+			if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
+				m.err = err.Error()
+			}
+		}
 		m.rebuildWith(filtered)
 		return m, nil
 	case "backspace":
@@ -943,13 +965,32 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // HasSuffix(plain, "search") heading rule below. Skipping by index is
 // what actually prevents that false match; nothing about how the line
 // ends does.
-func tuiHelpView(m tuiModel) string {
-	lines := tuiHelpLines()
-	body := m.height
-	inputActive := m.inputMode == "help-search"
-	if inputActive {
-		body = max(1, m.height-1)
+func (m tuiModel) helpLines() []string {
+	if m.helpMode == "shortcuts" {
+		return tuiShortcutHelpLines()
 	}
+	return tuiHelpLines()
+}
+
+func (m tuiModel) helpViewportHeight() int {
+	if m.inputMode == "help-search" {
+		return max(1, m.height-1)
+	}
+	return max(1, m.height)
+}
+
+func (m tuiModel) helpMaxOffset() int { return max(0, len(m.helpLines())-m.helpViewportHeight()) }
+
+func (m *tuiModel) setHelpMode(mode string) {
+	m.helpMode, m.helpOffset = mode, 0
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = -1
+}
+
+func tuiHelpView(m tuiModel) string {
+	lines := m.helpLines()
+	inputActive := m.inputMode == "help-search"
+	body := m.helpViewportHeight()
 	offset := max(0, min(m.helpOffset, max(0, len(lines)-body)))
 	lines = lines[offset:min(len(lines), offset+body)]
 	if len(lines) == 0 {
@@ -960,7 +1001,7 @@ func tuiHelpView(m tuiModel) string {
 		inputLineIndex = len(lines)
 		lines = append(lines, plainTableText("/ "+m.input+"_"))
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+body), len(tuiHelpLines()))
+	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()))
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
 	}
@@ -1121,6 +1162,24 @@ func tuiStyleDetailLine(line string) string {
 	}
 }
 
+const tuiShortcutHelpDocument = `openrouter tui shortcuts
+
+Navigation
+Up/Down or j/k move through models. Home/End or g/G jump; PgUp/PgDown scroll.
+Enter, Right or l opens model details; Esc, Left or h closes details.
+
+Commands
+q quality sort; p price sort; r quality/price sort; s cycle sort key; S reverse order.
+m toggle ranking mode; o settings; R refresh; x or Ctrl-C exit; c columns; n Task fit/Note.
+f structured filter; / search; ? shortcut help; F1 full help.
+
+Task-fit codes
+I implement; P plan; R research; D debug; A audit; F refactor; T test.
+
+Help navigation
+Up/Down or j/k scroll; Home/End or g/G jump; PgUp/PgDown scroll.
+/ searches this help; Enter finds the next match; Esc or ? closes help.`
+
 const tuiHelpDocument = `openrouter tui keys
 
 Navigation
@@ -1132,7 +1191,7 @@ Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
 m toggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
 o opens settings for ranking, score source, filter, and columns. R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
-f filter; / or . search; ? or , help.
+f filter; / search; ? shortcut help; F1 full help.
 
 Task-fit
 n switches the last column between Task fit and Note.
@@ -1148,7 +1207,7 @@ No task-fit classification is shown as n/a.
 
 Columns, search, and filters
 c opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.
-/ or . searches Name/Slug as plain substring text.
+/ searches Name/Slug as plain substring text.
 f edits a structured filter and does not change the search.
 Examples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output>=N.
 Multiple filters are comma-separated and use AND.
@@ -1164,7 +1223,7 @@ Field labels, block headings, links and missing values are colour-coded; the col
 
 Refresh and finish
 R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.
-x or Ctrl-C exits. Esc closes this help. ? or , toggles help.
+x or Ctrl-C exits. Esc closes this help. ? closes shortcut help; F1 opens full help.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
@@ -1182,13 +1241,19 @@ Enter goes to the next match; Up/Down go to the previous/next match. Esc cancels
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
 
+func tuiShortcutHelpLines() []string { return strings.Split(tuiShortcutHelpDocument, "\n") }
+
 func tuiHelpSearch(needle string) []int {
+	return tuiHelpSearchInLines(needle, tuiHelpLines())
+}
+
+func tuiHelpSearchInLines(needle string, lines []string) []int {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
 		return nil
 	}
 	matches := []int{}
-	for i, line := range tuiHelpLines() {
+	for i, line := range lines {
 		if strings.Contains(strings.ToLower(line), needle) {
 			matches = append(matches, i)
 		}
@@ -1203,7 +1268,7 @@ func (m *tuiModel) helpNextMatch(direction int) {
 		return
 	}
 	m.helpMatch = (m.helpMatch + direction + len(m.helpMatches)) % len(m.helpMatches)
-	m.helpOffset = max(0, min(tuiHelpMaxOffset(m.height), m.helpMatches[m.helpMatch]-max(0, m.height/2)))
+	m.helpOffset = max(0, min(m.helpMaxOffset(), m.helpMatches[m.helpMatch]-max(0, m.height/2)))
 }
 
 func tuiBoxLimited(content string, width, height int) string {

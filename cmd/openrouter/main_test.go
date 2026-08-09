@@ -32,6 +32,15 @@ func executeCLIError(t *testing.T, args ...string) error {
 	return cmd.Execute()
 }
 
+func TestResolveTUIFilterCLIOverridesSavedValue(t *testing.T) {
+	if got := resolveTUIFilter("free", true, "paid"); got != "free" {
+		t.Fatalf("explicit TUI filter = %q, want free", got)
+	}
+	if got := resolveTUIFilter("", false, "paid"); got != "paid" {
+		t.Fatalf("saved TUI filter = %q, want paid", got)
+	}
+}
+
 func TestVersionFlag(t *testing.T) {
 	if got := executeCLI(t, "--version"); got != "openrouter version dev\n" {
 		t.Errorf("--version = %q, want %q", got, "openrouter version dev\\n")
