@@ -835,7 +835,9 @@ func tuiHelpView(m tuiModel) string {
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
+	inputLineIndex := -1
 	if inputActive {
+		inputLineIndex = len(lines)
 		lines = append(lines, "/ "+m.input+"_")
 	}
 	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+body), len(tuiHelpLines()))
@@ -846,6 +848,9 @@ func tuiHelpView(m tuiModel) string {
 	view := tuiFullscreenText(strings.Join(lines, "\n"), m.width, m.height)
 	styledLines := strings.Split(view, "\n")
 	for i, line := range styledLines {
+		if i == inputLineIndex {
+			continue
+		}
 		plain := ansi.Strip(line)
 		if strings.HasSuffix(plain, "keys") || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == "Task-fit" {
 			styledLines[i] = tuiHeaderStyle.Render(line)

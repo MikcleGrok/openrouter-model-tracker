@@ -2216,3 +2216,50 @@ func TestTUIHelpSearchRendersTheQueryWhileTyping(t *testing.T) {
 		}
 	}
 }
+
+// TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore — регрессионный
+// тест для проверки, что строка ввода не стилизуется даже если её текст
+// заканчивается на underscore. Ранее ошибка проявлялась так: когда
+// пользователь вводил "search_", строка становилась "/ search__"
+// (ввод + курсор), потом plainTableText удалял __ как markdown-bold,
+// оставляя "/ search", который попадал под условие HasSuffix(plain, "search")
+// и стилизовался заголовком. Тест проверяет, что этого не происходит.
+func TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
+	m.width, m.height = 100, 24
+	m = tuiKey(m, "?")
+	m = tuiKey(m, "/")
+	// Type "search_" — это завершится на underscore, создав "/ search__"
+	// после добавления маркера курсора.
+	for _, ch := range "search_" {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = next.(tuiModel)
+	}
+	if m.input != "search_" {
+		t.Fatalf("test setup: input = %q, want %q", m.input, "search_")
+	}
+	view := m.View()
+	// После plainTableText обработки "/ search__" становится "/ search" (двойное
+	// подчеркивание удаляется как markdown bold).
+	// Проверяем, что эта строка присутствует в выводе.
+	if !tuiViewHasPlainLine(view, "/ search") {
+		t.Fatalf("input line %q not found in view:\n%s", "/ search", view)
+	}
+	// Теперь проверяем, что она не стилизована. Ранее bug был в том, что
+	// "/ search" совпадает с условием HasSuffix(plain, "search") в цикле стилизации,
+	// так что строка становилась tuiHeaderStyle.Render(...), что добавляет ANSI-коды.
+	// С нашей фиксацией, строка ввода должна быть пропущена в цикле стилизации.
+	styledLines := strings.Split(view, "\n")
+	for _, styledLine := range styledLines {
+		plain := ansi.Strip(styledLine)
+		if plain == "/ search" {
+			// Если есть ANSI-коды от стилизации, то styledLine != plain
+			if styledLine != plain {
+				t.Fatalf("input line was styled as heading (has escape codes):\nplain=%q\nstyled=%q", plain, styledLine)
+			}
+			return
+		}
+	}
+	t.Fatalf("internal error: tuiViewHasPlainLine found the line but split by newline didn't")
+}
