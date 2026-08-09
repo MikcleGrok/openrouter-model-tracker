@@ -89,6 +89,7 @@ type tuiModel struct {
 	selectedSlug     string
 	overlay          string
 	helpOffset       int
+	detailOffset     int
 	helpSearch       string
 	helpMatches      []int
 	helpMatch        int
@@ -496,6 +497,9 @@ func (m tuiModel) View() string {
 	if m.overlay == "help" {
 		return tuiHelpView(m.helpOffset, m.helpSearch, m.width, m.height)
 	}
+	if m.overlay == "detail" {
+		return tuiDetailView(m)
+	}
 	if m.overlay == "columns" {
 		lines := []string{"Columns (Space toggle, Enter apply, Esc cancel)", ""}
 		for i, col := range tuiColumns {
@@ -746,6 +750,41 @@ func tuiHelpView(offset int, search string, width, height int) string {
 		}
 	}
 	return strings.Join(styledLines, "\n")
+}
+
+// detailRow returns the row the detail overlay is about — the same one the
+// list highlights. The second result is false when the list is empty,
+// which a failing filter or a broken ranking formula can produce with the
+// cursor still at 0; every caller must go through this rather than index
+// m.visible directly.
+func (m tuiModel) detailRow() (model.Model, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.visible) {
+		return model.Model{}, false
+	}
+	return m.visible[m.cursor], true
+}
+
+// tuiDetailView renders the model-detail overlay, mirroring tuiHelpView:
+// build the content lines, apply the offset, slice to the viewport, append
+// a position footer and hand the result to tuiFullscreenText. It differs
+// from the help view in one deliberate way — the footer gets a reserved
+// line instead of being appended past a full viewport and clipped — so
+// what is scrolled and what tuiDetailMaxOffset allows always agree.
+func tuiDetailView(m tuiModel) string {
+	row, ok := m.detailRow()
+	if !ok {
+		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
+	}
+	lines := tuiDetailLines(row, m.scoreSource, m.width, time.Now())
+	body := tuiDetailBodyHeight(m.height)
+	offset := max(0, min(m.detailOffset, max(0, len(lines)-body)))
+	end := min(len(lines), offset+body)
+	visible := append([]string(nil), lines[offset:end]...)
+	if len(visible) == 0 {
+		visible = []string{""}
+	}
+	visible = append(visible, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines)))
+	return tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
 }
 
 const tuiHelpDocument = `openrouter tui keys

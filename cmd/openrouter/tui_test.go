@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -1152,5 +1153,73 @@ func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	lines := tuiDetailLines(row, scoreSourceSWEBench, 30, time.Now())
 	if want := len(lines) - tuiDetailBodyHeight(10); narrow != want {
 		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
+	}
+}
+
+func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 120, 60
+	view := m.View()
+	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "Оценка SWE-bench Verified", "93.0%", "Оценка LMArena", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail view is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTUIDetailViewWrapsTheDescriptionInsteadOfTruncating is the point of
+// the whole screen: on a narrow terminal the vendor prose must still be
+// readable in full, not cut at the right edge the way every table cell is.
+func TestTUIDetailViewWrapsTheDescriptionInsteadOfTruncating(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 40, 60
+	view := m.View()
+	parts := strings.SplitN(view, "Описание:", 2)
+	if len(parts) != 2 {
+		t.Fatalf("the detail view has no description block:\n%s", view)
+	}
+	// Joining the block's fields back together undoes the wrap: the prose
+	// must be there in full, whereas truncateTable would have replaced its
+	// tail with an ellipsis on every single line.
+	rebuilt := strings.Join(strings.Fields(parts[1]), " ")
+	if !strings.Contains(rebuilt, "GPT-5.6 Luna is OpenAI's long-context flagship, strong at code and weak at latency.") {
+		t.Errorf("the description was not preserved in full at width 40:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > m.width {
+			t.Fatalf("wrapped detail line exceeds width %d: %q", m.width, line)
+		}
+	}
+}
+
+func TestTUIDetailViewFitsEveryViewport(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay = "detail"
+	for _, height := range []int{1, 2, 3, 5, 7, 24, 80} {
+		for _, width := range []int{1, 5, 20, 40, 200} {
+			m.width, m.height = width, height
+			assertTUIViewFits(t, m.View(), width, height, "detail")
+		}
+	}
+}
+
+func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 120, 10
+	lines := strings.Split(m.View(), "\n")
+	total := len(tuiDetailLines(m.visible[0], m.scoreSource, m.width, time.Now()))
+	if want := fmt.Sprintf("Detail 1-9/%d · ↑↓ scroll · Esc close", total); !strings.HasPrefix(lines[len(lines)-1], want) {
+		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)
+	}
+}
+
+// TestTUIDetailViewOnAnEmptyListDoesNotPanic covers the state a failing
+// filter or a broken ranking formula leaves the model in: visible is nil
+// while cursor is still 0.
+func TestTUIDetailViewOnAnEmptyListDoesNotPanic(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.width, m.height = "detail", 80, 10
+	if view := m.View(); strings.TrimSpace(view) == "" {
+		t.Fatal("the detail overlay on an empty list rendered nothing at all")
 	}
 }
