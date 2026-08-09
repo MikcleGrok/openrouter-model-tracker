@@ -1,5 +1,11 @@
 # What's New
 
+## [Unreleased]
+
+- Add cosign-based release signing and provenance verification (static key pair, no Fulcio/Rekor/transparency log): `make sign`, `make attest`, `make verify-provenance`.
+- Add a `permissions:` block and pin GitHub Actions to immutable commit SHAs in CI.
+- Fix README documenting the wrong TUI refresh hotkey (`r` instead of the actual `R`).
+
 ## [1.4.0]
 
 - Add a full-screen model detail view to `openrouter tui` (`Enter`/`→`/`l` to open, `Esc`/`←`/`h` to close): release date, owner, tier, context, full pricing including the long-context tier, both score sources in separate labelled blocks, task fit, note and the vendor description, word-wrapped instead of truncated.
