@@ -6,6 +6,10 @@
 - Add the `o` Settings shortcut, including its Russian keyboard-layout alias, and keep the active filter, ranking and score-source state visible in the overlay.
 - Update the generated model comparison with current catalogue prices, contexts, model coverage and quality/price calculations.
 
+## [1.9.0]
+
+- Highlight all visible help-search matches in the TUI while preserving display case, layout, header styling and the unstyled input/footer lines.
+
 ## [1.7.0]
 
 - Show the help search query while it is being typed: `/` inside the TUI help now draws a live `/ <query>_` input line above the help footer, exactly like the model list's own search line, and the scrollable help text gives up exactly one row while it is shown.

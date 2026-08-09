@@ -56,7 +56,8 @@ var (
 	// the main screen, 87 is the label colour whose contrast against values
 	// this whole change exists to create, and tuiSelectedStyle has a
 	// background that would read as a mouse selection on full-screen text.
-	tuiLinkStyle = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
+	tuiLinkStyle  = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
+	tuiMatchStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
 )
 
 // tuiLayoutAliases приводит символ, который физическая клавиша печатает в
@@ -963,19 +964,46 @@ func tuiHelpView(m tuiModel) string {
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
 	}
+	footerLineIndex := len(lines)
 	lines = append(lines, footer)
 	view := tuiFullscreenText(strings.Join(lines, "\n"), m.width, m.height)
+	needle := strings.ToLower(strings.TrimSpace(m.helpSearch))
 	styledLines := strings.Split(view, "\n")
 	for i, line := range styledLines {
-		if i == inputLineIndex {
+		if i == inputLineIndex || i == footerLineIndex {
 			continue
 		}
 		plain := ansi.Strip(line)
 		if strings.HasSuffix(plain, "keys") || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == "Task-fit" {
 			styledLines[i] = tuiHeaderStyle.Render(line)
+			continue
 		}
+		styledLines[i] = tuiHighlightHelpMatches(line, needle)
 	}
 	return strings.Join(styledLines, "\n")
+}
+
+func tuiHighlightHelpMatches(line, needle string) string {
+	if needle == "" || line == "" || ansi.Strip(line) != line {
+		return line
+	}
+	lower := strings.ToLower(line)
+	if len(lower) != len(line) {
+		return line
+	}
+	var out strings.Builder
+	for from := 0; from < len(line); {
+		index := strings.Index(lower[from:], needle)
+		if index < 0 {
+			out.WriteString(line[from:])
+			break
+		}
+		start, end := from+index, from+index+len(needle)
+		out.WriteString(line[from:start])
+		out.WriteString(tuiMatchStyle.Render(line[start:end]))
+		from = end
+	}
+	return out.String()
 }
 
 // detailRow returns the row the detail overlay is about — the same one the

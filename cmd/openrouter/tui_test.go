@@ -882,6 +882,92 @@ func TestTUIHelpUsesFullViewport(t *testing.T) {
 	}
 }
 
+func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "column"}
+	view := tuiHelpView(m)
+	lines := strings.Split(view, "\n")
+	if got := lines[26]; got == ansi.Strip(got) {
+		t.Fatalf("matching line was not styled: %q", got)
+	}
+	if got := ansi.Strip(lines[26]); got != tuiHelpLines()[26] {
+		t.Fatalf("matching line changed: got %q, want %q", got, tuiHelpLines()[26])
+	}
+	if got := strings.Count(lines[26], tuiMatchStyle.Render("column")); got != 3 {
+		t.Fatalf("matching line has %d styled occurrences, want 3: %q", got, lines[26])
+	}
+
+	m.helpSearch = "match"
+	lines = strings.Split(tuiHelpView(m), "\n")
+	if got := strings.Count(lines[57], tuiMatchStyle.Render("match")); got != 2 {
+		t.Fatalf("match line has %d styled occurrences, want 2: %q", got, lines[57])
+	}
+	if !strings.Contains(ansi.Strip(lines[58]), `"match"`) || lines[58] != ansi.Strip(lines[58]) {
+		t.Fatalf("footer was not kept plain: %q", lines[58])
+	}
+
+	m.helpSearch = "search"
+	lines = strings.Split(tuiHelpView(m), "\n")
+	for _, index := range []int{25, 55} {
+		if want := tuiHeaderStyle.Render(tuiHelpLines()[index]); lines[index] != want {
+			t.Fatalf("heading line %d = %q, want %q", index, lines[index], want)
+		}
+	}
+	for _, index := range []int{11, 18, 27, 28} {
+		if lines[index] == ansi.Strip(lines[index]) {
+			t.Fatalf("content line %d was not highlighted: %q", index, lines[index])
+		}
+	}
+
+	m.helpSearch, m.inputMode, m.input = "search", "help-search", "search"
+	lines = strings.Split(tuiHelpView(m), "\n")
+	foundInput := false
+	for _, line := range lines {
+		if ansi.Strip(line) == "/ search_" {
+			foundInput = true
+			if line != ansi.Strip(line) {
+				t.Fatalf("input line was highlighted: %q", line)
+			}
+		}
+	}
+	if !foundInput {
+		t.Fatal("input line was not found in rendered help")
+	}
+}
+
+func TestTUIHelpSearchPreservesDisplayCaseAndNormalizesNeedle(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "task-fit"}
+	lines := strings.Split(tuiHelpView(m), "\n")
+	if !strings.Contains(lines[15], tuiMatchStyle.Render("Task-fit")) || !strings.Contains(lines[23], tuiMatchStyle.Render("task-fit")) {
+		t.Fatalf("display case was not preserved: line 15=%q, line 23=%q", lines[15], lines[23])
+	}
+	if want := tuiHeaderStyle.Render("Task-fit"); lines[13] != want {
+		t.Fatalf("heading was not kept intact: got %q, want %q", lines[13], want)
+	}
+	for _, needle := range []string{"TASK-FIT", "Task-Fit", "task-fit"} {
+		if got := tuiHelpSearch(needle); !reflect.DeepEqual(got, tuiHelpSearch("task-fit")) {
+			t.Fatalf("tuiHelpSearch(%q) = %v, want %v", needle, got, tuiHelpSearch("task-fit"))
+		}
+	}
+}
+
+func TestTUIHelpSearchWithEmptyNeedleDoesNotHighlightContent(t *testing.T) {
+	tuiForceColorProfile(t)
+	for _, needle := range []string{"", "   "} {
+		m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: needle}
+		view := tuiHelpView(m)
+		assertTUIViewFits(t, view, m.width, m.height, "help without search")
+		for index, line := range strings.Split(view, "\n") {
+			plain := ansi.Strip(line)
+			isHeader := strings.HasSuffix(plain, "keys") || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == "Task-fit"
+			if !isHeader && line != plain {
+				t.Fatalf("empty needle styled content line %d for %q: %q", index, needle, line)
+			}
+		}
+	}
+}
+
 func assertTUIViewFits(t *testing.T, view string, width, height int, mode string) {
 	t.Helper()
 	lines := strings.Split(view, "\n")
