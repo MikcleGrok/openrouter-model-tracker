@@ -1724,3 +1724,98 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// TestTUIDetailScreenShowsModelLinksFromTheSnapshot is the whole-feature
+// acceptance check. It goes through the real construction path —
+// newConfiguredTUIModel, which loads from disk exactly the way a live
+// session and a live refresh both do — so it fails if ANY hop of the
+// pipeline drops the two identifiers: the decoder, MergeWithArena,
+// NewSnapshot, or either of the two PriceInfo rebuilds. It renders with
+// colour forced on, so it also proves the styled screen still says
+// exactly what the plain one says.
+func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
+	tuiForceColorProfile(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\ndemo/closed\ttier=opus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/dated:\n    display: Demo Dated\n  demo/closed:\n    display: Demo Closed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/dated": {
+			InPerM: 1, OutPerM: 3, Context: 128000,
+			Created: 1786034890, Description: "Demo Dated is strong at long context.",
+			CanonicalSlug: "demo/dated-20260804", HuggingFaceID: "demo-labs/Dated",
+			Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 75, SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
+		},
+		"demo/closed": {
+			InPerM: 2, OutPerM: 6, Context: 200000,
+			Created: 1786034890, Description: "Demo Closed has no public weights.",
+			CanonicalSlug: "demo/closed-20260804",
+		},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := ranking.Compile(ranking.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := newConfiguredTUIModel(context.Background(), root, refresh.Options{}, 0, "q/p", false, "", 0, false, rankingDefault, compiled, scoreSourceSWEBench)
+	if err != nil {
+		t.Fatalf("newConfiguredTUIModel: %v", err)
+	}
+	m.width, m.height = 120, 80
+	m.cursor = tuiRowIndex(t, m.visible, "demo/dated")
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
+	}
+
+	view := m.View()
+	plain := ansi.Strip(view)
+	for _, want := range []string{
+		"Demo Dated (demo/dated)",
+		"Страница OpenRouter: https://openrouter.ai/demo/dated-20260804",
+		"Репозиторий HuggingFace: https://huggingface.co/demo-labs/Dated",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, plain)
+		}
+	}
+	if !strings.Contains(view, tuiLinkStyle.Render("https://openrouter.ai/demo/dated-20260804")) {
+		t.Errorf("the OpenRouter link reached the screen unstyled:\n%s", view)
+	}
+
+	// The second row has no HuggingFace repository: its line must be absent
+	// entirely rather than present as н/д. The overlay always renders the
+	// row the list highlights, so moving the cursor is all it takes.
+	m.cursor = tuiRowIndex(t, m.visible, "demo/closed")
+	closed := ansi.Strip(m.View())
+	if !strings.Contains(closed, "Страница OpenRouter: https://openrouter.ai/demo/closed-20260804") {
+		t.Errorf("the second row lost its OpenRouter link:\n%s", closed)
+	}
+	if strings.Contains(closed, "HuggingFace") {
+		t.Errorf("a model with no repository must not mention HuggingFace at all:\n%s", closed)
+	}
+}
+
+func tuiRowIndex(t *testing.T, rows []model.Model, slug string) int {
+	t.Helper()
+	for i, row := range rows {
+		if row.Slug == slug {
+			return i
+		}
+	}
+	t.Fatalf("no row with slug %q in %+v", slug, rows)
+	return -1
+}
