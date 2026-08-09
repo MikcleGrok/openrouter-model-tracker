@@ -1,6 +1,6 @@
 # What's New
 
-## [Unreleased]
+## [1.7.0]
 
 - Show the help search query while it is being typed: `/` inside the TUI help now draws a live `/ <query>_` input line above the help footer, exactly like the model list's own search line, and the scrollable help text gives up exactly one row while it is shown.
 
