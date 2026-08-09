@@ -1,5 +1,9 @@
 # What's New
 
+## [Unreleased]
+
+- Make every single-character TUI hotkey work under the Russian keyboard layout: the pressed key is resolved through an explicit, code-defined character alias table (no `locale`/`LANG` lookup, no OS keyboard query, no extended keyboard protocol), while the built-in help stays English-only.
+
 ## [1.5.0]
 
 - Add cosign-based release signing and provenance verification (static key pair, no Fulcio/Rekor/transparency log): `make sign`, `make attest`, `make verify-provenance`.
