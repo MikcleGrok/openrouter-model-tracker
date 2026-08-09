@@ -972,3 +972,185 @@ func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
 		t.Fatalf("tuiWrapText = %q, want the blank line between paragraphs preserved", got)
 	}
 }
+
+func tuiDetailTestModel() model.Model {
+	return model.Model{
+		Slug: "openai/gpt-5.6-luna", DisplayName: "GPT-5.6 Luna", Tier: "opus",
+		Owner: "OpenAI (C)", OpenWeights: "нет", ClaudeRef: "≈ Opus 4.6",
+		InPerM: 0.5, OutPerM: 3, Context: 1000000,
+		Created: 1786034890, Description: "GPT-5.6 Luna is OpenAI's long-context flagship, strong at code and weak at latency.",
+		LongContextPriceLabel: "$1.00 / $4.00 от 272K+", LongContextInLabel: "$1.00 от 272K+", LongContextOutLabel: "$4.00 от 272K+",
+		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
+		ScoreLabel: "93.0%",
+		ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "gpt-5-6-luna", SourceURL: "https://arena.ai/leaderboard/text", Checked: "2026-08-06"},
+		ArenaLabel: "1453 Elo",
+		TaskFit:    []string{"implement", "debug"},
+		Note:       "Дорогая, но лучшая по SWE-bench.",
+	}
+}
+
+func tuiDetailIndex(t *testing.T, lines []string, prefix string) int {
+	t.Helper()
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			return i
+		}
+	}
+	t.Fatalf("no line starts with %q in:\n%s", prefix, strings.Join(lines, "\n"))
+	return -1
+}
+
+func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, now)
+	joined := strings.Join(lines, "\n")
+
+	if lines[0] != "GPT-5.6 Luna (openai/gpt-5.6-luna)" {
+		t.Errorf("header = %q, want the display name and the slug", lines[0])
+	}
+	for _, want := range []string{
+		"Производитель: OpenAI (C)",
+		"Тир: opus",
+		"Claude-референс: ≈ Opus 4.6",
+		"Дата релиза: 2026-08-06 (2 месяца назад)",
+		"Контекст: 1M",
+		"Вход: $0.50 за M токенов",
+		"Выход: $3.00 за M токенов",
+		"Длинный контекст: $1.00 / $4.00 от 272K+",
+		"  вход: $1.00 от 272K+",
+		"  выход: $4.00 от 272K+",
+		"Открытые веса: нет",
+		"Task fit: implement + debug",
+		"Заметка:",
+		"  Дорогая, но лучшая по SWE-bench.",
+		"Описание:",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detail lines are missing %q:\n%s", want, joined)
+		}
+	}
+
+	order := []string{"GPT-5.6 Luna", "Производитель:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Task fit:", "Заметка:", "Описание:"}
+	previous := -1
+	for _, prefix := range order {
+		index := tuiDetailIndex(t, lines, prefix)
+		if index <= previous {
+			t.Fatalf("block %q is at line %d, out of order against the previous block at %d:\n%s", prefix, index, previous, joined)
+		}
+		previous = index
+	}
+	if tuiDetailIndex(t, lines, "Описание:") != len(lines)-2 {
+		t.Errorf("the description must be the last block; it is not:\n%s", joined)
+	}
+}
+
+// TestTUIDetailLinesKeepTheTwoScoreSourcesApart is the detail screen's
+// share of the project-wide invariant: SWE-bench Verified percentages and
+// LMArena Elo ratings are never one number and never one line. The detail
+// screen is the only place that shows both at once, which is allowed
+// precisely because each has its own heading naming its own scale.
+func TestTUIDetailLinesKeepTheTwoScoreSourcesApart(t *testing.T) {
+	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
+	swe := tuiDetailIndex(t, lines, "Оценка SWE-bench Verified")
+	arena := tuiDetailIndex(t, lines, "Оценка LMArena")
+	if swe >= arena {
+		t.Fatalf("the SWE-bench block must come before the Arena block: %d vs %d", swe, arena)
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "93.0%") && strings.Contains(line, "1453 Elo") {
+			t.Fatalf("a percentage and an Elo rating share one line: %q", line)
+		}
+	}
+	if !strings.Contains(strings.Join(lines[swe:arena], "\n"), "93.0%") {
+		t.Errorf("the SWE-bench block does not carry the SWE-bench label:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(strings.Join(lines[arena:], "\n"), "1453 Elo") {
+		t.Errorf("the Arena block does not carry the Elo label:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, want := range []string{"  Источник: https://www.vals.ai/benchmarks/swebench", "  Проверено: 2026-08-03", "  Измеренный вариант: openai/gpt-5.6-luna"} {
+		if !strings.Contains(strings.Join(lines[swe:arena], "\n"), want) {
+			t.Errorf("the SWE-bench block lost its provenance line %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading covers the trap
+// model.ForScoreSource sets for this screen: in the arena view it has
+// already overwritten Score/ScoreLabel with the Arena projection, so a
+// block built from those fields would show "1453 Elo" as a SWE-bench
+// Verified percentage.
+func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
+	projected := model.ForScoreSource([]model.Model{tuiDetailTestModel()}, scoreSourceArena)[0]
+	lines := tuiDetailLines(projected, scoreSourceArena, 100, time.Now())
+	swe := tuiDetailIndex(t, lines, "Оценка SWE-bench Verified")
+	arena := tuiDetailIndex(t, lines, "Оценка LMArena")
+	block := strings.Join(lines[swe:arena], "\n")
+	if strings.Contains(block, "1453 Elo") || strings.Contains(block, "arena.ai") {
+		t.Fatalf("the arena-mode SWE-bench block carries Arena data:\n%s", block)
+	}
+	if !strings.Contains(block, "н/д") {
+		t.Errorf("the arena-mode SWE-bench block must say н/д instead of borrowing the other scale:\n%s", block)
+	}
+	if !strings.Contains(strings.Join(lines[arena:], "\n"), "1453 Elo") {
+		t.Errorf("the Arena block lost its Elo label in arena mode:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
+	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "Длинный контекст") {
+		t.Errorf("a model without a long-context tier must not get that block at all:\n%s", joined)
+	}
+	if lines[len(lines)-1] != "  н/д" {
+		t.Errorf("an empty description = %q, want the placeholder", lines[len(lines)-1])
+	}
+}
+
+func TestTUIDetailAgeUsesRussianPluralForms(t *testing.T) {
+	published := time.Unix(1786034890, 0).UTC()
+	for _, test := range []struct {
+		days int
+		want string
+	}{
+		{0, "2026-08-06 (сегодня)"},
+		{1, "2026-08-06 (1 день назад)"},
+		{2, "2026-08-06 (2 дня назад)"},
+		{5, "2026-08-06 (5 дней назад)"},
+		{11, "2026-08-06 (11 дней назад)"},
+		{21, "2026-08-06 (21 день назад)"},
+		{64, "2026-08-06 (2 месяца назад)"},
+		{150, "2026-08-06 (5 месяцев назад)"},
+		{400, "2026-08-06 (1 год назад)"},
+		{1100, "2026-08-06 (3 года назад)"},
+	} {
+		if got := tuiDetailCreated(1786034890, published.AddDate(0, 0, test.days)); got != test.want {
+			t.Errorf("%d days after publication = %q, want %q", test.days, got, test.want)
+		}
+	}
+	if got := tuiDetailCreated(0, published); got != "н/д" {
+		t.Errorf("a zero timestamp = %q, want the placeholder", got)
+	}
+}
+
+func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
+	narrow := tuiDetailMaxOffset(row, scoreSourceSWEBench, 30, 10)
+	wide := tuiDetailMaxOffset(row, scoreSourceSWEBench, 200, 10)
+	if narrow <= wide {
+		t.Fatalf("max offset must grow as the screen narrows and the text wraps into more lines: narrow=%d wide=%d", narrow, wide)
+	}
+	if got := tuiDetailMaxOffset(row, scoreSourceSWEBench, 200, 1000); got != 0 {
+		t.Errorf("max offset on a viewport taller than the content = %d, want 0", got)
+	}
+	lines := tuiDetailLines(row, scoreSourceSWEBench, 30, time.Now())
+	if want := len(lines) - tuiDetailBodyHeight(10); narrow != want {
+		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
+	}
+}

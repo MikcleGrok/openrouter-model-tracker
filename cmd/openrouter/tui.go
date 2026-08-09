@@ -911,6 +911,202 @@ func tuiWrapWord(word string, width int) []string {
 	return chunks
 }
 
+// tuiDetailValue is the detail screen's single rule for an absent value:
+// the project's н/д placeholder, never a labelled blank.
+func tuiDetailValue(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "н/д"
+	}
+	return plainTableText(value)
+}
+
+// tuiDetailPrice formats a $/M price. pricing.FormatDollar returns an
+// empty string for a positive price below one cent, which would render as
+// a labelled blank; the detail screen says what it means instead.
+func tuiDetailPrice(v float64) string {
+	if label := pricing.FormatDollar(v); label != "" {
+		return label
+	}
+	return "< $0.01"
+}
+
+// tuiDetailTaskFit spells the task-fit keywords out in full rather than in
+// the table's compact codes: the screen has the room, and showing task fit
+// and the note at the same time is one of the reasons it exists — in the
+// table they share one column and are toggled with n.
+func tuiDetailTaskFit(m model.Model) string {
+	if len(m.TaskFit) == 0 {
+		return "н/д"
+	}
+	return strings.Join(m.TaskFit, " + ")
+}
+
+// tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
+// screen width, indented by two columns, and replaced by the placeholder
+// when empty.
+func tuiDetailWrapped(value string, width int) []string {
+	value = strings.TrimSpace(plainTableText(value))
+	if value == "" {
+		return []string{"  н/д"}
+	}
+	wrapped := tuiWrapText(value, max(1, width-2))
+	for i := range wrapped {
+		wrapped[i] = "  " + wrapped[i]
+	}
+	return wrapped
+}
+
+// tuiDetailCreated renders the catalogue's publication timestamp in both
+// forms the screen promises: the absolute date, which is stable enough to
+// live in the snapshot, and the age, which is derived from now and
+// therefore must be computed at render time. This is the one deliberate
+// exception to the rule that every display string is precomputed in
+// package model: the TUI reads a snapshot that can be a week old, so a
+// stored "2 месяца назад" would still say that half a year later.
+func tuiDetailCreated(created int64, now time.Time) string {
+	if created <= 0 {
+		return "н/д"
+	}
+	published := time.Unix(created, 0).UTC()
+	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
+}
+
+// tuiDetailAge spells the distance between two instants in whole days,
+// months or years — whichever the reader actually cares about at that
+// distance.
+func tuiDetailAge(published, now time.Time) string {
+	days := int(now.UTC().Sub(published).Hours() / 24)
+	switch {
+	case days < 0:
+		return "дата в будущем"
+	case days == 0:
+		return "сегодня"
+	case days < 31:
+		return tuiPlural(days, "день", "дня", "дней") + " назад"
+	case days < 365:
+		return tuiPlural(days/30, "месяц", "месяца", "месяцев") + " назад"
+	default:
+		return tuiPlural(days/365, "год", "года", "лет") + " назад"
+	}
+}
+
+// tuiPlural picks the Russian plural form for n: one, few (2-4), many.
+// Getting this wrong is visible on every single row of the screen.
+func tuiPlural(n int, one, few, many string) string {
+	form := many
+	switch {
+	case n%100 >= 11 && n%100 <= 14:
+		form = many
+	case n%10 == 1:
+		form = one
+	case n%10 >= 2 && n%10 <= 4:
+		form = few
+	}
+	return fmt.Sprintf("%d %s", n, form)
+}
+
+// tuiDetailSWEBenchBlock renders the SWE-bench Verified section. In the
+// arena view the row has already been through model.ForScoreSource, which
+// overwrites Score/ScoreLabel with the Arena projection — printing those
+// under a SWE-bench heading would show an Elo rating as a percentage,
+// which is the one blend the two independent views exist to prevent. So
+// the block reports honestly that this view carries no SWE-bench number.
+func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
+	lines := []string{"Оценка SWE-bench Verified (проценты):"}
+	if scoreSource != scoreSourceSWEBench {
+		return append(lines, "  н/д (активно представление arena, число SWE-bench в него не проецируется)")
+	}
+	return append(lines, tuiDetailScoreLines(m.Score, m.ScoreLabel)...)
+}
+
+// tuiDetailArenaBlock renders the LMArena section from the raw Elo fields,
+// which model.ForScoreSource leaves untouched in both views. It is a
+// separate block with its own heading and its own scale spelled out: this
+// screen is the only place both numbers are visible at once, and that is
+// acceptable only because they are labelled and physically apart.
+func tuiDetailArenaBlock(m model.Model) []string {
+	return append([]string{"Оценка LMArena (рейтинг Elo):"}, tuiDetailScoreLines(m.ArenaScore, m.ArenaLabel)...)
+}
+
+// tuiDetailScoreLines prints one score with the provenance the project's
+// own rules require: the number, whether it came from a previous run's
+// snapshot, what exactly was measured, where it came from, and when it was
+// last checked. The table's Status column has room for the number alone.
+func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
+	lines := []string{"  Значение: " + tuiDetailValue(label)}
+	if info == nil {
+		return lines
+	}
+	if info.Stale {
+		lines = append(lines, "  Устарело: значение взято из прошлого снапшота")
+	}
+	if info.VariantMeasured != "" {
+		lines = append(lines, "  Измеренный вариант: "+plainTableText(info.VariantMeasured))
+	}
+	return append(lines, "  Источник: "+tuiDetailValue(info.SourceURL), "  Проверено: "+tuiDetailValue(info.Checked))
+}
+
+// tuiDetailLines builds the detail screen's content for one model: eleven
+// labelled blocks ordered from identity to ever finer detail, with the
+// vendor description last because it is the only block of unpredictable
+// length and would otherwise push everything else off a short terminal.
+// Wrapping happens here, before any scrolling maths, so detailOffset
+// counts the same physical lines the terminal shows. now is a parameter
+// rather than a time.Now() call inside so a test can pin the release age.
+func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
+	context := "н/д"
+	if m.Context > 0 {
+		context = pricing.FormatContext(m.Context)
+	}
+	lines := []string{
+		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
+		"",
+		"Производитель: " + tuiDetailValue(m.Owner),
+		"Тир: " + tuiDetailValue(m.Tier),
+		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
+		"Дата релиза: " + tuiDetailCreated(m.Created, now),
+		"",
+		"Контекст: " + context,
+		"Вход: " + tuiDetailPrice(m.InPerM) + " за M токенов",
+		"Выход: " + tuiDetailPrice(m.OutPerM) + " за M токенов",
+	}
+	// The three long-context labels are precomputed in MergeWithArena and
+	// are all empty when the catalogue reported no override for this slug,
+	// which is why there is no HasOverride flag to consult on model.Model.
+	// The table has never had room for them; this is the only place they
+	// are shown at all.
+	if m.LongContextPriceLabel != "" {
+		lines = append(lines,
+			"Длинный контекст: "+plainTableText(m.LongContextPriceLabel),
+			"  вход: "+plainTableText(m.LongContextInLabel),
+			"  выход: "+plainTableText(m.LongContextOutLabel),
+		)
+	}
+	lines = append(lines, "Открытые веса: "+tuiDetailValue(m.OpenWeights), "")
+	lines = append(lines, tuiDetailSWEBenchBlock(m, scoreSource)...)
+	lines = append(lines, "")
+	lines = append(lines, tuiDetailArenaBlock(m)...)
+	lines = append(lines, "", "Task fit: "+tuiDetailTaskFit(m), "", "Заметка:")
+	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
+	lines = append(lines, "", "Описание:")
+	return append(lines, tuiDetailWrapped(m.Description, width)...)
+}
+
+// tuiDetailBodyHeight is how many content lines fit above the footer. The
+// help overlay appends its footer after already filling the viewport, so
+// tuiFullscreenText clips it; the detail screen reserves the line instead,
+// which also keeps tuiDetailMaxOffset and the rendered slice in agreement.
+func tuiDetailBodyHeight(height int) int { return max(1, height-1) }
+
+// tuiDetailMaxOffset is the detail screen's answer to tuiHelpMaxOffset.
+// Unlike the help document, this content is not a constant: its length
+// depends on the model, on the active score source and on the terminal
+// width the description wraps at, so the maximum is computed from the
+// lines actually built for this model rather than from a fixed document.
+func tuiDetailMaxOffset(m model.Model, scoreSource string, width, height int) int {
+	return max(0, len(tuiDetailLines(m, scoreSource, width, time.Now()))-tuiDetailBodyHeight(height))
+}
+
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
 	var value string
 	switch col {
