@@ -64,6 +64,18 @@ type Model struct {
 	Context int
 	Free    bool
 
+	// Created is the catalogue's publication timestamp (Unix seconds);
+	// Description is the vendor's prose. Both are carried verbatim from the
+	// catalogue entry and need no staleness flag of their own: a slug with
+	// no catalogue entry is dropped whole by the !price.Found check below,
+	// so "row exists but catalogue data is missing" is not a reachable
+	// state. The relative age ("2 месяца назад") is deliberately NOT
+	// precomputed here, even though every other display string is: it
+	// depends on when the screen is drawn, not on the data, and the
+	// snapshot on disk can be a week old.
+	Created     int64
+	Description string
+
 	Score        *ScoreInfo
 	MixedPrice   float64
 	QualityPrice float64
@@ -175,6 +187,8 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			OutPerM:     price.OutPerM,
 			Context:     price.Context,
 			Free:        price.Free,
+			Created:     price.Created,
+			Description: price.Description,
 			Note:        nt.ModelNote(e.Slug),
 			TaskFit:     nt.TaskFit(e.Slug),
 			Owner:       nt.Owner(e.Slug),

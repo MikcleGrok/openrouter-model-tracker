@@ -139,6 +139,29 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+// TestMergeCarriesCatalogueCreatedAndDescription checks the second hop of
+// the catalogue-metadata pipeline. It goes through Merge (not
+// MergeWithArena) on purpose: Merge is a thin wrapper, and this pins down
+// that it keeps getting new catalogue fields for free.
+func TestMergeCarriesCatalogueCreatedAndDescription(t *testing.T) {
+	prices := testPrices()
+	luna := prices["openai/gpt-5.6-luna"]
+	luna.Created, luna.Description = 1786034890, "GPT-5.6 Luna is OpenAI's long-context flagship."
+	prices["openai/gpt-5.6-luna"] = luna
+
+	got := byslug(Merge(testEntries(), prices, nil, testNotes(t)))
+
+	if got["openai/gpt-5.6-luna"].Created != 1786034890 {
+		t.Errorf("luna.Created = %d, want the catalogue timestamp carried through the merge", got["openai/gpt-5.6-luna"].Created)
+	}
+	if got["openai/gpt-5.6-luna"].Description != "GPT-5.6 Luna is OpenAI's long-context flagship." {
+		t.Errorf("luna.Description = %q, want the catalogue prose carried through the merge", got["openai/gpt-5.6-luna"].Description)
+	}
+	if m3 := got["minimax/minimax-m3"]; m3.Created != 0 || m3.Description != "" {
+		t.Errorf("m3 = %+v, want zero catalogue metadata for an entry whose price info carries none", m3)
+	}
+}
+
 func TestMergeTakesTheFirstSourceForASlug(t *testing.T) {
 	scores := []sources.ScoreRow{
 		{Slug: "openai/gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 79.2, VariantMeasured: "OpenHands", SourceURL: "https://www.swebench.com/"},
