@@ -47,6 +47,16 @@ var (
 	tuiStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	tuiErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	tuiHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	// tuiLinkStyle introduces no new colour: 81 is tuiTitleStyle's, and the
+	// difference is carried by the attribute, because underlining is the
+	// universal terminal convention for "this is a link" and costs nothing
+	// in palette. Bold stays exclusive to the screen title, underline stays
+	// exclusive to links, so the two remain distinguishable. Reusing an
+	// existing style instead was rejected: 220 means "state/attention" on
+	// the main screen, 87 is the label colour whose contrast against values
+	// this whole change exists to create, and tuiSelectedStyle has a
+	// background that would read as a mouse selection on full-screen text.
+	tuiLinkStyle = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
 )
 
 func tuiCommandKey(msg tea.KeyMsg) string {
@@ -799,6 +809,9 @@ func (m tuiModel) detailRow() (model.Model, bool) {
 // from the help view in one deliberate way — the footer gets a reserved
 // line instead of being appended past a full viewport and clipped — so
 // what is scrolled and what tuiDetailMaxOffset allows always agree.
+// Colour is applied by tuiStyleDetail strictly afterwards, to the
+// finished text: nothing styled may ever flow back into the width
+// arithmetic above, none of which is ANSI-aware.
 func tuiDetailView(m tuiModel) string {
 	row, ok := m.detailRow()
 	if !ok {
@@ -813,7 +826,84 @@ func tuiDetailView(m tuiModel) string {
 		visible = []string{""}
 	}
 	visible = append(visible, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines)))
-	return tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
+	view := tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
+	return tuiStyleDetail(view, offset == 0, len(visible)-1)
+}
+
+// tuiStyleDetail paints the detail screen's finished output. Everything
+// above it — line building, wrapping, the scrolling arithmetic, the
+// viewport slice and truncateTable's cut — has already run on plain text,
+// which is the whole point: tableDisplayWidth and plainTableText know
+// nothing about escape sequences, so a styled string entering them would
+// be measured by its raw byte length, cut mid-escape, and end up on
+// screen as visible "[38;5;87m" garbage. tuiHelpView takes exactly this
+// approach for the same reason. Two lines are addressed by index rather
+// than by text because their position is known for certain: the title is
+// the first line whenever the screen is not scrolled, and the footer is
+// the line tuiDetailView appended itself. A footer index past the end of
+// the output simply never matches — that happens only at height 1, where
+// tuiFullscreenText clips the footer away.
+func tuiStyleDetail(view string, header bool, footer int) string {
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		switch {
+		case i == 0 && header:
+			lines[i] = tuiTitleStyle.Render(line)
+		case i == footer:
+			lines[i] = tuiHintStyle.Render(line)
+		default:
+			lines[i] = tuiStyleDetailLine(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// tuiStyleDetailLine styles one finished line by reading its own plain
+// text: a field label up to and including the first ": ", a whole line
+// that is a block heading, a greyed-out placeholder, an underlined URL.
+// Values keep the terminal's default colour on purpose — hierarchy comes
+// from there being less colour on screen than not, and the default colour
+// is the one that reads correctly on any user theme.
+//
+// The ansi.Strip comparison is the function's safety interlock rather
+// than decoration. By construction the line cannot carry an escape: every
+// producer above is plain text, and tuiFullscreenText runs each line
+// through plainTableText, which no escape survives. That is exactly what
+// makes it safe to cut the line at a byte offset found in its text. If
+// the assumption is ever broken, the line is handed back untouched
+// instead of being sliced through the middle of an escape sequence.
+//
+// Misfires are possible — a sentence containing ": " gets a coloured
+// opening, a prose line ending in a colon is read as a heading — and are
+// accepted: layout, wrapping, scrolling and truncation are all already
+// computed, so the only consequence is the colour of one line, and
+// lipgloss closes its sequence at the end of every Render, so nothing can
+// bleed into the next line.
+func tuiStyleDetailLine(line string) string {
+	plain := ansi.Strip(line)
+	if plain != line || strings.TrimSpace(plain) == "" {
+		return line
+	}
+	index := strings.Index(plain, ": ")
+	if index < 0 {
+		switch {
+		case strings.HasSuffix(plain, ":"):
+			return tuiHeaderStyle.Render(plain)
+		case strings.HasPrefix(strings.TrimSpace(plain), tuiDetailPlaceholder):
+			return tuiHintStyle.Render(plain)
+		default:
+			return plain
+		}
+	}
+	label, value := plain[:index+2], plain[index+2:]
+	switch {
+	case strings.HasPrefix(value, tuiDetailPlaceholder):
+		return tuiHeaderStyle.Render(label) + tuiHintStyle.Render(value)
+	case strings.HasPrefix(value, "https://"), strings.HasPrefix(value, "http://"):
+		return tuiHeaderStyle.Render(label) + tuiLinkStyle.Render(value)
+	default:
+		return tuiHeaderStyle.Render(label) + value
+	}
 }
 
 const tuiHelpDocument = `openrouter tui keys
