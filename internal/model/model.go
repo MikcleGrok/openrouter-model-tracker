@@ -76,6 +76,19 @@ type Model struct {
 	Created     int64
 	Description string
 
+	// CanonicalSlug and HuggingFaceID are the catalogue identifiers the TUI
+	// detail screen turns into links: https://openrouter.ai/<CanonicalSlug>
+	// and https://huggingface.co/<HuggingFaceID>. Unlike Created and
+	// Description above, they have two reachable empty states, and neither
+	// is a defect: a snapshot written before this feature existed carries
+	// neither field until the next refresh, and roughly 60% of catalogue
+	// entries genuinely have no hugging_face_id at all, because a
+	// proprietary model has no repository to link to. Neither is ever
+	// guessed from Slug — id and canonical_slug disagree for most of the
+	// catalogue, so a guess would be a silently wrong link.
+	CanonicalSlug string
+	HuggingFaceID string
+
 	Score        *ScoreInfo
 	MixedPrice   float64
 	QualityPrice float64
@@ -180,20 +193,22 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		}
 
 		m := Model{
-			Slug:        e.Slug,
-			DisplayName: nt.DisplayName(e.Slug),
-			Tier:        e.Tier,
-			InPerM:      price.InPerM,
-			OutPerM:     price.OutPerM,
-			Context:     price.Context,
-			Free:        price.Free,
-			Created:     price.Created,
-			Description: price.Description,
-			Note:        nt.ModelNote(e.Slug),
-			TaskFit:     nt.TaskFit(e.Slug),
-			Owner:       nt.Owner(e.Slug),
-			OpenWeights: nt.OpenWeights(e.Slug),
-			ClaudeRef:   nt.ClaudeRef(e.Slug),
+			Slug:          e.Slug,
+			DisplayName:   nt.DisplayName(e.Slug),
+			Tier:          e.Tier,
+			InPerM:        price.InPerM,
+			OutPerM:       price.OutPerM,
+			Context:       price.Context,
+			Free:          price.Free,
+			Created:       price.Created,
+			Description:   price.Description,
+			CanonicalSlug: price.CanonicalSlug,
+			HuggingFaceID: price.HuggingFaceID,
+			Note:          nt.ModelNote(e.Slug),
+			TaskFit:       nt.TaskFit(e.Slug),
+			Owner:         nt.Owner(e.Slug),
+			OpenWeights:   nt.OpenWeights(e.Slug),
+			ClaudeRef:     nt.ClaudeRef(e.Slug),
 		}
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
 		m.InputPrice, m.OutputPrice = m.InPerM, m.OutPerM
