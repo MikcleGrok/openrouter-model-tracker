@@ -996,6 +996,7 @@ func tuiDetailTestModel() model.Model {
 		Owner: "OpenAI (C)", OpenWeights: "нет", ClaudeRef: "≈ Opus 4.6",
 		InPerM: 0.5, OutPerM: 3, Context: 1000000,
 		Created: 1786034890, Description: "GPT-5.6 Luna is OpenAI's long-context flagship, strong at code and weak at latency.",
+		CanonicalSlug: "openai/gpt-5.6-luna-20260804", HuggingFaceID: "openai-community/gpt-5-6-luna",
 		LongContextPriceLabel: "$1.00 / $4.00 от 272K+", LongContextInLabel: "$1.00 от 272K+", LongContextOutLabel: "$4.00 от 272K+",
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
 		ScoreLabel: "93.0%",
@@ -1119,7 +1120,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -1172,6 +1173,101 @@ func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	lines := tuiDetailLines(row, scoreSourceSWEBench, 30, time.Now())
 	if want := len(lines) - tuiDetailBodyHeight(10); narrow != want {
 		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
+	}
+}
+
+// TestTUIDetailLinesShowBothModelLinks pins down the position and the
+// exact shape of the two link lines: they close the identity group, right
+// after the release date and before the blank line that opens the context
+// and pricing block.
+func TestTUIDetailLinesShowBothModelLinks(t *testing.T) {
+	row := tuiDetailTestModel()
+	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	joined := strings.Join(lines, "\n")
+
+	for _, want := range []string{
+		"Страница OpenRouter: https://openrouter.ai/openai/gpt-5.6-luna-20260804",
+		"Репозиторий HuggingFace: https://huggingface.co/openai-community/gpt-5-6-luna",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detail lines are missing %q:\n%s", want, joined)
+		}
+	}
+
+	created := tuiDetailIndex(t, lines, "Дата релиза:")
+	openrouter := tuiDetailIndex(t, lines, "Страница OpenRouter:")
+	hugging := tuiDetailIndex(t, lines, "Репозиторий HuggingFace:")
+	if openrouter != created+1 || hugging != created+2 {
+		t.Fatalf("link lines are at %d and %d, want them immediately after the release date at %d:\n%s", openrouter, hugging, created, joined)
+	}
+	if lines[hugging+1] != "" {
+		t.Errorf("line after the links = %q, want the blank line that separates the identity group from the context block", lines[hugging+1])
+	}
+}
+
+// TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug is the
+// whole reason a new catalogue field was threaded through five pipeline
+// hops instead of reusing m.Slug: id and canonical_slug disagree for 62%
+// of the live catalogue, so a link built from the slug would sometimes
+// point at a 404 and sometimes, worse, at a different variant's page.
+func TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug(t *testing.T) {
+	row := tuiDetailTestModel()
+	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	link := lines[tuiDetailIndex(t, lines, "Страница OpenRouter:")]
+	if want := "Страница OpenRouter: https://openrouter.ai/" + row.CanonicalSlug; link != want {
+		t.Fatalf("link line = %q, want %q", link, want)
+	}
+	if link == "Страница OpenRouter: https://openrouter.ai/"+row.Slug {
+		t.Fatalf("link line = %q, want it built from the canonical slug, not from the id", link)
+	}
+}
+
+// TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository covers the
+// screen's one deliberate exception to "always print the label, н/д when
+// empty": a proprietary model has no repository, that fact is already
+// stated by the Открытые веса line, and it is the majority case — around
+// 60% of catalogue entries carry no hugging_face_id at all.
+func TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.HuggingFaceID = ""
+	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	if strings.Contains(joined, "HuggingFace") {
+		t.Errorf("a model with no repository must not mention HuggingFace at all, not even as н/д:\n%s", joined)
+	}
+	if !strings.Contains(joined, "Страница OpenRouter: https://openrouter.ai/") {
+		t.Errorf("the OpenRouter link must still be there:\n%s", joined)
+	}
+}
+
+// TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug covers the
+// other half of the rule: canonical_slug is present on every catalogue
+// entry, so an empty one is an anomaly worth showing rather than hiding.
+// It is reachable in exactly one way — a snapshot written before this
+// feature existed, read before the next refresh.
+func TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.CanonicalSlug = ""
+	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	if !strings.Contains(joined, "Страница OpenRouter: н/д") {
+		t.Errorf("an empty canonical slug must print the placeholder:\n%s", joined)
+	}
+	if strings.Contains(joined, "https://openrouter.ai/") {
+		t.Errorf("an empty canonical slug must never be papered over with a link guessed from the slug:\n%s", joined)
+	}
+}
+
+// TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine checks that the
+// conditional line is counted by the scrolling maths rather than
+// hardcoded anywhere: tuiDetailMaxOffset derives the limit from the lines
+// actually built for this model.
+func TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine(t *testing.T) {
+	withRepo := tuiDetailTestModel()
+	without := tuiDetailTestModel()
+	without.HuggingFaceID = ""
+	got := tuiDetailMaxOffset(withRepo, scoreSourceSWEBench, 100, 10)
+	want := tuiDetailMaxOffset(without, scoreSourceSWEBench, 100, 10)
+	if got != want+1 {
+		t.Fatalf("max offset with a repository = %d, without = %d, want exactly one line of difference", got, want)
 	}
 }
 

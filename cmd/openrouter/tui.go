@@ -987,13 +987,42 @@ func tuiWrapWord(word string, width int) []string {
 	return chunks
 }
 
+const (
+	// tuiDetailPlaceholder is the detail screen's stand-in for an absent
+	// value. It is a constant rather than a literal because the styling
+	// pass in tuiStyleDetailLine recognises it by text: a literal repeated
+	// in six places and a rule that greys out a seventh copy of it would
+	// drift apart the first time one of them is reworded.
+	tuiDetailPlaceholder = "н/д"
+
+	// The two link prefixes are constants for the same reason no ready-made
+	// URL is stored in model.Model or in the snapshot: the address is
+	// entirely derived from an identifier plus a fixed prefix, so one place
+	// to change is strictly better than a value duplicated across every
+	// model in the snapshot file.
+	tuiOpenRouterModelURL  = "https://openrouter.ai/"
+	tuiHuggingFaceModelURL = "https://huggingface.co/"
+)
+
 // tuiDetailValue is the detail screen's single rule for an absent value:
 // the project's н/д placeholder, never a labelled blank.
 func tuiDetailValue(value string) string {
 	if strings.TrimSpace(value) == "" {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	return plainTableText(value)
+}
+
+// tuiDetailURL renders a link line's value: the fixed prefix plus the
+// catalogue identifier, or the placeholder when the catalogue gave none.
+// The identifier goes through the same sanitisation as every other value
+// on this screen, so nothing raw from the network is ever printed.
+func tuiDetailURL(prefix, id string) string {
+	id = strings.TrimSpace(plainTableText(id))
+	if id == "" {
+		return tuiDetailPlaceholder
+	}
+	return prefix + id
 }
 
 // tuiDetailPrice formats a $/M price. pricing.FormatDollar returns an
@@ -1012,7 +1041,7 @@ func tuiDetailPrice(v float64) string {
 // table they share one column and are toggled with n.
 func tuiDetailTaskFit(m model.Model) string {
 	if len(m.TaskFit) == 0 {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	return strings.Join(m.TaskFit, " + ")
 }
@@ -1025,7 +1054,7 @@ func tuiDetailTaskFit(m model.Model) string {
 func tuiDetailWrapped(value string, width int) []string {
 	value = strings.TrimSpace(plainDetailText(value))
 	if value == "" {
-		return []string{"  н/д"}
+		return []string{"  " + tuiDetailPlaceholder}
 	}
 	wrapped := tuiWrapText(value, max(1, width-2))
 	for i := range wrapped {
@@ -1043,7 +1072,7 @@ func tuiDetailWrapped(value string, width int) []string {
 // stored "2 месяца назад" would still say that half a year later.
 func tuiDetailCreated(created int64, now time.Time) string {
 	if created <= 0 {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	published := time.Unix(created, 0).UTC()
 	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
@@ -1092,7 +1121,7 @@ func tuiPlural(n int, one, few, many string) string {
 func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
 	lines := []string{"Оценка SWE-bench Verified (проценты):"}
 	if scoreSource != scoreSourceSWEBench {
-		return append(lines, "  н/д (активно представление arena, число SWE-bench в него не проецируется)")
+		return append(lines, "  "+tuiDetailPlaceholder+" (активно представление arena, число SWE-bench в него не проецируется)")
 	}
 	return append(lines, tuiDetailScoreLines(m.Score, m.ScoreLabel)...)
 }
@@ -1124,7 +1153,7 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 	return append(lines, "  Источник: "+tuiDetailValue(info.SourceURL), "  Проверено: "+tuiDetailValue(info.Checked))
 }
 
-// tuiDetailLines builds the detail screen's content for one model: eleven
+// tuiDetailLines builds the detail screen's content for one model: twelve
 // labelled blocks ordered from identity to ever finer detail, with the
 // vendor description last because it is the only block of unpredictable
 // length and would otherwise push everything else off a short terminal.
@@ -1135,7 +1164,7 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 // model.ForScoreSource; passing a mismatched pair defeats the SWE-bench
 // block's gate against printing Arena data under the wrong heading.
 func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
-	context := "н/д"
+	context := tuiDetailPlaceholder
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
 	}
@@ -1146,11 +1175,27 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 		"Тир: " + tuiDetailValue(m.Tier),
 		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
 		"Дата релиза: " + tuiDetailCreated(m.Created, now),
-		"",
-		"Контекст: " + context,
-		"Вход: " + tuiDetailPrice(m.InPerM) + " за M токенов",
-		"Выход: " + tuiDetailPrice(m.OutPerM) + " за M токенов",
+		"Страница OpenRouter: " + tuiDetailURL(tuiOpenRouterModelURL, m.CanonicalSlug),
 	}
+	// The HuggingFace line is the screen's one deliberate exception to
+	// "always print the label, н/д when the value is empty". That rule
+	// exists to tell "no data" apart from "field forgotten", which is worth
+	// a line when the absence is a data defect. Here it is a fact about the
+	// model — a proprietary model has no repository, there is nothing to
+	// fix — the fact is already stated one block down by Открытые веса, and
+	// it is the majority case: hugging_face_id is set on roughly 40% of
+	// catalogue entries, so the line would be permanently empty on three
+	// screens out of five, at the very top of the screen where vertical
+	// space is scarcest.
+	if strings.TrimSpace(m.HuggingFaceID) != "" {
+		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURL(tuiHuggingFaceModelURL, m.HuggingFaceID))
+	}
+	lines = append(lines,
+		"",
+		"Контекст: "+context,
+		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
+		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
+	)
 	// The three long-context labels are precomputed in MergeWithArena and
 	// are all empty when the catalogue reported no override for this slug,
 	// which is why there is no HasOverride flag to consult on model.Model.
