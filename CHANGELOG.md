@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 - Make every single-character TUI hotkey work under the Russian keyboard layout: the pressed key is resolved through an explicit, code-defined character alias table (no `locale`/`LANG` lookup, no OS keyboard query, no extended keyboard protocol), while the built-in help stays English-only.
+- Show the model's OpenRouter page link on the TUI detail screen, built from the catalogue's `canonical_slug`, plus a HuggingFace repository link for the models that have one.
+- Colour-code the TUI detail screen: screen title, block headings, field labels, links and the `н/д` placeholder. Styling is applied strictly after layout, so scrolling, wrapping and truncation are unchanged.
+- Carry the OpenRouter catalogue's `canonical_slug` and `hugging_face_id` through the pipeline and the run snapshot, including the degraded path where the catalogue fetch fails, with no additional HTTP request and no new cache entry.
 
 ## [1.5.0]
 

@@ -37,6 +37,17 @@ type PriceInfo struct {
 	Created     int64
 	Description string
 
+	// CanonicalSlug is the catalogue's own stable identifier for this
+	// entry — OpenRouter builds its own links.details URLs out of it rather
+	// than out of id — and HuggingFaceID is the bare "<org>/<repo>" path of
+	// the model's HuggingFace repository. Both are carried verbatim and are
+	// never derived: canonical_slug disagrees with id for most of the
+	// catalogue, and hugging_face_id routinely sits under a different
+	// organisation than the slug does, so a guess would link to a 404 or,
+	// worse, to a different model's page.
+	CanonicalSlug string
+	HuggingFaceID string
+
 	// HasOverride and the three fields below surface the catalogue's
 	// long-context pricing tier: a model whose prompt exceeds
 	// OverrideMinTokens bills at OverrideInPerM/OverrideOutPerM instead of
@@ -65,6 +76,8 @@ type catalogModel struct {
 	Name          string `json:"name"`
 	Created       int64  `json:"created"`
 	Description   string `json:"description"`
+	CanonicalSlug string `json:"canonical_slug"`
+	HuggingFaceID string `json:"hugging_face_id"`
 	ContextLength int    `json:"context_length"`
 	Pricing       struct {
 		Prompt     string `json:"prompt"`
@@ -136,14 +149,16 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			return nil, fmt.Errorf("openrouter: %s: parse completion price %q: %w", slug, m.Pricing.Completion, err)
 		}
 		info := PriceInfo{
-			Slug:        slug,
-			InPerM:      in,
-			OutPerM:     outPrice,
-			Context:     m.ContextLength,
-			Free:        m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
-			Found:       true,
-			Created:     m.Created,
-			Description: m.Description,
+			Slug:          slug,
+			InPerM:        in,
+			OutPerM:       outPrice,
+			Context:       m.ContextLength,
+			Free:          m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
+			Found:         true,
+			Created:       m.Created,
+			Description:   m.Description,
+			CanonicalSlug: m.CanonicalSlug,
+			HuggingFaceID: m.HuggingFaceID,
 		}
 		for _, ov := range m.Pricing.Overrides {
 			// A zero/absent threshold is not a usable long-context tier —

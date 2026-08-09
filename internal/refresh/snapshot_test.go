@@ -194,3 +194,42 @@ func TestSnapshotRoundTripsCatalogueMetadata(t *testing.T) {
 		t.Errorf("bare entry = %s, want omitempty to keep absent catalogue metadata out of the snapshot", body)
 	}
 }
+
+// TestSnapshotRoundTripsTheLinkIdentifiers is the disk hop of the link
+// pipeline. The TUI never renders a live model.Model: it re-reads this
+// snapshot and rebuilds every row from it, so a field model.Model has and
+// SnapshotEntry lacks is invisible on screen however correct the rest of
+// the pipeline is. The marshalling half of the test is not decoration
+// either: TestNewSnapshot compares a serialised entry byte for byte, so
+// a new field without omitempty breaks it for every model that has none.
+func TestSnapshotRoundTripsTheLinkIdentifiers(t *testing.T) {
+	models := []model.Model{
+		{Slug: "a/linked", InPerM: 1, OutPerM: 3, Context: 1000, CanonicalSlug: "a/linked-20260804", HuggingFaceID: "a-labs/Linked"},
+		{Slug: "a/bare", InPerM: 1, OutPerM: 3, Context: 1000},
+	}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-08-09").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+
+	linked := loaded.Models["a/linked"]
+	if linked.CanonicalSlug != "a/linked-20260804" || linked.HuggingFaceID != "a-labs/Linked" {
+		t.Errorf("linked = %+v, want both link identifiers to survive the disk round trip", linked)
+	}
+	bare := loaded.Models["a/bare"]
+	if bare.CanonicalSlug != "" || bare.HuggingFaceID != "" {
+		t.Errorf("bare = %+v, want empty link identifiers", bare)
+	}
+
+	body, err := json.Marshal(bare)
+	if err != nil {
+		t.Fatalf("marshal bare entry: %v", err)
+	}
+	if strings.Contains(string(body), "canonical_slug") || strings.Contains(string(body), "hugging_face_id") {
+		t.Errorf("bare entry = %s, want omitempty to keep absent link identifiers out of the snapshot", body)
+	}
+}

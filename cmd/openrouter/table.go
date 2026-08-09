@@ -111,6 +111,7 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 			HasOverride: entry.HasOverride, OverrideMinTokens: entry.OverrideMinTokens,
 			OverrideInPerM: entry.OverrideInPerM, OverrideOutPerM: entry.OverrideOutPerM,
 			Created: entry.Created, Description: entry.Description,
+			CanonicalSlug: entry.CanonicalSlug, HuggingFaceID: entry.HuggingFaceID,
 		}
 		if entry.Score != nil {
 			scores = append(scores, sources.ScoreRow{Slug: slug, Metric: entry.Score.Metric, Value: entry.Score.Value, VariantMeasured: entry.Score.VariantMeasured, SourceURL: entry.Score.SourceURL, Checked: entry.Score.Checked})

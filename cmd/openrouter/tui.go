@@ -47,6 +47,16 @@ var (
 	tuiStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	tuiErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
 	tuiHintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	// tuiLinkStyle introduces no new colour: 81 is tuiTitleStyle's, and the
+	// difference is carried by the attribute, because underlining is the
+	// universal terminal convention for "this is a link" and costs nothing
+	// in palette. Bold stays exclusive to the screen title, underline stays
+	// exclusive to links, so the two remain distinguishable. Reusing an
+	// existing style instead was rejected: 220 means "state/attention" on
+	// the main screen, 87 is the label colour whose contrast against values
+	// this whole change exists to create, and tuiSelectedStyle has a
+	// background that would read as a mouse selection on full-screen text.
+	tuiLinkStyle = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
 )
 
 // tuiLayoutAliases приводит символ, который физическая клавиша печатает в
@@ -838,6 +848,9 @@ func (m tuiModel) detailRow() (model.Model, bool) {
 // from the help view in one deliberate way — the footer gets a reserved
 // line instead of being appended past a full viewport and clipped — so
 // what is scrolled and what tuiDetailMaxOffset allows always agree.
+// Colour is applied by tuiStyleDetail strictly afterwards, to the
+// finished text: nothing styled may ever flow back into the width
+// arithmetic above, none of which is ANSI-aware.
 func tuiDetailView(m tuiModel) string {
 	row, ok := m.detailRow()
 	if !ok {
@@ -852,7 +865,84 @@ func tuiDetailView(m tuiModel) string {
 		visible = []string{""}
 	}
 	visible = append(visible, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines)))
-	return tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
+	view := tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
+	return tuiStyleDetail(view, offset == 0, len(visible)-1)
+}
+
+// tuiStyleDetail paints the detail screen's finished output. Everything
+// above it — line building, wrapping, the scrolling arithmetic, the
+// viewport slice and truncateTable's cut — has already run on plain text,
+// which is the whole point: tableDisplayWidth and plainTableText know
+// nothing about escape sequences, so a styled string entering them would
+// be measured by its raw byte length, cut mid-escape, and end up on
+// screen as visible "[38;5;87m" garbage. tuiHelpView takes exactly this
+// approach for the same reason. Two lines are addressed by index rather
+// than by text because their position is known for certain: the title is
+// the first line whenever the screen is not scrolled, and the footer is
+// the line tuiDetailView appended itself. A footer index past the end of
+// the output simply never matches — that happens only at height 1, where
+// tuiFullscreenText clips the footer away.
+func tuiStyleDetail(view string, header bool, footer int) string {
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		switch {
+		case i == 0 && header:
+			lines[i] = tuiTitleStyle.Render(line)
+		case i == footer:
+			lines[i] = tuiHintStyle.Render(line)
+		default:
+			lines[i] = tuiStyleDetailLine(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// tuiStyleDetailLine styles one finished line by reading its own plain
+// text: a field label up to and including the first ": ", a whole line
+// that is a block heading, a greyed-out placeholder, an underlined URL.
+// Values keep the terminal's default colour on purpose — hierarchy comes
+// from there being less colour on screen than not, and the default colour
+// is the one that reads correctly on any user theme.
+//
+// The ansi.Strip comparison is the function's safety interlock rather
+// than decoration. By construction the line cannot carry an escape: every
+// producer above is plain text, and tuiFullscreenText runs each line
+// through plainTableText, which no escape survives. That is exactly what
+// makes it safe to cut the line at a byte offset found in its text. If
+// the assumption is ever broken, the line is handed back untouched
+// instead of being sliced through the middle of an escape sequence.
+//
+// Misfires are possible — a sentence containing ": " gets a coloured
+// opening, a prose line ending in a colon is read as a heading — and are
+// accepted: layout, wrapping, scrolling and truncation are all already
+// computed, so the only consequence is the colour of one line, and
+// lipgloss closes its sequence at the end of every Render, so nothing can
+// bleed into the next line.
+func tuiStyleDetailLine(line string) string {
+	plain := ansi.Strip(line)
+	if plain != line || strings.TrimSpace(plain) == "" {
+		return line
+	}
+	index := strings.Index(plain, ": ")
+	if index < 0 {
+		switch {
+		case strings.HasSuffix(plain, ":"):
+			return tuiHeaderStyle.Render(plain)
+		case strings.HasPrefix(strings.TrimSpace(plain), tuiDetailPlaceholder):
+			return tuiHintStyle.Render(plain)
+		default:
+			return plain
+		}
+	}
+	label, value := plain[:index+2], plain[index+2:]
+	switch {
+	case strings.HasPrefix(value, tuiDetailPlaceholder):
+		return tuiHeaderStyle.Render(label) + tuiHintStyle.Render(value)
+	case strings.HasPrefix(value, "https://"), strings.HasPrefix(value, "http://"):
+		return tuiHeaderStyle.Render(label) + tuiLinkStyle.Render(value)
+	default:
+		return tuiHeaderStyle.Render(label) + value
+	}
 }
 
 const tuiHelpDocument = `openrouter tui keys
@@ -893,6 +983,8 @@ Esc, Left or h closes it and returns to the list with the same cursor.
 Up/Down or j/k, PgUp/PgDown and Home/End scroll the detail text.
 It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
+The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
+Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.
 
 Refresh and finish
 R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.
@@ -1026,13 +1118,42 @@ func tuiWrapWord(word string, width int) []string {
 	return chunks
 }
 
+const (
+	// tuiDetailPlaceholder is the detail screen's stand-in for an absent
+	// value. It is a constant rather than a literal because the styling
+	// pass in tuiStyleDetailLine recognises it by text: a literal repeated
+	// in six places and a rule that greys out a seventh copy of it would
+	// drift apart the first time one of them is reworded.
+	tuiDetailPlaceholder = "н/д"
+
+	// The two link prefixes are constants for the same reason no ready-made
+	// URL is stored in model.Model or in the snapshot: the address is
+	// entirely derived from an identifier plus a fixed prefix, so one place
+	// to change is strictly better than a value duplicated across every
+	// model in the snapshot file.
+	tuiOpenRouterModelURL  = "https://openrouter.ai/"
+	tuiHuggingFaceModelURL = "https://huggingface.co/"
+)
+
 // tuiDetailValue is the detail screen's single rule for an absent value:
 // the project's н/д placeholder, never a labelled blank.
 func tuiDetailValue(value string) string {
 	if strings.TrimSpace(value) == "" {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	return plainTableText(value)
+}
+
+// tuiDetailURL renders a link line's value: the fixed prefix plus the
+// catalogue identifier, or the placeholder when the catalogue gave none.
+// The identifier goes through the same sanitisation as every other value
+// on this screen, so nothing raw from the network is ever printed.
+func tuiDetailURL(prefix, id string) string {
+	id = strings.TrimSpace(plainTableText(id))
+	if id == "" {
+		return tuiDetailPlaceholder
+	}
+	return prefix + id
 }
 
 // tuiDetailPrice formats a $/M price. pricing.FormatDollar returns an
@@ -1051,7 +1172,7 @@ func tuiDetailPrice(v float64) string {
 // table they share one column and are toggled with n.
 func tuiDetailTaskFit(m model.Model) string {
 	if len(m.TaskFit) == 0 {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	return strings.Join(m.TaskFit, " + ")
 }
@@ -1064,7 +1185,7 @@ func tuiDetailTaskFit(m model.Model) string {
 func tuiDetailWrapped(value string, width int) []string {
 	value = strings.TrimSpace(plainDetailText(value))
 	if value == "" {
-		return []string{"  н/д"}
+		return []string{"  " + tuiDetailPlaceholder}
 	}
 	wrapped := tuiWrapText(value, max(1, width-2))
 	for i := range wrapped {
@@ -1082,7 +1203,7 @@ func tuiDetailWrapped(value string, width int) []string {
 // stored "2 месяца назад" would still say that half a year later.
 func tuiDetailCreated(created int64, now time.Time) string {
 	if created <= 0 {
-		return "н/д"
+		return tuiDetailPlaceholder
 	}
 	published := time.Unix(created, 0).UTC()
 	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
@@ -1131,7 +1252,7 @@ func tuiPlural(n int, one, few, many string) string {
 func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
 	lines := []string{"Оценка SWE-bench Verified (проценты):"}
 	if scoreSource != scoreSourceSWEBench {
-		return append(lines, "  н/д (активно представление arena, число SWE-bench в него не проецируется)")
+		return append(lines, "  "+tuiDetailPlaceholder+" (активно представление arena, число SWE-bench в него не проецируется)")
 	}
 	return append(lines, tuiDetailScoreLines(m.Score, m.ScoreLabel)...)
 }
@@ -1163,7 +1284,7 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 	return append(lines, "  Источник: "+tuiDetailValue(info.SourceURL), "  Проверено: "+tuiDetailValue(info.Checked))
 }
 
-// tuiDetailLines builds the detail screen's content for one model: eleven
+// tuiDetailLines builds the detail screen's content for one model: twelve
 // labelled blocks ordered from identity to ever finer detail, with the
 // vendor description last because it is the only block of unpredictable
 // length and would otherwise push everything else off a short terminal.
@@ -1174,7 +1295,7 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 // model.ForScoreSource; passing a mismatched pair defeats the SWE-bench
 // block's gate against printing Arena data under the wrong heading.
 func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
-	context := "н/д"
+	context := tuiDetailPlaceholder
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
 	}
@@ -1185,11 +1306,27 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 		"Тир: " + tuiDetailValue(m.Tier),
 		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
 		"Дата релиза: " + tuiDetailCreated(m.Created, now),
-		"",
-		"Контекст: " + context,
-		"Вход: " + tuiDetailPrice(m.InPerM) + " за M токенов",
-		"Выход: " + tuiDetailPrice(m.OutPerM) + " за M токенов",
+		"Страница OpenRouter: " + tuiDetailURL(tuiOpenRouterModelURL, m.CanonicalSlug),
 	}
+	// The HuggingFace line is the screen's one deliberate exception to
+	// "always print the label, н/д when the value is empty". That rule
+	// exists to tell "no data" apart from "field forgotten", which is worth
+	// a line when the absence is a data defect. Here it is a fact about the
+	// model — a proprietary model has no repository, there is nothing to
+	// fix — the fact is already stated one block down by Открытые веса, and
+	// it is the majority case: hugging_face_id is set on roughly 40% of
+	// catalogue entries, so the line would be permanently empty on three
+	// screens out of five, at the very top of the screen where vertical
+	// space is scarcest.
+	if strings.TrimSpace(m.HuggingFaceID) != "" {
+		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURL(tuiHuggingFaceModelURL, m.HuggingFaceID))
+	}
+	lines = append(lines,
+		"",
+		"Контекст: "+context,
+		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
+		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
+	)
 	// The three long-context labels are precomputed in MergeWithArena and
 	// are all empty when the catalogue reported no override for this slug,
 	// which is why there is no HasOverride flag to consult on model.Model.

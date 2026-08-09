@@ -17,6 +17,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
@@ -1028,6 +1030,7 @@ func tuiDetailTestModel() model.Model {
 		Owner: "OpenAI (C)", OpenWeights: "нет", ClaudeRef: "≈ Opus 4.6",
 		InPerM: 0.5, OutPerM: 3, Context: 1000000,
 		Created: 1786034890, Description: "GPT-5.6 Luna is OpenAI's long-context flagship, strong at code and weak at latency.",
+		CanonicalSlug: "openai/gpt-5.6-luna-20260804", HuggingFaceID: "openai-community/gpt-5-6-luna",
 		LongContextPriceLabel: "$1.00 / $4.00 от 272K+", LongContextInLabel: "$1.00 от 272K+", LongContextOutLabel: "$4.00 от 272K+",
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
 		ScoreLabel: "93.0%",
@@ -1151,7 +1154,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -1207,10 +1210,105 @@ func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	}
 }
 
+// TestTUIDetailLinesShowBothModelLinks pins down the position and the
+// exact shape of the two link lines: they close the identity group, right
+// after the release date and before the blank line that opens the context
+// and pricing block.
+func TestTUIDetailLinesShowBothModelLinks(t *testing.T) {
+	row := tuiDetailTestModel()
+	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	joined := strings.Join(lines, "\n")
+
+	for _, want := range []string{
+		"Страница OpenRouter: https://openrouter.ai/openai/gpt-5.6-luna-20260804",
+		"Репозиторий HuggingFace: https://huggingface.co/openai-community/gpt-5-6-luna",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detail lines are missing %q:\n%s", want, joined)
+		}
+	}
+
+	created := tuiDetailIndex(t, lines, "Дата релиза:")
+	openrouter := tuiDetailIndex(t, lines, "Страница OpenRouter:")
+	hugging := tuiDetailIndex(t, lines, "Репозиторий HuggingFace:")
+	if openrouter != created+1 || hugging != created+2 {
+		t.Fatalf("link lines are at %d and %d, want them immediately after the release date at %d:\n%s", openrouter, hugging, created, joined)
+	}
+	if lines[hugging+1] != "" {
+		t.Errorf("line after the links = %q, want the blank line that separates the identity group from the context block", lines[hugging+1])
+	}
+}
+
+// TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug is the
+// whole reason a new catalogue field was threaded through five pipeline
+// hops instead of reusing m.Slug: id and canonical_slug disagree for 62%
+// of the live catalogue, so a link built from the slug would sometimes
+// point at a 404 and sometimes, worse, at a different variant's page.
+func TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug(t *testing.T) {
+	row := tuiDetailTestModel()
+	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	link := lines[tuiDetailIndex(t, lines, "Страница OpenRouter:")]
+	if want := "Страница OpenRouter: https://openrouter.ai/" + row.CanonicalSlug; link != want {
+		t.Fatalf("link line = %q, want %q", link, want)
+	}
+	if link == "Страница OpenRouter: https://openrouter.ai/"+row.Slug {
+		t.Fatalf("link line = %q, want it built from the canonical slug, not from the id", link)
+	}
+}
+
+// TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository covers the
+// screen's one deliberate exception to "always print the label, н/д when
+// empty": a proprietary model has no repository, that fact is already
+// stated by the Открытые веса line, and it is the majority case — around
+// 60% of catalogue entries carry no hugging_face_id at all.
+func TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.HuggingFaceID = ""
+	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	if strings.Contains(joined, "HuggingFace") {
+		t.Errorf("a model with no repository must not mention HuggingFace at all, not even as н/д:\n%s", joined)
+	}
+	if !strings.Contains(joined, "Страница OpenRouter: https://openrouter.ai/") {
+		t.Errorf("the OpenRouter link must still be there:\n%s", joined)
+	}
+}
+
+// TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug covers the
+// other half of the rule: canonical_slug is present on every catalogue
+// entry, so an empty one is an anomaly worth showing rather than hiding.
+// It is reachable in exactly one way — a snapshot written before this
+// feature existed, read before the next refresh.
+func TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.CanonicalSlug = ""
+	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	if !strings.Contains(joined, "Страница OpenRouter: н/д") {
+		t.Errorf("an empty canonical slug must print the placeholder:\n%s", joined)
+	}
+	if strings.Contains(joined, "https://openrouter.ai/") {
+		t.Errorf("an empty canonical slug must never be papered over with a link guessed from the slug:\n%s", joined)
+	}
+}
+
+// TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine checks that the
+// conditional line is counted by the scrolling maths rather than
+// hardcoded anywhere: tuiDetailMaxOffset derives the limit from the lines
+// actually built for this model.
+func TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine(t *testing.T) {
+	withRepo := tuiDetailTestModel()
+	without := tuiDetailTestModel()
+	without.HuggingFaceID = ""
+	got := tuiDetailMaxOffset(withRepo, scoreSourceSWEBench, 100, 10)
+	want := tuiDetailMaxOffset(without, scoreSourceSWEBench, 100, 10)
+	if got != want+1 {
+		t.Fatalf("max offset with a repository = %d, without = %d, want exactly one line of difference", got, want)
+	}
+}
+
 func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 60
-	view := m.View()
+	view := ansi.Strip(m.View())
 	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "Оценка SWE-bench Verified", "93.0%", "Оценка LMArena", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("detail view is missing %q:\n%s", want, view)
@@ -1257,10 +1355,190 @@ func TestTUIDetailViewFitsEveryViewport(t *testing.T) {
 func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 10
-	lines := strings.Split(m.View(), "\n")
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	total := len(tuiDetailLines(m.visible[0], m.scoreSource, m.width, time.Now()))
 	if want := fmt.Sprintf("Detail 1-9/%d · ↑↓ scroll · Esc close", total); !strings.HasPrefix(lines[len(lines)-1], want) {
 		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)
+	}
+}
+
+// tuiForceColorProfile makes lipgloss actually emit escape sequences for
+// the duration of one test. The test binary's stdout is not a terminal,
+// so lipgloss's default renderer settles on termenv.Ascii, where
+// Style.Render returns its input untouched — every assertion about
+// styling would then pass whether the screen styles anything or not.
+// Forcing a profile is what lipgloss's own SetColorProfile doc comment
+// calls the function's main purpose. The previous profile is restored so
+// the rest of the package keeps comparing plain text.
+func tuiForceColorProfile(t *testing.T) {
+	t.Helper()
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+}
+
+func TestTUIStyleDetailLineAppliesTheScreensStyleVocabulary(t *testing.T) {
+	tuiForceColorProfile(t)
+	for _, test := range []struct {
+		name string
+		line string
+		want string
+	}{
+		{"empty line", "", ""},
+		{"blank line", "   ", "   "},
+		{"block heading", "Заметка:", tuiHeaderStyle.Render("Заметка:")},
+		{"block heading with brackets", "Оценка LMArena (рейтинг Elo):", tuiHeaderStyle.Render("Оценка LMArena (рейтинг Elo):")},
+		{"label and value", "Производитель: OpenAI (C)", tuiHeaderStyle.Render("Производитель: ") + "OpenAI (C)"},
+		{"indented label and value", "  Значение: 93.0%", tuiHeaderStyle.Render("  Значение: ") + "93.0%"},
+		{"label and placeholder", "Дата релиза: н/д", tuiHeaderStyle.Render("Дата релиза: ") + tuiHintStyle.Render("н/д")},
+		{"provenance link", "  Источник: https://www.vals.ai/benchmarks/swebench", tuiHeaderStyle.Render("  Источник: ") + tuiLinkStyle.Render("https://www.vals.ai/benchmarks/swebench")},
+		{"model link", "Страница OpenRouter: https://openrouter.ai/openai/gpt-5.6-luna-20260804", tuiHeaderStyle.Render("Страница OpenRouter: ") + tuiLinkStyle.Render("https://openrouter.ai/openai/gpt-5.6-luna-20260804")},
+		{"bare placeholder", "  н/д", tuiHintStyle.Render("  н/д")},
+		{"qualified placeholder", "  н/д (активно представление arena)", tuiHintStyle.Render("  н/д (активно представление arena)")},
+		{"prose", "  GPT-5.6 Luna is OpenAI's long-context flagship.", "  GPT-5.6 Luna is OpenAI's long-context flagship."},
+		{"footer text is not special on its own", "Detail 1-9/40 · ↑↓ scroll · Esc close", "Detail 1-9/40 · ↑↓ scroll · Esc close"},
+	} {
+		if got := tuiStyleDetailLine(test.line); got != test.want {
+			t.Errorf("%s: tuiStyleDetailLine(%q) = %q, want %q", test.name, test.line, got, test.want)
+		}
+	}
+}
+
+// TestTUIStyleDetailLineNeverTouchesAnAlreadyStyledLine documents why
+// slicing a line at a byte offset found on its plain text is safe: it is
+// only ever done when the line carries no escape sequences at all, which
+// by construction it never does — everything upstream is plain text and
+// tuiFullscreenText runs every line through plainTableText, which no
+// escape survives. The guard is what makes that assumption checkable
+// instead of merely believed.
+func TestTUIStyleDetailLineNeverTouchesAnAlreadyStyledLine(t *testing.T) {
+	tuiForceColorProfile(t)
+	styled := tuiErrorStyle.Render("Производитель: OpenAI (C)")
+	if got := tuiStyleDetailLine(styled); got != styled {
+		t.Fatalf("tuiStyleDetailLine(%q) = %q, want the line returned untouched rather than sliced inside an escape sequence", styled, got)
+	}
+}
+
+// TestTUIStyleDetailLineChangesNoVisibleCharacter is the per-line half of
+// the feature's central invariant: styling adds colour and nothing else.
+func TestTUIStyleDetailLineChangesNoVisibleCharacter(t *testing.T) {
+	tuiForceColorProfile(t)
+	for _, line := range tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 60, time.Now()) {
+		if got := ansi.Strip(tuiStyleDetailLine(line)); got != line {
+			t.Errorf("styling changed the text of %q into %q", line, got)
+		}
+	}
+}
+
+// TestTUIDetailViewStylingLeavesTheLayoutUntouched is the central test of
+// this feature. The detail screen's whole width arithmetic —
+// tableDisplayWidth, truncateTable, tuiWrapText, plainTableText — is
+// ANSI-unaware: it would count escape bytes as visible columns, cut a
+// line mid-escape and leave "[38;5;87m" on screen as text. The design
+// answer is to style strictly after all of that, as a pass over finished
+// output, so this test compares the styled view against the very same
+// view rendered with colour off: they must be identical character for
+// character, at every width, height and offset.
+func TestTUIDetailViewStylingLeavesTheLayoutUntouched(t *testing.T) {
+	// The helper is here only for its t.Cleanup: this test flips the
+	// profile itself on every iteration, and the cleanup is what restores
+	// whatever the rest of the package expects afterwards.
+	tuiForceColorProfile(t)
+	row := tuiDetailTestModel()
+	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
+	for _, width := range []int{1, 5, 20, 40, 80, 200} {
+		for _, height := range []int{1, 2, 5, 24, 80} {
+			for _, offset := range []int{0, 3, 999} {
+				m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+				m.overlay, m.width, m.height, m.detailOffset = "detail", width, height, offset
+
+				lipgloss.SetColorProfile(termenv.Ascii)
+				plain := m.View()
+				lipgloss.SetColorProfile(termenv.ANSI256)
+				styled := m.View()
+
+				if ansi.Strip(styled) != plain {
+					t.Fatalf("width=%d height=%d offset=%d: styling changed the text\nstyled: %q\nplain:  %q", width, height, offset, ansi.Strip(styled), plain)
+				}
+				lines := strings.Split(styled, "\n")
+				if len(lines) != len(strings.Split(plain, "\n")) {
+					t.Fatalf("width=%d height=%d offset=%d: styling changed the line count", width, height, offset)
+				}
+				for i, line := range lines {
+					if lipgloss.Width(line) > width {
+						t.Fatalf("width=%d height=%d offset=%d: styled line %d is %d columns wide: %q", width, height, offset, i, lipgloss.Width(line), line)
+					}
+					if strings.Contains(ansi.Strip(line), "[38;5;") || strings.Contains(ansi.Strip(line), "[1m") {
+						t.Fatalf("width=%d height=%d offset=%d: an escape sequence leaked through plainTableText as visible text: %q", width, height, offset, line)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestTUIDetailViewStylesTheHeaderOnlyWhenItIsOnScreen pins down why the
+// header is found by index rather than by text: tuiDetailView knows the
+// offset it just applied, so at offset 0 the first visible line is the
+// title and after scrolling it is an ordinary content line that must be
+// styled by the general rules instead.
+func TestTUIDetailViewStylesTheHeaderOnlyWhenItIsOnScreen(t *testing.T) {
+	tuiForceColorProfile(t)
+	row := tuiDetailTestModel()
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.overlay, m.width, m.height = "detail", 120, 12
+
+	top := strings.Split(m.View(), "\n")[0]
+	if want := tuiTitleStyle.Render(ansi.Strip(top)); top != want {
+		t.Errorf("first line at offset 0 = %q, want the title style %q", top, want)
+	}
+
+	m.detailOffset = 4
+	scrolled := strings.Split(m.View(), "\n")[0]
+	if ansi.Strip(scrolled) == ansi.Strip(top) {
+		t.Fatalf("test setup: the screen did not scroll, both offsets show %q", ansi.Strip(top))
+	}
+	if want := tuiStyleDetailLine(ansi.Strip(scrolled)); scrolled != want {
+		t.Errorf("first line after scrolling = %q, want the ordinary line rules to decide it instead of the title style: %q", scrolled, want)
+	}
+}
+
+func TestTUIDetailViewStylesTheFooterAtEveryOffset(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 120, 12
+	for _, offset := range []int{0, 5, 999} {
+		m.detailOffset = offset
+		lines := strings.Split(m.View(), "\n")
+		footer := lines[len(lines)-1]
+		if !strings.HasPrefix(ansi.Strip(footer), "Detail ") {
+			t.Fatalf("offset %d: last line = %q, want the position footer", offset, ansi.Strip(footer))
+		}
+		if want := tuiHintStyle.Render(ansi.Strip(footer)); footer != want {
+			t.Errorf("offset %d: footer = %q, want the hint style %q", offset, footer, want)
+		}
+	}
+}
+
+// TestTUIDetailViewStylesBothLinkKinds ties the styling rules back to the
+// two things the feature is for: the new model links and the provenance
+// URLs that were already on screen get the same, single link style.
+func TestTUIDetailViewStylesBothLinkKinds(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 200, 60
+	view := m.View()
+	for _, url := range []string{
+		"https://openrouter.ai/openai/gpt-5.6-luna-20260804",
+		"https://huggingface.co/openai-community/gpt-5-6-luna",
+		"https://www.vals.ai/benchmarks/swebench",
+	} {
+		if !strings.Contains(view, tuiLinkStyle.Render(url)) {
+			t.Errorf("the view does not carry %q in the link style:\n%s", url, view)
+		}
+	}
+	if !strings.Contains(view, tuiHeaderStyle.Render("Страница OpenRouter: ")) {
+		t.Errorf("the link label is not styled like every other field label:\n%s", view)
 	}
 }
 
@@ -1397,6 +1675,8 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 		"Enter, Right or l opens the detail screen",
 		"Esc, Left or h closes it",
 		"scroll the detail text",
+		"links to the model's OpenRouter page",
+		"HuggingFace repository",
 	} {
 		if !strings.Contains(tuiHelpDocument, want) {
 			t.Errorf("help document is missing %q", want)
@@ -1461,7 +1741,7 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
 	}
 
-	view := m.View()
+	view := ansi.Strip(m.View())
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
 		"Дата релиза: 2026-08-06",
@@ -1770,4 +2050,99 @@ func TestTUIRussianLayoutShortcutsMatchLatin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTUIDetailScreenShowsModelLinksFromTheSnapshot is the whole-feature
+// acceptance check. It goes through the real construction path —
+// newConfiguredTUIModel, which loads from disk exactly the way a live
+// session and a live refresh both do — so it fails if ANY hop of the
+// pipeline drops the two identifiers: the decoder, MergeWithArena,
+// NewSnapshot, or either of the two PriceInfo rebuilds. It renders with
+// colour forced on, so it also proves the styled screen still says
+// exactly what the plain one says.
+func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
+	tuiForceColorProfile(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\ndemo/closed\ttier=opus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/dated:\n    display: Demo Dated\n  demo/closed:\n    display: Demo Closed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/dated": {
+			InPerM: 1, OutPerM: 3, Context: 128000,
+			Created: 1786034890, Description: "Demo Dated is strong at long context.",
+			CanonicalSlug: "demo/dated-20260804", HuggingFaceID: "demo-labs/Dated",
+			Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 75, SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
+		},
+		"demo/closed": {
+			InPerM: 2, OutPerM: 6, Context: 200000,
+			Created: 1786034890, Description: "Demo Closed has no public weights.",
+			CanonicalSlug: "demo/closed-20260804",
+		},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := ranking.Compile(ranking.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := newConfiguredTUIModel(context.Background(), root, refresh.Options{}, 0, "q/p", false, "", 0, false, rankingDefault, compiled, scoreSourceSWEBench)
+	if err != nil {
+		t.Fatalf("newConfiguredTUIModel: %v", err)
+	}
+	m.width, m.height = 120, 80
+	m.cursor = tuiRowIndex(t, m.visible, "demo/dated")
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
+	}
+
+	view := m.View()
+	plain := ansi.Strip(view)
+	for _, want := range []string{
+		"Demo Dated (demo/dated)",
+		"Страница OpenRouter: https://openrouter.ai/demo/dated-20260804",
+		"Репозиторий HuggingFace: https://huggingface.co/demo-labs/Dated",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, plain)
+		}
+	}
+	if !strings.Contains(view, tuiLinkStyle.Render("https://openrouter.ai/demo/dated-20260804")) {
+		t.Errorf("the OpenRouter link reached the screen unstyled:\n%s", view)
+	}
+
+	// The second row has no HuggingFace repository: its line must be absent
+	// entirely rather than present as н/д. The overlay always renders the
+	// row the list highlights, so moving the cursor is all it takes.
+	m.cursor = tuiRowIndex(t, m.visible, "demo/closed")
+	closed := ansi.Strip(m.View())
+	if !strings.Contains(closed, "Страница OpenRouter: https://openrouter.ai/demo/closed-20260804") {
+		t.Errorf("the second row lost its OpenRouter link:\n%s", closed)
+	}
+	if strings.Contains(closed, "HuggingFace") {
+		t.Errorf("a model with no repository must not mention HuggingFace at all:\n%s", closed)
+	}
+}
+
+func tuiRowIndex(t *testing.T, rows []model.Model, slug string) int {
+	t.Helper()
+	for i, row := range rows {
+		if row.Slug == slug {
+			return i
+		}
+	}
+	t.Fatalf("no row with slug %q in %+v", slug, rows)
+	return -1
 }

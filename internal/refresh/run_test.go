@@ -230,6 +230,7 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 			"openai/gpt-5.6-luna": {
 				InPerM: 0.5, OutPerM: 3, Context: 1000000,
 				Created: 1700000000, Description: "OpenAI's long-context flagship, strong at code.",
+				CanonicalSlug: "openai/gpt-5.6-luna-20260804", HuggingFaceID: "openai-community/gpt-5-6-luna",
 				HasOverride: true, OverrideMinTokens: 500000, OverrideInPerM: 1, OverrideOutPerM: 4,
 				Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", Checked: "2026-07-30"},
 			},
@@ -296,6 +297,19 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	}
 	if got := newSnap.Models["openai/gpt-5.6-luna"].Description; got != "OpenAI's long-context flagship, strong at code." {
 		t.Errorf("Description = %q, want the snapshot's fallback value to survive applyFallback", got)
+	}
+	// The link identifiers are not rendered into the markdown document
+	// either — they only surface on the TUI detail screen — so their
+	// survival is checked in the written snapshot, exactly like
+	// Created/Description above. This assertion is the guard against
+	// repeating the bug a review already caught once on this very
+	// function: a single failed catalogue fetch zeroing a catalogue field
+	// for every model on disk, silently, until the next successful refresh.
+	if got := newSnap.Models["openai/gpt-5.6-luna"].CanonicalSlug; got != "openai/gpt-5.6-luna-20260804" {
+		t.Errorf("CanonicalSlug = %q, want the snapshot's fallback value to survive applyFallback", got)
+	}
+	if got := newSnap.Models["openai/gpt-5.6-luna"].HuggingFaceID; got != "openai-community/gpt-5-6-luna" {
+		t.Errorf("HuggingFaceID = %q, want the snapshot's fallback value to survive applyFallback", got)
 	}
 	// The vendor-claimed number lives in notes.yaml and cannot go stale.
 	if strings.Contains(doc, "80.5% (только вендор) (не удалось проверить") {

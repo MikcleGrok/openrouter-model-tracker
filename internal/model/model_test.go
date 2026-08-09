@@ -162,6 +162,32 @@ func TestMergeCarriesCatalogueCreatedAndDescription(t *testing.T) {
 	}
 }
 
+// TestMergeCarriesTheCatalogueLinkIdentifiers checks the second hop of
+// the link-identifier pipeline. It goes through Merge (not
+// MergeWithArena) on purpose: Merge is a thin wrapper, and this pins down
+// that it keeps getting new catalogue fields for free. The negative case
+// matters as much as the positive one — an entry whose price info carries
+// no identifiers must end up with empty strings rather than with anything
+// reconstructed from its slug.
+func TestMergeCarriesTheCatalogueLinkIdentifiers(t *testing.T) {
+	prices := testPrices()
+	luna := prices["openai/gpt-5.6-luna"]
+	luna.CanonicalSlug, luna.HuggingFaceID = "openai/gpt-5.6-luna-20260804", "openai-community/gpt-5-6-luna"
+	prices["openai/gpt-5.6-luna"] = luna
+
+	got := byslug(Merge(testEntries(), prices, nil, testNotes(t)))
+
+	if got["openai/gpt-5.6-luna"].CanonicalSlug != "openai/gpt-5.6-luna-20260804" {
+		t.Errorf("luna.CanonicalSlug = %q, want the catalogue identifier carried through the merge", got["openai/gpt-5.6-luna"].CanonicalSlug)
+	}
+	if got["openai/gpt-5.6-luna"].HuggingFaceID != "openai-community/gpt-5-6-luna" {
+		t.Errorf("luna.HuggingFaceID = %q, want the catalogue identifier carried through the merge", got["openai/gpt-5.6-luna"].HuggingFaceID)
+	}
+	if m3 := got["minimax/minimax-m3"]; m3.CanonicalSlug != "" || m3.HuggingFaceID != "" {
+		t.Errorf("m3 = %+v, want empty link identifiers for an entry whose price info carries none — never a value derived from the slug", m3)
+	}
+}
+
 func TestMergeTakesTheFirstSourceForASlug(t *testing.T) {
 	scores := []sources.ScoreRow{
 		{Slug: "openai/gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 79.2, VariantMeasured: "OpenHands", SourceURL: "https://www.swebench.com/"},
