@@ -127,6 +127,15 @@ type tuiScoreSourceMsg struct {
 }
 type tuiTickMsg struct{}
 
+type tuiFilterDraft struct {
+	free, paid, scored bool
+	tier               string
+	quality            string
+	context            string
+	input              string
+	output             string
+}
+
 type tuiModel struct {
 	ctx                   context.Context
 	dataDir               string
@@ -156,6 +165,8 @@ type tuiModel struct {
 	helpMatch             int
 	columnCursor          int
 	settingsCursor        int
+	filterCursor          int
+	filterDraft           tuiFilterDraft
 	pendingColumns        []tuiColumn
 	input, inputMode      string
 	limit                 int
@@ -405,6 +416,9 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	if m.overlay == "settings" {
 		return m.settingsKey(key)
 	}
+	if m.overlay == "filter" {
+		return m.filterKey(key, msg)
+	}
 	switch key {
 	case "x", "ctrl+c":
 		return m, tea.Quit
@@ -446,7 +460,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "/":
 		m.inputMode, m.input = "search", ""
 	case "f":
-		m.inputMode, m.input = "filter", m.filter
+		m.openFilterEditor()
 	case "o":
 		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
@@ -646,12 +660,148 @@ func (m tuiModel) settingsKey(key string) (tuiModel, tea.Cmd) {
 			m.status, m.err = "loading "+source+" from local snapshot...", ""
 			return m, m.scoreSourceCmd(source)
 		case 2:
-			m.inputMode, m.input = "filter", m.filter
+			m.openFilterEditor()
 		case 3:
 			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
 		}
 	}
 	return m, nil
+}
+
+func (m *tuiModel) openFilterEditor() {
+	m.overlay = "filter"
+	m.inputMode = ""
+	m.filterCursor = 0
+	m.filterDraft = tuiFilterDraftFromString(m.filter)
+}
+
+func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
+	const filterFields = 8
+	switch key {
+	case "esc":
+		m.overlay = ""
+	case "up", "k":
+		m.filterCursor = max(0, m.filterCursor-1)
+	case "down", "j", "tab":
+		m.filterCursor = min(filterFields-1, m.filterCursor+1)
+	case "shift+tab":
+		m.filterCursor = max(0, m.filterCursor-1)
+	case " ":
+		switch m.filterCursor {
+		case 0:
+			m.filterDraft.free = !m.filterDraft.free
+		case 1:
+			m.filterDraft.paid = !m.filterDraft.paid
+		case 2:
+			m.filterDraft.scored = !m.filterDraft.scored
+		}
+	case "c":
+		m.filterDraft = tuiFilterDraft{}
+	case "backspace":
+		m.filterDraft.deleteLast(m.filterCursor)
+	case "enter":
+		return m.applyFilterDraft()
+	default:
+		if len(msg.Runes) > 0 && m.filterCursor >= 3 {
+			m.filterDraft.append(m.filterCursor, string(msg.Runes))
+		}
+	}
+	return m, nil
+}
+
+func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
+	candidate := m.filterDraft.string()
+	if _, err := filterTableModels(append([]model.Model(nil), m.models...), splitFilter(candidate)); err != nil {
+		m.err = err.Error()
+		return m, nil
+	}
+	m.filter, m.err, m.overlay = candidate, "", ""
+	if m.configPath != "" {
+		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
+			m.err = err.Error()
+		}
+	}
+	m.rebuild()
+	return m, nil
+}
+
+func splitFilter(filter string) []string {
+	if strings.TrimSpace(filter) == "" {
+		return nil
+	}
+	return strings.Split(filter, ",")
+}
+
+func tuiFilterDraftFromString(filter string) tuiFilterDraft {
+	draft := tuiFilterDraft{}
+	for _, raw := range splitFilter(filter) {
+		value := strings.TrimSpace(raw)
+		lower := strings.ToLower(value)
+		switch {
+		case lower == "free":
+			draft.free = true
+		case lower == "paid":
+			draft.paid = true
+		case lower == "scored":
+			draft.scored = true
+		case strings.HasPrefix(lower, "tier:"):
+			draft.tier = strings.TrimSpace(value[len("tier:"):])
+		case strings.HasPrefix(lower, "quality>="):
+			draft.quality = strings.TrimSpace(value[len("quality>="):])
+		case strings.HasPrefix(lower, "context>="):
+			draft.context = strings.TrimSpace(value[len("context>="):])
+		case strings.HasPrefix(lower, "input<="):
+			draft.input = strings.TrimSpace(value[len("input<="):])
+		case strings.HasPrefix(lower, "output<="):
+			draft.output = strings.TrimSpace(value[len("output<="):])
+		}
+	}
+	return draft
+}
+
+func (d tuiFilterDraft) string() string {
+	filters := make([]string, 0, 8)
+	if d.free {
+		filters = append(filters, "free")
+	}
+	if d.paid {
+		filters = append(filters, "paid")
+	}
+	if d.scored {
+		filters = append(filters, "scored")
+	}
+	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
+		if strings.TrimSpace(item.value) != "" {
+			filters = append(filters, item.name+item.operator+strings.TrimSpace(item.value))
+		}
+	}
+	return strings.Join(filters, ",")
+}
+
+func (d *tuiFilterDraft) append(field int, value string) {
+	switch field {
+	case 3:
+		d.tier += value
+	case 4:
+		d.quality += value
+	case 5:
+		d.context += value
+	case 6:
+		d.input += value
+	case 7:
+		d.output += value
+	}
+}
+
+func (d *tuiFilterDraft) deleteLast(field int) {
+	values := []*string{nil, nil, nil, &d.tier, &d.quality, &d.context, &d.input, &d.output}
+	if field < len(values) && values[field] != nil {
+		value := *values[field]
+		if value != "" {
+			_, size := utf8.DecodeLastRuneInString(value)
+			*values[field] = value[:len(value)-size]
+		}
+	}
 }
 func (m *tuiModel) togglePending(col tuiColumn) {
 	for i, existing := range m.pendingColumns {
@@ -687,6 +837,9 @@ func (m tuiModel) View() string {
 			lines = append(lines, prefix+mark+" "+string(col))
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
+	}
+	if m.overlay == "filter" {
+		return tuiFilterView(m)
 	}
 	if m.overlay == "settings" {
 		rankingName := "mixed-utility"
@@ -770,6 +923,32 @@ func (m tuiModel) View() string {
 		return strings.Join(lines, "\n")
 	}
 	return m.compactView(lines, statusLine, hintsLine, inputLine)
+}
+
+func tuiFilterView(m tuiModel) string {
+	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}
+	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max"}
+	lines := []string{"Filter", "", "Space toggles checkboxes; type in a field", ""}
+	for i, label := range labels {
+		prefix := "  "
+		if i == m.filterCursor {
+			prefix = "> "
+		}
+		value := values[i]
+		if i >= 3 && value == "" {
+			value = "(any)"
+		}
+		lines = append(lines, prefix+label+": "+value)
+	}
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move")
+	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
+}
+
+func tuiFilterCheck(checked bool) string {
+	if checked {
+		return "[x]"
+	}
+	return "[ ]"
 }
 
 func (m tuiModel) compactView(lines []string, statusLine, hintsLine, inputLine string) string {
@@ -993,6 +1172,9 @@ func tuiHelpView(m tuiModel) string {
 	body := m.helpViewportHeight()
 	offset := max(0, min(m.helpOffset, max(0, len(lines)-body)))
 	lines = lines[offset:min(len(lines), offset+body)]
+	for i := range lines {
+		lines[i] = tuiFormatHelpLine(lines[i], m.width)
+	}
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
@@ -1022,6 +1204,27 @@ func tuiHelpView(m tuiModel) string {
 		styledLines[i] = tuiHighlightHelpMatches(line, needle)
 	}
 	return strings.Join(styledLines, "\n")
+}
+
+func tuiFormatHelpLine(line string, width int) string {
+	if !strings.Contains(line, `\t`) {
+		return line
+	}
+	parts := strings.Split(line, `\t`)
+	if len(parts) == 4 && parts[0] == "" {
+		parts = parts[1:]
+	}
+	if len(parts) != 3 {
+		return line
+	}
+	available := max(3, width)
+	if available < 15 {
+		return truncateTable(parts[0]+" "+parts[1]+" "+parts[2], available)
+	}
+	keyWidth := min(8, max(3, available/7))
+	actionWidth := min(16, max(7, available/4))
+	descriptionWidth := max(1, available-keyWidth-actionWidth-4)
+	return tuiPadCell(truncateTable(parts[0], keyWidth), keyWidth, false) + "  " + tuiPadCell(truncateTable(parts[1], actionWidth), actionWidth, false) + "  " + truncateTable(parts[2], descriptionWidth)
 }
 
 func tuiHighlightHelpMatches(line, needle string) string {
@@ -1165,65 +1368,71 @@ func tuiStyleDetailLine(line string) string {
 const tuiShortcutHelpDocument = `openrouter tui shortcuts
 
 Navigation
-Up/Down or j/k move through models. Home/End or g/G jump; PgUp/PgDown scroll.
-Enter, Right or l opens model details; Esc, Left or h closes details.
+\tUp/Down or j/k\tmove\tmove through models. Home/End or g/G jump; PgUp/PgDown scroll.
+\tEnter, Right or l\topen detail\topen model details; Esc, Left or h closes details.
 
 Commands
-q quality sort; p price sort; r quality/price sort; s cycle sort key; S reverse order.
-m toggle ranking mode; o settings; R refresh; x or Ctrl-C exit; c columns; n Task fit/Note.
-f structured filter; / search; ? shortcut help; F1 full help.
+\tq / p / r\tsort\tq quality; p price; r quality/price ratio.
+\ts / S\tordering\ts cycles sort key; S reverses order.
+\tm / o / R\tview\tm ranking mode; o settings; R refresh.
+\tx / c / n\tview\tx or Ctrl-C exit; c columns; n Task fit/Note.
+\tf / / / ?\tinput\tf structured filter; / search; ? shortcut help; F1 full help.
 
 Task-fit codes
-I implement; P plan; R research; D debug; A audit; F refactor; T test.
+\tI / P / R\ttask-fit\tI implement; P plan; R research.
+\tD / A / F / T\ttask-fit\tD - debug: find and fix a defect or failure. A - audit; F - refactor: improve structure; T - test.
 
 Help navigation
-Up/Down or j/k scroll; Home/End or g/G jump; PgUp/PgDown scroll.
-/ searches this help; Enter finds the next match; Esc or ? closes help.`
+\tUp/Down or j/k\tscroll\tscroll; Home/End or g/G jump; PgUp/PgDown scroll.
+\t/ / Enter / Esc\tsearch\tsearch this help; next match; close help.`
 
 const tuiHelpDocument = `openrouter tui keys
 
 Navigation
-Up/Down or j/k move through models. In help, they scroll this document.
-Home/End or g/G jump; PgUp/PgDown scroll.
-Enter, Right or l opens the model detail screen; Esc, Left or h closes it.
+\tUp/Down or j/k\tnavigate\tmove through models. In help, they scroll this document.
+\tHome/End or g/G\tjump\tjump; PgUp/PgDown scroll.
+\tEnter, Right or l\tdetail\topen the model detail screen; Esc, Left or h closes it.
 
 Sort and task view
-q sorts by quality; p by price; r by quality/price ratio (q/p).
-m toggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
-o opens settings for ranking, score source, filter, and columns. R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
-f filter; / search; ? shortcut help; F1 full help.
+\tq / p / r\tsort\tq sorts by quality; p by price; r by quality/price ratio (q/p).
+\tm\tranking\ttoggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order.
+\ts / S\tordering\ts cycles sort key; S reverses order.
+\to / R / x\tview\to settings; R refreshes; x or Ctrl-C exits.
+\tc / n\tcolumns\tc columns; n switches the last column between Task fit and Note.
+\tf / / / ?\tinput\tf filter; / search; ? shortcut help; F1 full help.
 
 Task-fit
-n switches the last column between Task fit and Note.
+\tn\tcolumns\tswitches the last column between Task-fit and Note.
 Task-fit codes:
-I - implement: write or change production code.
-P - plan: define scope, steps, and decisions.
-R - research: investigate options, evidence, or behavior.
-D - debug: find and fix a defect or failure.
-A - audit: inspect quality, safety, or compliance.
-F - refactor: improve structure without changing behavior.
-T - test: add or improve automated verification.
+\tI\timplement\tI - implement: write or change production code.
+\tP\tplan\tP - plan: define scope, steps, and decisions.
+\tR\tresearch\tR - research: investigate options, evidence, or behavior.
+\tD\tdebug\tfind and fix a defect or failure.
+\tA\taudit\tinspect quality, safety, or compliance.
+\tF\trefactor\timprove structure without changing behavior.
+\tT\ttest\tadd or improve automated verification.
 No task-fit classification is shown as n/a.
 
 Columns, search, and filters
-c opens column selection. Space toggles a column; Enter applies; Esc cancels. The last column stays selected.
-/ searches Name/Slug as plain substring text.
-f edits a structured filter and does not change the search.
-Examples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output>=N.
+\tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel. The last column stays selected.
+\t/\tsearch\tsearches Name/Slug as plain substring text.
+\tf\tfilter\tedits a structured filter and does not change the search.
+Examples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.
 Multiple filters are comma-separated and use AND.
 
 Model detail view
-Enter, Right or l opens the detail screen for the highlighted model.
-Esc, Left or h closes it and returns to the list with the same cursor.
-Up/Down or j/k, PgUp/PgDown and Home/End scroll the detail text.
+\tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.
+\tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
+\tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
 It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
 Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.
 
 Refresh and finish
-R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.
-x or Ctrl-C exits. Esc closes this help. ? closes shortcut help; F1 opens full help.
+\tR\trefresh\trefresh local data now. Auto-refresh uses --refresh-interval; 0 disables it.
+\tx / Ctrl-C / Esc\tclose\texit, close help, or return to the list.
+\t? / F1\thelp mode\t? closes shortcut help; F1 opens full help.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
@@ -1236,8 +1445,9 @@ arena: Status and ranking use the LMArena Elo rating, shown raw and normalised t
 The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
 
 Help search
-/ starts a search in this document. Type text and press Enter to select the first match.
-Enter goes to the next match; Up/Down go to the previous/next match. Esc cancels search.`
+\t/\tsearch\tstart a search in this document; type text and press Enter.
+\tEnter / Up / Down\tmatches\tgo to the next, previous, or next match; search results stay selected.
+\tEsc\tclose\tcancel search.`
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
 

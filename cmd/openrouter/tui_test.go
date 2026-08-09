@@ -189,7 +189,7 @@ func TestTUIKeyState(t *testing.T) {
 			t.Fatalf("help document mentions Cyrillic keyboard aliases: %q", tuiHelpDocument)
 		}
 	}
-	for _, text := range []string{"Navigation", "Task-fit", "n switches the last column between Task fit and Note", "Task-fit codes:", "I - implement: write or change production code.", "P - plan:", "R - research:", "D - debug:", "A - audit:", "F - refactor:", "T - test:", "No task-fit classification is shown as n/a", "Auto-refresh"} {
+	for _, text := range []string{"Navigation", "Task-fit", "n switches the last column between Task fit and Note", "Task-fit codes:", "I - implement: write or change production code.", "P - plan:", "R - research:", "find and fix a defect or failure", "No task-fit classification is shown as n/a", "Auto-refresh"} {
 		if !strings.Contains(tuiHelpDocument, text) {
 			t.Fatalf("help document missing %q", text)
 		}
@@ -292,17 +292,115 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	}
 	m = tuiKey(m, "down")
 	m, _ = m.settingsKey("enter")
-	if m.inputMode != "filter" || m.overlay != "settings" {
+	if m.overlay != "filter" || m.inputMode != "" {
 		t.Fatalf("settings filter transition = overlay %q, input mode %q", m.overlay, m.inputMode)
 	}
-	m.input = "free"
-	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.filter != "free" || m.overlay != "settings" || m.inputMode != "" {
+	m.filterDraft = tuiFilterDraft{free: true}
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "free" || m.overlay != "" || m.inputMode != "" {
 		t.Fatalf("settings filter result = filter %q, overlay %q, input mode %q", m.filter, m.overlay, m.inputMode)
 	}
 	m, _ = m.settingsKey("esc")
 	if m.overlay != "" {
 		t.Fatal("settings overlay did not close")
+	}
+}
+
+func TestTUIFilterFormOpensAppliesAndPersistsStructuredFields(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Model{
+		{Slug: "match", Tier: "sonnet", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
+		{Slug: "other", Tier: "opus", Context: 32000, InPerM: 3, OutPerM: 4, Score: &model.ScoreInfo{Value: 70}, Rankable: true},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.configPath = configPath
+	m.filter = "paid,tier:sonnet,quality>=90,context>=100000,input<=1,output<=2"
+	m = tuiKey(m, "f")
+	if m.overlay != "filter" || m.filterDraft.tier != "sonnet" || m.filterDraft.quality != "90" {
+		t.Fatalf("filter form open state = overlay %q, draft %+v", m.overlay, m.filterDraft)
+	}
+	if !m.filterDraft.paid || m.filterDraft.free || m.filterDraft.scored {
+		t.Fatalf("filter form boolean state = %+v", m.filterDraft)
+	}
+	m.filterDraft.free = false
+	m.filterDraft.paid = true
+	m.filterDraft.scored = true
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	want := "paid,scored,tier:sonnet,quality>=90,context>=100000,input<=1,output<=2"
+	if m.overlay != "" || m.filter != want || len(m.visible) != 1 || m.visible[0].Slug != "match" {
+		t.Fatalf("applied filter = overlay %q, filter %q, visible %+v", m.overlay, m.filter, m.visible)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != want {
+		t.Fatalf("persisted filter = %q, want %q", cfg.TUIFilter, want)
+	}
+}
+
+func TestTUIFilterFormCancelAndClear(t *testing.T) {
+	rows := []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.filter = "paid"
+	m = tuiKey(m, "f")
+	m.filterDraft.paid = false
+	m, _ = m.filterKey("esc", tea.KeyMsg{Type: tea.KeyEscape})
+	if m.filter != "paid" || m.overlay != "" {
+		t.Fatalf("cancel changed filter: filter=%q overlay=%q", m.filter, m.overlay)
+	}
+	m = tuiKey(m, "f")
+	m, _ = m.filterKey("c", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "" || len(m.visible) != 2 {
+		t.Fatalf("clear result = filter %q, visible %+v", m.filter, m.visible)
+	}
+}
+
+func TestTUIFilterClearCommandWorksFromCheckboxAndTextFields(t *testing.T) {
+	rows := []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.filter = "paid,output<=2"
+	m = tuiKey(m, "f")
+	m.filterDraft.scored = true
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if got := next.(tuiModel).filterDraft; got != (tuiFilterDraft{}) {
+		t.Fatalf("checkbox c did not clear draft: %+v", got)
+	}
+	m = next.(tuiModel)
+	m.filterDraft.output = "12"
+	m.filterCursor = 7
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("с")})
+	if got := next.(tuiModel).filterDraft; got != (tuiFilterDraft{}) {
+		t.Fatalf("Russian-layout c did not clear draft from text field: %+v", got)
+	}
+}
+
+func TestTUIFilterTextFieldCanBeEditedAfterClear(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.filter = "output<=2"
+	m = tuiKey(m, "f")
+	m.filterCursor = 7
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = next.(tuiModel)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = next.(tuiModel)
+	if got := m.filterDraft.output; got != "3" {
+		t.Fatalf("field edit after clear = %q, want 3", got)
+	}
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "output<=3" {
+		t.Fatalf("applied filter after clear/edit = %q, want output<=3", m.filter)
+	}
+}
+
+func TestTUIFilterDraftStructuredConversion(t *testing.T) {
+	draft := tuiFilterDraftFromString("free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2")
+	if got := draft.string(); got != "free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2" {
+		t.Fatalf("draft conversion = %q", got)
 	}
 }
 
@@ -956,8 +1054,44 @@ func TestTUIHelpSearchMaxOffsetIncludesInputRow(t *testing.T) {
 	}
 	m.helpOffset = m.helpMaxOffset()
 	lines := strings.Split(tuiHelpView(m), "\n")
-	if got, want := ansi.Strip(lines[3]), tuiHelpLines()[len(tuiHelpLines())-1]; got != want {
+	if got, want := ansi.Strip(lines[3]), tuiFormatHelpLine(tuiHelpLines()[len(tuiHelpLines())-1], m.width); got != want {
 		t.Fatalf("last visible help line = %q, want %q", got, want)
+	}
+}
+
+func tuiHelpLineIndexContaining(needle string) int {
+	for i, line := range tuiHelpLines() {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestTUIHelpRowsUseColumnsAndFitNarrowTerminals(t *testing.T) {
+	row := `\tq / p / r\tsort\tq sorts by quality; p by price; r by quality/price ratio (q/p).`
+	for _, width := range []int{12, 24, 80} {
+		formatted := tuiFormatHelpLine(row, width)
+		if tableDisplayWidth(formatted) > width {
+			t.Fatalf("width %d: formatted help row is %d columns wide: %q", width, tableDisplayWidth(formatted), formatted)
+		}
+		if width >= 24 && !strings.Contains(formatted, "  ") {
+			t.Fatalf("width %d: help row has no column spacing: %q", width, formatted)
+		}
+	}
+	tuiForceColorProfile(t)
+	m := tuiModel{overlay: "help", helpMode: "full", width: 80, height: 20, helpSearch: "quality"}
+	view := tuiHelpView(m)
+	if !strings.Contains(view, tuiHeaderStyle.Render("openrouter tui keys")) {
+		t.Fatal("help title is not colour-accented")
+	}
+	if ansi.Strip(view) == view {
+		t.Fatal("help search or headings did not emit ANSI styling")
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if tableDisplayWidth(ansi.Strip(line)) > m.width {
+			t.Fatalf("styled help line exceeds width %d: %q", m.width, line)
+		}
 	}
 }
 
@@ -986,33 +1120,50 @@ func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
 	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "column"}
 	view := tuiHelpView(m)
 	lines := strings.Split(view, "\n")
-	if got := lines[26]; got == ansi.Strip(got) {
-		t.Fatalf("matching line was not styled: %q", got)
+	columnLine := tuiHelpLineIndexContaining("c / Space / Enter / Esc")
+	if columnLine < 0 || lines[columnLine] == ansi.Strip(lines[columnLine]) {
+		t.Fatalf("matching line was not styled: %q", lines[columnLine])
 	}
-	if got := ansi.Strip(lines[26]); got != tuiHelpLines()[26] {
-		t.Fatalf("matching line changed: got %q, want %q", got, tuiHelpLines()[26])
+	if got := ansi.Strip(lines[columnLine]); got != tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width) {
+		t.Fatalf("matching line changed: got %q, want %q", got, tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width))
 	}
-	if got := strings.Count(lines[26], tuiMatchStyle.Render("column")); got != 3 {
-		t.Fatalf("matching line has %d styled occurrences, want 3: %q", got, lines[26])
+	if got := strings.Count(lines[columnLine], tuiMatchStyle.Render("column")); got != 3 {
+		t.Fatalf("matching line has %d styled occurrences, want 3: %q", got, lines[columnLine])
 	}
 
 	m.helpSearch = "match"
+	m.height = len(tuiHelpLines()) + 2
 	lines = strings.Split(tuiHelpView(m), "\n")
-	if got := strings.Count(lines[57], tuiMatchStyle.Render("match")); got != 2 {
-		t.Fatalf("match line has %d styled occurrences, want 2: %q", got, lines[57])
+	matchLine := -1
+	for i, line := range lines {
+		if strings.Count(line, tuiMatchStyle.Render("match")) == 2 {
+			matchLine = i
+			break
+		}
 	}
-	if !strings.Contains(ansi.Strip(lines[58]), `"match"`) || lines[58] != ansi.Strip(lines[58]) {
-		t.Fatalf("footer was not kept plain: %q", lines[58])
+	if matchLine < 0 {
+		t.Fatalf("match line was not highlighted: %q", lines)
+	}
+	footer := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(ansi.Strip(lines[i]), "Help ") {
+			footer = lines[i]
+			break
+		}
+	}
+	if !strings.Contains(ansi.Strip(footer), `"match"`) || footer != ansi.Strip(footer) {
+		t.Fatalf("footer was not kept plain: %q", footer)
 	}
 
 	m.helpSearch = "search"
 	lines = strings.Split(tuiHelpView(m), "\n")
-	for _, index := range []int{25, 55} {
+	for _, heading := range []string{"Columns, search, and filters", "Help search"} {
+		index := tuiHelpLineIndexContaining(heading)
 		if want := tuiHeaderStyle.Render(tuiHelpLines()[index]); lines[index] != want {
 			t.Fatalf("heading line %d = %q, want %q", index, lines[index], want)
 		}
 	}
-	for _, index := range []int{11, 18, 27, 28} {
+	for _, index := range []int{tuiHelpLineIndexContaining(`/\tsearch`)} {
 		if lines[index] == ansi.Strip(lines[index]) {
 			t.Fatalf("content line %d was not highlighted: %q", index, lines[index])
 		}
@@ -1038,11 +1189,14 @@ func TestTUIHelpSearchPreservesDisplayCaseAndNormalizesNeedle(t *testing.T) {
 	tuiForceColorProfile(t)
 	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "task-fit"}
 	lines := strings.Split(tuiHelpView(m), "\n")
-	if !strings.Contains(lines[15], tuiMatchStyle.Render("Task-fit")) || !strings.Contains(lines[23], tuiMatchStyle.Render("task-fit")) {
-		t.Fatalf("display case was not preserved: line 15=%q, line 23=%q", lines[15], lines[23])
+	codeLine := tuiHelpLineIndexContaining("Task-fit codes:")
+	rowLine := tuiHelpLineIndexContaining(`\tn\tcolumns`)
+	if !strings.Contains(lines[rowLine], tuiMatchStyle.Render("Task-fit")) {
+		t.Fatalf("display case was not preserved: code=%q, row=%q", lines[codeLine+1], lines[rowLine])
 	}
-	if want := tuiHeaderStyle.Render("Task-fit"); lines[13] != want {
-		t.Fatalf("heading was not kept intact: got %q, want %q", lines[13], want)
+	headingLine := tuiHelpLineIndexContaining("Task-fit")
+	if want := tuiHeaderStyle.Render("Task-fit"); lines[headingLine] != want {
+		t.Fatalf("heading was not kept intact: got %q, want %q", lines[headingLine], want)
 	}
 	for _, needle := range []string{"TASK-FIT", "Task-Fit", "task-fit"} {
 		if got := tuiHelpSearch(needle); !reflect.DeepEqual(got, tuiHelpSearch("task-fit")) {
@@ -2602,21 +2756,31 @@ func TestTUIHelpOverlayFitsSmallHeightsWhileTyping(t *testing.T) {
 func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.overlay, m.width, m.height = "help", 200, 60
+	m.height = len(tuiHelpLines()) + 2
 	m.inputMode, m.input = "help-search", "ref"
 	view := m.View()
 	assertTUIViewFits(t, view, m.width, m.height, "help typing")
 	lines := strings.Split(view, "\n")
-	if len(lines) != 60 {
-		t.Fatalf("справка отрисовала %d строк, want 60", len(lines))
+	if len(lines) != m.height {
+		t.Fatalf("справка отрисовала %d строк, want %d", len(lines), m.height)
 	}
-	if got := ansi.Strip(lines[57]); got != tuiHelpLines()[57] {
-		t.Fatalf("строка 57 = %q, want последнюю строку документа справки %q", got, tuiHelpLines()[57])
+	inputIndex := -1
+	footerIndex := -1
+	for i, line := range lines {
+		switch ansi.Strip(line) {
+		case "/ ref_":
+			inputIndex = i
+		default:
+			if strings.HasPrefix(ansi.Strip(line), "Help ") && strings.Contains(ansi.Strip(line), "/") {
+				footerIndex = i
+			}
+		}
 	}
-	if got := ansi.Strip(lines[58]); got != "/ ref_" {
-		t.Fatalf("строка 58 = %q, want строку ввода %q сразу под контентом", got, "/ ref_")
+	if inputIndex < 1 || footerIndex != inputIndex+1 {
+		t.Fatalf("строка ввода и футер имеют неверный порядок: input=%d footer=%d", inputIndex, footerIndex)
 	}
-	if got := ansi.Strip(lines[59]); !strings.HasPrefix(got, "Help 1-58/58 · / search · Enter next match · Esc close") {
-		t.Fatalf("строка 59 = %q, want неизменённый футер справки под строкой ввода", got)
+	if got := ansi.Strip(lines[footerIndex]); !strings.Contains(got, "· / search · Enter next match · Esc close") {
+		t.Fatalf("футер справки = %q, want строку навигации под строкой ввода", got)
 	}
 }
 

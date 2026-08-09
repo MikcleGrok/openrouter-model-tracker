@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Add a dedicated Filter form to the TUI for editing structured filters with checkbox and numeric fields, including apply, cancel and clear actions.
+- Persist the active TUI filter in the configuration and restore it when reopening the filter form.
+- Rework the TUI help layout into aligned shortcut columns and document filter-form navigation, help search and keyboard shortcuts.
 
 ## [1.10.1]
 
