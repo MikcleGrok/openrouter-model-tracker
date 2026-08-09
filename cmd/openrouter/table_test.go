@@ -1294,6 +1294,44 @@ func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
 	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
 }
 
+// TestLoadLocalModelsForSourceRestoresCatalogueMetadata closes the loop
+// the TUI actually runs: it never reads a live model.Model, it re-derives
+// every row from the on-disk snapshot. A field that survives NewSnapshot
+// but is not rebuilt here reaches the detail screen as a permanent н/д.
+func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/dated:\n    display: Demo Dated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/dated": {InPerM: 1, OutPerM: 3, Context: 128000, Created: 1786034890, Description: "Demo prose."},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	models, err := loadLocalModelsForSource(root, scoreSourceDefault)
+	if err != nil {
+		t.Fatalf("loadLocalModelsForSource: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("got %d models, want 1: %+v", len(models), models)
+	}
+	if models[0].Created != 1786034890 || models[0].Description != "Demo prose." {
+		t.Errorf("row = %+v, want Created/Description rebuilt from the snapshot entry", models[0])
+	}
+}
+
 // TestTableScoreSourceClaudeColumnNeverBlendsScales guards against exactly
 // the bug a review caught live: ClaudeEquivalent's haiku/free thresholds
 // (>=70, >=60) are calibrated on SWE-bench Verified percentage points. After
