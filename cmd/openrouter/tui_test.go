@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -241,7 +242,14 @@ func TestTUITaskFitUsesCompactCodes(t *testing.T) {
 }
 
 func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
-	for _, test := range []struct{ key, want string }{{".", "/"}, {",", "?"}} {
+	for _, test := range []struct{ key, want string }{
+		{".", "/"}, {",", "?"},
+		{"ч", "x"}, // U+0447, физическая позиция латинской x — исходный багрепорт
+		{"с", "c"}, // U+0441, омоглиф латинской c
+		{"р", "h"}, // U+0440, омоглиф латинской p, но команда — h
+		{"к", "r"}, // U+043A, омоглиф латинской k, но команда — r
+		{"о", "j"}, // U+043E, омоглиф латинской o, но команда — j
+	} {
 		got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
 		if got != test.want {
 			t.Fatalf("%q normalized to %q, want %q", test.key, got, test.want)
@@ -1441,6 +1449,67 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTUILayoutAliasesAreWellFormed сверяет таблицу раскладочных алиасов с
+// golden-списком, заданным численными кодовыми точками. Численные литералы
+// здесь принципиальны: часть кириллических рун визуально неотличима от
+// латинских ('с' U+0441 против 'c', 'р' U+0440 против 'p', 'к' U+043A против
+// 'k', 'о' U+043E против 'o', 'а' U+0430 против 'a'), поэтому сверка «руна с
+// руной» не поймала бы омоглифную опечатку — она бы её повторила.
+func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
+	golden := map[rune]string{
+		0x0447: "x", // ч
+		0x043B: "k", // л
+		0x043E: "j", // о
+		0x043F: "g", // п
+		0x041F: "G", // П
+		0x0440: "h", // р
+		0x0434: "l", // д
+		0x044B: "s", // ы
+		0x042B: "S", // Ы
+		0x044C: "m", // ь
+		0x0441: "c", // с
+		0x0442: "n", // т
+		0x0430: "f", // а
+		0x0439: "q", // й
+		0x0437: "p", // з
+		0x043A: "r", // к
+		0x041A: "R", // К
+		0x002E: "/", // .
+		0x002C: "?", // ,
+	}
+	if len(tuiLayoutAliases) != len(golden) {
+		t.Fatalf("alias table has %d entries, want the %d golden pairs", len(tuiLayoutAliases), len(golden))
+	}
+	for code, want := range golden {
+		got, ok := tuiLayoutAliases[code]
+		if !ok {
+			t.Fatalf("alias table has no entry for U+%04X (%q), want the command %q", code, code, want)
+		}
+		if got != want {
+			t.Fatalf("alias table maps U+%04X (%q) to %q, want %q", code, code, got, want)
+		}
+	}
+	commands := map[string]rune{}
+	for alias, command := range tuiLayoutAliases {
+		if alias < utf8.RuneSelf && unicode.IsLetter(alias) {
+			t.Fatalf("alias %q (U+%04X) is an ASCII letter; a Latin letter must never be an alias key", alias, alias)
+		}
+		if unicode.IsLetter(alias) && !unicode.Is(unicode.Cyrillic, alias) {
+			t.Fatalf("alias %q (U+%04X) is a letter outside the Cyrillic block", alias, alias)
+		}
+		if len(command) != 1 || command[0] >= utf8.RuneSelf {
+			t.Fatalf("alias %q maps to %q, want a single ASCII character", alias, command)
+		}
+		if previous, ok := commands[command]; ok {
+			t.Fatalf("aliases %q and %q both map to the command %q", previous, alias, command)
+		}
+		commands[command] = alias
+		if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(command)}); got != command {
+			t.Fatalf("tuiCommandKey is not idempotent on the command %q: it returned %q", command, got)
 		}
 	}
 }
