@@ -466,7 +466,7 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 			if !ok {
 				continue
 			}
-			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, Created: se.Created, Description: se.Description, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
+			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, Created: se.Created, Description: se.Description, CanonicalSlug: se.CanonicalSlug, HuggingFaceID: se.HuggingFaceID, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
 			stalePrices[e.Slug] = true
 		}
 	}
