@@ -798,7 +798,7 @@ func TestTUIHelpOverlayFitsSmallHeights(t *testing.T) {
 }
 
 func TestTUIHelpUsesFullViewport(t *testing.T) {
-	view := tuiHelpView(0, "", 80, 20)
+	view := tuiHelpView(tuiModel{width: 80, height: 20})
 	lines := strings.Split(view, "\n")
 	if len(lines) != 20 {
 		t.Fatalf("help height = %d, want 20", len(lines))

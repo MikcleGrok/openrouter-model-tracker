@@ -573,7 +573,7 @@ func (m tuiModel) View() string {
 		return ""
 	}
 	if m.overlay == "help" {
-		return tuiHelpView(m.helpOffset, m.helpSearch, m.width, m.height)
+		return tuiHelpView(m)
 	}
 	if m.overlay == "detail" {
 		return tuiDetailView(m)
@@ -807,19 +807,25 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func tuiHelpView(offset int, search string, width, height int) string {
+// tuiHelpView renders the full-screen help overlay. It takes the whole
+// model rather than the four scalars it used to, the way tuiDetailView
+// already does: six positional parameters — two adjacent strings and two
+// adjacent ints — is the signature that eventually gets called with its
+// arguments swapped, and the overlay needs more of the model than it
+// used to.
+func tuiHelpView(m tuiModel) string {
 	lines := tuiHelpLines()
-	offset = max(0, min(offset, max(0, len(lines)-height)))
-	lines = lines[offset:min(len(lines), offset+height)]
+	offset := max(0, min(m.helpOffset, max(0, len(lines)-m.height)))
+	lines = lines[offset:min(len(lines), offset+m.height)]
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+height), len(tuiHelpLines()))
-	if search != "" {
-		footer += fmt.Sprintf(" · %q", search)
+	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+m.height), len(tuiHelpLines()))
+	if m.helpSearch != "" {
+		footer += fmt.Sprintf(" · %q", m.helpSearch)
 	}
 	lines = append(lines, footer)
-	view := tuiFullscreenText(strings.Join(lines, "\n"), width, height)
+	view := tuiFullscreenText(strings.Join(lines, "\n"), m.width, m.height)
 	styledLines := strings.Split(view, "\n")
 	for i, line := range styledLines {
 		plain := ansi.Strip(line)
