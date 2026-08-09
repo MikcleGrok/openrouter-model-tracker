@@ -1,6 +1,7 @@
 cache/
 bin/
 .release/
+/release-notes.md
 
 # Static cosign signing key material MUST never be committed. Only the
 # public half (cosign.pub, tracked in the repo root) is a source artifact.
