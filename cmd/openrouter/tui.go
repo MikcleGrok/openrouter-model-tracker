@@ -821,6 +821,7 @@ const tuiHelpDocument = `openrouter tui keys
 Navigation
 Up/Down or j/k move through models. In help, they scroll this document.
 Home/End or g/G jump; PgUp/PgDown scroll.
+Enter, Right or l opens the model detail screen; Esc, Left or h closes it.
 
 Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
@@ -846,6 +847,13 @@ c opens column selection. Space toggles a column; Enter applies; Esc cancels. Th
 f edits a structured filter and does not change the search.
 Examples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output>=N.
 Multiple filters are comma-separated and use AND.
+
+Model detail view
+Enter, Right or l opens the detail screen for the highlighted model.
+Esc, Left or h closes it and returns to the list with the same cursor.
+Up/Down or j/k, PgUp/PgDown and Home/End scroll the detail text.
+It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
+The vendor description is wrapped to the terminal width instead of being cut like a table cell.
 
 Refresh and finish
 R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.

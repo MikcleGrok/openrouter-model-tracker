@@ -1339,3 +1339,26 @@ func TestTUIDetailOverlayDoesNotOpenOnAnEmptyList(t *testing.T) {
 		t.Fatalf("overlay = %q, want no detail screen when there is no row to show", m.overlay)
 	}
 }
+
+func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
+	for _, want := range []string{
+		"Model detail view",
+		"Enter, Right or l opens the detail screen",
+		"Esc, Left or h closes it",
+		"scroll the detail text",
+	} {
+		if !strings.Contains(tuiHelpDocument, want) {
+			t.Errorf("help document is missing %q", want)
+		}
+	}
+	for _, r := range tuiHelpDocument {
+		if unicode.Is(unicode.Cyrillic, r) {
+			t.Fatalf("help document must stay English-only: %q", tuiHelpDocument)
+		}
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "help", 120, len(tuiHelpLines())+2
+	if !strings.Contains(m.View(), "Model detail view") {
+		t.Errorf("the rendered help does not show the detail-screen section:\n%s", m.View())
+	}
+}

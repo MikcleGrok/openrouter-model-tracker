@@ -1,5 +1,10 @@
 # What's New
 
+## [Unreleased]
+
+- Add a full-screen model detail view to `openrouter tui` (`Enter`/`→`/`l` to open, `Esc`/`←`/`h` to close): release date, owner, tier, context, full pricing including the long-context tier, both score sources in separate labelled blocks, task fit, note and the vendor description, word-wrapped instead of truncated.
+- Carry the OpenRouter catalogue's `created` and `description` fields through the pipeline and the run snapshot, with no additional HTTP request and no new cache entry.
+
 ## [1.3.0]
 
 - Extend `model-map.tsv` with 23 more manual model declarations (SWE-bench Verified sources), cutting the local table's `н/д` Status count from 34/56 to 24/56.
