@@ -91,6 +91,13 @@ func main() {
 		fatal(err.Error())
 	}
 	if overall != "passed" {
+		fmt.Fprintf(os.Stderr, "dependency-check policy decision: %s (scan_status=%s); non-passed scanners:\n", policy, overall)
+		for _, f := range findings {
+			if f.Status != "passed" {
+				fmt.Fprintf(os.Stderr, "  - %s: %s (%s)\n", f.Scanner, f.Status, f.Detail)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "see %s and the native scanner outputs for full detail.\n", *output)
 		os.Exit(1)
 	}
 }
