@@ -87,8 +87,12 @@ func TestTUIInteractiveFilterClearsRowsOnRuntimeFormulaError(t *testing.T) {
 	}
 }
 
+func tuiKeyCmd(m tuiModel, key string) (tuiModel, tea.Cmd) {
+	return m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+}
+
 func tuiKey(m tuiModel, key string) tuiModel {
-	next, _ := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	next, _ := tuiKeyCmd(m, key)
 	return next
 }
 
@@ -1511,5 +1515,205 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 		if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(command)}); got != command {
 			t.Fatalf("tuiCommandKey is not idempotent on the command %q: it returned %q", command, got)
 		}
+	}
+}
+
+// tuiShortcutState — явный снимок полей модели, которые вообще способны
+// измениться от нажатия хоткея. Сравнивать tuiModel целиком через
+// reflect.DeepEqual нельзя: она несёт context.Context и ranking.Compiled, где
+// сравнение скомпилированной формулы ненадёжно.
+type tuiShortcutState struct {
+	cursor       int
+	selectedSlug string
+	sortKey      string
+	reverse      bool
+	ranking      string
+	overlay      string
+	inputMode    string
+	input        string
+	filter       string
+	helpSearch   string
+	helpOffset   int
+	detailOffset int
+	columnCursor int
+	lastNote     bool
+	refreshing   bool
+	generation   uint64
+	status       string
+	err          string
+	visible      []string
+	columns      []tuiColumn
+}
+
+func tuiShortcutSnapshot(m tuiModel) tuiShortcutState {
+	slugs := make([]string, 0, len(m.visible))
+	for _, row := range m.visible {
+		slugs = append(slugs, row.Slug)
+	}
+	return tuiShortcutState{
+		cursor: m.cursor, selectedSlug: m.selectedSlug, sortKey: m.sortKey, reverse: m.reverse,
+		ranking: m.ranking, overlay: m.overlay, inputMode: m.inputMode, input: m.input,
+		filter: m.filter, helpSearch: m.helpSearch, helpOffset: m.helpOffset,
+		detailOffset: m.detailOffset, columnCursor: m.columnCursor, lastNote: m.lastNote,
+		refreshing: m.refreshing, generation: m.generation, status: m.status, err: m.err,
+		visible: slugs, columns: append([]tuiColumn(nil), m.columns...),
+	}
+}
+
+func tuiShortcutRows() []model.Model {
+	return []model.Model{
+		{Slug: "alpha", DisplayName: "Alpha", QualityPriceLabel: "9.0", Score: &model.ScoreInfo{Value: 9}, Rankable: true, MixedPrice: 10, QualityPrice: 9},
+		{Slug: "beta", DisplayName: "Beta", QualityPriceLabel: "4.0", Score: &model.ScoreInfo{Value: 4}, Rankable: true, MixedPrice: 4, QualityPrice: 4},
+		{Slug: "gamma", DisplayName: "Gamma", QualityPriceLabel: "1.0", Score: &model.ScoreInfo{Value: 1}, Rankable: true, MixedPrice: 1, QualityPrice: 1},
+	}
+}
+
+func tuiShortcutListModel(t *testing.T) tuiModel {
+	t.Helper()
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, tuiShortcutRows())
+	m.width, m.height = 120, 20
+	return m
+}
+
+// tuiShortcutListModelAtBottom нужен клавишам «вверх» и «в начало»: с курсором
+// на нулевой строке они не меняют ничего, и проверка стала бы вырожденной.
+func tuiShortcutListModelAtBottom(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutListModel(t)
+	m.cursor = len(m.visible) - 1
+	return m
+}
+
+// tuiShortcutListModelSortedByName нужен клавише r: она выставляет сортировку
+// "q/p", которая и так стоит по умолчанию.
+func tuiShortcutListModelSortedByName(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutListModel(t)
+	m.sortKey = "name"
+	return m
+}
+
+func tuiShortcutDetailModel(t *testing.T) tuiModel {
+	t.Helper()
+	row := tuiDetailTestModel()
+	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 60, 10
+	if tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height) < 2 {
+		t.Fatal("test setup: the detail fixture must be at least two lines taller than the viewport")
+	}
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("test setup: the detail overlay did not open, overlay=%q", m.overlay)
+	}
+	return m
+}
+
+func tuiShortcutDetailModelScrolled(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutDetailModel(t)
+	m.detailOffset = 2
+	return m
+}
+
+func tuiShortcutHelpModel(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutListModel(t)
+	m.overlay, m.helpOffset = "help", 0
+	if tuiHelpMaxOffset(m.height) < 5 {
+		t.Fatalf("test setup: the help document must be scrollable at height %d", m.height)
+	}
+	return m
+}
+
+func tuiShortcutHelpModelScrolled(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutHelpModel(t)
+	m.helpOffset = 5
+	return m
+}
+
+func tuiShortcutColumnsModel(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutListModel(t)
+	m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
+	return m
+}
+
+func tuiShortcutColumnsModelScrolled(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutColumnsModel(t)
+	m.columnCursor = 2
+	return m
+}
+
+type tuiShortcutCase struct {
+	name    string
+	latin   string
+	russian string
+	setup   func(t *testing.T) tuiModel
+}
+
+// tuiShortcutCases покрывает все 19 алиасов таблицы tuiLayoutAliases; клавиши
+// навигации, живущие сразу в нескольких switch-блоках, получают строку на
+// каждый контекст, потому что именно там ломается «алиас есть, но не во всех
+// оверлеях».
+func tuiShortcutCases() []tuiShortcutCase {
+	return []tuiShortcutCase{
+		{name: "list quit", latin: "x", russian: "ч", setup: tuiShortcutListModel},
+		{name: "list cursor down", latin: "j", russian: "о", setup: tuiShortcutListModel},
+		{name: "list cursor up", latin: "k", russian: "л", setup: tuiShortcutListModelAtBottom},
+		{name: "list jump home", latin: "g", russian: "п", setup: tuiShortcutListModelAtBottom},
+		{name: "list jump end", latin: "G", russian: "П", setup: tuiShortcutListModel},
+		{name: "list open detail", latin: "l", russian: "д", setup: tuiShortcutListModel},
+		{name: "list cycle sort key", latin: "s", russian: "ы", setup: tuiShortcutListModel},
+		{name: "list reverse order", latin: "S", russian: "Ы", setup: tuiShortcutListModel},
+		{name: "list toggle ranking", latin: "m", russian: "ь", setup: tuiShortcutListModel},
+		{name: "list open columns", latin: "c", russian: "с", setup: tuiShortcutListModel},
+		{name: "list toggle last column", latin: "n", russian: "т", setup: tuiShortcutListModel},
+		{name: "list edit filter", latin: "f", russian: "а", setup: tuiShortcutListModel},
+		{name: "list sort by quality", latin: "q", russian: "й", setup: tuiShortcutListModelSortedByName},
+		{name: "list sort by price", latin: "p", russian: "з", setup: tuiShortcutListModelSortedByName},
+		{name: "list sort by quality-price", latin: "r", russian: "к", setup: tuiShortcutListModelSortedByName},
+		{name: "list refresh", latin: "R", russian: "К", setup: tuiShortcutListModel},
+		{name: "list open search", latin: "/", russian: ".", setup: tuiShortcutListModel},
+		{name: "list open help", latin: "?", russian: ",", setup: tuiShortcutListModel},
+		{name: "detail close", latin: "h", russian: "р", setup: tuiShortcutDetailModel},
+		{name: "detail scroll down", latin: "j", russian: "о", setup: tuiShortcutDetailModel},
+		{name: "detail scroll up", latin: "k", russian: "л", setup: tuiShortcutDetailModelScrolled},
+		{name: "detail scroll home", latin: "g", russian: "п", setup: tuiShortcutDetailModelScrolled},
+		{name: "detail scroll end", latin: "G", russian: "П", setup: tuiShortcutDetailModel},
+		{name: "help scroll down", latin: "j", russian: "о", setup: tuiShortcutHelpModel},
+		{name: "help scroll up", latin: "k", russian: "л", setup: tuiShortcutHelpModelScrolled},
+		{name: "help scroll home", latin: "g", russian: "п", setup: tuiShortcutHelpModelScrolled},
+		{name: "help scroll end", latin: "G", russian: "П", setup: tuiShortcutHelpModel},
+		{name: "help open search", latin: "/", russian: ".", setup: tuiShortcutHelpModel},
+		{name: "help close", latin: "?", russian: ",", setup: tuiShortcutHelpModel},
+		{name: "columns cursor down", latin: "j", russian: "о", setup: tuiShortcutColumnsModel},
+		{name: "columns cursor up", latin: "k", russian: "л", setup: tuiShortcutColumnsModelScrolled},
+	}
+}
+
+// TestTUIRussianLayoutShortcutsMatchLatin доказывает не «клавиша что-то
+// сделала», а «RU-ветка привела модель ровно в то же состояние, что и
+// EN-ветка». Такое утверждение переживает любое будущее изменение смысла
+// хоткея: тест не придётся переписывать вслед за поведением.
+func TestTUIRussianLayoutShortcutsMatchLatin(t *testing.T) {
+	for _, test := range tuiShortcutCases() {
+		t.Run(test.name, func(t *testing.T) {
+			before := tuiShortcutSnapshot(test.setup(t))
+			latinModel, latinCmd := tuiKeyCmd(test.setup(t), test.latin)
+			russianModel, russianCmd := tuiKeyCmd(test.setup(t), test.russian)
+			latin, russian := tuiShortcutSnapshot(latinModel), tuiShortcutSnapshot(russianModel)
+			if reflect.DeepEqual(latin, before) && latinCmd == nil {
+				t.Fatalf("the Latin key %q changed neither state nor command in this setup, so the case proves nothing", test.latin)
+			}
+			if !reflect.DeepEqual(latin, russian) {
+				t.Fatalf("keys %q (Latin) and %q (Russian) diverge:\n latin   = %+v\n russian = %+v", test.latin, test.russian, latin, russian)
+			}
+			if (latinCmd == nil) != (russianCmd == nil) {
+				t.Fatalf("key %q returned a command = %v, but key %q returned a command = %v", test.latin, latinCmd != nil, test.russian, russianCmd != nil)
+			}
+		})
 	}
 }
