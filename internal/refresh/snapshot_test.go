@@ -155,3 +155,42 @@ func TestSnapshotOmitsAnEmptyArenaScore(t *testing.T) {
 		t.Errorf("an empty Arena score must not appear in the snapshot:\n%s", body)
 	}
 }
+
+// TestSnapshotRoundTripsCatalogueMetadata guards the least obvious hop of
+// the whole feature. The TUI never renders a live model.Model: it re-reads
+// this snapshot from disk and rebuilds every row from it. A field that
+// model.Model has and SnapshotEntry lacks is therefore invisible on
+// screen no matter how correct the rest of the pipeline is — the local
+// sources/model tests stay green while the detail screen shows a
+// permanent н/д.
+func TestSnapshotRoundTripsCatalogueMetadata(t *testing.T) {
+	models := []model.Model{
+		{Slug: "a/dated", InPerM: 1, OutPerM: 3, Context: 1000, Created: 1786034890, Description: "A dated model."},
+		{Slug: "a/bare", InPerM: 1, OutPerM: 3, Context: 1000},
+	}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+
+	dated := loaded.Models["a/dated"]
+	if dated.Created != 1786034890 || dated.Description != "A dated model." {
+		t.Errorf("dated = %+v, want the catalogue metadata to survive the disk round trip", dated)
+	}
+	bare := loaded.Models["a/bare"]
+	if bare.Created != 0 || bare.Description != "" {
+		t.Errorf("bare = %+v, want zero catalogue metadata", bare)
+	}
+
+	body, err := json.Marshal(bare)
+	if err != nil {
+		t.Fatalf("marshal bare entry: %v", err)
+	}
+	if strings.Contains(string(body), "created") || strings.Contains(string(body), "description") {
+		t.Errorf("bare entry = %s, want omitempty to keep absent catalogue metadata out of the snapshot", body)
+	}
+}

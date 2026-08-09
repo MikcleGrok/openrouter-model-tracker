@@ -18,6 +18,8 @@ type SnapshotEntry struct {
 	InPerM            float64          `json:"in_per_m"`
 	OutPerM           float64          `json:"out_per_m"`
 	Context           int              `json:"context"`
+	Created           int64            `json:"created,omitempty"`
+	Description       string           `json:"description,omitempty"`
 	HasOverride       bool             `json:"has_long_context_override,omitempty"`
 	OverrideMinTokens int              `json:"long_context_min_tokens,omitempty"`
 	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
@@ -79,11 +81,13 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 	s := &Snapshot{FetchedAt: fetchedAt, Models: make(map[string]SnapshotEntry, len(models))}
 	for _, m := range models {
 		s.Models[m.Slug] = SnapshotEntry{
-			InPerM:     m.InPerM,
-			OutPerM:    m.OutPerM,
-			Context:    m.Context,
-			Score:      m.Score,
-			ArenaScore: m.ArenaScore,
+			InPerM:      m.InPerM,
+			OutPerM:     m.OutPerM,
+			Context:     m.Context,
+			Created:     m.Created,
+			Description: m.Description,
+			Score:       m.Score,
+			ArenaScore:  m.ArenaScore,
 		}
 	}
 	return s
