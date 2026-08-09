@@ -1643,6 +1643,8 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 		"Enter, Right or l opens the detail screen",
 		"Esc, Left or h closes it",
 		"scroll the detail text",
+		"links to the model's OpenRouter page",
+		"HuggingFace repository",
 	} {
 		if !strings.Contains(tuiHelpDocument, want) {
 			t.Errorf("help document is missing %q", want)

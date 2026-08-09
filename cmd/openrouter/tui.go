@@ -944,6 +944,8 @@ Esc, Left or h closes it and returns to the list with the same cursor.
 Up/Down or j/k, PgUp/PgDown and Home/End scroll the detail text.
 It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
+The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
+Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.
 
 Refresh and finish
 R refreshes the local data now. Auto-refresh runs at the configured --refresh-interval; interval 0 disables it, but R still works.

@@ -1,5 +1,11 @@
 # What's New
 
+## [Unreleased]
+
+- Show the model's OpenRouter page link on the TUI detail screen, built from the catalogue's `canonical_slug`, plus a HuggingFace repository link for the models that have one.
+- Colour-code the TUI detail screen: screen title, block headings, field labels, links and the `н/д` placeholder. Styling is applied strictly after layout, so scrolling, wrapping and truncation are unchanged.
+- Carry the OpenRouter catalogue's `canonical_slug` and `hugging_face_id` through the pipeline and the run snapshot, including the degraded path where the catalogue fetch fails, with no additional HTTP request and no new cache entry.
+
 ## [1.5.0]
 
 - Add cosign-based release signing and provenance verification (static key pair, no Fulcio/Rekor/transparency log): `make sign`, `make attest`, `make verify-provenance`.
