@@ -2263,3 +2263,151 @@ func TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore(t *testing.T) {
 	}
 	t.Fatalf("internal error: tuiViewHasPlainLine found the line but split by newline didn't")
 }
+
+// TestTUIHelpInputLineCostsExactlyOneContentRow — проверка off-by-one.
+// Она сравнивает вывод справки во время набора с выводом той же справки
+// без набора на том же helpOffset: контентные строки первого обязаны быть
+// в точности первыми height-1 контентными строками второго, а последней
+// строкой экрана обязана быть строка ввода. Ни потерянной строки
+// документа, ни лишней пустой. Высоты подобраны так, чтобы на каждой из
+// них строка ввода реально была видна: документ справки — 58 строк, и
+// футер на высотах ниже 59 не виден ни во время набора, ни без него, что
+// эта проверка намеренно не трогает.
+func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
+	for _, height := range []int{2, 3, 5, 10, 24, 40, 59} {
+		idle := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+		idle.overlay, idle.width, idle.height = "help", 200, height
+		idleLines := strings.Split(idle.View(), "\n")
+
+		typing := idle
+		typing.inputMode, typing.input = "help-search", "ref"
+		view := typing.View()
+		assertTUIViewFits(t, view, typing.width, typing.height, "help typing")
+		typingLines := strings.Split(view, "\n")
+		if len(typingLines) != height {
+			t.Fatalf("height %d: справка во время набора отрисовала %d строк, want %d", height, len(typingLines), height)
+		}
+		if got := ansi.Strip(typingLines[height-1]); got != "/ ref_" {
+			t.Fatalf("height %d: последняя строка экрана = %q, want строку ввода %q", height, got, "/ ref_")
+		}
+		for i := 0; i < height-1; i++ {
+			got, want := ansi.Strip(typingLines[i]), ansi.Strip(idleLines[i])
+			if got != want {
+				t.Fatalf("height %d: контентная строка %d = %q во время набора, want %q — строка ввода обязана стоить ровно одну строку", height, i, got, want)
+			}
+		}
+	}
+}
+
+// TestTUIHelpOverlayFitsSmallHeightsWhileTyping — зеркало
+// TestTUIHelpOverlayFitsSmallHeights для режима набора. Оно закрывает два
+// вырожденных случая, принятых спекой как есть: height == 1, где на экране
+// физически одна строка и обратной связи быть не может, и helpOffset,
+// выставленный далеко за конец документа клавишей G или helpNextMatch, —
+// клэмп внутри tuiHelpView обязан удержать срез в границах, а не отдать
+// пустой экран или запаниковать.
+func TestTUIHelpOverlayFitsSmallHeightsWhileTyping(t *testing.T) {
+	for _, height := range []int{1, 2, 3, 4, 5, 6, 7} {
+		for _, offset := range []int{0, 5, 999} {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+			m.overlay, m.width, m.height = "help", 40, height
+			m.inputMode, m.input, m.helpOffset = "help-search", "refresh", offset
+			view := m.View()
+			assertTUIViewFits(t, view, m.width, m.height, "help typing")
+			if lines := strings.Split(view, "\n"); len(lines) != height {
+				t.Fatalf("height %d, offset %d: справка отрисовала %d строк, want %d", height, offset, len(lines), height)
+			}
+			if strings.TrimSpace(view) == "" {
+				t.Fatalf("height %d, offset %d: справка во время набора отрисовала пустой экран", height, offset)
+			}
+			if height >= 2 && !tuiViewHasPlainLine(view, "/ refresh_") {
+				t.Fatalf("height %d, offset %d: строка ввода не пережила обрезку:\n%s", height, offset, view)
+			}
+		}
+	}
+}
+
+// TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter — единственная
+// проверка порядка трёх частей экрана, и она обязана идти на высоте 60.
+// Ниже её футер справки не виден и сегодня: документ — 58 строк,
+// tuiHelpView дописывает футер уже после нарезки на height строк, а
+// tuiFullscreenText режет лишнее, поэтому во время набора футер выживает
+// только при height >= 60. Это известный дефект обрезки футера, он вне
+// скопа задачи и здесь не чинится — на нём просто нельзя утверждать
+// порядок ниже этой высоты.
+func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.width, m.height = "help", 200, 60
+	m.inputMode, m.input = "help-search", "ref"
+	view := m.View()
+	assertTUIViewFits(t, view, m.width, m.height, "help typing")
+	lines := strings.Split(view, "\n")
+	if len(lines) != 60 {
+		t.Fatalf("справка отрисовала %d строк, want 60", len(lines))
+	}
+	if got := ansi.Strip(lines[57]); got != tuiHelpLines()[57] {
+		t.Fatalf("строка 57 = %q, want последнюю строку документа справки %q", got, tuiHelpLines()[57])
+	}
+	if got := ansi.Strip(lines[58]); got != "/ ref_" {
+		t.Fatalf("строка 58 = %q, want строку ввода %q сразу под контентом", got, "/ ref_")
+	}
+	if got := ansi.Strip(lines[59]); !strings.HasPrefix(got, "Help 1-58/58 · / search · Enter next match · Esc close") {
+		t.Fatalf("строка 59 = %q, want неизменённый футер справки под строкой ввода", got)
+	}
+}
+
+// TestTUIHelpInputLineIsNeverStyledAsAHeading фиксирует инвариант из
+// spec.md: пост-проход подсветки заголовков в tuiHelpView — текстовое
+// правило по суффиксу, и любая новая строка вывода обязана быть проверена
+// на ложное срабатывание. Строка ввода всегда оканчивается маркером
+// курсора "_", поэтому HasSuffix(plain, "search") ей недостижим, а
+// plain == "Task-fit" — тем более. Цветовой профиль форсирован: без него
+// lipgloss отдаёт термен Ascii, Render возвращает вход как есть, и тест
+// прошёл бы при любой стилизации.
+func TestTUIHelpInputLineIsNeverStyledAsAHeading(t *testing.T) {
+	tuiForceColorProfile(t)
+	for _, input := range []string{"", "search", "Task-fit", "keys", "view"} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+		m.overlay, m.width, m.height = "help", 100, 24
+		m.inputMode, m.input = "help-search", input
+		want := "/ " + input + "_"
+		view := m.View()
+		found := ""
+		for _, line := range strings.Split(view, "\n") {
+			if ansi.Strip(line) == want {
+				found = line
+				break
+			}
+		}
+		if found == "" {
+			t.Fatalf("ввод %q: в выводе нет строки ввода %q:\n%s", input, want, view)
+		}
+		if found != want {
+			t.Fatalf("ввод %q: строка ввода попала под пост-проход стилей: %q, want неокрашенную %q", input, found, want)
+		}
+	}
+}
+
+// TestTUIHelpSearchSeedsTheInputLineWithThePreviousQuery проверяет, что
+// существующее поведение входа по / — m.input = m.helpSearch — теперь
+// видно на экране: повторное нажатие / сразу показывает предыдущий
+// запрос, а не пустую строку. Поведение не менялось, менялась только его
+// видимость, поэтому проверка идёт по выводу View().
+func TestTUIHelpSearchSeedsTheInputLineWithThePreviousQuery(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
+	m.width, m.height = 100, 24
+	m = tuiKey(m, "?")
+	m = tuiKey(m, "/")
+	m.input = "refresh"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.inputMode != "" || m.helpSearch != "refresh" {
+		t.Fatalf("test setup: inputMode = %q, helpSearch = %q", m.inputMode, m.helpSearch)
+	}
+	m = tuiKey(m, "/")
+	if m.inputMode != "help-search" || m.input != "refresh" {
+		t.Fatalf("повторный / не засеял поле ввода: inputMode = %q, input = %q", m.inputMode, m.input)
+	}
+	if !tuiViewHasPlainLine(m.View(), "/ refresh_") {
+		t.Fatalf("повторный / не показал затравку предыдущим запросом:\n%s", m.View())
+	}
+}
