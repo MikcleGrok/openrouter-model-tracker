@@ -21,6 +21,7 @@ import (
 type Config struct {
 	DataDir       string        `yaml:"data_dir"`
 	DefaultOutput string        `yaml:"default_output"`
+	TUIFilter     string        `yaml:"tui_filter"`
 	Ranking       RankingConfig `yaml:"ranking"`
 }
 
@@ -154,6 +155,68 @@ func (c Config) MixedUtilityPriceWeight() float64 {
 
 func (c Config) CompiledMixedUtility() (ranking.Compiled, error) {
 	return ranking.Compile(c.Ranking.MixedUtility)
+}
+
+// SaveTUIFilter updates only the persisted TUI filter in the user config.
+func SaveTUIFilter(path, filter string) error {
+	body, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		body = []byte("{}\n")
+	} else if err != nil {
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if len(document.Content) == 0 {
+		document.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("config: %s: root must be a mapping", path)
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "tui_filter" {
+			root.Content[i+1].Kind = yaml.ScalarNode
+			root.Content[i+1].Tag = "!!str"
+			root.Content[i+1].Value = filter
+			return writeYAML(path, &document)
+		}
+	}
+	root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui_filter"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: filter})
+	return writeYAML(path, &document)
+}
+
+func writeYAML(path string, document *yaml.Node) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("config: create parent directory: %w", err)
+	}
+	var out strings.Builder
+	if err := yaml.NewEncoder(&out).Encode(document); err != nil {
+		return fmt.Errorf("config: encode %s: %w", path, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.yaml.*")
+	if err != nil {
+		return fmt.Errorf("config: create temporary file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return fmt.Errorf("config: chmod temporary file: %w", err)
+	}
+	if _, err := tmp.WriteString(out.String()); err != nil {
+		tmp.Close()
+		return fmt.Errorf("config: write temporary file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("config: close temporary file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("config: replace %s: %w", path, err)
+	}
+	return nil
 }
 
 // DefaultPath is where the config lives unless --config says otherwise.

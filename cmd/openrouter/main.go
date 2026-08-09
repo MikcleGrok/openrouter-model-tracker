@@ -96,6 +96,13 @@ func resolveMixedUtilityConfig(cfgPath string) (ranking.Compiled, error) {
 	return cfg.CompiledMixedUtility()
 }
 
+func resolveTUIFilter(flagValue string, flagSet bool, savedValue string) string {
+	if flagSet {
+		return flagValue
+	}
+	return savedValue
+}
+
 // Config-relative paths are anchored to the config file, not the caller's cwd.
 func resolveConfigPath(cfgPath, value string) string {
 	if value == "" || filepath.IsAbs(value) {
@@ -389,7 +396,12 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking, tuiScoreSource)
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				return err
+			}
+			tuiFilter = resolveTUIFilter(tuiFilter, cmd.Flags().Changed("filter"), cfg.TUIFilter)
+			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking, tuiScoreSource, cfgPath)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
