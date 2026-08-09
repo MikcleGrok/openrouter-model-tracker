@@ -269,15 +269,25 @@ func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
 	}
 }
 
+// TestTUIInputModeKeepsNonASCIIInput — обязательная регрессия раскладочных
+// алиасов: руны ы, ч, й, К, с и р теперь являются командами, и без этой
+// проверки нет доказательства, что поиск и фильтр по-прежнему принимают
+// русский текст, а не выполняют s, x, q, R, c и h.
 func TestTUIInputModeKeepsNonASCIIInput(t *testing.T) {
-	for _, key := range []string{"é", "界"} {
-		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
-		m.inputMode = "search"
-		beforeSort, beforeOverlay := m.sortKey, m.overlay
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-		m = next.(tuiModel)
-		if m.input != key || m.sortKey != beforeSort || m.overlay != beforeOverlay || m.inputMode != "search" {
-			t.Fatalf("non-ASCII input %q was routed as command: input=%q sort=%q mode=%q overlay=%q", key, m.input, m.sortKey, m.inputMode, m.overlay)
+	for _, key := range []string{"é", "界", "ы", "ч", "й", "К", "с", "р"} {
+		for _, mode := range []string{"search", "filter", "help-search"} {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+			m.inputMode = mode
+			beforeSort, beforeOverlay, beforeRanking := m.sortKey, m.overlay, m.ranking
+			beforeGeneration, beforeRefreshing := m.generation, m.refreshing
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			m = next.(tuiModel)
+			if m.input != key || m.inputMode != mode || cmd != nil {
+				t.Fatalf("non-ASCII input %q in mode %q was routed as command: input=%q mode=%q cmd=%v", key, mode, m.input, m.inputMode, cmd != nil)
+			}
+			if m.sortKey != beforeSort || m.overlay != beforeOverlay || m.ranking != beforeRanking || m.generation != beforeGeneration || m.refreshing != beforeRefreshing {
+				t.Fatalf("non-ASCII input %q in mode %q changed model state: sort=%q overlay=%q ranking=%q generation=%d refreshing=%v", key, mode, m.sortKey, m.overlay, m.ranking, m.generation, m.refreshing)
+			}
 		}
 	}
 }
@@ -368,7 +378,7 @@ func TestTUIExitAndRefreshShortcuts(t *testing.T) {
 
 func TestTUIRefreshQuitSearchAndHelpThroughUpdate(t *testing.T) {
 	rows := []model.Model{{Slug: "alpha", DisplayName: "Alpha"}, {Slug: "beta", DisplayName: "Beta"}}
-	for _, key := range []string{"R"} {
+	for _, key := range []string{"R", "К"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
 		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		updated := next.(tuiModel)
@@ -379,7 +389,7 @@ func TestTUIRefreshQuitSearchAndHelpThroughUpdate(t *testing.T) {
 			t.Fatalf("%s refresh message = %#v", key, message)
 		}
 	}
-	for _, key := range []string{"x"} {
+	for _, key := range []string{"x", "ч"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
 		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		if cmd == nil {
