@@ -1223,3 +1223,119 @@ func TestTUIDetailViewOnAnEmptyListDoesNotPanic(t *testing.T) {
 		t.Fatal("the detail overlay on an empty list rendered nothing at all")
 	}
 }
+
+func tuiDetailModel(t *testing.T) tuiModel {
+	t.Helper()
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.width, m.height = 100, 10
+	return m
+}
+
+func TestTUIDetailOverlayOpensAndCloses(t *testing.T) {
+	for _, msg := range []tea.KeyMsg{
+		{Type: tea.KeyEnter},
+		{Type: tea.KeyRight},
+		{Type: tea.KeyRunes, Runes: []rune("l")},
+	} {
+		m := tuiDetailModel(t)
+		m, _ = m.key(msg)
+		if m.overlay != "detail" || m.detailOffset != 0 {
+			t.Fatalf("key %v: overlay=%q offset=%d, want the detail overlay at offset 0", msg, m.overlay, m.detailOffset)
+		}
+	}
+	for _, msg := range []tea.KeyMsg{
+		{Type: tea.KeyEscape},
+		{Type: tea.KeyLeft},
+		{Type: tea.KeyRunes, Runes: []rune("h")},
+	} {
+		m := tuiDetailModel(t)
+		m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+		m.detailOffset = 3
+		m, _ = m.key(msg)
+		if m.overlay != "" || m.detailOffset != 0 {
+			t.Fatalf("key %v: overlay=%q offset=%d, want the list back with the offset reset", msg, m.overlay, m.detailOffset)
+		}
+	}
+}
+
+// TestTUIDetailOverlayKeepsTheCursor pins down the promise that closing
+// the screen returns exactly the same list row it was opened from.
+func TestTUIDetailOverlayKeepsTheCursor(t *testing.T) {
+	rows := []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}, {Slug: "c", DisplayName: "C"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.width, m.height = 100, 20
+	m = tuiKey(m, "j")
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEscape})
+	if m.cursor != 1 || m.selectedSlug != "b" {
+		t.Fatalf("cursor=%d selected=%q, want the same row the overlay was opened from", m.cursor, m.selectedSlug)
+	}
+}
+
+func TestTUIDetailOverlayScrollsWithinItsBounds(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 60, 10
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)
+	if maxOffset == 0 {
+		t.Fatal("test setup: the fixture must be taller than the viewport")
+	}
+
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyDown})
+	if m.detailOffset != 1 {
+		t.Fatalf("down offset = %d, want 1", m.detailOffset)
+	}
+	m = tuiKey(m, "k")
+	if m.detailOffset != 0 {
+		t.Fatalf("k offset = %d, want 0", m.detailOffset)
+	}
+	m = tuiKey(m, "G")
+	if m.detailOffset != maxOffset {
+		t.Fatalf("G offset = %d, want the maximum %d", m.detailOffset, maxOffset)
+	}
+	m = tuiKey(m, "g")
+	if m.detailOffset != 0 {
+		t.Fatalf("g offset = %d, want 0", m.detailOffset)
+	}
+	for i := 0; i < 50; i++ {
+		m, _ = m.key(tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if m.detailOffset != maxOffset {
+		t.Fatalf("pgdown offset = %d, want it clamped at %d", m.detailOffset, maxOffset)
+	}
+	for i := 0; i < 50; i++ {
+		m, _ = m.key(tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	if m.detailOffset != 0 {
+		t.Fatalf("pgup offset = %d, want it clamped at 0", m.detailOffset)
+	}
+	if m.overlay != "detail" {
+		t.Fatalf("overlay = %q, want scrolling to keep the overlay open", m.overlay)
+	}
+}
+
+// TestTUIDetailOverlaySwallowsListShortcuts mirrors the help overlay's
+// behaviour: keys the overlay does not define do nothing at all, instead
+// of reaching through and re-sorting the list behind it.
+func TestTUIDetailOverlaySwallowsListShortcuts(t *testing.T) {
+	m := tuiDetailModel(t)
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	before := m.sortKey
+	for _, key := range []string{"s", "S", "m", "n", "c", "/", "f"} {
+		m = tuiKey(m, key)
+	}
+	if m.overlay != "detail" || m.sortKey != before || m.inputMode != "" {
+		t.Fatalf("overlay=%q sort=%q input=%q, want the detail overlay to swallow list shortcuts", m.overlay, m.sortKey, m.inputMode)
+	}
+}
+
+func TestTUIDetailOverlayDoesNotOpenOnAnEmptyList(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.width, m.height = 100, 10
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "" {
+		t.Fatalf("overlay = %q, want no detail screen when there is no row to show", m.overlay)
+	}
+}

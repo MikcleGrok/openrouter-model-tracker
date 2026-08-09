@@ -288,6 +288,31 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.overlay == "detail" {
+		row, ok := m.detailRow()
+		if !ok {
+			m.overlay, m.detailOffset = "", 0
+			return m, nil
+		}
+		maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)
+		switch key {
+		case "esc", "left", "h":
+			m.overlay, m.detailOffset = "", 0
+		case "up", "k":
+			m.detailOffset = max(0, m.detailOffset-1)
+		case "down", "j":
+			m.detailOffset = min(maxOffset, m.detailOffset+1)
+		case "pgup":
+			m.detailOffset = max(0, m.detailOffset-max(1, m.height-1))
+		case "pgdown":
+			m.detailOffset = min(maxOffset, m.detailOffset+max(1, m.height-1))
+		case "home", "g":
+			m.detailOffset = 0
+		case "end", "G":
+			m.detailOffset = maxOffset
+		}
+		return m, nil
+	}
 	if m.overlay == "columns" {
 		return m.columnKey(key)
 	}
@@ -335,6 +360,10 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode, m.input = "filter", m.filter
 	case "?":
 		m.overlay, m.helpOffset = "help", 0
+	case "enter", "right", "l":
+		if len(m.visible) > 0 {
+			m.overlay, m.detailOffset = "detail", 0
+		}
 	case "q", "p", "r":
 		m.sortKey = map[string]string{"q": "quality", "p": "price", "r": "q/p"}[key]
 		m.rebuild()
