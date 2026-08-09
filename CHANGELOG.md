@@ -1,10 +1,11 @@
 # What's New
 
-## [Unreleased]
+## [1.5.0]
 
 - Add cosign-based release signing and provenance verification (static key pair, no Fulcio/Rekor/transparency log): `make sign`, `make attest`, `make verify-provenance`.
 - Add a `permissions:` block and pin GitHub Actions to immutable commit SHAs in CI.
 - Fix README documenting the wrong TUI refresh hotkey (`r` instead of the actual `R`).
+- Install `govulncheck`/`osv-scanner` in the release CI job and surface `dependency-check` blockers instead of a bare exit code.
 
 ## [1.4.0]
 
