@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1360,5 +1361,68 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 	m.overlay, m.width, m.height = "help", 120, len(tuiHelpLines())+2
 	if !strings.Contains(m.View(), "Model detail view") {
 		t.Errorf("the rendered help does not show the detail-screen section:\n%s", m.View())
+	}
+}
+
+// TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot is the
+// whole-feature acceptance check. It goes through the real construction
+// path — newConfiguredTUIModel, which loads from disk exactly the way a
+// live session and a live refresh both do — so it fails if ANY hop of the
+// pipeline drops the two catalogue fields: the decoder, MergeWithArena,
+// NewSnapshot, or the PriceInfo rebuild in loadLocalModelsForSource.
+func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/dated:\n    display: Demo Dated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/dated": {
+			InPerM: 1, OutPerM: 3, Context: 128000,
+			Created: 1786034890, Description: "Demo Dated is strong at long context and weak at latency.",
+			Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 75, SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
+			ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400, SourceURL: "https://arena.ai/leaderboard/text", Checked: "2026-08-06"},
+		},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := ranking.Compile(ranking.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := newConfiguredTUIModel(context.Background(), root, refresh.Options{}, 0, "q/p", false, "", 0, false, rankingDefault, compiled, scoreSourceSWEBench)
+	if err != nil {
+		t.Fatalf("newConfiguredTUIModel: %v", err)
+	}
+	m.width, m.height = 120, 80
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
+	}
+
+	view := m.View()
+	for _, want := range []string{
+		"Demo Dated (demo/dated)",
+		"Дата релиза: 2026-08-06",
+		"Demo Dated is strong at long context and weak at latency.",
+		"Оценка SWE-bench Verified",
+		"75.0%",
+		"Оценка LMArena",
+		"1400 Elo",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, view)
+		}
 	}
 }
