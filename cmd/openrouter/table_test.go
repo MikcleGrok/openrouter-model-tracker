@@ -1310,7 +1310,10 @@ func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
-		"demo/dated": {InPerM: 1, OutPerM: 3, Context: 128000, Created: 1786034890, Description: "Demo prose."},
+		"demo/dated": {
+			InPerM: 1, OutPerM: 3, Context: 128000, Created: 1786034890, Description: "Demo prose.",
+			CanonicalSlug: "demo/dated-20260804", HuggingFaceID: "demo-labs/Dated",
+		},
 	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {
@@ -1329,6 +1332,9 @@ func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 	}
 	if models[0].Created != 1786034890 || models[0].Description != "Demo prose." {
 		t.Errorf("row = %+v, want Created/Description rebuilt from the snapshot entry", models[0])
+	}
+	if models[0].CanonicalSlug != "demo/dated-20260804" || models[0].HuggingFaceID != "demo-labs/Dated" {
+		t.Errorf("row = %+v, want the link identifiers rebuilt from the snapshot entry: this is the path the TUI actually runs, and a field missing here is a permanent н/д on the detail screen", models[0])
 	}
 }
 
