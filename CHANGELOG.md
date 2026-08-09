@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- No unreleased changes.
+
+## [1.10.0]
+
 - Add a Settings overlay to the TUI for switching ranking and score source, editing the structured filter and reviewing selected columns; score-source changes use the local snapshot without a network request.
 - Add the `o` Settings shortcut, including its Russian keyboard-layout alias, and keep the active filter, ranking and score-source state visible in the overlay.
 - Update the generated model comparison with current catalogue prices, contexts, model coverage and quality/price calculations.
