@@ -229,6 +229,7 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 		Models: map[string]SnapshotEntry{
 			"openai/gpt-5.6-luna": {
 				InPerM: 0.5, OutPerM: 3, Context: 1000000,
+				Created: 1700000000, Description: "OpenAI's long-context flagship, strong at code.",
 				HasOverride: true, OverrideMinTokens: 500000, OverrideInPerM: 1, OverrideOutPerM: 4,
 				Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", Checked: "2026-07-30"},
 			},
@@ -282,6 +283,19 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	}
 	if !strings.Contains(doc, "$1.00 / $4.00 от 500K+") {
 		t.Errorf("the snapshot long-context override did not make it into the document:\n%s", doc)
+	}
+	// Created/Description are not rendered into the markdown document — they
+	// only surface on the TUI detail screen — so their fallback survival is
+	// checked in the written snapshot, the other artifact this run produces.
+	newSnap, err := LoadSnapshot(filepath.Join(dir, "cache", "last-run-snapshot.json"))
+	if err != nil {
+		t.Fatalf("reload the written snapshot: %v", err)
+	}
+	if got := newSnap.Models["openai/gpt-5.6-luna"].Created; got != 1700000000 {
+		t.Errorf("Created = %d, want the snapshot's fallback value 1700000000 to survive applyFallback", got)
+	}
+	if got := newSnap.Models["openai/gpt-5.6-luna"].Description; got != "OpenAI's long-context flagship, strong at code." {
+		t.Errorf("Description = %q, want the snapshot's fallback value to survive applyFallback", got)
 	}
 	// The vendor-claimed number lives in notes.yaml and cannot go stale.
 	if strings.Contains(doc, "80.5% (только вендор) (не удалось проверить") {
