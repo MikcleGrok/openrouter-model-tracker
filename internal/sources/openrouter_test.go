@@ -85,6 +85,44 @@ func TestLookupPrices(t *testing.T) {
 	}
 }
 
+// TestLookupPricesCarriesCreatedAndDescription pins down the two catalogue
+// fields the model-detail screen needs. They ride the very same catalogue
+// response that is already fetched for pricing — same fixture, same call,
+// no second request — which is the constraint the whole feature rests on.
+func TestLookupPricesCarriesCreatedAndDescription(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/openrouter-models.json")
+	old := CatalogURL
+	CatalogURL = srv.URL
+	t.Cleanup(func() { CatalogURL = old })
+
+	got, err := LookupPrices(context.Background(), c, []string{
+		"openai/gpt-5.6-luna",
+		"nvidia/nemotron-3-ultra-550b-a55b:free",
+		"x-ai/grok-4.1-fast",
+	})
+	if err != nil {
+		t.Fatalf("LookupPrices: %v", err)
+	}
+
+	luna := got["openai/gpt-5.6-luna"]
+	if luna.Created != 1786034890 {
+		t.Errorf("luna.Created = %d, want 1786034890 from the catalogue's created field", luna.Created)
+	}
+	if luna.Description != "GPT-5.6 Luna is OpenAI's long-context flagship." {
+		t.Errorf("luna.Description = %q, want the catalogue's description field", luna.Description)
+	}
+
+	free := got["nvidia/nemotron-3-ultra-550b-a55b:free"]
+	if free.Created != 0 || free.Description != "" {
+		t.Errorf("free = %+v, want zero Created/Description: the fixture entry declares neither field, and a missing field must decode as a zero value rather than fail the whole catalogue", free)
+	}
+
+	gone := got["x-ai/grok-4.1-fast"]
+	if gone.Found || gone.Created != 0 || gone.Description != "" {
+		t.Errorf("gone = %+v, want Found=false with zero Created/Description for a slug absent from the catalogue", gone)
+	}
+}
+
 func TestCatalogSlugs(t *testing.T) {
 	srv, c := serveFixture(t, "testdata/openrouter-models.json")
 	old := CatalogURL

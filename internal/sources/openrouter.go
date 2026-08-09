@@ -28,6 +28,15 @@ type PriceInfo struct {
 	Free    bool
 	Found   bool
 
+	// Created is the catalogue's publication timestamp (Unix seconds) and
+	// Description is the vendor's prose about the model. They are catalogue
+	// data exactly like Context and the prices: same response, same entry,
+	// no derivation and no normalisation. PriceInfo's name is a little
+	// narrower than its job, which its own doc comment already admits — it
+	// is this model's entry in the OpenRouter catalogue.
+	Created     int64
+	Description string
+
 	// HasOverride and the three fields below surface the catalogue's
 	// long-context pricing tier: a model whose prompt exceeds
 	// OverrideMinTokens bills at OverrideInPerM/OverrideOutPerM instead of
@@ -54,6 +63,8 @@ type catalogResponse struct {
 type catalogModel struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
+	Created       int64  `json:"created"`
+	Description   string `json:"description"`
 	ContextLength int    `json:"context_length"`
 	Pricing       struct {
 		Prompt     string `json:"prompt"`
@@ -125,12 +136,14 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			return nil, fmt.Errorf("openrouter: %s: parse completion price %q: %w", slug, m.Pricing.Completion, err)
 		}
 		info := PriceInfo{
-			Slug:    slug,
-			InPerM:  in,
-			OutPerM: outPrice,
-			Context: m.ContextLength,
-			Free:    m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
-			Found:   true,
+			Slug:        slug,
+			InPerM:      in,
+			OutPerM:     outPrice,
+			Context:     m.ContextLength,
+			Free:        m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
+			Found:       true,
+			Created:     m.Created,
+			Description: m.Description,
 		}
 		for _, ov := range m.Pricing.Overrides {
 			// A zero/absent threshold is not a usable long-context tier —

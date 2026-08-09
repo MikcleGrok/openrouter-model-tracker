@@ -3,6 +3,8 @@
     {
       "id": "openai/gpt-5.6-luna",
       "name": "OpenAI: GPT-5.6 Luna",
+      "created": 1786034890,
+      "description": "GPT-5.6 Luna is OpenAI's long-context flagship.",
       "context_length": 1000000,
       "pricing": {
         "prompt": "0.0000005",
