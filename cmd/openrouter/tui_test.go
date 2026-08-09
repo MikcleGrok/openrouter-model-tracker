@@ -919,3 +919,56 @@ func tuiFindRowLine(t *testing.T, view, identity string) string {
 	t.Fatalf("row containing %q not found in view:\n%s", identity, view)
 	return ""
 }
+
+func TestTUIWrapTextBreaksOnWordBoundaries(t *testing.T) {
+	got := tuiWrapText("alpha beta gamma delta", 11)
+	want := []string{"alpha beta", "gamma delta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuiWrapText = %q, want %q", got, want)
+	}
+}
+
+func TestTUIWrapTextKeepsEveryLineWithinTheRequestedWidth(t *testing.T) {
+	long := strings.Repeat("supercalifragilistic", 3)
+	for _, width := range []int{1, 2, 3, 5, 12, 40} {
+		for _, value := range []string{long, "короткий текст про одну модель", "a " + long + " b"} {
+			for _, line := range tuiWrapText(value, width) {
+				if lipgloss.Width(line) > width {
+					t.Fatalf("width %d produced a line of width %d: %q", width, lipgloss.Width(line), line)
+				}
+			}
+		}
+	}
+}
+
+// TestTUIWrapTextMeasuresDisplayWidthNotBytes is the reason this helper
+// cannot be a len()-based loop: a full-width glyph occupies two terminal
+// columns, so a byte- or rune-counting wrap would overflow the viewport
+// exactly the way truncateTable's display-width measure exists to avoid.
+func TestTUIWrapTextMeasuresDisplayWidthNotBytes(t *testing.T) {
+	for _, width := range []int{2, 3, 8} {
+		for _, line := range tuiWrapText("界界界界界 界界", width) {
+			if lipgloss.Width(line) > width {
+				t.Fatalf("width %d produced a wide-rune line of width %d: %q", width, lipgloss.Width(line), line)
+			}
+		}
+	}
+}
+
+// TestTUIWrapTextHandlesDegenerateInput covers the two states View() can
+// legitimately be in before the first tea.WindowSizeMsg arrives, and the
+// empty-value case every optional catalogue field can produce.
+func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
+	if got := tuiWrapText("anything", 0); got != nil {
+		t.Fatalf("tuiWrapText at width 0 = %q, want nil", got)
+	}
+	if got := tuiWrapText("anything", -5); got != nil {
+		t.Fatalf("tuiWrapText at a negative width = %q, want nil", got)
+	}
+	if got := tuiWrapText("", 40); !reflect.DeepEqual(got, []string{""}) {
+		t.Fatalf("tuiWrapText of an empty string = %q, want exactly one empty line", got)
+	}
+	if got := tuiWrapText("one\n\ntwo", 40); !reflect.DeepEqual(got, []string{"one", "", "two"}) {
+		t.Fatalf("tuiWrapText = %q, want the blank line between paragraphs preserved", got)
+	}
+}

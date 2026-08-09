@@ -844,6 +844,73 @@ func tuiFullscreenText(content string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// tuiWrapText breaks free-form prose onto lines no wider than width
+// display columns, preserving paragraph breaks. Every other layout
+// primitive in this file truncates instead (truncateTable), which is the
+// right behaviour for a table cell and the wrong one for the vendor
+// description: cutting it at the terminal edge would delete exactly the
+// content the detail screen exists to show. Width is measured with
+// tableDisplayWidth — the same grapheme-aware measure truncateTable uses —
+// so non-ASCII prose cannot overflow. A zero or negative width yields nil
+// rather than a panic: View() can be called before the first
+// tea.WindowSizeMsg sets the terminal size.
+func tuiWrapText(value string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	var lines []string
+	for _, paragraph := range strings.Split(value, "\n") {
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		current := ""
+		for _, word := range words {
+			if tableDisplayWidth(word) > width {
+				if current != "" {
+					lines = append(lines, current)
+				}
+				chunks := tuiWrapWord(word, width)
+				lines = append(lines, chunks[:len(chunks)-1]...)
+				current = chunks[len(chunks)-1]
+				continue
+			}
+			switch {
+			case current == "":
+				current = word
+			case tableDisplayWidth(current)+1+tableDisplayWidth(word) > width:
+				lines = append(lines, current)
+				current = word
+			default:
+				current += " " + word
+			}
+		}
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+// tuiWrapWord cuts a word that cannot fit on one line into width-sized
+// chunks, so a URL or an unbroken identifier still stays inside the
+// viewport. tablePrefix returns an empty prefix when even the first
+// grapheme is wider than the whole line (a two-column glyph at width 1);
+// the chunk is then that one grapheme, which keeps the loop making
+// progress instead of spinning forever.
+func tuiWrapWord(word string, width int) []string {
+	var chunks []string
+	for word != "" {
+		head := tablePrefix(word, width)
+		if head == "" {
+			end, _ := tableCluster(word, 0)
+			head = word[:end]
+		}
+		chunks = append(chunks, head)
+		word = word[len(head):]
+	}
+	return chunks
+}
+
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
 	var value string
 	switch col {
