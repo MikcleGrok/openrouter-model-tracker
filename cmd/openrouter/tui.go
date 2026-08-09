@@ -813,14 +813,32 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // adjacent ints — is the signature that eventually gets called with its
 // arguments swapped, and the overlay needs more of the model than it
 // used to.
+//
+// While a help search is being typed — m.inputMode == "help-search",
+// before Enter — one extra line "/ <input>_" is inserted between the
+// scrolled content and the footer, and the content budget shrinks by
+// exactly one row to pay for it. Both halves mirror the model list's own
+// input line and its rowsBudget-- (View, above): without the shrink the
+// overlay would build height+2 lines and tuiFullscreenText would clip the
+// input line away again, leaving the bug exactly where it was. m.input is
+// appended raw because tuiFullscreenText already runs plainTableText and
+// truncateTable over every line it is given.
 func tuiHelpView(m tuiModel) string {
 	lines := tuiHelpLines()
-	offset := max(0, min(m.helpOffset, max(0, len(lines)-m.height)))
-	lines = lines[offset:min(len(lines), offset+m.height)]
+	body := m.height
+	inputActive := m.inputMode == "help-search"
+	if inputActive {
+		body = max(1, m.height-1)
+	}
+	offset := max(0, min(m.helpOffset, max(0, len(lines)-body)))
+	lines = lines[offset:min(len(lines), offset+body)]
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+m.height), len(tuiHelpLines()))
+	if inputActive {
+		lines = append(lines, "/ "+m.input+"_")
+	}
+	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(tuiHelpLines()), offset+body), len(tuiHelpLines()))
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
 	}

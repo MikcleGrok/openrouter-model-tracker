@@ -2146,3 +2146,73 @@ func tuiRowIndex(t *testing.T, rows []model.Model, slug string) int {
 	t.Fatalf("no row with slug %q in %+v", slug, rows)
 	return -1
 }
+
+// tuiViewHasPlainLine сообщает, есть ли в выводе отдельная строка,
+// plain-текст которой в точности равен want. Проверять именно строку, а
+// не strings.Contains по всему экрану, обязательно: документ справки сам
+// содержит и слово refresh — строка "R refreshes the local data now." —
+// и строку, начинающуюся с "/ ": "/ or . searches Name/Slug as plain
+// substring text.". Поэтому Contains ловил бы текст документа вместо
+// строки ввода. Равенство точное, без TrimRight: truncateTable не
+// добивает строку пробелами до ширины.
+func tuiViewHasPlainLine(view, want string) bool {
+	for _, line := range strings.Split(view, "\n") {
+		if ansi.Strip(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTUIHelpSearchRendersTheQueryWhileTyping — главный тест задачи и
+// прямой страж пропущенного класса. Он утверждает о строках, которые
+// вернул View() В МОМЕНТ набора (inputMode == "help-search", до Enter), а
+// не о полях tuiModel после Enter, и идёт пользовательским путём:
+// клавиша ? открывает справку, / включает поиск, руны едят через Update.
+// Существующие проверки в TestTUIKeyState присваивают m.input напрямую и
+// сразу жмют Enter, поэтому единственное состояние, в котором жил баг, на
+// экран там ни разу не выводится.
+func TestTUIHelpSearchRendersTheQueryWhileTyping(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
+	m.width, m.height = 100, 24
+	m = tuiKey(m, "?")
+	if m.overlay != "help" {
+		t.Fatalf("test setup: overlay = %q, want %q", m.overlay, "help")
+	}
+	m = tuiKey(m, "/")
+	if m.inputMode != "help-search" {
+		t.Fatalf("test setup: inputMode = %q, want %q", m.inputMode, "help-search")
+	}
+	if !tuiViewHasPlainLine(m.View(), "/ _") {
+		t.Fatalf("сразу после / справка не показывает пустую строку ввода %q:\n%s", "/ _", m.View())
+	}
+	for _, step := range []struct{ key, want string }{
+		{"r", "/ r_"},
+		{"e", "/ re_"},
+		{"f", "/ ref_"},
+	} {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(step.key)})
+		m = next.(tuiModel)
+		if m.inputMode != "help-search" || m.overlay != "help" {
+			t.Fatalf("руна %q вышла из режима ввода: inputMode = %q, overlay = %q", step.key, m.inputMode, m.overlay)
+		}
+		view := m.View()
+		assertTUIViewFits(t, view, m.width, m.height, "help typing")
+		if !tuiViewHasPlainLine(view, step.want) {
+			t.Fatalf("после руны %q справка не показывает строку ввода %q:\n%s", step.key, step.want, view)
+		}
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.inputMode != "" || m.helpSearch != "ref" {
+		t.Fatalf("Enter не зафиксировал запрос: inputMode = %q, helpSearch = %q", m.inputMode, m.helpSearch)
+	}
+	view := m.View()
+	assertTUIViewFits(t, view, m.width, m.height, "help after enter")
+	for _, line := range strings.Split(view, "\n") {
+		plain := ansi.Strip(line)
+		if strings.HasPrefix(plain, "/ ") && strings.HasSuffix(plain, "_") {
+			t.Fatalf("вне режима help-search вывод содержит строку в форме ввода: %q\n%s", plain, view)
+		}
+	}
+}
