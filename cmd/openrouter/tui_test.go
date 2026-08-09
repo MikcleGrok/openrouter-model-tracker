@@ -208,6 +208,60 @@ func TestTUIKeyState(t *testing.T) {
 	}
 }
 
+func TestTUISettingsOverlayTransitions(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.filter = "paid"
+	m = tuiKey(m, "o")
+	if m.overlay != "settings" {
+		t.Fatal("settings overlay not opened")
+	}
+	if view := m.View(); !strings.Contains(view, "Score source: swebench") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
+		t.Fatalf("settings view is missing state: %q", view)
+	}
+	m = tuiKey(m, "down")
+	m, _ = m.settingsKey("enter")
+	if m.scoreSource != scoreSourceDefault {
+		t.Fatalf("score source changed before local snapshot loaded: %q", m.scoreSource)
+	}
+	m = tuiKey(m, "down")
+	m, _ = m.settingsKey("enter")
+	if m.inputMode != "filter" || m.overlay != "settings" {
+		t.Fatalf("settings filter transition = overlay %q, input mode %q", m.overlay, m.inputMode)
+	}
+	m.input = "free"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "free" || m.overlay != "settings" || m.inputMode != "" {
+		t.Fatalf("settings filter result = filter %q, overlay %q, input mode %q", m.filter, m.overlay, m.inputMode)
+	}
+	m, _ = m.settingsKey("esc")
+	if m.overlay != "" {
+		t.Fatal("settings overlay did not close")
+	}
+}
+
+func TestTUIScoreSourceMessageRebuildsRows(t *testing.T) {
+	rows := []model.Model{{Slug: "a", Score: &model.ScoreInfo{Value: 1}, Rankable: true}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	next, _ := m.Update(tuiScoreSourceMsg{generation: m.scoreSourceGeneration, source: scoreSourceArena, models: rows})
+	got := next.(tuiModel)
+	if got.scoreSource != scoreSourceArena || got.status != "score source changed" || len(got.visible) != 1 {
+		t.Fatalf("score source update = source %q, status %q, visible %d", got.scoreSource, got.status, len(got.visible))
+	}
+}
+
+func TestTUIScoreSourceMessageIgnoresStaleResult(t *testing.T) {
+	oldRows := []model.Model{{Slug: "old"}}
+	newRows := []model.Model{{Slug: "new"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, oldRows)
+	m.scoreSourceGeneration = 2
+	msg := tuiScoreSourceMsg{generation: 1, source: scoreSourceArena, models: newRows}
+	next, _ := m.Update(msg)
+	got := next.(tuiModel)
+	if got.scoreSource != scoreSourceDefault || len(got.models) != 1 || got.models[0].Slug != "old" {
+		t.Fatalf("stale score source result was applied: source %q, models %+v", got.scoreSource, got.models)
+	}
+}
+
 func TestTUIStatusOmitsRemovedTaskFitShortcutAndTruncates(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.width, m.height = 120, 20
@@ -463,6 +517,26 @@ func TestTUIRefreshGenerationKeepsRowsOnErrorAndRejectsStale(t *testing.T) {
 	}
 }
 
+func TestTUIRefreshIgnoresResultFromPreviousScoreSource(t *testing.T) {
+	oldRows := []model.Model{{Slug: "old"}}
+	newRows := []model.Model{{Slug: "new"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, oldRows)
+	m.generation = 1
+	m.scoreSourceGeneration = 2
+	m.refreshing = false
+	msg := tuiRefreshMsg{generation: 1, scoreSourceGeneration: 1, models: newRows, err: errors.New("stale source error")}
+	next, _ := m.Update(msg)
+	got := next.(tuiModel)
+	if got.models[0].Slug != "old" || got.err != "" || got.status != "" {
+		t.Fatalf("stale refresh changed state: source generation %d, models %+v, err %q, status %q", got.scoreSourceGeneration, got.models, got.err, got.status)
+	}
+	next, _ = got.Update(tuiRefreshMsg{generation: 1, scoreSourceGeneration: 2, models: newRows})
+	got = next.(tuiModel)
+	if got.models[0].Slug != "new" || got.status != "refreshed" {
+		t.Fatalf("current-source refresh was not applied: models %+v, status %q", got.models, got.status)
+	}
+}
+
 func TestTUITickDuringRefreshSchedulesNextTick(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, time.Second, []model.Model{{Slug: "old"}})
 	m.refreshing = true
@@ -593,7 +667,7 @@ func TestTUIStatusDescribesShortcuts(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.width, m.height = 100, 10
 	status := m.View()
-	for _, shortcut := range []string{"q quality", "p price", "r q/p", "R refresh", "x quit"} {
+	for _, shortcut := range []string{"q quality", "p price", "r q/p", "R refresh", "x quit", "o settings", "f filter"} {
 		if !strings.Contains(status, shortcut) {
 			t.Fatalf("status is missing %q: %q", shortcut, status)
 		}
@@ -1768,6 +1842,7 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 		0x0447: "x", // ч
 		0x043B: "k", // л
 		0x043E: "j", // о
+		0x0449: "o", // щ
 		0x043F: "g", // п
 		0x041F: "G", // П
 		0x0440: "h", // р
@@ -1962,7 +2037,7 @@ type tuiShortcutCase struct {
 	setup   func(t *testing.T) tuiModel
 }
 
-// tuiShortcutCases покрывает все 19 алиасов таблицы tuiLayoutAliases; клавиши
+// tuiShortcutCases покрывает все 20 алиасов таблицы tuiLayoutAliases; клавиши
 // навигации, живущие сразу в нескольких switch-блоках, получают строку на
 // каждый контекст, потому что именно там ломается «алиас есть, но не во всех
 // оверлеях».
@@ -1986,6 +2061,7 @@ func tuiShortcutCases() []tuiShortcutCase {
 		{name: "list refresh", latin: "R", russian: "К", setup: tuiShortcutListModel},
 		{name: "list open search", latin: "/", russian: ".", setup: tuiShortcutListModel},
 		{name: "list open help", latin: "?", russian: ",", setup: tuiShortcutListModel},
+		{name: "list open settings", latin: "o", russian: "щ", setup: tuiShortcutListModel},
 		{name: "detail close", latin: "h", russian: "р", setup: tuiShortcutDetailModel},
 		{name: "detail scroll down", latin: "j", russian: "о", setup: tuiShortcutDetailModel},
 		{name: "detail scroll up", latin: "k", russian: "л", setup: tuiShortcutDetailModelScrolled},

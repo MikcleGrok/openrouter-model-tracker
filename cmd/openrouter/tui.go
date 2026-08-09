@@ -77,6 +77,7 @@ var tuiLayoutAliases = map[rune]string{
 	'ч': "x", // U+0447, физическая позиция латинской x
 	'л': "k", // U+043B, физическая позиция латинской k
 	'о': "j", // U+043E, физическая позиция латинской j (омоглиф латинской o)
+	'щ': "o", // U+0449, physical position of Latin o
 	'п': "g", // U+043F, физическая позиция латинской g
 	'П': "G", // U+041F, физическая позиция латинской G
 	'р': "h", // U+0440, физическая позиция латинской h (омоглиф латинской p)
@@ -112,45 +113,54 @@ func tuiCommandKey(msg tea.KeyMsg) string {
 }
 
 type tuiRefreshMsg struct {
+	generation            uint64
+	scoreSourceGeneration uint64
+	models                []model.Model
+	err                   error
+}
+type tuiScoreSourceMsg struct {
 	generation uint64
+	source     string
 	models     []model.Model
 	err        error
 }
 type tuiTickMsg struct{}
 
 type tuiModel struct {
-	ctx              context.Context
-	dataDir          string
-	refreshOpts      refresh.Options
-	interval         time.Duration
-	models, visible  []model.Model
-	columns          []tuiColumn
-	sortKey          string
-	reverse          bool
-	cursor           int
-	width, height    int
-	filter           string
-	lastNote         bool
-	status, err      string
-	updatedAt        string
-	refreshing       bool
-	generation       uint64
-	selectedSlug     string
-	overlay          string
-	helpOffset       int
-	detailOffset     int
-	helpSearch       string
-	helpMatches      []int
-	helpMatch        int
-	columnCursor     int
-	pendingColumns   []tuiColumn
-	input, inputMode string
-	limit            int
-	ranking          string
-	scoreSource      string
-	priceWeight      float64
-	rankingConfig    ranking.Compiled
-	rankingConfigSet bool
+	ctx                   context.Context
+	dataDir               string
+	refreshOpts           refresh.Options
+	interval              time.Duration
+	models, visible       []model.Model
+	columns               []tuiColumn
+	sortKey               string
+	reverse               bool
+	cursor                int
+	width, height         int
+	filter                string
+	lastNote              bool
+	status, err           string
+	updatedAt             string
+	refreshing            bool
+	generation            uint64
+	scoreSourceGeneration uint64
+	selectedSlug          string
+	overlay               string
+	helpOffset            int
+	detailOffset          int
+	helpSearch            string
+	helpMatches           []int
+	helpMatch             int
+	columnCursor          int
+	settingsCursor        int
+	pendingColumns        []tuiColumn
+	input, inputMode      string
+	limit                 int
+	ranking               string
+	scoreSource           string
+	priceWeight           float64
+	rankingConfig         ranking.Compiled
+	rankingConfigSet      bool
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
@@ -260,19 +270,27 @@ func (m tuiModel) Init() tea.Cmd {
 }
 func tuiTick(d time.Duration) tea.Cmd { return func() tea.Msg { time.Sleep(d); return tuiTickMsg{} } }
 func (m tuiModel) refreshCmd() tea.Cmd {
-	generation, opts, dir, source := m.generation, m.refreshOpts, m.dataDir, m.scoreSource
+	generation, scoreSourceGeneration, opts, dir, source := m.generation, m.scoreSourceGeneration, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
 		if opts.OutputPath == "" {
-			return tuiRefreshMsg{generation: generation, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
 		}
 		_, err := refresh.Run(m.ctx, opts)
 		if err != nil {
-			return tuiRefreshMsg{generation: generation, err: err}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
 		}
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, models: rows, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, err: err}
+	}
+}
+
+func (m tuiModel) scoreSourceCmd(source string) tea.Cmd {
+	dir, generation := m.dataDir, m.scoreSourceGeneration
+	return func() tea.Msg {
+		rows, err := loadLocalModelsForSource(dir, source)
+		return tuiScoreSourceMsg{generation: generation, source: source, models: rows, err: err}
 	}
 }
 
@@ -292,7 +310,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = true
 		return m, tea.Batch(m.refreshCmd(), next)
 	case tuiRefreshMsg:
-		if msg.generation != m.generation {
+		if msg.generation != m.generation || msg.scoreSourceGeneration != m.scoreSourceGeneration {
 			return m, nil
 		}
 		m.refreshing = false
@@ -301,6 +319,17 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
+		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
+		m.rebuild()
+	case tuiScoreSourceMsg:
+		if msg.generation != m.scoreSourceGeneration {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.err = fmt.Sprintf("score source %s: %v", msg.source, msg.err)
+			return m, nil
+		}
+		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", "score source changed"
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 	case tea.KeyMsg:
@@ -365,6 +394,9 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	if m.overlay == "columns" {
 		return m.columnKey(key)
 	}
+	if m.overlay == "settings" {
+		return m.settingsKey(key)
+	}
 	switch key {
 	case "x", "ctrl+c":
 		return m, tea.Quit
@@ -407,6 +439,8 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode, m.input = "search", ""
 	case "f":
 		m.inputMode, m.input = "filter", m.filter
+	case "o":
+		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
 		m.overlay, m.helpOffset = "help", 0
 	case "enter", "right", "l":
@@ -485,6 +519,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		m.filter, m.err = candidate, ""
 		m.rebuildWith(filtered)
+		return m, nil
 	case "backspace":
 		_, n := utf8.DecodeLastRuneInString(m.input)
 		if n > 0 {
@@ -558,6 +593,43 @@ func (m tuiModel) columnKey(key string) (tuiModel, tea.Cmd) {
 	}
 	return m, nil
 }
+
+func (m tuiModel) settingsKey(key string) (tuiModel, tea.Cmd) {
+	const settingsItems = 4
+	switch key {
+	case "esc", "o":
+		m.overlay = ""
+	case "up", "k":
+		m.settingsCursor = max(0, m.settingsCursor-1)
+	case "down", "j":
+		m.settingsCursor = min(settingsItems-1, m.settingsCursor+1)
+	case "enter", " ":
+		switch m.settingsCursor {
+		case 0:
+			if m.ranking == rankingTier {
+				m.ranking = rankingMixed
+			} else {
+				m.ranking = rankingTier
+			}
+			m.sortKey = "q/p"
+			m.rebuild()
+		case 1:
+			m.scoreSourceGeneration++
+			m.refreshing = false
+			source := scoreSourceArena
+			if m.scoreSource == scoreSourceArena {
+				source = scoreSourceSWEBench
+			}
+			m.status, m.err = "loading "+source+" from local snapshot...", ""
+			return m, m.scoreSourceCmd(source)
+		case 2:
+			m.inputMode, m.input = "filter", m.filter
+		case 3:
+			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
+		}
+	}
+	return m, nil
+}
 func (m *tuiModel) togglePending(col tuiColumn) {
 	for i, existing := range m.pendingColumns {
 		if existing == col {
@@ -593,6 +665,35 @@ func (m tuiModel) View() string {
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
+	if m.overlay == "settings" {
+		rankingName := "mixed-utility"
+		if m.ranking == rankingTier {
+			rankingName = "tier-priority"
+		}
+		columns := make([]string, 0, len(m.columns))
+		for _, col := range m.columns {
+			columns = append(columns, string(col))
+		}
+		lines := []string{
+			"Settings (Enter/Space change, Esc close)",
+			"",
+			"> Ranking: " + rankingName,
+			"  Score source: " + m.scoreSource,
+			"  Filter: " + tuiDetailValue(m.filter),
+			"  Columns: " + strings.Join(columns, ", "),
+			"",
+			"Source uses the local snapshot; R refreshes data.",
+			"Select Filter to reuse the structured filter input.",
+		}
+		for i := 0; i < 4; i++ {
+			prefix := "  "
+			if i == m.settingsCursor {
+				prefix = "> "
+			}
+			lines[i+2] = prefix + strings.TrimSpace(lines[i+2])
+		}
+		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
+	}
 	title := truncateTable("OpenRouter models", m.width)
 	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
@@ -609,7 +710,7 @@ func (m tuiModel) View() string {
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · m ranking · q quality · p price · r q/p · R refresh · x quit · s sort · S reverse · ? help/,"
+	hints := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · o settings · f filter · ? help/,"
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
 	if m.inputMode == "" {
@@ -1002,7 +1103,7 @@ Enter, Right or l opens the model detail screen; Esc, Left or h closes it.
 Sort and task view
 q sorts by quality; p by price; r by quality/price ratio (q/p).
 m toggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order. s cycles sort key; S reverses order.
-R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
+o opens settings for ranking, score source, filter, and columns. R refreshes; x or Ctrl-C exits. c columns; n switches the last column between Task fit and Note.
 f filter; / or . search; ? or , help.
 
 Task-fit
@@ -1045,7 +1146,7 @@ The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-util
 Score sources
 swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
 arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
-The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source; there is no auto mode, and the generated markdown document is always swebench.
+The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
 
 Help search
 / starts a search in this document. Type text and press Enter to select the first match.
