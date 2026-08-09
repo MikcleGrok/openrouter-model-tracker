@@ -1019,9 +1019,11 @@ func tuiDetailTaskFit(m model.Model) string {
 
 // tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
 // screen width, indented by two columns, and replaced by the placeholder
-// when empty.
+// when empty. It sanitises with plainDetailText rather than plainTableText
+// so that a real paragraph break in the source value survives into
+// tuiWrapText, which has its own branch to preserve it.
 func tuiDetailWrapped(value string, width int) []string {
-	value = strings.TrimSpace(plainTableText(value))
+	value = strings.TrimSpace(plainDetailText(value))
 	if value == "" {
 		return []string{"  н/д"}
 	}

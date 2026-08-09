@@ -975,6 +975,21 @@ func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
 	}
 }
 
+// TestTUIDetailWrappedPreservesParagraphBreaks guards against
+// tuiDetailWrapped's own sanitisation collapsing "\n" to a space before the
+// value ever reaches tuiWrapText's paragraph-splitting branch above — the
+// trap that made a real multi-paragraph vendor description render as one
+// run-on block on the actual detail screen even though
+// TestTUIWrapTextHandlesDegenerateInput, on the lower-level helper, was
+// green throughout.
+func TestTUIDetailWrappedPreservesParagraphBreaks(t *testing.T) {
+	got := tuiDetailWrapped("first paragraph.\n\nsecond paragraph.", 40)
+	want := []string{"  first paragraph.", "  ", "  second paragraph."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuiDetailWrapped = %q, want two indented paragraph blocks separated by a blank line: %q", got, want)
+	}
+}
+
 func tuiDetailTestModel() model.Model {
 	return model.Model{
 		Slug: "openai/gpt-5.6-luna", DisplayName: "GPT-5.6 Luna", Tier: "opus",
@@ -1086,6 +1101,9 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 	lines := tuiDetailLines(projected, scoreSourceArena, 100, time.Now())
 	swe := tuiDetailIndex(t, lines, "Оценка SWE-bench Verified")
 	arena := tuiDetailIndex(t, lines, "Оценка LMArena")
+	if swe >= arena {
+		t.Fatalf("the SWE-bench block must come before the Arena block: %d vs %d", swe, arena)
+	}
 	block := strings.Join(lines[swe:arena], "\n")
 	if strings.Contains(block, "1453 Elo") || strings.Contains(block, "arena.ai") {
 		t.Fatalf("the arena-mode SWE-bench block carries Arena data:\n%s", block)

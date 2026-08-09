@@ -632,6 +632,30 @@ func plainTableText(value string) string {
 	}, value)
 }
 
+// plainDetailText sanitises a free-prose block the same way plainTableText
+// does — markdown markers stripped, pipes replaced, control runes (raw ANSI
+// escapes, tabs, carriage returns, and the like) neutralised — except it
+// keeps a real newline alive instead of collapsing it to a space. It exists
+// for the TUI detail screen, where tuiWrapText's paragraph-splitting branch
+// needs to actually see a "\n\n" to preserve it; plainTableText itself stays
+// untouched because table cells are genuinely one line and must keep
+// collapsing newlines.
+func plainDetailText(value string) string {
+	for _, marker := range []string{"**", "__", "`"} {
+		value = strings.ReplaceAll(value, marker, "")
+	}
+	value = strings.ReplaceAll(value, "|", "/")
+	return strings.Map(func(r rune) rune {
+		if r == '\n' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, value)
+}
+
 func renderTable(models []model.Model, width int, showSlug bool) string {
 	return renderTableMode(models, width, showSlug, "notes", scoreSourceDefault)
 }
