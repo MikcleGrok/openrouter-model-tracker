@@ -123,6 +123,58 @@ func TestLookupPricesCarriesCreatedAndDescription(t *testing.T) {
 	}
 }
 
+// TestLookupPricesCarriesTheModelLinkIdentifiers pins down the two
+// catalogue identifiers the detail screen turns into links. Both ride
+// the very same catalogue response that is already fetched for pricing —
+// same fixture, same call, no second request. The two entries are chosen
+// to catch substitution rather than absence: luna's canonical_slug
+// differs from its id (as it does for 62% of the live catalogue), the
+// free entry's canonical_slug drops the :free variant suffix, and its
+// hugging_face_id sits under a different organisation than the slug, so
+// no string surgery on the slug could ever produce it.
+func TestLookupPricesCarriesTheModelLinkIdentifiers(t *testing.T) {
+	srv, c := serveFixture(t, "testdata/openrouter-models.json")
+	old := CatalogURL
+	CatalogURL = srv.URL
+	t.Cleanup(func() { CatalogURL = old })
+
+	got, err := LookupPrices(context.Background(), c, []string{
+		"openai/gpt-5.6-luna",
+		"nvidia/nemotron-3-ultra-550b-a55b:free",
+		"qwen/qwen3.8-max",
+		"x-ai/grok-4.1-fast",
+	})
+	if err != nil {
+		t.Fatalf("LookupPrices: %v", err)
+	}
+
+	luna := got["openai/gpt-5.6-luna"]
+	if luna.CanonicalSlug != "openai/gpt-5.6-luna-20260804" {
+		t.Errorf("luna.CanonicalSlug = %q, want the catalogue's canonical_slug verbatim, which is not the id", luna.CanonicalSlug)
+	}
+	if luna.HuggingFaceID != "" {
+		t.Errorf("luna.HuggingFaceID = %q, want empty: the fixture entry declares no hugging_face_id, and a missing field must decode as a zero value rather than fail the whole catalogue", luna.HuggingFaceID)
+	}
+
+	free := got["nvidia/nemotron-3-ultra-550b-a55b:free"]
+	if free.CanonicalSlug != "nvidia/nemotron-3-ultra-550b-a55b" {
+		t.Errorf("free.CanonicalSlug = %q, want the catalogue's canonical_slug without the :free variant suffix", free.CanonicalSlug)
+	}
+	if free.HuggingFaceID != "nvidia-labs/Nemotron-3-Ultra-550B" {
+		t.Errorf("free.HuggingFaceID = %q, want the catalogue's hugging_face_id verbatim — its organisation is not the one in the slug, so it can only come from the field itself", free.HuggingFaceID)
+	}
+
+	qwen := got["qwen/qwen3.8-max"]
+	if qwen.CanonicalSlug != "" || qwen.HuggingFaceID != "" {
+		t.Errorf("qwen = %+v, want empty identifiers for an entry that declares neither field", qwen)
+	}
+
+	gone := got["x-ai/grok-4.1-fast"]
+	if gone.Found || gone.CanonicalSlug != "" || gone.HuggingFaceID != "" {
+		t.Errorf("gone = %+v, want Found=false with empty identifiers for a slug absent from the catalogue", gone)
+	}
+}
+
 func TestCatalogSlugs(t *testing.T) {
 	srv, c := serveFixture(t, "testdata/openrouter-models.json")
 	old := CatalogURL
