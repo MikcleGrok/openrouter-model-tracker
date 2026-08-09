@@ -267,6 +267,16 @@ func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
 			t.Fatalf("special key normalized to %q, want %q", got, test.want)
 		}
 	}
+	// Alt и paste обязаны пройти мимо таблицы алиасов и попасть в msg.String()
+	// как есть — иначе Alt+ч тихо выполняет "x" (quit), хотя Alt+x на
+	// латинской раскладке ничего не делает, и вставка "ч" из буфера обмена
+	// тоже выполняла бы quit вместо того, чтобы остаться текстом.
+	if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Alt: true}); got != "alt+ч" {
+		t.Fatalf("alt+ч normalized to %q, want %q (must not resolve to the %q alias)", got, "alt+ч", "x")
+	}
+	if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Paste: true}); got != "[ч]" {
+		t.Fatalf("pasted ч normalized to %q, want %q (must not resolve to the %q alias)", got, "[ч]", "x")
+	}
 }
 
 // TestTUIInputModeKeepsNonASCIIInput — обязательная регрессия раскладочных
@@ -1532,6 +1542,14 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 // измениться от нажатия хоткея. Сравнивать tuiModel целиком через
 // reflect.DeepEqual нельзя: она несёт context.Context и ranking.Compiled, где
 // сравнение скомпилированной формулы ненадёжно.
+//
+// Критерий включения поля: сюда попадают только поля, которые меняет хотя бы
+// один кейс из tuiShortcutCases() сегодня — например, pendingColumns,
+// helpMatches, helpMatch, scoreSource и updatedAt сюда намеренно не входят.
+// Новый кейс, единственный эффект которого приходится на поле вне этого
+// списка, пройдёт тест впустую (снимки совпадут, потому что поле не
+// снимается) — сначала расширь эту структуру и tuiShortcutSnapshot, потом
+// добавляй кейс.
 type tuiShortcutState struct {
 	cursor       int
 	selectedSlug string
@@ -1701,6 +1719,32 @@ func tuiShortcutCases() []tuiShortcutCase {
 		{name: "help close", latin: "?", russian: ",", setup: tuiShortcutHelpModel},
 		{name: "columns cursor down", latin: "j", russian: "о", setup: tuiShortcutColumnsModel},
 		{name: "columns cursor up", latin: "k", russian: "л", setup: tuiShortcutColumnsModelScrolled},
+	}
+}
+
+// TestTUIShortcutCasesCoverAllAliases сверяет множество русских рун, которые
+// реально задействуют кейсы tuiShortcutCases(), со множеством ключей
+// tuiLayoutAliases. TestTUILayoutAliasesAreWellFormed проверяет только
+// количество и форму записей таблицы — она не заметит новый алиас, для
+// которого забыли завести поведенческий кейс, а эта проверка заметит.
+func TestTUIShortcutCasesCoverAllAliases(t *testing.T) {
+	tested := map[rune]bool{}
+	for _, test := range tuiShortcutCases() {
+		runes := []rune(test.russian)
+		if len(runes) != 1 {
+			t.Fatalf("case %q has a non-single-rune russian key %q", test.name, test.russian)
+		}
+		tested[runes[0]] = true
+	}
+	for alias := range tuiLayoutAliases {
+		if !tested[alias] {
+			t.Errorf("alias %q (U+%04X) has no case in tuiShortcutCases()", alias, alias)
+		}
+	}
+	for alias := range tested {
+		if _, ok := tuiLayoutAliases[alias]; !ok {
+			t.Errorf("tuiShortcutCases() exercises russian rune %q (U+%04X), which is not a key in tuiLayoutAliases", alias, alias)
+		}
 	}
 }
 

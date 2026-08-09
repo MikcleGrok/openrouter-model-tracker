@@ -85,8 +85,15 @@ var tuiLayoutAliases = map[rune]string{
 	',': "?", // та же клавиша с Shift
 }
 
+// tuiCommandKey нормализует нажатие в командную строку, подменяя кириллицу
+// раскладочным алиасом. Alt-модификатор и вставка из буфера (bracketed paste)
+// обязаны пройти мимо таблицы алиасов и попасть в msg.String() как есть: сам
+// String() добавляет им префикс "alt+" и оборачивает paste в "[...]" именно
+// затем, чтобы модифицированное или вставленное нажатие никогда не спутали с
+// голой командной клавишей (см. комментарий в key.go bubbletea). Таблица
+// алиасов не должна отбирать эту защиту у пользователей русской раскладки.
 func tuiCommandKey(msg tea.KeyMsg) string {
-	if len(msg.Runes) == 1 {
+	if len(msg.Runes) == 1 && !msg.Alt && !msg.Paste {
 		if command, ok := tuiLayoutAliases[msg.Runes[0]]; ok {
 			return command
 		}
