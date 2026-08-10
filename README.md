@@ -230,19 +230,23 @@ default_filter: quality>=75
 
 ```yaml
 tui_steps:
-  quality: 5 # percentage points
-  context: 5 # percent of current value
-  input: 5 # percent of current value
-  output: 5 # percent of current value
+  quality_points: 5 # percentage points
+  context_tokens: 8192 # integer tokens per step
+  input_cents: 1 # cents per $/M per step
+  output_cents: 1 # cents per $/M per step
 ```
 
 Все значения должны быть неотрицательными целыми; отсутствующие или нулевые ключи
-получают совместимые defaults `5/5/5/5`. `Context minimum`, `Input max` и `Output max`
-показываются в TUI округлёнными до целого, но ручной float сохраняется в filter syntax
-и передаётся parser без потери точности. Step после вычисления также записывает целое
-значение, поэтому для цен округление может быть lossy. Конфиг перечитывается при каждом
-auto-refresh TUI вместе с `default_filter`, поэтому изменение `tui_steps` применяется
-без перезапуска.
+получают defaults `5/8192/1/1`. `Context minimum` показывается целым числом
+токенов, а Input/Output всегда показываются и сохраняются канонически с двумя
+знаками после запятой. Шаг цены всегда равен настроенному числу cents, поэтому
+переходы `$0.99 -> $1.00` и `$9.99 -> $10.00` не пропускаются.
+
+Старые ключи `quality`, `context`, `input`, `output` остаются принимаемыми только
+если в `tui_steps` нет новых ключей; они сохраняют прежнюю процентную семантику.
+Смешивание старых и новых ключей отклоняется с ошибкой. Новый init-шаблон старые
+ключи не создаёт. Конфиг перечитывается при каждом auto-refresh TUI
+вместе с `default_filter`, поэтому изменение `tui_steps` применяется без перезапуска.
 
 `tui_filter` имеет приоритет над `default_filter`, включая явно пустое значение. CLI `--filter` имеет наивысший приоритет. Остальные hardcoded значения интерфейса и фильтрации (например, хоткеи, набор колонок, разрешённые имена predicates, ограничения ranking expression и semantic thresholds) не выносились.
 

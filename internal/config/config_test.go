@@ -50,11 +50,11 @@ func TestLoad(t *testing.T) {
 
 func TestLoadTUIStepsAndRejectsNegativeValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("tui_steps: {quality: 7, context: 1000, input: 2, output: 3}\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("tui_steps: {quality_points: 7, context_tokens: 1000, input_cents: 2, output_cents: 3}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)
-	if err != nil || got.TUISteps != (TUISteps{Quality: 7, Context: 1000, Input: 2, Output: 3}) {
+	if err != nil || got.TUISteps != (TUISteps{QualityPoints: 7, ContextTokens: 1000, InputCents: 2, OutputCents: 3}) {
 		t.Fatalf("Load TUISteps = %+v, err %v", got.TUISteps, err)
 	}
 	if err := os.WriteFile(path, []byte("tui_steps:\n  input: -1\n"), 0o644); err != nil {
@@ -62,6 +62,30 @@ func TestLoadTUIStepsAndRejectsNegativeValues(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "tui_steps.input must be non-negative") {
 		t.Fatalf("Load accepted negative TUI step: %v", err)
+	}
+}
+
+func TestLoadLegacyTUIStepsPreservesPercentageSemantics(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui_steps: {quality: 7, context: 10, input: 2, output: 3}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TUISteps.Legacy || got.TUISteps.Quality != 7 || got.TUISteps.Context != 10 || got.TUISteps.Input != 2 || got.TUISteps.Output != 3 {
+		t.Fatalf("legacy TUISteps = %+v", got.TUISteps)
+	}
+}
+
+func TestLoadRejectsMixedLegacyAndNewTUISteps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui_steps: {quality: 7, input_cents: 2}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "mixes legacy keys") {
+		t.Fatalf("Load error = %v, want clear mixed-schema error", err)
 	}
 }
 

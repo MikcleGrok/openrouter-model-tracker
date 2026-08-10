@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Canonicalize TUI numeric filter values: integer quality/context fields and
+  two-decimal input/output prices, including configured absolute step sizes.
+- Preserve legacy percentage-based `tui_steps` configs while rejecting mixed
+  legacy and new schemas, and document the new numeric configuration contract.
+
+## [1.13.11]
+
+- Canonicalize TUI numeric filter values: integer quality/context fields and
+  two-decimal input/output prices, including configured absolute step sizes.
+- Preserve legacy percentage-based `tui_steps` configs while rejecting mixed
+  legacy and new schemas, and document the new numeric configuration contract.
 
 ## [1.13.10]
 

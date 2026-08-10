@@ -828,13 +828,13 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 		case strings.HasPrefix(lower, "tier:"):
 			draft.tier = strings.TrimSpace(value[len("tier:"):])
 		case strings.HasPrefix(lower, "quality>="):
-			draft.quality = strings.TrimSpace(value[len("quality>="):])
+			draft.quality = tuiCanonicalDraftValue(4, strings.TrimSpace(value[len("quality>="):]))
 		case strings.HasPrefix(lower, "context>="):
-			draft.context = strings.TrimSpace(value[len("context>="):])
+			draft.context = tuiCanonicalDraftValue(5, strings.TrimSpace(value[len("context>="):]))
 		case strings.HasPrefix(lower, "input<="):
-			draft.input = strings.TrimSpace(value[len("input<="):])
+			draft.input = tuiCanonicalDraftValue(6, strings.TrimSpace(value[len("input<="):]))
 		case strings.HasPrefix(lower, "output<="):
-			draft.output = strings.TrimSpace(value[len("output<="):])
+			draft.output = tuiCanonicalDraftValue(7, strings.TrimSpace(value[len("output<="):]))
 		}
 	}
 	return draft
@@ -853,7 +853,12 @@ func (d tuiFilterDraft) string() string {
 	}
 	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
 		if strings.TrimSpace(item.value) != "" {
-			filters = append(filters, item.name+item.operator+strings.TrimSpace(item.value))
+			field := map[string]int{"quality": 4, "context": 5, "input": 6, "output": 7}[item.name]
+			value := strings.TrimSpace(item.value)
+			if field != 0 {
+				value = tuiCanonicalDraftValue(field, value)
+			}
+			filters = append(filters, item.name+item.operator+value)
 		}
 	}
 	return strings.Join(filters, ",")
@@ -877,17 +882,46 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 		}
 	} else {
 		if field == 4 || field == 5 {
-			*values[field] = "5"
+			if field == 4 {
+				*values[field] = tuiCanonicalDraftValue(field, strconv.Itoa(steps.QualityPoints))
+			} else {
+				*values[field] = tuiCanonicalDraftValue(field, strconv.Itoa(steps.ContextTokens))
+			}
 		} else {
-			*values[field] = "1"
+			base := steps.InputCents
+			if field == 7 {
+				base = steps.OutputCents
+			}
+			*values[field] = tuiCanonicalDraftValue(field, fmt.Sprintf("%.2f", float64(base)/100))
 		}
 		return
 	}
+	previous := value
 	if field == 4 {
-		value += float64(direction * steps.Quality)
+		step := steps.QualityPoints
+		if steps.Legacy {
+			step = steps.Quality
+		}
+		value += float64(direction * step)
 	} else {
-		step := []int{0, 0, 0, 0, 0, steps.Context, steps.Input, steps.Output}[field]
-		value *= 1 + float64(direction)*float64(step)/100
+		if steps.Legacy {
+			step := []int{0, 0, 0, 0, 0, steps.Context, steps.Input, steps.Output}[field]
+			value *= 1 + float64(direction)*float64(step)/100
+			value = tuiSteppedInteger(value, previous, direction)
+		} else if field == 5 {
+			value += float64(direction * tuiContextStep(int(math.Round(previous)), steps.ContextTokens))
+			value = tuiSteppedInteger(value, previous, direction)
+		} else {
+			cents := int(math.Round(previous * 100))
+			base := steps.InputCents
+			if field == 7 {
+				base = steps.OutputCents
+			}
+			cents += direction * tuiPriceStep(cents, base)
+			value = float64(maxInt(0, cents)) / 100
+			*values[field] = tuiPriceFilterValue(value)
+			return
+		}
 	}
 	if value < 0 {
 		value = 0
@@ -898,8 +932,45 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 	*values[field] = tuiIntegerValue(value)
 }
 
+func tuiContextStep(current, base int) int {
+	if current < 128000 {
+		return base
+	}
+	if current < 1000000 {
+		return base * 4
+	}
+	return base * 16
+}
+
+func tuiPriceStep(currentCents, baseCents int) int {
+	return maxInt(1, baseCents)
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func tuiSteppedInteger(value, previous float64, direction int) float64 {
+	current := math.Round(math.Max(0, previous))
+	stepped := math.Round(math.Max(0, value))
+	if current > 0 && direction > 0 && stepped <= current {
+		return current + 1
+	}
+	if current > 0 && direction < 0 && stepped >= current {
+		return current - 1
+	}
+	return stepped
+}
+
 func tuiIntegerValue(value float64) string {
 	return strconv.FormatInt(int64(math.Round(math.Max(0, value))), 10)
+}
+
+func tuiPriceFilterValue(value float64) string {
+	return strconv.FormatFloat(math.Max(0, value), 'f', 2, 64)
 }
 
 func (d *tuiFilterDraft) clampNumeric() {
@@ -912,13 +983,28 @@ func (d *tuiFilterDraft) clampNumeric() {
 		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 			continue
 		}
-		if parsed < 0 {
-			*value = "0"
-			continue
+		*value = tuiCanonicalDraftValue(field, strconv.FormatFloat(parsed, 'f', -1, 64))
+	}
+}
+
+func tuiCanonicalDraftValue(field int, raw string) string {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return strings.TrimSpace(raw)
+	}
+	value = math.Max(0, value)
+	switch field {
+	case 4:
+		if value > 0 && value <= 1 {
+			value *= 100
 		}
-		if field == 4 && parsed > 100 {
-			*value = "100"
-		}
+		return tuiIntegerValue(math.Min(100, value))
+	case 5:
+		return tuiIntegerValue(value)
+	case 6, 7:
+		return tuiPriceFilterValue(math.Round(value*100) / 100)
+	default:
+		return strings.TrimSpace(raw)
 	}
 }
 
@@ -1082,24 +1168,25 @@ func tuiFilterView(m tuiModel) string {
 			prefix = "> "
 		}
 		value := values[i]
-		if i >= 5 {
-			value = tuiFilterDisplayValue(value)
+		if i >= 4 {
+			value = tuiFilterDisplayValue(i, value)
 		}
 		if i >= 3 && value == "" {
 			value = "(any)"
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), fmt.Sprintf("Steps: quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0", m.filterSteps.Quality, m.filterSteps.Context, m.filterSteps.Input, m.filterSteps.Output))
+	steps := m.filterSteps.WithDefaults()
+	stepText := fmt.Sprintf("Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0", steps.QualityPoints, steps.ContextTokens, steps.InputCents, steps.OutputCents)
+	if steps.Legacy {
+		stepText = fmt.Sprintf("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0", steps.Quality, steps.Context, steps.Input, steps.Output)
+	}
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), stepText)
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
-func tuiFilterDisplayValue(value string) string {
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
-		return value
-	}
-	return tuiIntegerValue(parsed)
+func tuiFilterDisplayValue(field int, value string) string {
+	return tuiCanonicalDraftValue(field, value)
 }
 
 func tuiFilterCheck(checked bool) string {
@@ -1578,7 +1665,7 @@ Columns, search, and filters
 	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
 	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
-	Numeric steps: Quality minimum changes by the configured percentage-point step and clamps to 0..100. Context minimum, Input max and Output max change by their configured percentage of the current value; the TUI displays these values as rounded integers. Empty fields start at 5, 1 and 1 respectively. Numeric values are never below zero.
+	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
 	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
