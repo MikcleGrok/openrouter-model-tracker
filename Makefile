@@ -14,6 +14,9 @@ VERSIONCHECK := $(GO) run ./cmd/versioncheck
 PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 FORMULA_TAG ?=
 HOMEBREW_VERSION := $(patsubst v%,%,$(if $(FORMULA_TAG),$(FORMULA_TAG),$(TAG_VERSION)))
+LOCAL_RELEASE_DIR ?= $(ROOT)dist/local-release
+LOCAL_RELEASE_PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+LOCAL_RELEASE_BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Signed release provenance (static cosign key-pair, no Fulcio/Rekor — see
 # ~/projects/tools/guide-tools/.task/go-guide-compliance/signing-design.md
@@ -36,7 +39,7 @@ GITHUB_RUN_ID ?= local
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release whats-new docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -230,6 +233,29 @@ whats-new:
 	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
 	@awk -v version="$(VERSION)" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' $(ROOT)CHANGELOG.md || { printf '%s\n' "CHANGELOG.md has no non-empty exact section for $(VERSION)"; exit 1; }
 
+release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
+	@set -eu; \
+	version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
+	rm -rf "$$out"; mkdir -p "$$out/artifacts"; \
+	for platform in $(LOCAL_RELEASE_PLATFORMS); do \
+		os="$${platform%/*}"; arch="$${platform#*/}"; name="openrouter-$$version-$$os-$$arch"; \
+		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$name" '$(ROOT)cmd/openrouter'; \
+		chmod 0755 "$$out/$$name"; \
+		touch -t 197001010000 "$$out/$$name"; \
+		tar -C "$$out" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$name.tar.gz" "$$name"; \
+		shasum -a 256 "$$out/artifacts/$$name.tar.gz" | awk '{print $$1"  "$$2}' >> "$$out/SHA256SUMS"; \
+		rm "$$out/$$name"; \
+	done; \
+	awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
+	artifacts_json=''; first=1; \
+	for file in "$$out"/artifacts/*.tar.gz; do \
+		name="$${file##*/}"; digest="$$(shasum -a 256 "$$file" | awk '{print $$1}')"; \
+		if test "$$first" -eq 0; then artifacts_json="$$artifacts_json,"; fi; first=0; \
+		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$name\",\"sha256\":\"$$digest\"}"; \
+	done; \
+	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
+	printf '%s\n' "Local release written to $$out"
+
 docs check-docs:
 	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md
 	@printf '%s\n' 'Documentation contract passed.'
@@ -286,6 +312,8 @@ help:
 		'homebrew-reinstall Sync, reinstall, and verify the local Homebrew formula' \
 		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
 		'release-build  Build with the normalized version from the exact checked-out tag' \
+		'release-local   Run checks and build deterministic local platform archives' \
+		'local-release   Alias for release-local' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
 		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \

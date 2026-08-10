@@ -23,6 +23,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
 )
 
 func TestTUIModelUsesConfiguredRanking(t *testing.T) {
@@ -50,8 +51,8 @@ func TestTUIModelUsesConfiguredRanking(t *testing.T) {
 func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20}
 	view := m.View()
-	if !strings.Contains(view, "Tier values: opus, sonnet, haiku, free") {
-		t.Fatalf("filter view = %q, want allowed tier values", view)
+	if !strings.Contains(view, "Tier options: (any), "+tier.ValuesString()) {
+		t.Fatalf("filter view = %q, want tier select options", view)
 	}
 }
 
@@ -415,6 +416,38 @@ func TestTUIFilterDraftStructuredConversion(t *testing.T) {
 	draft := tuiFilterDraftFromString("free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2")
 	if got := draft.string(); got != "free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2" {
 		t.Fatalf("draft conversion = %q", got)
+	}
+}
+
+func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
+	if got, want := tuiFilterTierValues(), append([]string{""}, tier.Values()...); !reflect.DeepEqual(got, want) {
+		t.Fatalf("tier select values = %v, want %v", got, want)
+	}
+	m := tuiModel{overlay: "filter", filterCursor: 3}
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if m.filterDraft.tier != "opus" {
+		t.Fatalf("first tier selection = %q, want opus", m.filterDraft.tier)
+	}
+	for _, want := range []string{"sonnet", "haiku", "free", ""} {
+		m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+		if m.filterDraft.tier != want {
+			t.Fatalf("next tier selection = %q, want %q", m.filterDraft.tier, want)
+		}
+	}
+	m.filterDraft.tier = "sonnet"
+	m, _ = m.filterKey("c", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if m.filterDraft.tier != "" {
+		t.Fatalf("cleared tier = %q, want empty", m.filterDraft.tier)
+	}
+}
+
+func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 3, filterDraft: tuiFilterDraft{quality: "90"}}
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = m.filterKey("down", tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if got, want := m.filterDraft.string(), "tier:opus,quality>=90"; got != want {
+		t.Fatalf("formed TUI filter = %q, want %q", got, want)
 	}
 }
 

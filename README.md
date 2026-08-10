@@ -121,6 +121,7 @@ make check-version
 make check-tag
 make check-homebrew-formula
 make release-check VERSION=1.0.0
+make release-local
 make verify-release
 make whats-new
 make security
@@ -256,6 +257,33 @@ tag/version/commit, clean checkout и formula, установленную вер
 подписи или provenance; эти проверки остаются внешними.
 Ни один из этих target не создаёт tag,
 не публикует, не устанавливает пакет и не меняет remote.
+
+### Offline local release
+
+`make release-local` (алиас `make local-release`) — канонический offline-flow для
+уже созданного release tag. Сначала он требует clean checkout ровно на exact
+`vMAJOR.MINOR.PATCH` tag через `check-tag`, затем запускает существующие
+форматирование, тесты, vet, security, secrets и documentation checks. После этого
+собираются deterministic `CGO_ENABLED=0` Go-бинарники для
+`darwin/arm64`, `darwin/amd64`, `linux/amd64` и `linux/arm64`; список можно
+переопределить через `LOCAL_RELEASE_PLATFORMS`.
+
+Результат сохраняется в persistent каталоге
+`dist/local-release/<version>/`: архивы `tar.gz`, `SHA256SUMS`,
+`RELEASE_NOTES.md` и `manifest.json` с version, tag, commit, artifact, sha256 и
+UTC `built_at`. Каталог локальный и игнорируется Git. Команда не создаёт и не
+двигает tags, не меняет remote, не вызывает GitHub/GitLab, `gh`, API, Homebrew,
+signing keys или secrets. Homebrew остаётся отдельным disposable local flow
+через `sync-homebrew-formula` и `homebrew-reinstall`.
+
+Для проверки на существующем теге:
+
+```bash
+make release-local
+```
+
+Если checkout dirty, detached от exact tag или в CHANGELOG отсутствует exact
+version section с notes, команда завершается blocker до сборки артефактов.
 Bootstrap-сценарий для macOS при запуске из корня checkout вызывается так:
 
 ```bash
