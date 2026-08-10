@@ -143,6 +143,11 @@ make version
 make check-version
 make check-tag
 make check-homebrew-formula
+make openrouter-launchd-refresh-check
+make openrouter-launchd-refresh-install
+make openrouter-launchd-refresh-status
+make openrouter-launchd-refresh-start
+make openrouter-launchd-refresh-uninstall
 make release-check VERSION=1.0.0
 make release-local
 make verify-release
@@ -310,6 +315,28 @@ fallback `≈ Haiku 4.5` для `haiku` и `<≈ Haiku 4.5` для `free`. Не�
 `make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
 `docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`.
 
+LaunchAgent управляется через Make без необходимости запоминать путь к скрипту:
+`make openrouter-launchd-refresh-install`, `make openrouter-launchd-refresh-uninstall`,
+`make openrouter-launchd-refresh-status` и `make openrouter-launchd-refresh-start`. Эти цели передают
+операцию в `scripts/launchd-refresh.sh`; `openrouter-launchd-refresh-check` использует только
+dry-run и не вызывает `launchctl`. Все `OPENROUTER_*` переменные можно задать перед
+Make-командой, например:
+
+```bash
+OPENROUTER_CONFIG="$HOME/.config/openrouter/config.yaml" \
+OPENROUTER_DATA_DIR="$HOME/.local/share/openrouter" \
+make openrouter-launchd-refresh-install
+```
+
+`make release-local` (алиас `make local-release`) включает в каждый archive бинарник
+и runtime-скрипты `scripts/launchd-refresh.sh` и `scripts/cron-refresh.sh` с mode
+`0755`. `scripts/launchd-refresh_test.sh` остаётся только в исходном checkout и
+намеренно не входит в runtime package. Local-release проверяет наличие обоих скриптов,
+отсутствие тестового скрипта и executable mode до вычисления checksum. GitHub Release
+публикует те же archives вместе с binary/provenance artifacts. LaunchAgent использует
+`cron-refresh.sh` как единственную refresh-логику, поэтому отдельного дублирующего
+расписания в package не создаётся.
+
 `make release-check VERSION=1.0.0` — непубликующий pre-tag gate: проверяет чистоту
 checkout, формат release-версии, локальный commit SHA, diff hygiene, форматирование,
 тесты, vet, security baseline, secret scan и Unreleased notes; candidate binary
@@ -467,6 +494,34 @@ describe suffix.
 Справка TUI занимает весь viewport и прокручивается клавишами ↑/↓ (или `j`/`k`), `Home`/`End` (или `g`/`G`) и `PgUp`/`PgDown`; `/` открывает поиск по тексту справки: набираемый запрос сразу виден отдельной строкой `/ …_` внизу экрана, как в основном списке, а найденные вхождения выделяются цветом в тексте справки. `Enter` переходит к следующему совпадению, а `Esc` или `?` закрывают открытый help. В верхней строке TUI показывается RFC3339-время последнего успешного обновления данных.
 
 Для cron доступен `scripts/cron-refresh.sh`. Он считает новый операционный день с 06:00 по локальному времени и не запускает `refresh`, если snapshot уже успешно обновлён в этот день. `updated_at` используется как точное время последней публикации; старые snapshot без этого поля поддерживаются через `fetched_at`.
+
+Для macOS доступен пользовательский LaunchAgent без root-доступа. Он запускает тот же
+`cron-refresh.sh` каждые 15 минут через `StartInterval=900`; `RunAtLoad=false`. Первый 15-minute tick
+после 06:00 по local time выполняет refresh, если snapshot ещё не обновлялся в текущий
+операционный день. Последующие ticks до следующего 06:00 пропускаются той же проверкой
+snapshot/cutoff в `cron-refresh.sh`. Если Mac спал в момент запуска, launchd может выполнить
+missed job при следующей возможности; проверка snapshot всё равно не позволит выполнить
+больше одного refresh за операционный день.
+Параметры сохраняются в plist, поэтому job не зависит от текущего каталога:
+
+```bash
+./scripts/launchd-refresh.sh install
+./scripts/launchd-refresh.sh status
+./scripts/launchd-refresh.sh start  # ручной запуск сейчас
+./scripts/launchd-refresh.sh uninstall
+```
+
+Установка идемпотентна: перед `bootstrap` существующая версия job отключается через
+`bootout`, поэтому дубликаты не остаются. Plist устанавливается в
+`~/Library/LaunchAgents/com.openrouter.model-tracker.refresh.plist`, логи пишутся в
+`~/Library/Logs/openrouter-refresh.log`. Значения по умолчанию для бинарника, конфига,
+data directory и output совпадают с cron workflow: `bin/openrouter` в checkout,
+`~/.config/openrouter/config.yaml`, root checkout и `docs/openrouter-model-comparison.md`.
+Их можно задать при установке через `OPENROUTER_BIN`, `OPENROUTER_CONFIG`,
+`OPENROUTER_DATA_DIR`, `OPENROUTER_OUTPUT`; значения с пробелами поддерживаются.
+Для проверки plist без launchd используйте `OPENROUTER_LAUNCHD_DRY_RUN=1 ... install`
+или `make openrouter-launchd-refresh-check`. `validate` проверяет сгенерированный plist через
+`plutil`.
 
 Безопасная установка для macOS добавляет только собственную строку и не удаляет существующие записи пользователя:
 

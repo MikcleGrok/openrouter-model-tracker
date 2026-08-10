@@ -39,6 +39,9 @@ jobs:
       - name: Build the release manifest (binary, SBOM, checksum) and dependency evidence
         run: make security dependency-check secrets-check release-manifest
 
+      - name: Build deterministic distribution archives
+        run: make release-local
+
       - name: Sign release manifest
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.OPENROUTER_TRACKER_COSIGN_KEY }}
@@ -71,4 +74,5 @@ jobs:
             .release/sbom.spdx.json \
             .release/dependency-evidence.json \
             .release/published-evidence.json \
-            .release/openrouter.sha256
+            .release/openrouter.sha256 \
+            dist/local-release/*/artifacts/*.tar.gz

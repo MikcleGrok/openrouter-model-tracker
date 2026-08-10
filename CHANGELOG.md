@@ -5,6 +5,12 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.19]
+
+- Add a macOS LaunchAgent refresh workflow with a 15-minute `StartInterval=900` schedule and idempotent Make targets.
+- Package the LaunchAgent and cron runtime scripts in deterministic local release archives while keeping the LaunchAgent test script out of runtime packages.
+- Document LaunchAgent installation, status, manual start, uninstall, and local release packaging.
+
 ## [1.13.18]
 
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.

@@ -39,7 +39,7 @@ GITHUB_RUN_ID ?= local
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -96,6 +96,21 @@ secrets-check:
 
 sign-flags-check:
 	@$(ROOT)scripts/sign_flags_test.sh
+
+openrouter-launchd-refresh-check:
+	@$(ROOT)scripts/launchd-refresh_test.sh
+
+openrouter-launchd-refresh-install:
+	@$(ROOT)scripts/launchd-refresh.sh install
+
+openrouter-launchd-refresh-uninstall:
+	@$(ROOT)scripts/launchd-refresh.sh uninstall
+
+openrouter-launchd-refresh-status:
+	@$(ROOT)scripts/launchd-refresh.sh status
+
+openrouter-launchd-refresh-start:
+	@$(ROOT)scripts/launchd-refresh.sh start
 
 sbom:
 	@command -v syft >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: syft is required to generate the release SBOM.' >&2; exit 1; }
@@ -233,7 +248,7 @@ whats-new:
 	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
 	@awk -v version="$(VERSION)" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' $(ROOT)CHANGELOG.md || { printf '%s\n' "CHANGELOG.md has no non-empty exact section for $(VERSION)"; exit 1; }
 
-release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
+release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs openrouter-launchd-refresh-check
 	@set -eu; \
 		version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
 		rm -rf "$$out"; mkdir -p "$$out/artifacts"; artifacts_json=''; first=1; \
@@ -242,12 +257,21 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$name" '$(ROOT)cmd/openrouter'; \
 		chmod 0755 "$$out/$$name"; \
 		touch -t 197001010000 "$$out/$$name"; \
-		tar -C "$$out" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$name.tar.gz" "$$name"; \
+		package="$$out/package-$$name"; mkdir -p "$$package/scripts"; \
+		mv "$$out/$$name" "$$package/$$name"; \
+		cp '$(ROOT)scripts/cron-refresh.sh' '$(ROOT)scripts/launchd-refresh.sh' "$$package/scripts/"; \
+		chmod 0755 "$$package/$$name" "$$package/scripts/cron-refresh.sh" "$$package/scripts/launchd-refresh.sh"; \
+		tar -C "$$package" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$name.tar.gz" "$$name" scripts/cron-refresh.sh scripts/launchd-refresh.sh; \
+		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx "$$name"; \
+		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx 'scripts/cron-refresh.sh'; \
+		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx 'scripts/launchd-refresh.sh'; \
+		! tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fq 'launchd-refresh_test.sh'; \
+		test "$$(tar -tvzf "$$out/artifacts/$$name.tar.gz" | awk '$$NF == "scripts/launchd-refresh.sh" {print $$1}')" = '-rwxr-xr-x'; \
 		digest="$$(shasum -a 256 "$$out/artifacts/$$name.tar.gz")" || exit $$?; digest="$${digest%% *}"; \
 		printf '%s  %s\n' "$$digest" "artifacts/$$name.tar.gz" >> "$$out/SHA256SUMS"; \
 		if test "$$first" -eq 0; then artifacts_json="$$artifacts_json,"; fi; first=0; \
 		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$name.tar.gz\",\"sha256\":\"$$digest\"}"; \
-		rm "$$out/$$name"; \
+		rm -rf "$$package"; \
 	done; \
 		awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
@@ -290,6 +314,11 @@ help:
 		'artifact       Build local artifact and checksum' \
 		'manifest       Write local artifact manifest' \
 		'check-package  NO-OP: package template is external' \
+		'openrouter-launchd-refresh-check Check LaunchAgent plist generation without launchctl mutations' \
+		'openrouter-launchd-refresh-install Install the user LaunchAgent' \
+		'openrouter-launchd-refresh-uninstall Remove the user LaunchAgent' \
+		'openrouter-launchd-refresh-status Show the user LaunchAgent status' \
+		'openrouter-launchd-refresh-start Start the user LaunchAgent now' \
 		'install        NO-OP: installation is external' \
 		'reinstall      NO-OP: installation is external' \
 		'upgrade        NO-OP: installation is external' \
