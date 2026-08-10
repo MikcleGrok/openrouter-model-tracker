@@ -354,6 +354,75 @@ func TestTUIFilterFormOpensAppliesAndPersistsStructuredFields(t *testing.T) {
 	}
 }
 
+func TestTUIFilterTierSelectChangesThroughUpdateAndPersists(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Model{{Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.configPath = configPath
+	m.filter = "tier:sonnet"
+	m = tuiKey(m, "f")
+	for i := 0; i < 3; i++ {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(tuiModel)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(tuiModel)
+	if m.filterCursor != 3 || m.filterDraft.tier != "haiku" {
+		t.Fatalf("tier select state = cursor %d, tier %q, want cursor 3 and haiku", m.filterCursor, m.filterDraft.tier)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	want := "tier:haiku"
+	if m.filter != want || len(m.visible) != 1 || m.visible[0].Slug != "haiku" {
+		t.Fatalf("applied tier filter = %q, visible %+v, want %q and haiku", m.filter, m.visible, want)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != want {
+		t.Fatalf("persisted tier filter = %q, want %q", cfg.TUIFilter, want)
+	}
+}
+
+func TestTUIFilterTierSelectArrowsThroughUpdateAndPersists(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Model{{Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.configPath = configPath
+	m.filter = "tier:sonnet"
+	m = tuiKey(m, "f")
+	for i := 0; i < 3; i++ {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(tuiModel)
+	}
+	for _, msg := range []tea.KeyMsg{{Type: tea.KeyRight}, {Type: tea.KeyLeft}, {Type: tea.KeyRight}} {
+		next, _ := m.Update(msg)
+		m = next.(tuiModel)
+	}
+	if m.filterCursor != 3 || m.filterDraft.tier != "haiku" {
+		t.Fatalf("tier arrow state = cursor %d, tier %q, want cursor 3 and haiku", m.filterCursor, m.filterDraft.tier)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.filter != "tier:haiku" || len(m.visible) != 1 || m.visible[0].Slug != "haiku" {
+		t.Fatalf("applied arrow tier filter = %q, visible %+v", m.filter, m.visible)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != "tier:haiku" {
+		t.Fatalf("persisted arrow tier filter = %q, want tier:haiku", cfg.TUIFilter)
+	}
+}
+
 func TestTUIFilterFormCancelAndClear(t *testing.T) {
 	rows := []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
@@ -444,7 +513,7 @@ func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
 func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
 	m := tuiModel{overlay: "filter", filterCursor: 3, filterDraft: tuiFilterDraft{quality: "90"}}
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
-	m, _ = m.filterKey("down", tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.filterKey("tab", tea.KeyMsg{Type: tea.KeyTab})
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
 	if got, want := m.filterDraft.string(), "tier:opus,quality>=90"; got != want {
 		t.Fatalf("formed TUI filter = %q, want %q", got, want)

@@ -704,9 +704,29 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.overlay = ""
-	case "up", "k":
+	case "up":
+		if m.filterCursor == 3 {
+			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
+		} else {
+			m.filterCursor = max(0, m.filterCursor-1)
+		}
+	case "k":
 		m.filterCursor = max(0, m.filterCursor-1)
-	case "down", "j", "tab":
+	case "down":
+		if m.filterCursor == 3 {
+			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
+		} else {
+			m.filterCursor = min(filterFields-1, m.filterCursor+1)
+		}
+	case "left":
+		if m.filterCursor == 3 {
+			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
+		}
+	case "right":
+		if m.filterCursor == 3 {
+			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
+		}
+	case "j", "tab":
 		m.filterCursor = min(filterFields-1, m.filterCursor+1)
 	case "shift+tab":
 		m.filterCursor = max(0, m.filterCursor-1)
@@ -770,6 +790,16 @@ func tuiNextFilterTier(current string) string {
 	for i, value := range values {
 		if strings.EqualFold(value, current) {
 			return values[(i+1)%len(values)]
+		}
+	}
+	return values[0]
+}
+
+func tuiPreviousFilterTier(current string) string {
+	values := tuiFilterTierValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+len(values)-1)%len(values)]
 		}
 	}
 	return values[0]
