@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -705,26 +707,22 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "esc":
 		m.overlay = ""
 	case "up":
-		if m.filterCursor == 3 {
-			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
-		} else {
-			m.filterCursor = max(0, m.filterCursor-1)
-		}
+		m.filterCursor = max(0, m.filterCursor-1)
 	case "k":
 		m.filterCursor = max(0, m.filterCursor-1)
 	case "down":
-		if m.filterCursor == 3 {
-			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
-		} else {
-			m.filterCursor = min(filterFields-1, m.filterCursor+1)
-		}
+		m.filterCursor = min(filterFields-1, m.filterCursor+1)
 	case "left":
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
+		} else if m.filterCursor >= 4 {
+			m.filterDraft.step(m.filterCursor, -1)
 		}
 	case "right":
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
+		} else if m.filterCursor >= 4 {
+			m.filterDraft.step(m.filterCursor, 1)
 		}
 	case "j", "tab":
 		m.filterCursor = min(filterFields-1, m.filterCursor+1)
@@ -758,6 +756,7 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
+	m.filterDraft.clampNumeric()
 	candidate := m.filterDraft.string()
 	if _, err := filterTableModels(append([]model.Model(nil), m.models...), splitFilter(candidate)); err != nil {
 		m.err = err.Error()
@@ -849,6 +848,63 @@ func (d tuiFilterDraft) string() string {
 		}
 	}
 	return strings.Join(filters, ",")
+}
+
+func (d *tuiFilterDraft) step(field, direction int) {
+	values := []*string{nil, nil, nil, nil, &d.quality, &d.context, &d.input, &d.output}
+	if field < 0 || field >= len(values) || values[field] == nil {
+		return
+	}
+	value := 0.0
+	if strings.TrimSpace(*values[field]) != "" {
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(*values[field]), 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return
+		}
+		value = parsed
+		if field == 4 && value > 0 && value <= 1 {
+			value *= 100
+		}
+	} else {
+		if field == 4 || field == 5 {
+			*values[field] = "5"
+		} else {
+			*values[field] = "0.05"
+		}
+		return
+	}
+	if field == 4 {
+		value += float64(direction * 5)
+	} else {
+		value *= 1 + float64(direction)*0.05
+	}
+	if value < 0 {
+		value = 0
+	}
+	if field == 4 && value > 100 {
+		value = 100
+	}
+	*values[field] = strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func (d *tuiFilterDraft) clampNumeric() {
+	values := []*string{nil, nil, nil, nil, &d.quality, &d.context, &d.input, &d.output}
+	for field, value := range values {
+		if value == nil || strings.TrimSpace(*value) == "" {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(*value), 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			continue
+		}
+		if parsed < 0 {
+			*value = "0"
+			continue
+		}
+		if field == 4 && parsed > 100 {
+			*value = "100"
+		}
+	}
 }
 
 func (d *tuiFilterDraft) append(field int, value string) {
@@ -1004,7 +1060,7 @@ func (m tuiModel) View() string {
 func tuiFilterView(m tuiModel) string {
 	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}
 	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max"}
-	lines := []string{"Filter", "", "Space toggles; Tier is a select; type in numeric fields", ""}
+	lines := []string{"Filter", "", "↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit", ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -1016,7 +1072,7 @@ func tuiFilterView(m tuiModel) string {
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Tier options: (any), "+tier.ValuesString(), "Quality accepts 0..100 or 0..1 (0.8 = 80)")
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), "Quality: ±5 points, clamp 0..100 · other numeric fields: ±5% · values >= 0")
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
@@ -1492,9 +1548,11 @@ No task-fit classification is shown as n/a.
 Columns, search, and filters
 \tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel. The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
-\tf\tfilter\tedits a structured filter and does not change the search.
+\t\tf\tfilter\tedits a structured filter and does not change the search.
 	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
+	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
+	Numeric steps: Quality minimum changes by 5 percentage points and clamps to 0..100. Context minimum, Input max and Output max change by 5% of the current value; empty fields start at 5, 0.05 and 0.05 respectively. Numeric values are never below zero.
 	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.

@@ -368,11 +368,11 @@ func TestTUIFilterTierSelectChangesThroughUpdateAndPersists(t *testing.T) {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(tuiModel)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m = next.(tuiModel)
-	if m.filterCursor != 3 || m.filterDraft.tier != "haiku" {
-		t.Fatalf("tier select state = cursor %d, tier %q, want cursor 3 and haiku", m.filterCursor, m.filterDraft.tier)
+	if m.filterCursor != 3 || m.filterDraft.tier != "sonnet" {
+		t.Fatalf("tier navigation state = cursor %d, tier %q, want cursor 3 and sonnet", m.filterCursor, m.filterDraft.tier)
 	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
 	want := "tier:haiku"
@@ -517,6 +517,47 @@ func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
 	if got, want := m.filterDraft.string(), "tier:opus,quality>=90"; got != want {
 		t.Fatalf("formed TUI filter = %q, want %q", got, want)
+	}
+}
+
+func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 4}
+	for _, test := range []struct {
+		field int
+		want  string
+	}{
+		{4, "5"}, {5, "5"}, {6, "0.05"}, {7, "0.05"},
+	} {
+		m.filterCursor = test.field
+		m.filterDraft = tuiFilterDraft{}
+		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-4]; got != test.want {
+			t.Fatalf("empty field %d first right step = %q, want %q", test.field, got, test.want)
+		}
+	}
+	m.filterDraft = tuiFilterDraft{quality: "95", context: "100000", input: "1", output: "2"}
+	for field := 4; field <= 7; field++ {
+		m.filterCursor = field
+		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	}
+	if m.filterDraft.quality != "100" || m.filterDraft.context != "105000" || m.filterDraft.input != "1.05" || m.filterDraft.output != "2.1" {
+		t.Fatalf("right steps = %+v", m.filterDraft)
+	}
+}
+
+func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 4, filterDraft: tuiFilterDraft{quality: "0", context: "0", input: "0", output: "0"}}
+	for field := 4; field <= 7; field++ {
+		m.filterCursor = field
+		m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+	}
+	if got := m.filterDraft.string(); got != "quality>=0,context>=0,input<=0,output<=0" {
+		t.Fatalf("numeric left clamp serialization = %q", got)
+	}
+	m.filterDraft = tuiFilterDraft{quality: "101", context: "-1", input: "-0.5", output: "-2"}
+	m, _ = m.applyFilterDraft()
+	if got := m.filter; got != "quality>=100,context>=0,input<=0,output<=0" {
+		t.Fatalf("manual negative clamp serialization = %q", got)
 	}
 }
 
