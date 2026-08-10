@@ -629,7 +629,7 @@ func TestTUIFilterNumericArrowsMakeProgressAcrossRepeatedSteps(t *testing.T) {
 		wantRight string
 		wantLeft  string
 	}{
-		{"context", 5, "5", "24581", "0"},
+		{"context", 5, "5", "24581", ""},
 		{"input", 6, "1", "1.15", "0.85"},
 		{"output", 7, "1", "1.15", "0.85"},
 	} {
@@ -734,13 +734,32 @@ func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	}
-	if got := m.filterDraft.string(); got != "quality>=0" {
-		t.Fatalf("numeric left clamp serialization = %q", got)
+	if m.filterDraft != (tuiFilterDraft{}) {
+		t.Fatalf("numeric left at zero draft = %+v, want empty fields", m.filterDraft)
 	}
 	m.filterDraft = tuiFilterDraft{quality: "101", context: "-1", input: "-0.5", output: "-2"}
 	m, _ = m.applyFilterDraft()
 	if got := m.filter; got != "quality>=100" {
 		t.Fatalf("manual negative clamp serialization = %q", got)
+	}
+}
+
+func TestTUIFilterNumericLeftAtZeroClearsDraftAndRendersAny(t *testing.T) {
+	for _, field := range []int{4, 5, 6, 7} {
+		m := tuiModel{overlay: "filter", filterCursor: field, filterDraft: tuiFilterDraft{quality: "0", context: "0", input: "0", output: "0"}, width: 100, height: 20}
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+		m = next.(tuiModel)
+		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-4]; got != "" {
+			t.Fatalf("field %d left at zero draft = %q, want empty", field, got)
+		}
+		if got := tuiFilterView(m); !strings.Contains(got, []string{"Quality minimum", "Context minimum", "Input max", "Output max"}[field-4]+": (any)") {
+			t.Fatalf("field %d left at zero view = %q, want any", field, got)
+		}
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+		m = next.(tuiModel)
+		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-4]; got != "" {
+			t.Fatalf("field %d repeated left draft = %q, want empty", field, got)
+		}
 	}
 }
 
@@ -751,12 +770,8 @@ func TestTUIFilterNumericArrowsDoNotCrossZero(t *testing.T) {
 			m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 		}
 		got := []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-5]
-		want := "0"
-		if field >= 6 {
-			want = "0.00"
-		}
-		if got != want {
-			t.Fatalf("field %d repeated left = %q, want 0", field, got)
+		if got != "" {
+			t.Fatalf("field %d repeated left = %q, want empty", field, got)
 		}
 	}
 }

@@ -902,7 +902,14 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 		if field == 4 && value > 0 && value <= 1 {
 			value *= 100
 		}
+		if direction < 0 && value <= 0 {
+			*values[field] = ""
+			return
+		}
 	} else {
+		if direction < 0 {
+			return
+		}
 		if field == 4 || field == 5 {
 			if field == 4 {
 				*values[field] = tuiCanonicalDraftValue(field, strconv.Itoa(steps.QualityPoints))
