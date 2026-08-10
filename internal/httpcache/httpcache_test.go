@@ -83,6 +83,32 @@ func TestGetRefetchesAfterTTL(t *testing.T) {
 	}
 }
 
+func TestGetWithZeroTTLAlwaysFetches(t *testing.T) {
+	srv, hits := newCountingServer(t, "hello")
+	c := New(t.TempDir(), 0)
+	if _, err := c.Get(context.Background(), srv.URL); err != nil {
+		t.Fatalf("first Get: %v", err)
+	}
+	if _, err := c.Get(context.Background(), srv.URL); err != nil {
+		t.Fatalf("second Get: %v", err)
+	}
+	if got := atomic.LoadInt64(hits); got != 2 {
+		t.Fatalf("server hits = %d, want 2 for zero TTL", got)
+	}
+}
+
+func TestGetWithZeroTimeoutDoesNotApplyDefaultTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Write([]byte("hello"))
+	}))
+	defer srv.Close()
+	c := NewWithTimeout(t.TempDir(), time.Hour, 0)
+	if body, err := c.Get(context.Background(), srv.URL); err != nil || string(body) != "hello" {
+		t.Fatalf("Get with explicit zero timeout = %q, %v; zero must mean no client timeout", body, err)
+	}
+}
+
 func TestGetReturnsErrorOnServerFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)

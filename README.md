@@ -41,6 +41,29 @@ immutable revision formula до любой reinstall. Stable install не исп
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
 
+## Onboarding record
+
+| Поле | Значение |
+| --- | --- |
+| `project type` | Go CLI/TUI, read-only data refresh tool; публикуемый release-бинарник |
+| `profiles` | `active`: plain CLI/TUI, build/release и supply-chain; `N/A`: daemon, container runtime |
+| `OS/ARCH` | CI и release: `linux/amd64`; локальная distribution-проверка: macOS/Homebrew; cross-platform matrix не заявлена |
+| `modes` | локальная работа без credentials; CI PR/push; exact-tag release с GitHub Release и static-key provenance |
+| `channels` | active: GitHub Release binary/evidence; local-only: Homebrew formula в disposable tap; `N/A`: опубликованный Homebrew tap и container image |
+| `version source` | release version только из clean checkout на exact `vMAJOR.MINOR.PATCH` tag; обычная сборка использует `git describe`; formula синхронизирует tag и revision |
+| `Makefile targets` | baseline: `fmt-check`, `test-unit`, `test-acceptance`, `vet`, `security`, `dependency-check`, `secrets-check`, `sbom`, `check-docs`; release: `release-check`, `release-manifest`, `sign`, `attest`, `verify-provenance`, `checksums`, `verify-release` |
+| `Docker toolchain image` | `N/A`: Docker toolchain не используется и не публикуется |
+| `Docker runtime image` | `N/A`: контейнерный runtime не поставляется |
+| `Docker runtime base image` | `N/A`: отсутствует shipped runtime image |
+| `host-only exceptions` | `HOST-ONLY`: Homebrew reinstall/verification (`brew`, maintainer; macOS package-manager integration); CI Linux не утверждает этот канал |
+| `owners` | maintainer: repository owner; release/security: maintainer |
+| `SCA cadence` | weekly для publishable profile, а также каждый PR и перед каждым release |
+| `SCA owner` | maintainer |
+| `remediation deadline` | critical/high: 7 календарных дней; остальные findings: 30 календарных дней |
+| `N/A controls/rationale` | Docker/container controls: `N/A`, контейнер не поставляется; published Homebrew tap verification: `N/A`, tap disposable и не публикуется; native macOS CI: `N/A`, release builder Linux, macOS покрывается локальным Homebrew gate |
+| `last reviewed` | 2026-08-10 |
+| `review trigger/profile state` | active; пересмотр при изменении release channel, version source, signing/provenance, trust boundary или не позднее 2026-11-08 |
+
 ## Команды
 
 - `openrouter init [--config PATH] [--data-dir PATH]` — создать пользовательский конфиг и локальный каталог кэша; существующие пути не изменяются
@@ -141,6 +164,8 @@ Acceptance-тест версии использует `OPENROUTER_EXPECTED_VERSI
 `test-unit` запускает быстрый набор тестов пакетов `internal/...` и `cmd/...` с
 отключённым test cache. `test-acceptance` сначала собирает `bin/openrouter`, затем
 запускает black-box проверки `tests/run/acceptance` через реальный process boundary.
+Если нужно исключить stale binary и проверить CLI end-to-end, используйте полный gate
+`make test-acceptance`, а не прямой запуск acceptance-тестов.
 `test-all` объединяет оба набора. Сетевой `refresh` намеренно не входит в быстрый
 CI-гейт: функциональные тесты источников используют `httptest`, а production-like
 прогон требует отдельного контролируемого окружения.
@@ -201,7 +226,48 @@ Default filter для TUI настраивается отдельно и чит�
 default_filter: quality>=75
 ```
 
-`tui_filter` имеет приоритет над `default_filter`, включая явно пустое значение. CLI `--filter` имеет наивысший приоритет. Остальные hardcoded значения интерфейса и фильтрации (например, хоткеи, набор колонок, разрешённые имена predicates и интервал TUI `5m`) к этому запросу не относятся и не выносились.
+Шаги числовых полей редактора фильтра настраиваются без пересборки бинарника:
+
+```yaml
+tui_steps:
+  quality: 5 # percentage points
+  context: 5 # percent of current value
+  input: 5 # percent of current value
+  output: 5 # percent of current value
+```
+
+Все значения должны быть неотрицательными целыми; отсутствующие или нулевые ключи
+получают совместимые defaults `5/5/5/5`. `Context minimum`, `Input max` и `Output max`
+показываются в TUI округлёнными до целого, но ручной float сохраняется в filter syntax
+и передаётся parser без потери точности. Step после вычисления также записывает целое
+значение, поэтому для цен округление может быть lossy. Конфиг перечитывается при каждом
+auto-refresh TUI вместе с `default_filter`, поэтому изменение `tui_steps` применяется
+без перезапуска.
+
+`tui_filter` имеет приоритет над `default_filter`, включая явно пустое значение. CLI `--filter` имеет наивысший приоритет. Остальные hardcoded значения интерфейса и фильтрации (например, хоткеи, набор колонок, разрешённые имена predicates, ограничения ranking expression и semantic thresholds) не выносились.
+
+Операционные defaults можно менять в конфиге без пересборки. Относительный `cache.dir` разрешается относительно `data_dir`; CLI flags имеют приоритет над config:
+
+```yaml
+cache:
+  dir: cache
+  ttl: 12h
+  request_timeout: 30s
+table:
+  sort: q/p
+  ranking: mixed
+  score_source: swebench
+  limit: 0
+  task_fit: short
+tui:
+  refresh_interval: 5m
+  sort: q/p
+  ranking: mixed
+  score_source: swebench
+  limit: 0
+```
+
+`cache.ttl`, `cache.request_timeout` и `tui.refresh_interval` используют формат Go duration (`30s`, `12h`, `0s`). `tui.refresh_interval` читается при запуске; уже работающий TUI, как и раньше, перечитывает на auto-refresh только `default_filter` и `tui_steps`. Нулевой `limit` означает отсутствие ограничения. Невалидные duration и отрицательные limits отклоняются при загрузке конфигурации.
 
 ```yaml
 ranking:

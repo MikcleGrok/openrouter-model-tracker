@@ -24,7 +24,11 @@ type Client struct {
 
 // New returns a Client caching into dir with the given freshness window.
 func New(dir string, ttl time.Duration) *Client {
-	return &Client{dir: dir, ttl: ttl, http: &http.Client{Timeout: 30 * time.Second}}
+	return NewWithTimeout(dir, ttl, 30*time.Second)
+}
+
+func NewWithTimeout(dir string, ttl, timeout time.Duration) *Client {
+	return &Client{dir: dir, ttl: ttl, http: &http.Client{Timeout: timeout}}
 }
 
 func (c *Client) path(url string) string {

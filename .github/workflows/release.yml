@@ -37,7 +37,7 @@ jobs:
         run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
 
       - name: Build the release manifest (binary, SBOM, checksum) and dependency evidence
-        run: make release-manifest dependency-check
+        run: make security dependency-check secrets-check release-manifest
 
       - name: Sign release manifest
         env:

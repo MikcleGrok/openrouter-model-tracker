@@ -20,14 +20,16 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
-// cacheTTL is how long a fetched page stays fresh on disk.
-const cacheTTL = 12 * time.Hour
-
 // Options configures one run.
 type Options struct {
-	DataDir    string
-	OutputPath string
-	DryRun     bool
+	DataDir           string
+	OutputPath        string
+	CacheDir          string
+	CacheTTL          time.Duration
+	CacheTTLSet       bool
+	RequestTimeout    time.Duration
+	RequestTimeoutSet bool
+	DryRun            bool
 }
 
 // scoreSource is one benchmark source, identified by the column name it uses in
@@ -49,7 +51,22 @@ type deps struct {
 }
 
 func liveDeps(opts Options) deps {
-	c := httpcache.New(filepath.Join(opts.DataDir, "cache", "http"), cacheTTL)
+	cacheDir := opts.CacheDir
+	if cacheDir == "" {
+		cacheDir = "cache"
+	}
+	if !filepath.IsAbs(cacheDir) {
+		cacheDir = filepath.Join(opts.DataDir, cacheDir)
+	}
+	ttl := opts.CacheTTL
+	if !opts.CacheTTLSet && ttl <= 0 {
+		ttl = 12 * time.Hour
+	}
+	timeout := opts.RequestTimeout
+	if !opts.RequestTimeoutSet && timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	c := httpcache.NewWithTimeout(filepath.Join(cacheDir, "http"), ttl, timeout)
 	return deps{
 		prices: func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
 			return sources.LookupPrices(ctx, c, slugs)
@@ -102,7 +119,14 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	snapshotPath := filepath.Join(opts.DataDir, "cache", "last-run-snapshot.json")
+	cacheDir := opts.CacheDir
+	if cacheDir == "" {
+		cacheDir = "cache"
+	}
+	if !filepath.IsAbs(cacheDir) {
+		cacheDir = filepath.Join(opts.DataDir, cacheDir)
+	}
+	snapshotPath := filepath.Join(cacheDir, "last-run-snapshot.json")
 	snap, err := LoadSnapshot(snapshotPath)
 	if err != nil {
 		return Report{}, err

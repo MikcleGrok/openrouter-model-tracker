@@ -149,6 +149,21 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestRunUsesCustomCacheDirForSnapshot(t *testing.T) {
+	dir := newDataDir(t)
+	custom := filepath.Join(t.TempDir(), "custom-cache")
+	out := filepath.Join(t.TempDir(), "report.md")
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out, CacheDir: custom}, okDeps()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, err := LoadSnapshot(filepath.Join(custom, "last-run-snapshot.json")); err != nil {
+		t.Fatalf("custom snapshot: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cache", "last-run-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("default snapshot unexpectedly exists: %v", err)
+	}
+}
+
 func TestRunDryRunWritesNothing(t *testing.T) {
 	dir := newDataDir(t)
 	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")

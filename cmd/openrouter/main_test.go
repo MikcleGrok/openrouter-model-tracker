@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func executeCLI(t *testing.T, args ...string) string {
@@ -44,6 +45,36 @@ func TestResolveTUIFilterCLIOverridesSavedValue(t *testing.T) {
 	}
 	if got := resolveTUIFilter("", false, "", true, "quality>=75"); got != "" {
 		t.Fatalf("explicitly cleared TUI filter = %q, want empty", got)
+	}
+}
+
+func TestResolveOptionsConfigAndCLIPrecedence(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	body := "data_dir: configured\ndefault_output: configured.md\ncache:\n  dir: shared-cache\n  ttl: 2h\n  request_timeout: 45s\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveOptions(configPath, "override", "override.md")
+	if err != nil {
+		t.Fatalf("resolveOptions: %v", err)
+	}
+	if got.DataDir != "override" || got.OutputPath != "override.md" || got.CacheDir != filepath.Join("override", "shared-cache") {
+		t.Fatalf("paths = %+v", got)
+	}
+	if got.CacheTTL != 2*time.Hour || got.RequestTimeout != 45*time.Second {
+		t.Fatalf("durations = %v, %v", got.CacheTTL, got.RequestTimeout)
+	}
+}
+
+func TestResolveOptionsPreservesExplicitZeroCacheDurations(t *testing.T) {
+	configPath := writeConfig(t, "data_dir: /data\ndefault_output: /out.md\ncache:\n  ttl: 0s\n  request_timeout: 0s\n")
+	opts, err := resolveOptions(configPath, "", "")
+	if err != nil {
+		t.Fatalf("resolveOptions: %v", err)
+	}
+	if opts.CacheTTL != 0 || !opts.CacheTTLSet || opts.RequestTimeout != 0 || !opts.RequestTimeoutSet {
+		t.Fatalf("explicit zero options = %+v", opts)
 	}
 }
 
@@ -188,8 +219,7 @@ func TestInitCreatesConfigAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	want := "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: " + dataDir + "\ndefault_output: docs/openrouter-model-comparison.md\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n"
-	want = strings.Replace(want, "default_output: docs/openrouter-model-comparison.md\n\n", "default_output: docs/openrouter-model-comparison.md\ndefault_filter: quality>=75\n\n", 1)
+	want := "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: " + dataDir + "\ndefault_output: docs/openrouter-model-comparison.md\ndefault_filter: quality>=75\ntui_steps: {quality: 5, context: 5, input: 5, output: 5}\ncache:\n  dir: cache\n  ttl: 12h\n  request_timeout: 30s\ntable:\n  sort: q/p\n  ranking: mixed\n  score_source: swebench\n  limit: 0\n  task_fit: short\ntui:\n  refresh_interval: 5m\n  sort: q/p\n  ranking: mixed\n  score_source: swebench\n  limit: 0\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors: {opus: 1, sonnet: 1, haiku: 0.5, free: 0, default: 0}\n    # formula and price_weight cannot be used together; see README for the whitelist.\n"
 	if string(body) != want {
 		t.Errorf("config = %q", body)
 	}
@@ -219,6 +249,22 @@ func TestInitIsIdempotentAndDoesNotOverwrite(t *testing.T) {
 	}
 	if string(body) != "custom: value\n" {
 		t.Errorf("config was overwritten: %q", body)
+	}
+}
+
+func TestInitUsesExistingConfigCacheDir(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: data\ncache:\n  dir: custom-cache\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := executeCLI(t, "init", "--config", configPath)
+	want := filepath.Join(root, "data", "custom-cache")
+	if !strings.Contains(output, "Created: "+want) {
+		t.Fatalf("init output = %q, want custom cache path %q", output, want)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("custom cache directory stat = %v, info = %+v", err, info)
 	}
 }
 

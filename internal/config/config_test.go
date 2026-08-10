@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoad(t *testing.T) {
@@ -32,6 +33,35 @@ func TestLoad(t *testing.T) {
 	}
 	if got.MixedUtilityPriceWeight() != 3.5 {
 		t.Errorf("MixedUtilityPriceWeight = %v", got.MixedUtilityPriceWeight())
+	}
+	if got.TUISteps != DefaultTUISteps() {
+		t.Errorf("TUISteps = %+v, want %+v", got.TUISteps, DefaultTUISteps())
+	}
+	if got.Cache.EffectiveDir() != DefaultCacheDir || got.Table.Limit != 0 || got.TUI.Limit != 0 {
+		t.Errorf("operational defaults = cache %q, table limit %d, tui limit %d", got.Cache.EffectiveDir(), got.Table.Limit, got.TUI.Limit)
+	}
+	ttl, _ := got.Cache.EffectiveTTL()
+	timeout, _ := got.Cache.EffectiveRequestTimeout()
+	interval, _ := got.TUI.EffectiveRefreshInterval()
+	if ttl != DefaultCacheTTL || timeout != DefaultRequestTimeout || interval != DefaultTUIRefreshInterval {
+		t.Errorf("duration defaults = %v, %v, %v", ttl, timeout, interval)
+	}
+}
+
+func TestLoadTUIStepsAndRejectsNegativeValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui_steps: {quality: 7, context: 1000, input: 2, output: 3}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || got.TUISteps != (TUISteps{Quality: 7, Context: 1000, Input: 2, Output: 3}) {
+		t.Fatalf("Load TUISteps = %+v, err %v", got.TUISteps, err)
+	}
+	if err := os.WriteFile(path, []byte("tui_steps:\n  input: -1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "tui_steps.input must be non-negative") {
+		t.Fatalf("Load accepted negative TUI step: %v", err)
 	}
 }
 
@@ -132,6 +162,55 @@ func TestLoadMissingFileIsZeroConfig(t *testing.T) {
 	}
 	if got.DataDir != "" || got.DefaultOutput != "" || got.DefaultFilter != DefaultFilter {
 		t.Errorf("got %+v, want zero paths and default filter", got)
+	}
+}
+
+func TestLoadOperationalDefaultsAndCustomValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "cache:\n  dir: ../shared-cache\n  ttl: 2h\n  request_timeout: 45s\ntable:\n  limit: 12\ntui:\n  refresh_interval: 0s\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Cache.EffectiveDir() != "../shared-cache" || got.Table.Limit != 12 || got.TUI.Limit != 0 {
+		t.Fatalf("config = %+v", got)
+	}
+	ttl, _ := got.Cache.EffectiveTTL()
+	timeout, _ := got.Cache.EffectiveRequestTimeout()
+	interval, _ := got.TUI.EffectiveRefreshInterval()
+	if ttl != 2*time.Hour || timeout != 45*time.Second || interval != 0 {
+		t.Fatalf("durations = %v, %v, %v", ttl, timeout, interval)
+	}
+}
+
+func TestLoadPreservesExplicitZeroCacheDurations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("cache:\n  ttl: 0s\n  request_timeout: 0s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ttl, _ := got.Cache.EffectiveTTL()
+	timeout, _ := got.Cache.EffectiveRequestTimeout()
+	if !got.Cache.TTLSet || !got.Cache.RequestTimeoutSet || ttl != 0 || timeout != 0 {
+		t.Fatalf("explicit zero cache config = %+v, ttl=%v timeout=%v", got.Cache, ttl, timeout)
+	}
+}
+
+func TestLoadRejectsInvalidOperationalValues(t *testing.T) {
+	for _, body := range []string{"cache:\n  ttl: never\n", "cache:\n  request_timeout: -1s\n", "table:\n  limit: -1\n", "tui:\n  limit: -1\n"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Fatalf("Load accepted invalid config %q", body)
+		}
 	}
 }
 
@@ -246,5 +325,37 @@ func TestInitRollsBackConfigWhenCacheInspectionFails(t *testing.T) {
 	}
 	if string(body) != "not a directory\n" {
 		t.Fatalf("data path changed: %q", body)
+	}
+}
+
+func TestInitUsesExistingRelativeCustomCacheDir(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: data\ncache:\n  dir: snapshots\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(configPath, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(root, "data", "snapshots")); err != nil || !info.IsDir() {
+		t.Fatalf("relative custom cache directory stat = %v, info = %+v", err, info)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data", "cache")); !os.IsNotExist(err) {
+		t.Fatalf("default cache directory unexpectedly exists: %v", err)
+	}
+}
+
+func TestInitUsesExistingAbsoluteCustomCacheDir(t *testing.T) {
+	root := t.TempDir()
+	custom := filepath.Join(t.TempDir(), "absolute-cache")
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: data\ncache:\n  dir: "+custom+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(configPath, ""); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if info, err := os.Stat(custom); err != nil || !info.IsDir() {
+		t.Fatalf("absolute custom cache directory stat = %v, info = %+v", err, info)
 	}
 }
