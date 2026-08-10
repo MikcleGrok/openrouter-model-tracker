@@ -37,6 +37,9 @@ func TestLoad(t *testing.T) {
 	if got.TUISteps != DefaultTUISteps() {
 		t.Errorf("TUISteps = %+v, want %+v", got.TUISteps, DefaultTUISteps())
 	}
+	if got.TUISteps.InputCents != 5 || got.TUISteps.OutputCents != 5 {
+		t.Errorf("default price steps = %d/%d cents, want 5/5", got.TUISteps.InputCents, got.TUISteps.OutputCents)
+	}
 	if got.Cache.EffectiveDir() != DefaultCacheDir || got.Table.Limit != 0 || got.TUI.Limit != 0 {
 		t.Errorf("operational defaults = cache %q, table limit %d, tui limit %d", got.Cache.EffectiveDir(), got.Table.Limit, got.TUI.Limit)
 	}

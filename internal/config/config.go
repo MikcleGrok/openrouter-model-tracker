@@ -86,8 +86,8 @@ const DefaultTUIRefreshInterval = 5 * time.Minute
 const (
 	DefaultTUIQualityPoints = 5
 	DefaultTUIContextTokens = 8192
-	DefaultTUIInputCents    = 1
-	DefaultTUIOutputCents   = 1
+	DefaultTUIInputCents    = 5
+	DefaultTUIOutputCents   = 5
 )
 
 func DefaultTUISteps() TUISteps {
@@ -161,7 +161,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75\n" +
-	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 1, output_cents: 1}\n" +
+	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"cache:\n" +
 	"  dir: cache\n" +
 	"  ttl: 12h\n" +
