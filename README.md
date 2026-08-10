@@ -73,6 +73,29 @@ immutable revision formula до любой reinstall. Stable install не исп
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, используется `default_filter` (по умолчанию `quality>=75`), но при одном лишь встроенном default числовые поля формы открываются как `(any)`. Явный `--filter` имеет приоритет над сохранённым и default-значением; очистка фильтра сохраняет пустое значение и отключает default-фильтр. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
 - В TUI источник оценки переключается без изменения keybinding: нажмите `o`, стрелкой `Down` перейдите на `Score source`, затем нажмите `Space`; это переключает `SWE-bench` и `Arena`. На основном списке `Enter` открывает подробную страницу модели. Текущий источник виден в meta-строке, Settings и status hints.
+- Клавиши TUI можно переопределить в том же YAML-конфиге через `tui_keymap`. Контексты и действия проверяются отдельно, поэтому одинаковый `space` допустим в Settings, фильтре и выборе колонок. Binding может быть строкой или списком:
+
+  ```yaml
+  tui_keymap:
+    main:
+      open_settings: o
+      open_details: [enter, right, l]
+      help: ['?']
+      full_help: f1
+      navigate_up: [up, k]
+      navigate_down: [down, j]
+    settings:
+      close: [esc, o]
+      navigate_up: [up, k]
+      navigate_down: [down, j]
+      switch_source: space
+    detail:
+      close: [esc, left, h]
+      navigate_up: [up, k]
+      navigate_down: [down, j]
+  ```
+
+  Доступны также контексты `help`, `columns` и `filter` с действиями `close`, `full_help`, `navigate_up`, `navigate_down`, `toggle` и `apply` по смыслу контекста. Неизвестные действия/контексты, пустые bindings и повтор одного binding для разных действий в одном контексте дают ошибку конфига. При reload TUI эта секция перечитывается вместе с `default_filter`, `tui_filter` и `tui_steps`; до успешной загрузки snapshot источник оценки не меняется, а Settings показывает pending или ошибку.
 - `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter completion bash` — сгенерировать Bash completion
 - `openrouter version`

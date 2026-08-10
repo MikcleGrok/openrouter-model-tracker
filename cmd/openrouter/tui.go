@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
@@ -122,6 +123,7 @@ type tuiRefreshMsg struct {
 	models                []model.Model
 	filter                string
 	filterSteps           config.TUISteps
+	keymap                config.TUIKeymap
 	filterFormExplicit    bool
 	err                   error
 }
@@ -184,11 +186,14 @@ type tuiModel struct {
 	rankingConfig         ranking.Compiled
 	rankingConfigSet      bool
 	filterSteps           config.TUISteps
+	keymap                config.TUIKeymap
+	scoreSourceLoading    bool
+	pendingScoreSource    string
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -237,6 +242,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 			return loadErr
 		}
 		m.filterSteps = cfg.TUISteps
+		m.keymap = cfg.TUIKeymap
 		m.filterFormExplicit = filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
@@ -307,12 +313,14 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
 		filter, filterFormExplicit := m.filter, m.filterFormExplicit
 		filterSteps := m.filterSteps
+		keymap := m.keymap
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
 			if err != nil {
 				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
 			}
 			filterSteps = cfg.TUISteps
+			keymap = cfg.TUIKeymap
 			filterFormExplicit = m.filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 			if !m.filterExplicit {
 				filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
@@ -328,7 +336,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, filterFormExplicit: filterFormExplicit, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, err: err}
 	}
 }
 
@@ -338,6 +346,19 @@ func (m tuiModel) scoreSourceCmd(source string) tea.Cmd {
 		rows, err := loadLocalModelsForSource(dir, source)
 		return tuiScoreSourceMsg{generation: generation, source: source, models: rows, err: err}
 	}
+}
+
+func (m tuiModel) keyMatches(context, action, key string) bool {
+	bindings := m.keymap
+	if bindings == nil {
+		bindings = config.DefaultTUIKeymap()
+	}
+	for _, binding := range bindings[context][action] {
+		if keymap.CanonicalBinding(binding) == keymap.CanonicalBinding(key) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -366,6 +387,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
 		m.filterSteps = msg.filterSteps
+		if msg.keymap != nil {
+			m.keymap = msg.keymap
+		}
 		m.filterFormExplicit = msg.filterFormExplicit
 		if !m.filterExplicit {
 			m.filter = msg.filter
@@ -377,9 +401,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
+			m.scoreSourceLoading = false
+			m.pendingScoreSource = ""
 			m.err = fmt.Sprintf("score source %s: %v", msg.source, msg.err)
+			m.status = "score source switch failed"
 			return m, nil
 		}
+		m.scoreSourceLoading = false
+		m.pendingScoreSource = ""
 		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", "score source changed"
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
@@ -394,12 +423,55 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m.inputKey(msg)
 	}
 	key := tuiCommandKey(msg)
+	originalKey := key
+	if m.overlay == "" && m.keyMatches("main", "open_settings", key) {
+		key = "o"
+	}
+	if m.overlay == "" && m.keyMatches("main", "open_details", key) {
+		key = "enter"
+	}
+	if m.overlay == "" && m.keyMatches("main", "help", key) {
+		key = "?"
+	}
+	if m.overlay == "" && m.keyMatches("main", "full_help", key) {
+		key = "f1"
+	}
+	if m.overlay == "settings" && m.settingsCursor == 1 && m.keyMatches("settings", "switch_source", key) {
+		key = " "
+	}
+	context := "main"
+	if m.overlay != "" {
+		context = m.overlay
+	}
+	if m.keyMatches(context, "close", key) {
+		key = "esc"
+	}
+	if (context == "columns" || context == "filter") && m.keyMatches(context, "toggle", key) {
+		key = " "
+	}
+	if (context == "columns" || context == "filter") && m.keyMatches(context, "apply", key) {
+		key = "enter"
+	}
+	if m.keyMatches(context, "navigate_up", key) {
+		key = "up"
+	}
+	if m.keyMatches(context, "navigate_down", key) {
+		key = "down"
+	}
 	if m.overlay == "help" {
-		switch key {
-		case "esc", "?":
-			m.overlay = ""
-		case "f1":
+		if m.keyMatches("help", "full_help", originalKey) {
 			m.setHelpMode("full")
+			return m, nil
+		}
+		switch key {
+		case "esc":
+			if m.keyMatches("help", "close", originalKey) {
+				m.overlay = ""
+			}
+		case "?":
+			if m.keyMatches("help", "close", originalKey) {
+				m.overlay = ""
+			}
 		case "/":
 			m.inputMode, m.input = "help-search", m.helpSearch
 		case "up", "k":
@@ -428,6 +500,9 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)
 		switch key {
 		case "esc", "left", "h":
+			if !m.keyMatches("detail", "close", originalKey) {
+				break
+			}
 			m.overlay, m.detailOffset = "", 0
 		case "up", "k":
 			m.detailOffset = max(0, m.detailOffset-1)
@@ -445,16 +520,21 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m, nil
 	}
 	if m.overlay == "columns" {
-		return m.columnKey(key)
+		return m.columnKey(key, originalKey)
 	}
 	if m.overlay == "settings" {
-		return m.settingsKey(key)
+		return m.settingsKey(key, originalKey)
 	}
 	if m.overlay == "filter" {
 		return m.filterKey(key, msg)
 	}
 	switch key {
 	case "x", "ctrl+c":
+		return m, tea.Quit
+	case "esc", "left", "h":
+		if !m.keyMatches("main", "close", originalKey) {
+			break
+		}
 		return m, tea.Quit
 	case "up", "k":
 		if len(m.visible) > 0 {
@@ -496,14 +576,26 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "f":
 		m.openFilterEditor()
 	case "o":
+		if !m.keyMatches("main", "open_settings", originalKey) {
+			break
+		}
 		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
+		if !m.keyMatches("main", "help", originalKey) {
+			break
+		}
 		m.overlay = "help"
 		m.setHelpMode("shortcuts")
 	case "f1":
+		if !m.keyMatches("main", "full_help", originalKey) {
+			break
+		}
 		m.overlay = "help"
 		m.setHelpMode("full")
 	case "enter", "right", "l":
+		if !m.keyMatches("main", "open_details", originalKey) {
+			break
+		}
 		if len(m.visible) > 0 {
 			m.overlay, m.detailOffset = "detail", 0
 		}
@@ -653,7 +745,7 @@ func (m *tuiModel) replaceColumn(from, to tuiColumn) {
 		}
 	}
 }
-func (m tuiModel) columnKey(key string) (tuiModel, tea.Cmd) {
+func (m tuiModel) columnKey(key, originalKey string) (tuiModel, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.overlay = ""
@@ -662,16 +754,22 @@ func (m tuiModel) columnKey(key string) (tuiModel, tea.Cmd) {
 	case "down", "j":
 		m.columnCursor = min(len(tuiColumns)-1, m.columnCursor+1)
 	case " ":
+		if !m.keyMatches("columns", "toggle", originalKey) {
+			break
+		}
 		if len(m.pendingColumns) > 1 || !containsColumn(m.pendingColumns, tuiColumns[m.columnCursor]) {
 			m.togglePending(tuiColumns[m.columnCursor])
 		}
 	case "enter":
+		if !m.keyMatches("columns", "apply", originalKey) {
+			break
+		}
 		m.columns, m.overlay = append([]tuiColumn(nil), m.pendingColumns...), ""
 	}
 	return m, nil
 }
 
-func (m tuiModel) settingsKey(key string) (tuiModel, tea.Cmd) {
+func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 	const settingsItems = 4
 	switch key {
 	case "esc", "o":
@@ -691,13 +789,17 @@ func (m tuiModel) settingsKey(key string) (tuiModel, tea.Cmd) {
 			m.sortKey = "q/p"
 			m.rebuild()
 		case 1:
+			if !m.keyMatches("settings", "switch_source", originalKey) || m.scoreSourceLoading {
+				return m, nil
+			}
 			m.scoreSourceGeneration++
-			m.refreshing = false
+			m.scoreSourceLoading = true
 			source := scoreSourceArena
 			if m.scoreSource == scoreSourceArena {
 				source = scoreSourceSWEBench
 			}
 			m.status, m.err = "loading "+source+" from local snapshot...", ""
+			m.pendingScoreSource = source
 			return m, m.scoreSourceCmd(source)
 		case 2:
 			m.openFilterEditor()
@@ -1121,6 +1223,13 @@ func (m tuiModel) View() string {
 			"Source uses the local snapshot; R refreshes data.",
 			"Select Filter to reuse the structured filter input.",
 		}
+		if m.scoreSourceLoading {
+			lines = append(lines, "Status: loading "+m.pendingScoreSource+" from local snapshot...")
+		} else if m.err != "" {
+			lines = append(lines, "Error: "+m.err)
+		} else if m.status != "" {
+			lines = append(lines, "Status: "+m.status)
+		}
 		for i := 0; i < 4; i++ {
 			prefix := "  "
 			if i == m.settingsCursor {
@@ -1420,10 +1529,64 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // what actually prevents that false match; nothing about how the line
 // ends does.
 func (m tuiModel) helpLines() []string {
+	lines := tuiHelpLines()
 	if m.helpMode == "shortcuts" {
-		return tuiShortcutHelpLines()
+		lines = tuiShortcutHelpLines()
 	}
-	return tuiHelpLines()
+	return tuiConfiguredHelpLines(lines, m.keymap)
+}
+
+func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
+	if keymap == nil {
+		return lines
+	}
+	keymap = keymap.WithDefaults()
+	result := append([]string(nil), lines...)
+	replacements := map[string]config.TUIBindings{
+		`\tUp\tnavigate\t`:                                            keymap["main"]["navigate_up"],
+		`\tDown\tnavigate\t`:                                          keymap["main"]["navigate_down"],
+		`\tj / k\tmove\t`:                                             append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
+		`\tEnter / Right / l\tdetail\t`:                               keymap["main"]["open_details"],
+		`\tEsc / Left / h\tclose\t`:                                   keymap["detail"]["close"],
+		`\tsettings\topen settings.`:                                  keymap["main"]["open_settings"],
+		`\tdetail\topen model details.`:                               keymap["main"]["open_details"],
+		`\thelp\topen shortcut help.`:                                 keymap["main"]["help"],
+		`\thelp\topen full help.`:                                     keymap["main"]["full_help"],
+		`\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
+		`\tSpace\tcolumns\t`:                                          keymap["columns"]["toggle"],
+		`\tSpace\ttier\t`:                                             keymap["filter"]["toggle"],
+		`\tEnter\tapply\t`:                                            keymap["filter"]["apply"],
+		`\tEsc\tcancel\t`:                                             keymap["filter"]["close"],
+		`\tEsc\tcolumns\t`:                                            keymap["columns"]["close"],
+		`\tEnter\tcolumns\t`:                                          keymap["columns"]["apply"],
+		`\tEnter\tcolumns apply\t`:                                    keymap["columns"]["apply"],
+		`\t?\thelp\tclose shortcut help.`:                             keymap["help"]["close"],
+		`\tEsc\tclose\tclose help.`:                                   keymap["help"]["close"],
+		`\tUp\tsettings navigate\t`:                                   keymap["settings"]["navigate_up"],
+		`\tDown\tsettings navigate\t`:                                 keymap["settings"]["navigate_down"],
+		`\tEsc\tsettings close\t`:                                     keymap["settings"]["close"],
+		`\tUp\tdetail navigate\t`:                                     keymap["detail"]["navigate_up"],
+		`\tDown\tdetail navigate\t`:                                   keymap["detail"]["navigate_down"],
+		`\tUp\thelp navigate\t`:                                       keymap["help"]["navigate_up"],
+		`\tDown\thelp navigate\t`:                                     keymap["help"]["navigate_down"],
+		`\tUp\tcolumns navigate\t`:                                    keymap["columns"]["navigate_up"],
+		`\tDown\tcolumns navigate\t`:                                  keymap["columns"]["navigate_down"],
+		`\tEsc\tcolumns close\t`:                                      keymap["columns"]["close"],
+		`\tUp\tfilter navigate\t`:                                     keymap["filter"]["navigate_up"],
+		`\tDown\tfilter navigate\t`:                                   keymap["filter"]["navigate_down"],
+		`\tEsc\tfilter close\t`:                                       keymap["filter"]["close"],
+		`\tEsc\tmain close\t`:                                         keymap["main"]["close"],
+	}
+	for i := range result {
+		for marker, bindings := range replacements {
+			if strings.Contains(result[i], marker) {
+				parts := strings.Split(marker, `\t`)
+				replacement := `\t` + strings.Join(bindings, " / ") + `\t` + strings.Join(parts[2:], `\t`)
+				result[i] = strings.Replace(result[i], marker, replacement, 1)
+			}
+		}
+	}
+	return result
 }
 
 func (m tuiModel) helpViewportHeight() int {
@@ -1645,6 +1808,19 @@ const tuiShortcutHelpDocument = `openrouter tui shortcuts
 Hotkeys
 
 Navigation
+\tUp\tsettings navigate\tprevious Settings field.
+\tDown\tsettings navigate\tnext Settings field.
+\tEsc\tsettings close\tclose Settings.
+\tUp\tdetail navigate\tprevious detail field.
+\tDown\tdetail navigate\tnext detail field.
+\tUp\thelp navigate\tscroll help up.
+\tDown\thelp navigate\tscroll help down.
+\tUp\tcolumns navigate\tprevious column.
+\tDown\tcolumns navigate\tnext column.
+\tEsc\tcolumns close\tcancel column selection.
+\tUp\tfilter navigate\tprevious filter field.
+\tDown\tfilter navigate\tnext filter field.
+\tEsc\tfilter close\tcancel filter editing.
 \tUp\tmove\tprevious model.
 \tDown\tmove\tnext model.
 \tj / k\tmove\tnext / previous model.
@@ -1672,6 +1848,7 @@ Filters/settings
 \tf\tfilter\tedit structured filter.
 \t/\tsearch\tsearch Name/Slug.
 \tSpace\tcolumns\ttoggle a column.
+\tEnter\tcolumns apply\tapply the column selection.
 \tSpace\ttier\tcycle Tier.
 \tEnter\tapply\tapply the current editor.
 \tEsc\tcancel\tcancel the current editor.
@@ -1686,6 +1863,7 @@ Task-fit codes
 \tT\ttask-fit code\ttest.
 
 General/help
+\tEsc\tmain close\tclose the main view.
 \tx / Ctrl-C\texit\texit the TUI.
 \t?\thelp\topen shortcut help.
 \t?\thelp\tclose shortcut help.
@@ -1702,6 +1880,19 @@ const tuiHelpDocument = `openrouter tui keys
 Hotkeys
 
 Navigation
+\tUp\tsettings navigate\tprevious Settings field.
+\tDown\tsettings navigate\tnext Settings field.
+\tEsc\tsettings close\tclose Settings.
+\tUp\tdetail navigate\tprevious detail field.
+\tDown\tdetail navigate\tnext detail field.
+\tUp\thelp navigate\tscroll help up.
+\tDown\thelp navigate\tscroll help down.
+\tUp\tcolumns navigate\tprevious column.
+\tDown\tcolumns navigate\tnext column.
+\tEsc\tcolumns close\tcancel column selection.
+\tUp\tfilter navigate\tprevious filter field.
+\tDown\tfilter navigate\tnext filter field.
+\tEsc\tfilter close\tcancel filter editing.
 \tUp\tnavigate\tprevious model; in help, scroll up.
 \tDown\tnavigate\tnext model; in help, scroll down.
 \tj / k\tnavigate\tmove through models; in help, scroll.
@@ -1729,6 +1920,7 @@ Filters/settings
 \tf\tfilter\tedit a structured filter.
 \t/\tsearch\tsearch Name/Slug.
 \tSpace\tcolumns\ttoggle a column.
+\tEnter\tcolumns apply\tapply the column selection.
 \tSpace\ttier\tcycle Tier.
 \tEnter\tapply\tapply the current editor.
 \tEsc\tcancel\tcancel the current editor.
@@ -1795,6 +1987,7 @@ Help search
 \tEsc\tclose\tcancel search.
 
 General/help
+\tEsc\tmain close\tclose the main view.
 \tx / Ctrl-C\texit\texit the TUI.
 \t?\thelp\topen shortcut help.
 \t?\thelp\tclose help.

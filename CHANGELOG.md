@@ -5,6 +5,11 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.25]
+
+- Add configurable TUI key bindings through `tui_keymap`, including validation and help rendering.
+- Show pending and error states while switching the TUI score source from the local snapshot.
+
 ## [1.13.24]
 
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.

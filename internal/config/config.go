@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
+	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"gopkg.in/yaml.v3"
 )
@@ -31,7 +32,83 @@ type Config struct {
 	TUIFilter        string        `yaml:"tui_filter"`
 	TUIFilterSet     bool          `yaml:"-"`
 	TUISteps         TUISteps      `yaml:"tui_steps"`
+	TUIKeymap        TUIKeymap     `yaml:"tui_keymap"`
 	Ranking          RankingConfig `yaml:"ranking"`
+}
+
+// TUIKeymap groups configurable bindings by screen context and action.
+type TUIBindings []string
+
+func (b *TUIBindings) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		*b = TUIBindings{value.Value}
+		return nil
+	}
+	if value.Kind != yaml.SequenceNode {
+		return fmt.Errorf("bindings must be a string or list of strings")
+	}
+	var bindings []string
+	if err := value.Decode(&bindings); err != nil {
+		return err
+	}
+	*b = bindings
+	return nil
+}
+
+type TUIKeymap map[string]map[string]TUIBindings
+
+var defaultTUIKeymap = TUIKeymap{
+	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
+	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
+	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
+	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
+	"columns":  {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
+	"filter":   {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
+}
+
+var tuiKeymapActions = map[string]map[string]bool{
+	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true},
+	"settings": {"close": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
+	"detail":   {"close": true, "navigate_up": true, "navigate_down": true},
+	"help":     {"close": true, "full_help": true, "navigate_up": true, "navigate_down": true},
+	"columns":  {"close": true, "navigate_up": true, "navigate_down": true, "toggle": true, "apply": true},
+	"filter":   {"close": true, "navigate_up": true, "navigate_down": true, "toggle": true, "apply": true},
+}
+
+func DefaultTUIKeymap() TUIKeymap {
+	return cloneTUIKeymap(defaultTUIKeymap)
+}
+
+func (k TUIKeymap) WithDefaults() TUIKeymap {
+	result := DefaultTUIKeymap()
+	for context, actions := range k {
+		if _, ok := tuiKeymapActions[context]; !ok {
+			continue
+		}
+		for action, bindings := range actions {
+			result[context][action] = canonicalTUIBindings(bindings)
+		}
+	}
+	return result
+}
+
+func canonicalTUIBindings(bindings TUIBindings) TUIBindings {
+	result := make(TUIBindings, 0, len(bindings))
+	for _, binding := range bindings {
+		result = append(result, keymap.CanonicalBinding(binding))
+	}
+	return result
+}
+
+func cloneTUIKeymap(source TUIKeymap) TUIKeymap {
+	result := make(TUIKeymap, len(source))
+	for context, actions := range source {
+		result[context] = make(map[string]TUIBindings, len(actions))
+		for action, bindings := range actions {
+			result[context][action] = append([]string(nil), bindings...)
+		}
+	}
+	return result
 }
 
 type CacheConfig struct {
@@ -163,6 +240,13 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
+	"tui_keymap:\n" +
+	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
+	"  settings: {close: [esc, o], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space, enter]}\n" +
+	"  detail: {close: [esc, left, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
+	"  help: {close: [esc, '?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
+	"  columns: {close: [esc], navigate_up: [up, k], navigate_down: [down, j], toggle: [space], apply: [enter]}\n" +
+	"  filter: {close: [esc], navigate_up: [up, k], navigate_down: [down, j], toggle: [space], apply: [enter]}\n" +
 	"cache:\n" +
 	"  dir: cache\n" +
 	"  ttl: 12h\n" +
@@ -316,7 +400,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps()}, nil
+		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap()}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -352,6 +436,13 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: tui_steps mixes legacy keys (quality/context/input/output) with new keys (quality_points/context_tokens/input_cents/output_cents); choose one schema")
 	}
 	c.TUISteps = c.TUISteps.WithDefaults()
+	if err := validateTUIKeymap(path, c.TUIKeymap); err != nil {
+		return Config{}, err
+	}
+	c.TUIKeymap = c.TUIKeymap.WithDefaults()
+	if err := validateTUIKeymap(path, c.TUIKeymap); err != nil {
+		return Config{}, err
+	}
 	if c.Table.Limit < 0 || c.TUI.Limit < 0 {
 		return Config{}, fmt.Errorf("config: table.limit and tui.limit must be non-negative")
 	}
@@ -373,6 +464,32 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return c, nil
+}
+
+func validateTUIKeymap(path string, mappings TUIKeymap) error {
+	for context, actions := range mappings {
+		allowed, ok := tuiKeymapActions[context]
+		if !ok {
+			return fmt.Errorf("config: %s: tui_keymap.%s is an unknown context", path, context)
+		}
+		seen := map[string]string{}
+		for action, bindings := range actions {
+			if !allowed[action] {
+				return fmt.Errorf("config: %s: tui_keymap.%s.%s is an unknown action", path, context, action)
+			}
+			for _, binding := range bindings {
+				binding = keymap.CanonicalBinding(binding)
+				if binding == "" {
+					return fmt.Errorf("config: %s: tui_keymap.%s.%s contains an empty binding", path, context, action)
+				}
+				if previous, exists := seen[binding]; exists {
+					return fmt.Errorf("config: %s: tui_keymap.%s has conflicting binding %q for actions %s and %s", path, context, binding, previous, action)
+				}
+				seen[binding] = action
+			}
+		}
+	}
+	return nil
 }
 
 func yamlMappingHasKey(document yaml.Node, key string) bool {
