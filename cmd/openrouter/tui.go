@@ -18,6 +18,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
 	"golang.org/x/term"
 )
 
@@ -717,6 +718,8 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.filterDraft.paid = !m.filterDraft.paid
 		case 2:
 			m.filterDraft.scored = !m.filterDraft.scored
+		case 3:
+			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
 		}
 	case "c":
 		m.filterDraft = tuiFilterDraft{}
@@ -726,7 +729,9 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m.applyFilterDraft()
 	default:
 		if len(msg.Runes) > 0 && m.filterCursor >= 3 {
-			m.filterDraft.append(m.filterCursor, string(msg.Runes))
+			if m.filterCursor != 3 {
+				m.filterDraft.append(m.filterCursor, string(msg.Runes))
+			}
 		}
 	}
 	return m, nil
@@ -754,6 +759,20 @@ func filterStatusValue(filter string) string {
 		return "none (cleared)"
 	}
 	return filter
+}
+
+func tuiFilterTierValues() []string {
+	return append([]string{""}, tier.Values()...)
+}
+
+func tuiNextFilterTier(current string) string {
+	values := tuiFilterTierValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+1)%len(values)]
+		}
+	}
+	return values[0]
 }
 
 func tuiFilterDraftFromString(filter string) tuiFilterDraft {
@@ -955,7 +974,7 @@ func (m tuiModel) View() string {
 func tuiFilterView(m tuiModel) string {
 	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}
 	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max"}
-	lines := []string{"Filter", "", "Space toggles checkboxes; type in a field", ""}
+	lines := []string{"Filter", "", "Space toggles; Tier is a select; type in numeric fields", ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -967,7 +986,7 @@ func tuiFilterView(m tuiModel) string {
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Tier values: opus, sonnet, haiku, free", "Quality accepts 0..100 or 0..1 (0.8 = 80)")
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Tier options: (any), "+tier.ValuesString(), "Quality accepts 0..100 or 0..1 (0.8 = 80)")
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
