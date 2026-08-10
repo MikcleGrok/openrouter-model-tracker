@@ -5,6 +5,13 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.21]
+
+- Group TUI help hotkeys by navigation, data/view, filters/settings, task-fit codes, and general help.
+- Keep one action per help row and make help columns responsive on narrow terminals.
+- Document and test switching the score source between SWE-bench and Arena.
+- Add regression coverage for grouped hotkeys, single-action rows, and responsive help columns.
+
 ## [1.13.20]
 
 - Add a macOS LaunchAgent refresh workflow and deterministic local release packaging for the LaunchAgent and cron runtime scripts.

@@ -1113,10 +1113,11 @@ func (m tuiModel) View() string {
 			"Settings (Enter/Space change, Esc close)",
 			"",
 			"> Ranking: " + rankingName,
-			"  Score source: " + m.scoreSource,
+			"  Score source: " + m.scoreSource + " (Enter/Space switches SWE-bench/Arena)",
 			"  Filter: " + tuiDetailValue(m.filter),
 			"  Columns: " + strings.Join(columns, ", "),
 			"",
+			"Move Down to Score source, then press Enter/Space to switch.",
 			"Source uses the local snapshot; R refreshes data.",
 			"Select Filter to reuse the structured filter input.",
 		}
@@ -1148,7 +1149,7 @@ func (m tuiModel) View() string {
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · o settings · f filter · ? help/,"
+	hints := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · o settings · ↓ source · f filter · ? help/,"
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
 	if m.inputMode == "" {
@@ -1471,7 +1472,7 @@ func tuiHelpView(m tuiModel) string {
 			continue
 		}
 		plain := ansi.Strip(line)
-		if strings.HasSuffix(plain, "keys") || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == "Task-fit" {
+		if strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
@@ -1491,7 +1492,7 @@ func tuiFormatHelpLine(line string, width int) string {
 	if len(parts) != 3 {
 		return line
 	}
-	available := max(3, width)
+	available := max(1, width)
 	if available < 15 {
 		return truncateTable(parts[0]+" "+parts[1]+" "+parts[2], available)
 	}
@@ -1641,54 +1642,113 @@ func tuiStyleDetailLine(line string) string {
 
 const tuiShortcutHelpDocument = `openrouter tui shortcuts
 
-Navigation
-\tUp/Down or j/k\tmove\tmove through models. Home/End or g/G jump; PgUp/PgDown scroll.
-\tEnter, Right or l\topen detail\topen model details; Esc, Left or h closes details.
+Hotkeys
 
-Commands
-\tq / p / r\tsort\tq quality; p price; r quality/price ratio.
-\ts / S\tordering\ts cycles sort key; S reverses order.
-\tm / o / R\tview\tm ranking mode; o settings; R refresh.
-\tx / c / n\tview\tx or Ctrl-C exit; c columns; n Task fit/Note.
-\tf / / / ?\tinput\tf structured filter; / search; ? shortcut help; F1 full help.
+Navigation
+\tUp\tmove\tprevious model.
+\tDown\tmove\tnext model.
+\tj / k\tmove\tnext / previous model.
+\tHome / g\tjump\tfirst model.
+\tEnd / G\tjump\tlast model.
+\tPgUp / PgDown\tscroll\tpage through models.
+\tEnter / Right / l\tdetail\topen model details.
+\tEsc / Left / h\tclose\treturn from model details.
+
+Data/view
+\tq\tsort\tquality.
+\tp\tsort\tprice.
+\tr\tsort\tquality/price ratio.
+\ts\tordering\tcycle sort key.
+\tS\tordering\treverse order.
+\tm\tranking\ttoggle ranking mode.
+\to\tsettings\topen settings.
+\tDown\tnavigate\tmove to Score source.
+\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.
+\tR\trefresh\trefresh local data.
+\tc\tcolumns\topen column selection.
+\tn\tview\tswitch the last column between Task fit and Note.
+
+Filters/settings
+\tf\tfilter\tedit structured filter.
+\t/\tsearch\tsearch Name/Slug.
+\tSpace\tcolumns\ttoggle a column.
+\tSpace\ttier\tcycle Tier.
+\tEnter\tapply\tapply the current editor.
+\tEsc\tcancel\tcancel the current editor.
 
 Task-fit codes
-\tI / P / R\ttask-fit\tI implement; P plan; R research.
-\tD / A / F / T\ttask-fit\tD - debug: find and fix a defect or failure. A - audit; F - refactor: improve structure; T - test.
+\tI\ttask-fit code\timplement.
+\tP\ttask-fit code\tplan.
+\tR\ttask-fit code\tresearch.
+\tD\ttask-fit code\tdebug.
+\tA\ttask-fit code\taudit.
+\tF\ttask-fit code\trefactor.
+\tT\ttask-fit code\ttest.
 
-Help navigation
-\tUp/Down or j/k\tscroll\tscroll; Home/End or g/G jump; PgUp/PgDown scroll.
-\t/ / Enter / Esc\tsearch\tsearch this help; next match; close help.`
+General/help
+\tx / Ctrl-C\texit\texit the TUI.
+\t?\thelp\topen shortcut help.
+\t?\thelp\tclose shortcut help.
+\tF1\thelp\topen full help.
+\tUp / Down / j / k\tscroll\tscroll help.
+\tHome / End / g / G\tjump\tjump in help.
+\tPgUp / PgDown\tscroll\tpage through help.
+\t/\tsearch\tsearch this help.
+\tEnter\tmatch\tgo to next match.
+\tEsc\tclose\tclose help.`
 
 const tuiHelpDocument = `openrouter tui keys
 
+Hotkeys
+
 Navigation
-\tUp/Down or j/k\tnavigate\tmove through models. In help, they scroll this document.
-\tHome/End or g/G\tjump\tjump; PgUp/PgDown scroll.
-\tEnter, Right or l\tdetail\topen the model detail screen; Esc, Left or h closes it.
+\tUp\tnavigate\tprevious model; in help, scroll up.
+\tDown\tnavigate\tnext model; in help, scroll down.
+\tj / k\tnavigate\tmove through models; in help, scroll.
+\tHome / g\tjump\tfirst item.
+\tEnd / G\tjump\tlast item.
+\tPgUp / PgDown\tscroll\tpage through models or help.
+\tEnter / Right / l\tdetail\topen the model detail screen.
+\tEsc / Left / h\tclose\tEsc, Left or h closes it and returns to the list.
 
-Sort and task view
-\tq / p / r\tsort\tq sorts by quality; p by price; r by quality/price ratio (q/p).
-\tm\tranking\ttoggles ranking mode: mixed-utility or tier-priority. The default is mixed-utility; use --ranking=legacy for the legacy q/p order.
-\ts / S\tordering\ts cycles sort key; S reverses order.
-\to / R / x\tview\to settings; R refreshes; x or Ctrl-C exits.
-\tc / n\tcolumns\tc columns; n switches the last column between Task fit and Note.
-\tf / / / ?\tinput\tf filter; / search; ? shortcut help; F1 full help.
+Data/view
+\tq\tsort\tquality.
+\tp\tsort\tprice.
+\tr\tsort\tquality/price ratio (q/p).
+\tm\tranking\ttoggle ranking mode: mixed-utility or tier-priority.
+\ts\tordering\tcycle sort key.
+\tS\tordering\treverse order.
+\to\tsettings\topen Settings.
+\tDown\tnavigate\tmove to Score source.
+\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.
+\tR\trefresh\trefresh local data.
+\tc\tcolumns\topen selection.
+\tn\tview\tswitch the last column between Task fit and Note.
 
-Task-fit
-\tn\tcolumns\tswitches the last column between Task-fit and Note.
-Task-fit codes:
-\tI\timplement\tI - implement: write or change production code.
-\tP\tplan\tP - plan: define scope, steps, and decisions.
-\tR\tresearch\tR - research: investigate options, evidence, or behavior.
-\tD\tdebug\tfind and fix a defect or failure.
-\tA\taudit\tinspect quality, safety, or compliance.
-\tF\trefactor\timprove structure without changing behavior.
-\tT\ttest\tadd or improve automated verification.
+Filters/settings
+\tf\tfilter\tedit a structured filter.
+\t/\tsearch\tsearch Name/Slug.
+\tSpace\tcolumns\ttoggle a column.
+\tSpace\ttier\tcycle Tier.
+\tEnter\tapply\tapply the current editor.
+\tEsc\tcancel\tcancel the current editor.
+
+Task-fit codes
+\tI\ttask-fit code\timplement: write or change production code.
+\tP\ttask-fit code\tplan: define scope, steps, and decisions.
+\tR\ttask-fit code\tresearch: investigate options, evidence, or behavior.
+\tD\ttask-fit code\tdebug: find and fix a defect or failure.
+\tA\ttask-fit code\taudit: inspect quality, safety, or compliance.
+\tF\ttask-fit code\trefactor: improve structure without changing behavior.
+\tT\ttask-fit code\ttest: add or improve automated verification.
 No task-fit classification is shown as n/a.
 
 Columns, search, and filters
-\tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel. The last column stays selected.
+\tc\tcolumns\topen selection.
+\tSpace\tcolumns\ttoggle a column.
+\tEnter\tcolumns\tapply the column selection.
+\tEsc\tcolumns\tcancel the column selection.
+The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
 \t\tf\tfilter\tedits a structured filter and does not change the search.
 	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
@@ -1712,12 +1772,16 @@ Field labels, block headings, links and missing values are colour-coded; the col
 
 Refresh and finish
 \tR\trefresh\trefresh local data now. Auto-refresh uses --refresh-interval; 0 disables it.
-\tx / Ctrl-C / Esc\tclose\texit, close help, or return to the list.
-\t? / F1\thelp mode\t? closes shortcut help; F1 opens full help.
+\tx / Ctrl-C\texit\texit the TUI.
+\tEsc\tclose\tclose help.
+\tEsc\tback\treturn to the list from the current overlay.
+\t?\thelp\tclose shortcut help.
+\tF1\thelp\topen full help.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
 mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
+Use o, then Down to Score source, then Enter/Space to switch between SWE-bench and Arena.
 The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
 
 Score sources
@@ -1728,7 +1792,13 @@ The two are never mixed: in one view a model with no number on the active source
 Help search
 \t/\tsearch\tstart a search in this document; type text and press Enter.
 \tEnter / Up / Down\tmatches\tgo to the next, previous, or next match; search results stay selected.
-\tEsc\tclose\tcancel search.`
+\tEsc\tclose\tcancel search.
+
+General/help
+\tx / Ctrl-C\texit\texit the TUI.
+\t?\thelp\topen shortcut help.
+\t?\thelp\tclose help.
+\tF1\thelp\topen full help.`
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
 
