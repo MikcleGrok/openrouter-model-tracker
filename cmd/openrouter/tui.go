@@ -121,6 +121,7 @@ type tuiRefreshMsg struct {
 	scoreSourceGeneration uint64
 	models                []model.Model
 	filter                string
+	filterSteps           config.TUISteps
 	err                   error
 }
 type tuiScoreSourceMsg struct {
@@ -180,11 +181,12 @@ type tuiModel struct {
 	priceWeight           float64
 	rankingConfig         ranking.Compiled
 	rankingConfigSet      bool
+	filterSteps           config.TUISteps
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -228,9 +230,11 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	m.configPath = configPath
 	m.filterExplicit = filterExplicit
 	if m.configPath != "" {
-		if _, loadErr := config.Load(m.configPath); loadErr != nil {
+		cfg, loadErr := config.Load(m.configPath)
+		if loadErr != nil {
 			return loadErr
 		}
+		m.filterSteps = cfg.TUISteps
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
@@ -299,12 +303,16 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 	generation, scoreSourceGeneration, opts, dir, source := m.generation, m.scoreSourceGeneration, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
 		filter := m.filter
-		if m.configPath != "" && !m.filterExplicit {
+		filterSteps := m.filterSteps
+		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
 			if err != nil {
 				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
 			}
-			filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
+			filterSteps = cfg.TUISteps
+			if !m.filterExplicit {
+				filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
+			}
 		}
 		if opts.OutputPath == "" {
 			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
@@ -316,7 +324,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, err: err}
 	}
 }
 
@@ -353,6 +361,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
+		m.filterSteps = msg.filterSteps
 		if !m.filterExplicit {
 			m.filter = msg.filter
 		}
@@ -716,13 +725,13 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
 		} else if m.filterCursor >= 4 {
-			m.filterDraft.step(m.filterCursor, -1)
+			m.filterDraft.step(m.filterCursor, -1, m.filterSteps)
 		}
 	case "right":
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
 		} else if m.filterCursor >= 4 {
-			m.filterDraft.step(m.filterCursor, 1)
+			m.filterDraft.step(m.filterCursor, 1, m.filterSteps)
 		}
 	case "j", "tab":
 		m.filterCursor = min(filterFields-1, m.filterCursor+1)
@@ -850,7 +859,8 @@ func (d tuiFilterDraft) string() string {
 	return strings.Join(filters, ",")
 }
 
-func (d *tuiFilterDraft) step(field, direction int) {
+func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
+	steps = steps.WithDefaults()
 	values := []*string{nil, nil, nil, nil, &d.quality, &d.context, &d.input, &d.output}
 	if field < 0 || field >= len(values) || values[field] == nil {
 		return
@@ -869,14 +879,15 @@ func (d *tuiFilterDraft) step(field, direction int) {
 		if field == 4 || field == 5 {
 			*values[field] = "5"
 		} else {
-			*values[field] = "0.05"
+			*values[field] = "1"
 		}
 		return
 	}
 	if field == 4 {
-		value += float64(direction * 5)
+		value += float64(direction * steps.Quality)
 	} else {
-		value *= 1 + float64(direction)*0.05
+		step := []int{0, 0, 0, 0, 0, steps.Context, steps.Input, steps.Output}[field]
+		value *= 1 + float64(direction)*float64(step)/100
 	}
 	if value < 0 {
 		value = 0
@@ -884,7 +895,11 @@ func (d *tuiFilterDraft) step(field, direction int) {
 	if field == 4 && value > 100 {
 		value = 100
 	}
-	*values[field] = strconv.FormatFloat(value, 'f', -1, 64)
+	*values[field] = tuiIntegerValue(value)
+}
+
+func tuiIntegerValue(value float64) string {
+	return strconv.FormatInt(int64(math.Round(math.Max(0, value))), 10)
 }
 
 func (d *tuiFilterDraft) clampNumeric() {
@@ -1067,13 +1082,24 @@ func tuiFilterView(m tuiModel) string {
 			prefix = "> "
 		}
 		value := values[i]
+		if i >= 5 {
+			value = tuiFilterDisplayValue(value)
+		}
 		if i >= 3 && value == "" {
 			value = "(any)"
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), "Quality: ±5 points, clamp 0..100 · other numeric fields: ±5% · values >= 0")
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), fmt.Sprintf("Steps: quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0", m.filterSteps.Quality, m.filterSteps.Context, m.filterSteps.Input, m.filterSteps.Output))
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
+}
+
+func tuiFilterDisplayValue(value string) string {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return value
+	}
+	return tuiIntegerValue(parsed)
 }
 
 func tuiFilterCheck(checked bool) string {
@@ -1552,7 +1578,7 @@ Columns, search, and filters
 	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
 	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
-	Numeric steps: Quality minimum changes by 5 percentage points and clamps to 0..100. Context minimum, Input max and Output max change by 5% of the current value; empty fields start at 5, 0.05 and 0.05 respectively. Numeric values are never below zero.
+	Numeric steps: Quality minimum changes by the configured percentage-point step and clamps to 0..100. Context minimum, Input max and Output max change by their configured percentage of the current value; the TUI displays these values as rounded integers. Empty fields start at 5, 1 and 1 respectively. Numeric values are never below zero.
 	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.

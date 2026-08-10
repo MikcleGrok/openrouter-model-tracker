@@ -43,12 +43,24 @@ func resolveOptions(cfgPath, dataDir, output string) (refresh.Options, error) {
 	if err != nil {
 		return refresh.Options{}, err
 	}
-	opts := refresh.Options{DataDir: resolveConfigPath(cfgPath, cfg.DataDir), OutputPath: resolveConfigPath(cfgPath, cfg.DefaultOutput)}
+	ttl, err := cfg.Cache.EffectiveTTL()
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	timeout, err := cfg.Cache.EffectiveRequestTimeout()
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	opts := refresh.Options{DataDir: resolveConfigPath(cfgPath, cfg.DataDir), OutputPath: resolveConfigPath(cfgPath, cfg.DefaultOutput), CacheTTL: ttl, CacheTTLSet: cfg.Cache.TTLSet, RequestTimeout: timeout, RequestTimeoutSet: cfg.Cache.RequestTimeoutSet}
 	if dataDir != "" {
 		opts.DataDir = dataDir
 	}
 	if output != "" {
 		opts.OutputPath = output
+	}
+	opts.CacheDir = cfg.Cache.EffectiveDir()
+	if !filepath.IsAbs(opts.CacheDir) {
+		opts.CacheDir = filepath.Join(opts.DataDir, opts.CacheDir)
 	}
 	if opts.DataDir == "" {
 		return opts, errors.New("нет каталога данных: передай --data-dir или задай data_dir в конфиге")
@@ -85,7 +97,19 @@ func resolveTUIOptions(cfgPath, dataDir, output string) (refresh.Options, error)
 	if output == "" {
 		output = resolveConfigPath(cfgPath, cfg.DefaultOutput)
 	}
-	return refresh.Options{DataDir: dir, OutputPath: output}, nil
+	ttl, err := cfg.Cache.EffectiveTTL()
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	timeout, err := cfg.Cache.EffectiveRequestTimeout()
+	if err != nil {
+		return refresh.Options{}, err
+	}
+	cacheDir := cfg.Cache.EffectiveDir()
+	if !filepath.IsAbs(cacheDir) {
+		cacheDir = filepath.Join(dir, cacheDir)
+	}
+	return refresh.Options{DataDir: dir, OutputPath: output, CacheDir: cacheDir, CacheTTL: ttl, CacheTTLSet: cfg.Cache.TTLSet, RequestTimeout: timeout, RequestTimeoutSet: cfg.Cache.RequestTimeoutSet}, nil
 }
 
 func resolveMixedUtilityConfig(cfgPath string) (ranking.Compiled, error) {
@@ -303,6 +327,25 @@ func newRootCmd() *cobra.Command {
 			if err := parseTableArgs(args, cmd.Flags()); err != nil {
 				return err
 			}
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				return err
+			}
+			if !cmd.Flags().Changed("sort") && cfg.Table.Sort != "" {
+				tableSort = cfg.Table.Sort
+			}
+			if !cmd.Flags().Changed("ranking") && cfg.Table.Ranking != "" {
+				tableRanking = cfg.Table.Ranking
+			}
+			if !cmd.Flags().Changed("score-source") && cfg.Table.ScoreSource != "" {
+				tableScoreSource = cfg.Table.ScoreSource
+			}
+			if !cmd.Flags().Changed("limit") && cfg.Table.Limit != 0 {
+				tableLimit = cfg.Table.Limit
+			}
+			if !cmd.Flags().Changed("task-fit") && cfg.Table.TaskFit != "" {
+				tableTaskFit = cfg.Table.TaskFit
+			}
 			if cmd.Flags().Changed("limit") && tableLimit < 0 {
 				return fmt.Errorf("table: limit must be non-negative, got %d", tableLimit)
 			}
@@ -377,6 +420,28 @@ func newRootCmd() *cobra.Command {
 	tuiCmd := &cobra.Command{
 		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				return err
+			}
+			if !cmd.Flags().Changed("refresh-interval") {
+				tuiRefreshInterval, err = cfg.TUI.EffectiveRefreshInterval()
+				if err != nil {
+					return err
+				}
+			}
+			if !cmd.Flags().Changed("sort") && cfg.TUI.Sort != "" {
+				tuiSort = cfg.TUI.Sort
+			}
+			if !cmd.Flags().Changed("ranking") && cfg.TUI.Ranking != "" {
+				tuiRanking = cfg.TUI.Ranking
+			}
+			if !cmd.Flags().Changed("score-source") && cfg.TUI.ScoreSource != "" {
+				tuiScoreSource = cfg.TUI.ScoreSource
+			}
+			if !cmd.Flags().Changed("limit") {
+				tuiLimit = cfg.TUI.Limit
+			}
 			if tuiLimit < 0 {
 				return fmt.Errorf("tui: limit must be non-negative, got %d", tuiLimit)
 			}
@@ -396,10 +461,6 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			opts, err := resolveTUIOptions(cfgPath, dataDir, output)
-			if err != nil {
-				return err
-			}
-			cfg, err := config.Load(cfgPath)
 			if err != nil {
 				return err
 			}

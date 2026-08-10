@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
@@ -23,9 +24,45 @@ type Config struct {
 	DataDir       string        `yaml:"data_dir"`
 	DefaultOutput string        `yaml:"default_output"`
 	DefaultFilter string        `yaml:"default_filter"`
+	Cache         CacheConfig   `yaml:"cache"`
+	Table         TableConfig   `yaml:"table"`
+	TUI           TUIConfig     `yaml:"tui"`
 	TUIFilter     string        `yaml:"tui_filter"`
 	TUIFilterSet  bool          `yaml:"-"`
+	TUISteps      TUISteps      `yaml:"tui_steps"`
 	Ranking       RankingConfig `yaml:"ranking"`
+}
+
+type CacheConfig struct {
+	Dir               string `yaml:"dir"`
+	TTL               string `yaml:"ttl"`
+	RequestTimeout    string `yaml:"request_timeout"`
+	TTLSet            bool   `yaml:"-"`
+	RequestTimeoutSet bool   `yaml:"-"`
+}
+
+type TableConfig struct {
+	Sort        string `yaml:"sort"`
+	Ranking     string `yaml:"ranking"`
+	ScoreSource string `yaml:"score_source"`
+	Limit       int    `yaml:"limit"`
+	TaskFit     string `yaml:"task_fit"`
+}
+
+type TUIConfig struct {
+	RefreshInterval string `yaml:"refresh_interval"`
+	Sort            string `yaml:"sort"`
+	Ranking         string `yaml:"ranking"`
+	ScoreSource     string `yaml:"score_source"`
+	Limit           int    `yaml:"limit"`
+}
+
+// TUISteps contains percentage steps used by the structured TUI filter editor.
+type TUISteps struct {
+	Quality int `yaml:"quality"`
+	Context int `yaml:"context"`
+	Input   int `yaml:"input"`
+	Output  int `yaml:"output"`
 }
 
 type RankingConfig struct {
@@ -34,11 +71,90 @@ type RankingConfig struct {
 
 const DefaultMixedUtilityPriceWeight = ranking.DefaultPriceWeight
 const DefaultFilter = "quality>=75"
+const DefaultCacheDir = "cache"
+const DefaultCacheTTL = 12 * time.Hour
+const DefaultRequestTimeout = 30 * time.Second
+const DefaultTUIRefreshInterval = 5 * time.Minute
+
+const (
+	DefaultTUIQualityStep = 5
+	DefaultTUIContextStep = 5
+	DefaultTUIInputStep   = 5
+	DefaultTUIOutputStep  = 5
+)
+
+func DefaultTUISteps() TUISteps {
+	return TUISteps{Quality: DefaultTUIQualityStep, Context: DefaultTUIContextStep, Input: DefaultTUIInputStep, Output: DefaultTUIOutputStep}
+}
+
+func (s TUISteps) WithDefaults() TUISteps {
+	defaults := DefaultTUISteps()
+	if s.Quality == 0 {
+		s.Quality = defaults.Quality
+	}
+	if s.Context == 0 {
+		s.Context = defaults.Context
+	}
+	if s.Input == 0 {
+		s.Input = defaults.Input
+	}
+	if s.Output == 0 {
+		s.Output = defaults.Output
+	}
+	return s
+}
+
+func (c CacheConfig) EffectiveDir() string {
+	if c.Dir == "" {
+		return DefaultCacheDir
+	}
+	return c.Dir
+}
+
+func (c CacheConfig) EffectiveTTL() (time.Duration, error) {
+	return configuredDuration(c.TTL, DefaultCacheTTL, "cache.ttl", c.TTLSet)
+}
+
+func (c CacheConfig) EffectiveRequestTimeout() (time.Duration, error) {
+	return configuredDuration(c.RequestTimeout, DefaultRequestTimeout, "cache.request_timeout", c.RequestTimeoutSet)
+}
+
+func (c TUIConfig) EffectiveRefreshInterval() (time.Duration, error) {
+	return configuredDuration(c.RefreshInterval, DefaultTUIRefreshInterval, "tui.refresh_interval", false)
+}
+
+func configuredDuration(value string, fallback time.Duration, name string, set bool) (time.Duration, error) {
+	if !set && value == "" {
+		return fallback, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative duration such as 5m", name)
+	}
+	return duration, nil
+}
 
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75\n" +
+	"tui_steps: {quality: 5, context: 5, input: 5, output: 5}\n" +
+	"cache:\n" +
+	"  dir: cache\n" +
+	"  ttl: 12h\n" +
+	"  request_timeout: 30s\n" +
+	"table:\n" +
+	"  sort: q/p\n" +
+	"  ranking: mixed\n" +
+	"  score_source: swebench\n" +
+	"  limit: 0\n" +
+	"  task_fit: short\n" +
+	"tui:\n" +
+	"  refresh_interval: 5m\n" +
+	"  sort: q/p\n" +
+	"  ranking: mixed\n" +
+	"  score_source: swebench\n" +
+	"  limit: 0\n" +
 	"\n" +
 	"ranking:\n" +
 	"  mixed_utility:\n" +
@@ -51,13 +167,25 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 
 // Init creates the user config and the cache directory without replacing existing paths.
 func Init(path, dataDir string) ([]string, error) {
-	if dataDir == "" {
-		dataDir = "."
-	}
+	configExists := false
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		return nil, fmt.Errorf("config: config path is a directory: %s", path)
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("config: inspect %s: %w", path, err)
+	} else if err == nil {
+		configExists = true
+	}
+	if dataDir == "" {
+		dataDir = "."
+		if configExists {
+			configured, err := existingInitPaths(path)
+			if err != nil {
+				return nil, err
+			}
+			if configured.dataDir != "" {
+				dataDir = configured.dataDir
+			}
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("config: create parent directory: %w", err)
@@ -98,7 +226,20 @@ func Init(path, dataDir string) ([]string, error) {
 	if !filepath.IsAbs(cacheRoot) {
 		cacheRoot = filepath.Join(filepath.Dir(path), cacheRoot)
 	}
-	cachePath := filepath.Join(cacheRoot, "cache")
+	cacheDir := DefaultCacheDir
+	if configExists {
+		configured, err := existingInitPaths(path)
+		if err != nil {
+			return nil, err
+		}
+		if configured.cacheDir != "" {
+			cacheDir = configured.cacheDir
+		}
+	}
+	cachePath := cacheDir
+	if !filepath.IsAbs(cachePath) {
+		cachePath = filepath.Join(cacheRoot, cachePath)
+	}
 	cacheInfo, cacheErr := os.Stat(cachePath)
 	if cacheErr != nil && !errors.Is(cacheErr, fs.ErrNotExist) {
 		rollbackConfig()
@@ -122,11 +263,28 @@ func Init(path, dataDir string) ([]string, error) {
 	return created, nil
 }
 
+type initPaths struct {
+	dataDir  string
+	cacheDir string
+}
+
+func existingInitPaths(path string) (initPaths, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return initPaths{}, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(b, &document); err != nil {
+		return initPaths{}, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	return initPaths{dataDir: yamlMappingValue(document, "data_dir"), cacheDir: yamlNestedMappingValue(document, "cache", "dir")}, nil
+}
+
 func configTemplate(dataDir string) (string, error) {
 	if dataDir == "." {
 		return template, nil
 	}
-	return fmt.Sprintf("# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: %s\ndefault_output: docs/openrouter-model-comparison.md\ndefault_filter: quality>=75\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n", dataDir), nil
+	return strings.Replace(template, "data_dir: .", "data_dir: "+dataDir, 1), nil
 }
 
 // Load reads the config. A missing file is not an error: every value it holds
@@ -134,7 +292,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{DefaultFilter: DefaultFilter}, nil
+		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps()}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -150,8 +308,28 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	c.TUIFilterSet = yamlMappingHasKey(document, "tui_filter")
+	c.Cache.TTLSet = yamlNestedMappingHasKey(document, "cache", "ttl")
+	c.Cache.RequestTimeoutSet = yamlNestedMappingHasKey(document, "cache", "request_timeout")
 	if !yamlMappingHasKey(document, "default_filter") {
 		c.DefaultFilter = DefaultFilter
+	}
+	for name, value := range map[string]int{"quality": c.TUISteps.Quality, "context": c.TUISteps.Context, "input": c.TUISteps.Input, "output": c.TUISteps.Output} {
+		if value < 0 {
+			return Config{}, fmt.Errorf("config: %s: tui_steps.%s must be non-negative", path, name)
+		}
+	}
+	c.TUISteps = c.TUISteps.WithDefaults()
+	if c.Table.Limit < 0 || c.TUI.Limit < 0 {
+		return Config{}, fmt.Errorf("config: table.limit and tui.limit must be non-negative")
+	}
+	if _, err := c.Cache.EffectiveTTL(); err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
+	}
+	if _, err := c.Cache.EffectiveRequestTimeout(); err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
+	}
+	if _, err := c.TUI.EffectiveRefreshInterval(); err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
 	}
 	for name, value := range map[string]string{"default_filter": c.DefaultFilter, "tui_filter": c.TUIFilter} {
 		if err := filter.ValidateTiers(value); err != nil {
@@ -175,6 +353,55 @@ func yamlMappingHasKey(document yaml.Node, key string) bool {
 		}
 	}
 	return false
+}
+
+func yamlNestedMappingHasKey(document yaml.Node, parent, key string) bool {
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return false
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != parent || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(root.Content[i+1].Content); j += 2 {
+			if root.Content[i+1].Content[j].Value == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func yamlMappingValue(document yaml.Node, key string) string {
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return ""
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return root.Content[i+1].Value
+		}
+	}
+	return ""
+}
+
+func yamlNestedMappingValue(document yaml.Node, parent, key string) string {
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return ""
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != parent || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(root.Content[i+1].Content); j += 2 {
+			if root.Content[i+1].Content[j].Value == key {
+				return root.Content[i+1].Content[j+1].Value
+			}
+		}
+	}
+	return ""
 }
 
 func (c Config) MixedUtilityPriceWeight() float64 {

@@ -16,7 +16,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install pinned vulnerability and SBOM tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
+          go install github.com/anchore/syft/cmd/syft@v1.18.1
       - run: make fmt-check
       - run: make test-unit
       - run: make vet
       - run: make test-acceptance
+      - name: Run security and supply-chain gates
+        run: make security dependency-check secrets-check sbom check-docs

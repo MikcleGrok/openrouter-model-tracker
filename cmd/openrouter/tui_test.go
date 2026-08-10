@@ -526,7 +526,7 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		field int
 		want  string
 	}{
-		{4, "5"}, {5, "5"}, {6, "0.05"}, {7, "0.05"},
+		{4, "5"}, {5, "5"}, {6, "1"}, {7, "1"},
 	} {
 		m.filterCursor = test.field
 		m.filterDraft = tuiFilterDraft{}
@@ -540,8 +540,29 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	}
-	if m.filterDraft.quality != "100" || m.filterDraft.context != "105000" || m.filterDraft.input != "1.05" || m.filterDraft.output != "2.1" {
+	if m.filterDraft.quality != "100" || m.filterDraft.context != "105000" || m.filterDraft.input != "1" || m.filterDraft.output != "2" {
 		t.Fatalf("right steps = %+v", m.filterDraft)
+	}
+}
+
+func TestTUIFilterDisplayRoundsPricesWithoutChangingFilterSyntax(t *testing.T) {
+	m := tuiModel{width: 100, height: 20, overlay: "filter", filterDraft: tuiFilterDraft{context: "100000.999", input: "1.23456789", output: "2.999999"}}
+	view := tuiFilterView(m)
+	for _, want := range []string{"Context minimum: 100001", "Input max: 1", "Output max: 3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("filter view does not contain %q: %q", want, view)
+		}
+	}
+	if got := m.filterDraft.string(); got != "context>=100000.999,input<=1.23456789,output<=2.999999" {
+		t.Fatalf("display formatting changed filter syntax: %q", got)
+	}
+}
+
+func TestTUIFilterNumericStepsUseConfiguredValues(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "100"}, filterSteps: config.TUISteps{Quality: 1, Context: 1, Input: 10, Output: 20}}
+	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	if m.filterDraft.input != "110" {
+		t.Fatalf("configured input step = %q, want 110", m.filterDraft.input)
 	}
 }
 

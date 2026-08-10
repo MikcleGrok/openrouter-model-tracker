@@ -2,8 +2,16 @@
 
 ## [Unreleased]
 
-- Add the default TUI quality filter (`quality>=75`) and validate tier filters against the canonical whitelist.
-- Add left and right arrow navigation to the TUI tier picker.
+- No unreleased changes.
+
+## [1.13.10]
+
+- Add configurable `tui_steps` integer display and numeric step values for the TUI filter form.
+- Preserve up/down field navigation, left/right tier navigation and left/right numeric steppers in the TUI filter form.
+- Add config support for `cache.dir`, `cache.ttl`, `cache.request_timeout`, table/TUI preferences and limits, and mixed-utility ranking settings.
+- Resolve relative cache paths against `data_dir`, preserve CLI-over-config precedence, and handle zero durations as disabled settings.
+- Improve `init` and cache path handling, and document the new configuration options and limits.
+- Add regression and integration coverage for configuration, cache, refresh, table and TUI behavior.
 
 ## [1.13.9]
 

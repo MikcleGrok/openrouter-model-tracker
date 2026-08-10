@@ -522,6 +522,33 @@ func TestTableCommandTaskFitModesThroughCLI(t *testing.T) {
 	}
 }
 
+func TestTableCLIOptionsOverrideConfigOperationalValues(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\ntable:\n  task_fit: long\n  ranking: tier-priority\n  limit: 1\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+	fromConfig := executeCLI(t, "table", "--config", config, "--no-pager")
+	if !strings.Contains(fromConfig, "Ranking: tier-priority") || !strings.Contains(fromConfig, "implement + test") || len(tableDataRows(fromConfig)) != 1 {
+		t.Fatalf("config operational values were not applied:\n%s", fromConfig)
+	}
+	fromCLI := executeCLI(t, "table", "--config", config, "--no-pager", "--ranking=legacy", "--task-fit=short", "--limit=0")
+	if strings.Contains(fromCLI, "Ranking: tier-priority") || !strings.Contains(fromCLI, "Task fit") || strings.Contains(fromCLI, "implement + test") || len(tableDataRows(fromCLI)) < 2 {
+		t.Fatalf("CLI operational values did not override config:\n%s", fromCLI)
+	}
+}
+
+func tableDataRows(output string) []string {
+	var rows []string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "| ") && !strings.Contains(line, "| Name ") && !strings.Contains(line, "| Slug ") {
+			rows = append(rows, line)
+		}
+	}
+	return rows
+}
+
 func TestTableCommandLongTaskFitAtMinimumWidth(t *testing.T) {
 	root := t.TempDir()
 	config := writeConfig(t, "data_dir: "+root+"\n")
