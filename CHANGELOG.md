@@ -4,6 +4,10 @@
 
 - Add the default TUI quality filter (`quality>=75`) and validate tier filters against the canonical whitelist.
 
+## [1.13.2]
+
+- Harden local release archive checksums and manifests across supported platforms.
+
 ## [1.13.1]
 
 - Add a tier picker to the TUI filter form using the canonical tier whitelist.
