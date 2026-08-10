@@ -75,6 +75,7 @@ type Model struct {
 	// snapshot on disk can be a week old.
 	Created     int64
 	Description string
+	CatalogName string
 
 	// CanonicalSlug and HuggingFaceID are the catalogue identifiers the TUI
 	// detail screen turns into links: https://openrouter.ai/<CanonicalSlug>
@@ -86,8 +87,12 @@ type Model struct {
 	// proprietary model has no repository to link to. Neither is ever
 	// guessed from Slug — id and canonical_slug disagree for most of the
 	// catalogue, so a guess would be a silently wrong link.
-	CanonicalSlug string
-	HuggingFaceID string
+	CanonicalSlug     string
+	HuggingFaceID     string
+	Provider          string
+	License           string
+	ModelURL          string
+	MetadataSourceURL string
 
 	Score        *ScoreInfo
 	MixedPrice   float64
@@ -202,6 +207,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			Free:          price.Free,
 			Created:       price.Created,
 			Description:   price.Description,
+			CatalogName:   price.Name,
 			CanonicalSlug: price.CanonicalSlug,
 			HuggingFaceID: price.HuggingFaceID,
 			Note:          nt.ModelNote(e.Slug),
@@ -249,6 +255,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		// notes.yaml describe SWE-bench Verified, and reusing them here would
 		// put a percentage on an Elo scale.
 		if row, has := firstArena[e.Slug]; has {
+			m.Provider, m.License, m.ModelURL, m.MetadataSourceURL = row.Provider, row.License, row.ModelURL, row.MetadataSourceURL
 			m.ArenaScore = &ScoreInfo{
 				Metric:          row.Metric,
 				Value:           row.Value,

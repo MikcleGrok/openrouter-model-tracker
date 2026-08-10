@@ -25,12 +25,16 @@ const modelTagPrefix = "Model: "
 // ScoreRow is one benchmark number attributed to one OpenRouter slug. Every
 // source produces these.
 type ScoreRow struct {
-	Slug            string
-	Metric          string
-	Value           float64
-	VariantMeasured string
-	SourceURL       string
-	Checked         string
+	Slug              string
+	Metric            string
+	Value             float64
+	VariantMeasured   string
+	SourceURL         string
+	Checked           string
+	Provider          string
+	License           string
+	ModelURL          string
+	MetadataSourceURL string
 }
 
 type sweGroup struct {

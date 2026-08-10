@@ -111,9 +111,12 @@ func TestLookupPricesCarriesCreatedAndDescription(t *testing.T) {
 	if luna.Description != "GPT-5.6 Luna is OpenAI's long-context flagship." {
 		t.Errorf("luna.Description = %q, want the catalogue's description field", luna.Description)
 	}
+	if luna.Name != "OpenAI: GPT-5.6 Luna" {
+		t.Errorf("luna.Name = %q, want the documented OpenRouter name", luna.Name)
+	}
 
 	free := got["nvidia/nemotron-3-ultra-550b-a55b:free"]
-	if free.Created != 0 || free.Description != "" {
+	if free.Created != 0 || free.Description != "" || free.Name != "NVIDIA: Nemotron 3 Ultra (free)" {
 		t.Errorf("free = %+v, want zero Created/Description: the fixture entry declares neither field, and a missing field must decode as a zero value rather than fail the whole catalogue", free)
 	}
 

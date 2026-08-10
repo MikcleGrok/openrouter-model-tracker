@@ -2165,10 +2165,12 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		t.Errorf("header = %q, want the display name and the slug", lines[0])
 	}
 	for _, want := range []string{
+		"Провайдер: н/д · нет",
+		"Описание:",
 		"Производитель: OpenAI (C)",
 		"Тир: opus",
 		"Claude-референс: ≈ Opus 4.6",
-		"Дата релиза: 2026-08-06 (2 месяца назад)",
+		"Дата релиза: 2026-08-06 (2 месяца назад); дата создания записи каталога, релиз неизвестен",
 		"Контекст: 1M",
 		"Вход: $0.50 за M токенов",
 		"Выход: $3.00 за M токенов",
@@ -2186,7 +2188,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		}
 	}
 
-	order := []string{"GPT-5.6 Luna", "Производитель:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Task fit:", "Заметка:", "Описание:"}
+	order := []string{"GPT-5.6 Luna", "Провайдер:", "Описание:", "Производитель:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Task fit:", "Заметка:"}
 	previous := -1
 	for _, prefix := range order {
 		index := tuiDetailIndex(t, lines, prefix)
@@ -2194,9 +2196,6 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 			t.Fatalf("block %q is at line %d, out of order against the previous block at %d:\n%s", prefix, index, previous, joined)
 		}
 		previous = index
-	}
-	if tuiDetailIndex(t, lines, "Описание:") != len(lines)-2 {
-		t.Errorf("the description must be the last block; it is not:\n%s", joined)
 	}
 }
 
@@ -2258,7 +2257,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: н/д", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+	for _, want := range []string{"Провайдер: н/д · н/д", "Описание:", "Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -2386,11 +2385,8 @@ func TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug(t *testing.T) 
 	row := tuiDetailTestModel()
 	row.CanonicalSlug = ""
 	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
-	if !strings.Contains(joined, "Страница OpenRouter: н/д") {
-		t.Errorf("an empty canonical slug must print the placeholder:\n%s", joined)
-	}
-	if strings.Contains(joined, "https://openrouter.ai/") {
-		t.Errorf("an empty canonical slug must never be papered over with a link guessed from the slug:\n%s", joined)
+	if !strings.Contains(joined, "Страница OpenRouter: https://openrouter.ai/"+row.Slug) {
+		t.Errorf("an empty canonical slug must fall back to the stable model id URL:\n%s", joined)
 	}
 }
 

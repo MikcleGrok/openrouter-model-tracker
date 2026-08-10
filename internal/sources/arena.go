@@ -39,9 +39,12 @@ var (
 // confidence bounds, prices and licence strings whose presence and type vary
 // between rows; encoding/json skips undeclared fields for free.
 type arenaEntry struct {
-	ModelKey         string  `json:"modelKey"`
-	ModelDisplayName string  `json:"modelDisplayName"`
-	Rating           float64 `json:"rating"`
+	ModelKey          string  `json:"modelKey"`
+	ModelDisplayName  string  `json:"modelDisplayName"`
+	Rating            float64 `json:"rating"`
+	ModelOrganization string  `json:"modelOrganization"`
+	License           string  `json:"license"`
+	ModelURL          string  `json:"modelUrl"`
 }
 
 // arenaFlight unescapes every push payload and concatenates them in document
@@ -161,12 +164,16 @@ func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]st
 			continue // tracked, but not on this leaderboard: report.go tells the human
 		}
 		out = append(out, ScoreRow{
-			Slug:            slug,
-			Metric:          MetricArenaElo,
-			Value:           e.Rating,
-			VariantMeasured: e.ModelDisplayName,
-			SourceURL:       ArenaURL,
-			Checked:         checked,
+			Slug:              slug,
+			Metric:            MetricArenaElo,
+			Value:             e.Rating,
+			VariantMeasured:   e.ModelDisplayName,
+			SourceURL:         ArenaURL,
+			Checked:           checked,
+			Provider:          e.ModelOrganization,
+			License:           e.License,
+			ModelURL:          e.ModelURL,
+			MetadataSourceURL: ArenaURL,
 		})
 	}
 	// A specific request (len(names) > 0) that matched nothing is treated as a

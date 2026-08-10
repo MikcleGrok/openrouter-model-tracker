@@ -389,16 +389,17 @@ func newRootCmd() *cobra.Command {
 				mode = "notes"
 			}
 			output := renderTableMode(models, width, tableShowSlug, mode, tableScoreSource)
+			output += "\nSort: " + tableSort
 			if tableRanking != rankingLegacy {
-				output = "Ranking: " + rankingLabel(tableRanking) + "\n" + output
+				output += "\nRanking: " + rankingLabel(tableRanking)
 			}
 			if tableScoreSource != scoreSourceDefault {
-				output = "Score source: " + scoreSourceLabel(tableScoreSource) + "\n" + output
+				output += "\nScore source: " + scoreSourceLabel(tableScoreSource)
 			}
 			return writeTableOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
-	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "q/p", "sort by: "+tableSortHelp)
+	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "utility", "sort by: "+tableSortHelp)
 	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
@@ -470,7 +471,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
-	tuiCmd.Flags().StringVar(&tuiSort, "sort", "q/p", "sort by: "+tableSortHelp)
+	tuiCmd.Flags().StringVar(&tuiSort, "sort", "utility", "sort by: "+tableSortHelp)
 	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	tuiCmd.Flags().StringVar(&tuiScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")

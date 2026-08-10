@@ -5,6 +5,11 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.28]
+
+- Preserve model detail metadata and provenance in refreshed snapshots and expose it in the model detail view.
+- Canonicalize ranking utility and displayed Q/P as `full_utility / mixed_price`, with price-independent base quality and provenance-aware metadata.
+
 ## [1.13.26]
 
 - Make `Space` the default main-screen TUI score-source switch and share the source-switch path with Settings.

@@ -20,8 +20,13 @@ type SnapshotEntry struct {
 	Context           int              `json:"context"`
 	Created           int64            `json:"created,omitempty"`
 	Description       string           `json:"description,omitempty"`
+	CatalogName       string           `json:"catalog_name,omitempty"`
 	CanonicalSlug     string           `json:"canonical_slug,omitempty"`
 	HuggingFaceID     string           `json:"hugging_face_id,omitempty"`
+	Provider          string           `json:"provider,omitempty"`
+	License           string           `json:"license,omitempty"`
+	ModelURL          string           `json:"model_url,omitempty"`
+	MetadataSourceURL string           `json:"metadata_source_url,omitempty"`
 	HasOverride       bool             `json:"has_long_context_override,omitempty"`
 	OverrideMinTokens int              `json:"long_context_min_tokens,omitempty"`
 	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
@@ -83,15 +88,20 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 	s := &Snapshot{FetchedAt: fetchedAt, Models: make(map[string]SnapshotEntry, len(models))}
 	for _, m := range models {
 		s.Models[m.Slug] = SnapshotEntry{
-			InPerM:        m.InPerM,
-			OutPerM:       m.OutPerM,
-			Context:       m.Context,
-			Created:       m.Created,
-			Description:   m.Description,
-			CanonicalSlug: m.CanonicalSlug,
-			HuggingFaceID: m.HuggingFaceID,
-			Score:         m.Score,
-			ArenaScore:    m.ArenaScore,
+			InPerM:            m.InPerM,
+			OutPerM:           m.OutPerM,
+			Context:           m.Context,
+			Created:           m.Created,
+			Description:       m.Description,
+			CatalogName:       m.CatalogName,
+			CanonicalSlug:     m.CanonicalSlug,
+			HuggingFaceID:     m.HuggingFaceID,
+			Provider:          m.Provider,
+			License:           m.License,
+			ModelURL:          m.ModelURL,
+			MetadataSourceURL: m.MetadataSourceURL,
+			Score:             m.Score,
+			ArenaScore:        m.ArenaScore,
 		}
 	}
 	return s

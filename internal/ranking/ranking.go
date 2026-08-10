@@ -133,6 +133,25 @@ func (c Compiled) Evaluate(ctx Context) (float64, error) {
 	return value, nil
 }
 
+// QualityUtility evaluates the ranking expression with every price-dependent
+// input disabled. Non-price terms such as score and tier factor remain active;
+// this is the base_quality term of the canonical utility model.
+func (c Compiled) QualityUtility(score, input, output float64, tier string) (float64, error) {
+	ctx := c.Context(score, input, output, tier)
+	ctx.InputPrice, ctx.OutputPrice, ctx.PriceMix = 0, 0, 0
+	ctx.QualityPrice = 0
+	return c.Evaluate(ctx)
+}
+
+// FullUtility evaluates the current ranking model with base_qp as its
+// price-dependent input. The caller must derive base_qp from QualityUtility;
+// passing full q/p here would make the formula circular.
+func (c Compiled) FullUtility(score, input, output, baseQP float64, tier string) (float64, error) {
+	ctx := c.Context(score, input, output, tier)
+	ctx.QualityPrice = baseQP
+	return c.Evaluate(ctx)
+}
+
 func (c Compiled) Context(score, input, output float64, tier string) Context {
 	mix := (input*c.inputWeight + output*c.outputWeight) / (c.inputWeight + c.outputWeight)
 	tierValue := tierValue(tier)

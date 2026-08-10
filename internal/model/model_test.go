@@ -139,6 +139,19 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestMergePreservesArenaMetadataWithoutOverridingManualNotes(t *testing.T) {
+	prices := testPrices()
+	rows := []sources.ScoreRow{{Slug: "openai/gpt-5.6-luna", Metric: "LMArena Elo", Value: 1453, Provider: "OpenAI", License: "proprietary", ModelURL: "https://arena.ai/models/luna", MetadataSourceURL: "https://arena.ai/leaderboard/text"}}
+	got := MergeWithArena(testEntries(), prices, nil, rows, testNotes(t))
+	luna := byslug(got)["openai/gpt-5.6-luna"]
+	if luna.Provider != "OpenAI" || luna.License != "proprietary" || luna.ModelURL != "https://arena.ai/models/luna" || luna.MetadataSourceURL != "https://arena.ai/leaderboard/text" {
+		t.Fatalf("Arena metadata = %+v, want sourced provider/license/link", luna)
+	}
+	if luna.Owner != "OpenAI (C)" || luna.OpenWeights != "нет" || luna.ClaudeRef == "" {
+		t.Fatalf("manual metadata was overridden: %+v", luna)
+	}
+}
+
 // TestMergeCarriesCatalogueCreatedAndDescription checks the second hop of
 // the catalogue-metadata pipeline. It goes through Merge (not
 // MergeWithArena) on purpose: Merge is a thin wrapper, and this pins down

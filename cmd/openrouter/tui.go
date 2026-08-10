@@ -41,7 +41,7 @@ const (
 )
 
 var tuiColumns = []tuiColumn{colName, colSlug, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask, colNote}
-var tuiSortKeys = []string{"name", "slug", "context", "input", "output", "price", "quality", "q/p"}
+var tuiSortKeys = []string{"name", "slug", "context", "input", "output", "price", "quality", "q/p", "utility"}
 
 var (
 	tuiTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
@@ -193,7 +193,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "q/p", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), width: 100, height: 24, limit: 0}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -584,7 +584,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		} else {
 			m.ranking = rankingTier
 		}
-		m.sortKey = "q/p"
+		m.sortKey = "utility"
 		m.rebuild()
 	case "S":
 		m.reverse = !m.reverse
@@ -2170,6 +2170,23 @@ func tuiDetailURL(prefix, id string) string {
 	return prefix + id
 }
 
+func tuiDetailProviderLicense(m model.Model) string {
+	provider := tuiDetailValue(m.Provider)
+	license := m.License
+	if strings.TrimSpace(license) == "" {
+		license = m.OpenWeights
+	}
+	return provider + " · " + tuiDetailValue(license)
+}
+
+func tuiDetailOpenRouterURL(m model.Model) string {
+	id := m.CanonicalSlug
+	if strings.TrimSpace(id) == "" {
+		id = m.Slug
+	}
+	return tuiDetailURL(tuiOpenRouterModelURL, id)
+}
+
 // tuiDetailPrice formats a $/M price. pricing.FormatDollar returns an
 // empty string for a positive price below one cent, which would render as
 // a labelled blank; the detail screen says what it means instead.
@@ -2221,6 +2238,13 @@ func tuiDetailCreated(created int64, now time.Time) string {
 	}
 	published := time.Unix(created, 0).UTC()
 	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
+}
+
+func tuiDetailReleaseDate(created int64, now time.Time) string {
+	if created <= 0 {
+		return tuiDetailPlaceholder
+	}
+	return tuiDetailCreated(created, now) + "; дата создания записи каталога, релиз неизвестен"
 }
 
 // tuiDetailAge spells the distance between two instants in whole days,
@@ -2300,8 +2324,8 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 
 // tuiDetailLines builds the detail screen's content for one model: twelve
 // labelled blocks ordered from identity to ever finer detail, with the
-// vendor description last because it is the only block of unpredictable
-// length and would otherwise push everything else off a short terminal.
+// vendor description is wrapped near the identity fields so provenance is seen
+// before the longer benchmark and pricing sections.
 // Wrapping happens here, before any scrolling maths, so detailOffset
 // counts the same physical lines the terminal shows. now is a parameter
 // rather than a time.Now() call inside so a test can pin the release age.
@@ -2316,11 +2340,20 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	lines := []string{
 		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
 		"",
-		"Производитель: " + tuiDetailValue(m.Owner),
-		"Тир: " + tuiDetailValue(m.Tier),
-		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
-		"Дата релиза: " + tuiDetailCreated(m.Created, now),
-		"Страница OpenRouter: " + tuiDetailURL(tuiOpenRouterModelURL, m.CanonicalSlug),
+		"Провайдер: " + tuiDetailProviderLicense(m),
+	}
+	lines = append(lines, "Описание:")
+	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
+	lines = append(lines,
+		"",
+		"Производитель: "+tuiDetailValue(m.Owner),
+		"Тир: "+tuiDetailValue(m.Tier),
+		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
+		"Дата релиза: "+tuiDetailReleaseDate(m.Created, now),
+		"Страница OpenRouter: "+tuiDetailOpenRouterURL(m),
+	)
+	if m.MetadataSourceURL != "" {
+		lines = append(lines, "Источник метаданных: "+tuiDetailValue(m.MetadataSourceURL))
 	}
 	// The HuggingFace line is the screen's one deliberate exception to
 	// "always print the label, н/д when the value is empty". That rule
@@ -2359,8 +2392,7 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	lines = append(lines, tuiDetailArenaBlock(m)...)
 	lines = append(lines, "", "Task fit: "+tuiDetailTaskFit(m), "", "Заметка:")
 	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
-	lines = append(lines, "", "Описание:")
-	return append(lines, tuiDetailWrapped(m.Description, width)...)
+	return lines
 }
 
 // tuiDetailBodyHeight is how many content lines fit above the footer. The

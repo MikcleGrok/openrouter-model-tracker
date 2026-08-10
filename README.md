@@ -217,8 +217,8 @@ digest входных файлов, metadata инструментов/базы �
 Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
 через `scripts/verify-distribution.sh`; путь можно переопределить через `GUIDE_TOOLS_ROOT`.
 
-По умолчанию таблица сортируется в режиме `mixed-utility`: сначала идут rankable-модели, а платные модели сравниваются по безопасной YAML expression formula. Без `formula` действует совместимая формула `score + price_weight*tier_factor*ln(1+quality_price)`, где `price_weight=10`, price mix равен 3:1, а факторы `opus=1`, `sonnet=1`, `haiku=0.5`, `free=0`. Бесплатные rankable-модели сравниваются по score. `--sort` принимает только `name`, `slug`,
-`context`, `input`, `output`, `price`, `quality` и `q/p`, а также `Q`, `P`, `QP`; `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Фильтры объединяются через AND: например, `openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'`. Операторы: `:` для выбора значения, `>=` для минимального порога и `<=` для максимального. `quality` использует активный источник оценки и шкалу `0..100`: SWE-bench хранится в процентах, Arena нормализуется в `0..100`; для удобства допускается дробный формат `0..1`, поэтому `quality>=0.8` эквивалентен `quality>=80`. Качество сортируется по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые quality всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
+По умолчанию таблица сортируется в явном режиме `utility` с ranking `mixed-utility`: сначала идут rankable-модели, а платные модели сравниваются по безопасной YAML expression formula. Без `formula` действует совместимая формула `score + price_weight*tier_factor*ln(1+quality_price)`, где `price_weight=10`, price mix равен 3:1, а факторы `opus=1`, `sonnet=1`, `haiku=0.5`, `free=0`. Бесплатные rankable-модели сравниваются по score. `--sort` принимает `utility`, `name`, `slug`,
+`context`, `input`, `output`, `price`, `quality`, `q/p` и `utility`, а также `Q`, `P`, `QP`; явный `q/p` всегда сортирует по показанному Q/P независимо от `--ranking`, а `utility` использует выбранный ranking. `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Фильтры объединяются через AND: например, `openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'`. Операторы: `:` для выбора значения, `>=` для минимального порога и `<=` для максимального. `quality` использует активный источник оценки и шкалу `0..100`: SWE-bench хранится в процентах, Arena нормализуется в `0..100`; для удобства допускается дробный формат `0..1`, поэтому `quality>=0.8` эквивалентен `quality>=80`. Качество и Q/P сортируются по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые значения всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
 Колонка `Task fit` рассчитывается по полной display width самого длинного значения и не
@@ -247,6 +247,20 @@ Q/P может оказаться ровно `0.0`, независимо от е
 нормализации зависит от текущего набора моделей, поэтому, в отличие от Q/P на основе
 SWE-bench, Arena-based Q/P не стабилен между прогонами. Генерируемый
 `docs/openrouter-model-comparison.md` всегда собирается в семантике `swebench`.
+
+### Семантика Q/P и utility
+
+Показанный Q/P и `sort:q/p` используют один canonical derived metric:
+`base_qp = base_quality / mixed_price`, затем `full_utility = base_quality +
+price_weight*tier_factor*ln(1+base_qp)`, а отображаемый и сортируемый Q/P равен
+`utility_per_price = full_utility / mixed_price`. `base_quality` вычисляется
+той же ranking expression с отключёнными price-dependent inputs; non-price terms
+сохраняются. Для default formula это `base_quality = score`; полный utility для `sort:utility`
+остаётся `score + price_weight*tier_factor*ln(1+base_qp)`. Для
+`source=arena` score в этой формуле уже является normalized Arena quality.
+Такое явное разделение исключает circular formula: bonus использует только
+`base_qp`, а Q/P вычисляется из уже завершённого `full_utility`. Бесплатные,
+missing и unrankable модели не получают Q/P и всегда остаются последними.
 
 ### Настройка mixed utility
 
