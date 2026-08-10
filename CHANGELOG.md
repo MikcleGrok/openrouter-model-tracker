@@ -44,6 +44,21 @@
 
 - Add up/down cursor navigation, left/right tier selection, and left/right numeric steppers to the TUI filter form.
 
+## [1.13.8]
+
+- Maintenance release with no functional changes since 1.13.7.
+
+## [1.13.5]
+
+- Add left and right arrow navigation to the TUI tier picker.
+
+## [1.13.7]
+
+- Add left and right arrow navigation to the TUI tier picker.
+
+## [1.13.2]
+
+- Harden local release archive checksums and manifests across supported platforms.
 ## [1.13.1]
 
 - Add a tier picker to the TUI filter form using the canonical tier whitelist.
