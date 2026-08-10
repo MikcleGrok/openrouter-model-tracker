@@ -841,10 +841,19 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 			draft.quality = tuiCanonicalDraftValue(4, strings.TrimSpace(value[len("quality>="):]))
 		case strings.HasPrefix(lower, "context>="):
 			draft.context = tuiCanonicalDraftValue(5, strings.TrimSpace(value[len("context>="):]))
+			if draft.context == "0" {
+				draft.context = ""
+			}
 		case strings.HasPrefix(lower, "input<="):
 			draft.input = tuiCanonicalDraftValue(6, strings.TrimSpace(value[len("input<="):]))
+			if draft.input == "0.00" {
+				draft.input = ""
+			}
 		case strings.HasPrefix(lower, "output<="):
 			draft.output = tuiCanonicalDraftValue(7, strings.TrimSpace(value[len("output<="):]))
+			if draft.output == "0.00" {
+				draft.output = ""
+			}
 		}
 	}
 	return draft
@@ -867,6 +876,9 @@ func (d tuiFilterDraft) string() string {
 			value := strings.TrimSpace(item.value)
 			if field != 0 {
 				value = tuiCanonicalDraftValue(field, value)
+				if (field == 5 && value == "0") || ((field == 6 || field == 7) && value == "0.00") {
+					continue
+				}
 			}
 			filters = append(filters, item.name+item.operator+value)
 		}
