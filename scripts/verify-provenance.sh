@@ -169,7 +169,8 @@ elif [ "$key_used" = "$COSIGN_PUBLIC_KEY" ] && [ -s "${COSIGN_PUBLIC_KEY}.previo
 fi
 test "$verified" -eq 1 || fail_sig "cosign verify-blob failed against $key_used (see $EVIDENCE_DIR/verify-blob.txt)"
 
-key_sha256="$(openssl dgst -sha256 -r "$key_used" | cut -d' ' -f1)"
+key_sha256="$(openssl dgst -sha256 -r "$key_used")" || exit $?
+key_sha256="${key_sha256%% *}"
 
 cat > "$sig_out" <<EOF
 {"schema":"openrouter-model-tracker/signature-verification/v1","profile":"published","status":"verified","commit":"$commit","tag":"$TAG_VERSION","manifest":"$RELEASE_MANIFEST","signing_key":"$key_used","signing_key_sha256":"$key_sha256","checks":{"public_key_present":"pass","verify_blob":"pass"},"native_outputs":["$EVIDENCE_DIR/verify-blob.txt"]}
@@ -216,13 +217,15 @@ artifact_path="$(jq -r '.artifacts[0].path' "$RELEASE_MANIFEST")"
 artifact_expected="$(jq -r '.artifacts[0].sha256' "$RELEASE_MANIFEST")"
 test "$artifact_path" = "$BIN" || fail_prov "manifest artifact path '$artifact_path' does not match expected '$BIN'"
 test -f "$artifact_path" || fail_prov "manifest references artifact not present in this checkout: $artifact_path"
-artifact_actual="$(openssl dgst -sha256 -r "$artifact_path" | cut -d' ' -f1)"
+artifact_actual="$(openssl dgst -sha256 -r "$artifact_path")" || exit $?
+artifact_actual="${artifact_actual%% *}"
 test "$artifact_actual" = "$artifact_expected" || fail_prov "artifact digest mismatch for $artifact_path: expected $artifact_expected, actual $artifact_actual"
 
 sbom_path="$(jq -r '.sbom.path' "$RELEASE_MANIFEST")"
 sbom_expected="$(jq -r '.sbom.sha256' "$RELEASE_MANIFEST")"
 test -f "$sbom_path" || fail_prov "manifest references SBOM not present in this checkout: $sbom_path"
-sbom_actual="$(openssl dgst -sha256 -r "$sbom_path" | cut -d' ' -f1)"
+sbom_actual="$(openssl dgst -sha256 -r "$sbom_path")" || exit $?
+sbom_actual="${sbom_actual%% *}"
 test "$sbom_actual" = "$sbom_expected" || fail_prov "SBOM digest mismatch for $sbom_path: expected $sbom_expected, actual $sbom_actual"
 
 cat > "$prov_out" <<EOF
