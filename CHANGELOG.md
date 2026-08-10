@@ -5,6 +5,10 @@
 - Add the default TUI quality filter (`quality>=75`) and validate tier filters against the canonical whitelist.
 - Add left and right arrow navigation to the TUI tier picker.
 
+## [1.13.8]
+
+- Maintenance release with no functional changes since 1.13.7.
+
 ## [1.13.5]
 
 - Add left and right arrow navigation to the TUI tier picker.
