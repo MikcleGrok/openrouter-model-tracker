@@ -235,15 +235,15 @@ func TestTUIKeyState(t *testing.T) {
 	if !strings.Contains(m.View(), "openrouter tui keys") {
 		t.Fatal("help overlay missing")
 	}
-	if !strings.Contains(m.View(), "q sorts by quality") || !strings.Contains(m.View(), "p by price") || !strings.Contains(m.View(), "r by quality/price") {
-		t.Fatalf("help page 1 is missing sort shortcuts: %q", m.View())
+	if !strings.Contains(tuiHelpDocument, `\tq\tsort\tquality.`) || !strings.Contains(tuiHelpDocument, `\tp\tsort\tprice.`) || !strings.Contains(tuiHelpDocument, `\tr\tsort\tquality/price ratio`) {
+		t.Fatalf("help document is missing sort shortcuts: %q", tuiHelpDocument)
 	}
 	for _, r := range tuiHelpDocument {
 		if unicode.Is(unicode.Cyrillic, r) {
 			t.Fatalf("help document mentions Cyrillic keyboard aliases: %q", tuiHelpDocument)
 		}
 	}
-	for _, text := range []string{"Navigation", "Task-fit", "n switches the last column between Task fit and Note", "Task-fit codes:", "I - implement: write or change production code.", "P - plan:", "R - research:", "find and fix a defect or failure", "No task-fit classification is shown as n/a", "Auto-refresh"} {
+	for _, text := range []string{"Navigation", "Task-fit codes", "switch the last column between Task fit and Note", "task-fit code", "implement: write or change production code.", "plan: define scope, steps, and decisions.", "research: investigate options, evidence, or behavior.", "find and fix a defect or failure", "No task-fit classification is shown as n/a", "Auto-refresh"} {
 		if !strings.Contains(tuiHelpDocument, text) {
 			t.Fatalf("help document missing %q", text)
 		}
@@ -299,8 +299,11 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	if strings.Contains(m.View(), "Model detail view") || strings.Contains(m.View(), "Score sources") {
 		t.Fatalf("question-mark help contains non-shortcut full-help sections: %q", m.View())
 	}
-	if !strings.Contains(m.View(), "F1 full help") {
-		t.Fatalf("shortcut help does not document F1: %q", m.View())
+	if !strings.Contains(tuiShortcutHelpDocument, `\tF1\thelp\topen full help.`) {
+		t.Fatalf("shortcut help does not document F1: %q", tuiShortcutHelpDocument)
+	}
+	if !strings.Contains(tuiShortcutHelpDocument, `\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.`) {
+		t.Fatalf("shortcut help does not document score-source switching: %q", tuiShortcutHelpDocument)
 	}
 	for _, r := range tuiShortcutHelpDocument {
 		if unicode.Is(unicode.Cyrillic, r) {
@@ -336,7 +339,7 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	if m.overlay != "settings" {
 		t.Fatal("settings overlay not opened")
 	}
-	if view := m.View(); !strings.Contains(view, "Score source: swebench") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
+	if view := m.View(); !strings.Contains(view, "Score source: swebench (Enter/Space switches SWE-bench/Arena)") || !strings.Contains(view, "Move Down to Score source, then press Enter/Space to switch.") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
 		t.Fatalf("settings view is missing state: %q", view)
 	}
 	m = tuiKey(m, "down")
@@ -1484,6 +1487,77 @@ func TestTUIHelpRowsUseColumnsAndFitNarrowTerminals(t *testing.T) {
 	}
 }
 
+func TestTUIHelpHotkeysKeepActionsGroupedAndTaskFitCodesSeparate(t *testing.T) {
+	for _, document := range []string{tuiShortcutHelpDocument, tuiHelpDocument} {
+		for _, group := range []string{"Hotkeys", "Navigation", "Data/view", "Filters/settings", "Task-fit codes", "General/help"} {
+			if !strings.Contains(document, "\n"+group+"\n") {
+				t.Fatalf("help document missing group %q: %q", group, document)
+			}
+		}
+		if strings.Contains(document, "Task-fit\n") {
+			t.Fatalf("help document has ambiguous Task-fit heading: %q", document)
+		}
+	}
+	for _, action := range []string{"sort", "settings", "filter", "help"} {
+		if !strings.Contains(tuiShortcutHelpDocument, `\t`+action+`\t`) {
+			t.Fatalf("shortcut help has no action cell for %q: %q", action, tuiShortcutHelpDocument)
+		}
+	}
+	groupedEquivalentKeys := `\tq / p / r\tsort\tquality, price, or quality/price ratio.`
+	if fields := strings.Split(groupedEquivalentKeys, `\t`); len(fields) != 4 {
+		t.Fatalf("equivalent hotkeys must share one action row: %q", groupedEquivalentKeys)
+	}
+}
+
+func TestTUIHelpRowsDoNotMixActions(t *testing.T) {
+	for _, document := range []string{tuiShortcutHelpDocument, tuiHelpDocument} {
+		for _, row := range []string{
+			`\tSpace\tcolumns\ttoggle a column.`,
+			`\tSpace\ttier\tcycle Tier.`,
+			`\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.`,
+		} {
+			if !strings.Contains(document, row) {
+				t.Fatalf("help document is missing single-action row %q: %q", row, document)
+			}
+		}
+	}
+
+	for _, row := range []string{
+		`\tc\tcolumns\topen selection.`,
+		`\tSpace\tcolumns\ttoggle a column.`,
+		`\tEnter\tcolumns\tapply the column selection.`,
+		`\tEsc\tcolumns\tcancel the column selection.`,
+		`\tx / Ctrl-C\texit\texit the TUI.`,
+		`\tEsc\tclose\tclose help.`,
+		`\tEsc\tback\treturn to the list from the current overlay.`,
+	} {
+		if !strings.Contains(tuiHelpDocument, row) {
+			t.Fatalf("full help is missing single-action row %q: %q", row, tuiHelpDocument)
+		}
+	}
+
+	for _, mixed := range []string{
+		`\tSpace\tcolumns/tier\ttoggle a column or cycle Tier.`,
+		`\tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel.`,
+		`\tx / Ctrl-C / Esc\tclose\texit, close help, or return to the list.`,
+		`open settings; move Down to Score source, then press Enter/Space to switch`,
+		`open shortcut help or close help.`,
+	} {
+		if strings.Contains(tuiShortcutHelpDocument, mixed) || strings.Contains(tuiHelpDocument, mixed) {
+			t.Fatalf("help still contains mixed-action description %q", mixed)
+		}
+	}
+}
+
+func TestTUIHelpRowsRemainSingleColumnWhenNarrow(t *testing.T) {
+	row := `\to\tsettings\topen settings.`
+	for _, width := range []int{1, 10, 14} {
+		if got := tableDisplayWidth(tuiFormatHelpLine(row, width)); got > width {
+			t.Fatalf("width %d: formatted help row is %d columns wide", width, got)
+		}
+	}
+}
+
 func TestTUIHelpModeSwitchRebuildsSearchMatches(t *testing.T) {
 	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 24, helpSearch: "source"}
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
@@ -1509,15 +1583,15 @@ func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
 	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "column"}
 	view := tuiHelpView(m)
 	lines := strings.Split(view, "\n")
-	columnLine := tuiHelpLineIndexContaining("c / Space / Enter / Esc")
+	columnLine := tuiHelpLineIndexContaining(`\tSpace\tcolumns\ttoggle a column.`)
 	if columnLine < 0 || lines[columnLine] == ansi.Strip(lines[columnLine]) {
 		t.Fatalf("matching line was not styled: %q", lines[columnLine])
 	}
 	if got := ansi.Strip(lines[columnLine]); got != tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width) {
 		t.Fatalf("matching line changed: got %q, want %q", got, tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width))
 	}
-	if got := strings.Count(lines[columnLine], tuiMatchStyle.Render("column")); got != 3 {
-		t.Fatalf("matching line has %d styled occurrences, want 3: %q", got, lines[columnLine])
+	if got := strings.Count(lines[columnLine], tuiMatchStyle.Render("column")); got != 2 {
+		t.Fatalf("matching line has %d styled occurrences, want 2: %q", got, lines[columnLine])
 	}
 
 	m.helpSearch = "match"
@@ -1578,13 +1652,13 @@ func TestTUIHelpSearchPreservesDisplayCaseAndNormalizesNeedle(t *testing.T) {
 	tuiForceColorProfile(t)
 	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "task-fit"}
 	lines := strings.Split(tuiHelpView(m), "\n")
-	codeLine := tuiHelpLineIndexContaining("Task-fit codes:")
-	rowLine := tuiHelpLineIndexContaining(`\tn\tcolumns`)
-	if !strings.Contains(lines[rowLine], tuiMatchStyle.Render("Task-fit")) {
+	codeLine := tuiHelpLineIndexContaining("Task-fit codes")
+	rowLine := tuiHelpLineIndexContaining(`\tI\ttask-fit code`)
+	if !strings.Contains(lines[rowLine], tuiMatchStyle.Render("task-fit")) {
 		t.Fatalf("display case was not preserved: code=%q, row=%q", lines[codeLine+1], lines[rowLine])
 	}
 	headingLine := tuiHelpLineIndexContaining("Task-fit")
-	if want := tuiHeaderStyle.Render("Task-fit"); lines[headingLine] != want {
+	if want := tuiHeaderStyle.Render("Task-fit codes"); lines[headingLine] != want {
 		t.Fatalf("heading was not kept intact: got %q, want %q", lines[headingLine], want)
 	}
 	for _, needle := range []string{"TASK-FIT", "Task-Fit", "task-fit"} {
@@ -1602,7 +1676,7 @@ func TestTUIHelpSearchWithEmptyNeedleDoesNotHighlightContent(t *testing.T) {
 		assertTUIViewFits(t, view, m.width, m.height, "help without search")
 		for index, line := range strings.Split(view, "\n") {
 			plain := ansi.Strip(line)
-			isHeader := strings.HasSuffix(plain, "keys") || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == "Task-fit"
+			isHeader := strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
 			if !isHeader && line != plain {
 				t.Fatalf("empty needle styled content line %d for %q: %q", index, needle, line)
 			}
