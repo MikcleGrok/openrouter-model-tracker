@@ -357,7 +357,7 @@ func newRootCmd() *cobra.Command {
 	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
-	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N (repeatable, AND)")
+	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: comma-separated or repeated predicates; quality is 0..100 or 0..1 fraction (AND)")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "S", false, "show Slug instead of Name as the first column")
 	tableCmd.Flags().StringVar(&tableTaskFit, "task-fit", "short", "task-fit display: short (IDFT, no plus signs); long: implement + debug + refactor + test; taxonomy: implement, plan, research, debug, audit, refactor, test")
@@ -409,7 +409,7 @@ func newRootCmd() *cobra.Command {
 	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	tuiCmd.Flags().StringVar(&tuiScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
-	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured filter: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N")
+	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured comma-separated filter; quality is 0..100 or 0..1 fraction")
 	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")
 	tuiCmd.Flags().BoolVar(&tuiShowSlug, "slug", false, "show Slug instead of Name as the first column")
 

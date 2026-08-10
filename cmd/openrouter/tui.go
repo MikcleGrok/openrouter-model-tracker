@@ -536,6 +536,9 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode = ""
 		if strings.TrimSpace(candidate) == "" {
 			m.filter, m.err = "", ""
+			if inputMode == "filter" {
+				m.status = "filter: none (cleared)"
+			}
 			if inputMode == "filter" && m.configPath != "" {
 				if err := config.SaveTUIFilter(m.configPath, ""); err != nil {
 					m.err = err.Error()
@@ -550,6 +553,9 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			return m, nil
 		}
 		m.filter, m.err = candidate, ""
+		if inputMode == "filter" {
+			m.status = "filter: " + candidate
+		}
 		if inputMode == "filter" && m.configPath != "" {
 			if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
 				m.err = err.Error()
@@ -716,6 +722,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 		return m, nil
 	}
 	m.filter, m.err, m.overlay = candidate, "", ""
+	m.status = "filter: " + filterStatusValue(candidate)
 	if m.configPath != "" {
 		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
 			m.err = err.Error()
@@ -725,11 +732,11 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
-func splitFilter(filter string) []string {
+func filterStatusValue(filter string) string {
 	if strings.TrimSpace(filter) == "" {
-		return nil
+		return "none (cleared)"
 	}
-	return strings.Split(filter, ",")
+	return filter
 }
 
 func tuiFilterDraftFromString(filter string) tuiFilterDraft {
@@ -875,7 +882,10 @@ func (m tuiModel) View() string {
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
-	status := "status: ready"
+	status := m.status
+	if status == "" {
+		status = "status: ready"
+	}
 	if m.refreshing {
 		status = "status: refreshing..."
 	}
@@ -940,7 +950,7 @@ func tuiFilterView(m tuiModel) string {
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move")
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Quality accepts 0..100 or 0..1 (0.8 = 80)")
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
@@ -1417,8 +1427,13 @@ Columns, search, and filters
 \tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel. The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
 \tf\tfilter\tedits a structured filter and does not change the search.
-Examples: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N.
-Multiple filters are comma-separated and use AND.
+	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
+	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
+	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
+	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
+	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
+	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.
 
 Model detail view
 \tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.

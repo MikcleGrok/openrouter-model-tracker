@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Accept quality filter values in both `0..1` and `0..100` ranges.
+- Support comma-separated values in CLI filters.
+- Expand filter help and status information.
+- Add a structured TUI filter form with persistence.
 
 ## [1.11.1]
 
