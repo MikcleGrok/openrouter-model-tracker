@@ -22,6 +22,8 @@ type Client struct {
 	http *http.Client
 }
 
+const maxResponseBytes = 4 << 20
+
 // New returns a Client caching into dir with the given freshness window.
 func New(dir string, ttl time.Duration) *Client {
 	return NewWithTimeout(dir, ttl, 30*time.Second)
@@ -60,9 +62,15 @@ func (c *Client) Get(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("httpcache: GET %s: status %d", url, resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxResponseBytes {
+		return nil, fmt.Errorf("httpcache: GET %s: response exceeds %d bytes", url, maxResponseBytes)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("httpcache: read %s: %w", url, err)
+	}
+	if int64(len(body)) > maxResponseBytes {
+		return nil, fmt.Errorf("httpcache: GET %s: response exceeds %d bytes", url, maxResponseBytes)
 	}
 
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {

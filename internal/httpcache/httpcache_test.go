@@ -1,6 +1,7 @@
 package httpcache
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -118,5 +119,36 @@ func TestGetReturnsErrorOnServerFailure(t *testing.T) {
 	c := New(t.TempDir(), time.Hour)
 	if _, err := c.Get(context.Background(), srv.URL); err == nil {
 		t.Fatal("Get returned nil error on HTTP 500, want an error")
+	}
+}
+
+func TestGetRejectsOversizedResponseWithoutWritingCache(t *testing.T) {
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "4194305")
+		_, _ = w.Write([]byte("too large"))
+	}))
+	defer srv.Close()
+
+	if _, err := New(dir, time.Hour).Get(context.Background(), srv.URL); err == nil {
+		t.Fatal("Get accepted oversized response")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("cache entries = %d, want no cache write", len(entries))
+	}
+}
+
+func TestGetRejectsUnknownLengthOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte{'x'}, maxResponseBytes+1))
+	}))
+	defer srv.Close()
+	if _, err := New(t.TempDir(), time.Hour).Get(context.Background(), srv.URL); err == nil {
+		t.Fatal("Get accepted unknown-length oversized response")
 	}
 }
