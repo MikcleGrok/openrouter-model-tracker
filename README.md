@@ -72,7 +72,7 @@ immutable revision formula до любой reinstall. Stable install не исп
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, используется `default_filter` (по умолчанию `quality>=75`), но при одном лишь встроенном default числовые поля формы открываются как `(any)`. Явный `--filter` имеет приоритет над сохранённым и default-значением; очистка фильтра сохраняет пустое значение и отключает default-фильтр. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
-- В TUI источник оценки переключается без изменения keybinding: нажмите `o`, стрелкой `Down` перейдите на `Score source`, затем нажмите `Space`; это переключает `SWE-bench` и `Arena`. На основном списке `Enter` открывает подробную страницу модели. Текущий источник виден в meta-строке, Settings и status hints.
+- В TUI источник оценки переключается прямо на основном экране клавишей `Space`; альтернативно нажмите `o`, стрелкой `Down` перейдите на `Score source`, затем нажмите `Space`. Это переключает `SWE-bench` и `Arena`. На основном списке `Enter` открывает подробную страницу модели. Текущий источник виден в meta-строке, Settings и status hints.
 - Клавиши TUI можно переопределить в том же YAML-конфиге через `tui_keymap`. Контексты и действия проверяются отдельно, поэтому одинаковый `space` допустим в Settings, фильтре и выборе колонок. Binding может быть строкой или списком:
 
   ```yaml
@@ -84,6 +84,7 @@ immutable revision formula до любой reinstall. Stable install не исп
       full_help: f1
       navigate_up: [up, k]
       navigate_down: [down, j]
+      switch_source: space
     settings:
       close: [esc, o]
       navigate_up: [up, k]
