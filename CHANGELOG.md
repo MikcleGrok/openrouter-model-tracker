@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.13.14]
+
 - Open the TUI filter form with `(any)` for unset numeric fields, while preserving explicit YAML, saved, and CLI filters.
 - Canonicalize TUI numeric filter values: integer quality/context fields and
   two-decimal input/output prices, including configured absolute step sizes.
