@@ -117,6 +117,7 @@ type tuiRefreshMsg struct {
 	generation            uint64
 	scoreSourceGeneration uint64
 	models                []model.Model
+	filter                string
 	err                   error
 }
 type tuiScoreSourceMsg struct {
@@ -149,6 +150,7 @@ type tuiModel struct {
 	cursor                int
 	width, height         int
 	filter                string
+	filterExplicit        bool
 	lastNote              bool
 	status, err           string
 	updatedAt             string
@@ -209,10 +211,10 @@ func runTUIWithRankingAndWeight(ctx context.Context, out io.Writer, dataDir stri
 	if err != nil {
 		return err
 	}
-	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSourceDefault)
+	return runTUIWithRankingConfigCompiled(ctx, out, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSourceDefault, "", false)
 }
 
-func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource string, configPath ...string) error {
+func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options, interval time.Duration, sortKey string, reverse bool, filter string, limit int, showSlug bool, rankingName string, compiled ranking.Compiled, scoreSource, configPath string, filterExplicit bool) error {
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
@@ -220,8 +222,12 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if err != nil {
 		return err
 	}
-	if len(configPath) > 0 {
-		m.configPath = configPath[0]
+	m.configPath = configPath
+	m.filterExplicit = filterExplicit
+	if m.configPath != "" {
+		if _, loadErr := config.Load(m.configPath); loadErr != nil {
+			return loadErr
+		}
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
@@ -289,6 +295,14 @@ func tuiTick(d time.Duration) tea.Cmd { return func() tea.Msg { time.Sleep(d); r
 func (m tuiModel) refreshCmd() tea.Cmd {
 	generation, scoreSourceGeneration, opts, dir, source := m.generation, m.scoreSourceGeneration, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
+		filter := m.filter
+		if m.configPath != "" && !m.filterExplicit {
+			cfg, err := config.Load(m.configPath)
+			if err != nil {
+				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
+			}
+			filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
+		}
 		if opts.OutputPath == "" {
 			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
 		}
@@ -299,7 +313,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, err: err}
 	}
 }
 
@@ -336,6 +350,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
+		if !m.filterExplicit {
+			m.filter = msg.filter
+		}
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 	case tuiScoreSourceMsg:
@@ -950,7 +967,7 @@ func tuiFilterView(m tuiModel) string {
 		}
 		lines = append(lines, prefix+label+": "+value)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Quality accepts 0..100 or 0..1 (0.8 = 80)")
+	lines = append(lines, "", "Enter apply · Esc cancel · c clear · ↑↓/Tab move", "Tier values: opus, sonnet, haiku, free", "Quality accepts 0..100 or 0..1 (0.8 = 80)")
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 

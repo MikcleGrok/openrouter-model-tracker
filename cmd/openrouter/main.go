@@ -96,11 +96,14 @@ func resolveMixedUtilityConfig(cfgPath string) (ranking.Compiled, error) {
 	return cfg.CompiledMixedUtility()
 }
 
-func resolveTUIFilter(flagValue string, flagSet bool, savedValue string) string {
+func resolveTUIFilter(flagValue string, flagSet bool, savedValue string, savedSet bool, defaultValue string) string {
 	if flagSet {
 		return flagValue
 	}
-	return savedValue
+	if savedSet {
+		return savedValue
+	}
+	return defaultValue
 }
 
 // Config-relative paths are anchored to the config file, not the caller's cwd.
@@ -400,8 +403,9 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tuiFilter = resolveTUIFilter(tuiFilter, cmd.Flags().Changed("filter"), cfg.TUIFilter)
-			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking, tuiScoreSource, cfgPath)
+			filterSet := cmd.Flags().Changed("filter")
+			tuiFilter = resolveTUIFilter(tuiFilter, filterSet, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
+			return runTUIWithRankingConfigCompiled(cmd.Context(), cmd.OutOrStdout(), dir, opts, tuiRefreshInterval, tuiSort, tuiReverse, tuiFilter, tuiLimit, tuiShowSlug, tuiRanking, compiledRanking, tuiScoreSource, cfgPath, filterSet)
 		},
 	}
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")

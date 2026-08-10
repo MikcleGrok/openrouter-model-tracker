@@ -33,11 +33,17 @@ func executeCLIError(t *testing.T, args ...string) error {
 }
 
 func TestResolveTUIFilterCLIOverridesSavedValue(t *testing.T) {
-	if got := resolveTUIFilter("free", true, "paid"); got != "free" {
+	if got := resolveTUIFilter("free", true, "paid", true, "quality>=75"); got != "free" {
 		t.Fatalf("explicit TUI filter = %q, want free", got)
 	}
-	if got := resolveTUIFilter("", false, "paid"); got != "paid" {
+	if got := resolveTUIFilter("", false, "paid", true, "quality>=75"); got != "paid" {
 		t.Fatalf("saved TUI filter = %q, want paid", got)
+	}
+	if got := resolveTUIFilter("", false, "", false, "quality>=75"); got != "quality>=75" {
+		t.Fatalf("default TUI filter = %q, want quality>=75", got)
+	}
+	if got := resolveTUIFilter("", false, "", true, "quality>=75"); got != "" {
+		t.Fatalf("explicitly cleared TUI filter = %q, want empty", got)
 	}
 }
 
@@ -183,6 +189,7 @@ func TestInitCreatesConfigAndCache(t *testing.T) {
 		t.Fatalf("read config: %v", err)
 	}
 	want := "# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: " + dataDir + "\ndefault_output: docs/openrouter-model-comparison.md\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n"
+	want = strings.Replace(want, "default_output: docs/openrouter-model-comparison.md\n\n", "default_output: docs/openrouter-model-comparison.md\ndefault_filter: quality>=75\n\n", 1)
 	if string(body) != want {
 		t.Errorf("config = %q", body)
 	}
