@@ -47,6 +47,14 @@ func TestTUIModelUsesConfiguredRanking(t *testing.T) {
 	}
 }
 
+func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 100, height: 20}
+	view := m.View()
+	if !strings.Contains(view, "Tier values: opus, sonnet, haiku, free") {
+		t.Fatalf("filter view = %q, want allowed tier values", view)
+	}
+}
+
 func TestTUIModelShowsRuntimeFormulaError(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	body := "ranking:\n  mixed_utility:\n    formula:\n      op: log\n      args:\n        - const: 0\n"

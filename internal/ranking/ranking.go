@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 
+	tierpkg "github.com/sboborikin/openrouter-model-tracker/internal/tier"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -94,7 +96,7 @@ func Compile(c Config) (Compiled, error) {
 		if !finite(factor) {
 			return Compiled{}, fmt.Errorf("ranking: tier factor %q must be finite", tier)
 		}
-		if tier != "default" && tier != "opus" && tier != "sonnet" && tier != "haiku" && tier != "free" {
+		if tier != "default" && !tierpkg.IsValid(tier) {
 			return Compiled{}, fmt.Errorf("ranking: unknown tier factor %q", tier)
 		}
 		factors[tier] = factor

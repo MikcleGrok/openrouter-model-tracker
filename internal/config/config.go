@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"gopkg.in/yaml.v3"
 )
@@ -21,7 +22,9 @@ import (
 type Config struct {
 	DataDir       string        `yaml:"data_dir"`
 	DefaultOutput string        `yaml:"default_output"`
+	DefaultFilter string        `yaml:"default_filter"`
 	TUIFilter     string        `yaml:"tui_filter"`
+	TUIFilterSet  bool          `yaml:"-"`
 	Ranking       RankingConfig `yaml:"ranking"`
 }
 
@@ -30,10 +33,12 @@ type RankingConfig struct {
 }
 
 const DefaultMixedUtilityPriceWeight = ranking.DefaultPriceWeight
+const DefaultFilter = "quality>=75"
 
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
+	"default_filter: quality>=75\n" +
 	"\n" +
 	"ranking:\n" +
 	"  mixed_utility:\n" +
@@ -121,7 +126,7 @@ func configTemplate(dataDir string) (string, error) {
 	if dataDir == "." {
 		return template, nil
 	}
-	return fmt.Sprintf("# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: %s\ndefault_output: docs/openrouter-model-comparison.md\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n", dataDir), nil
+	return fmt.Sprintf("# User configuration for openrouter. Relative paths are resolved from this config file.\ndata_dir: %s\ndefault_output: docs/openrouter-model-comparison.md\ndefault_filter: quality>=75\n\nranking:\n  mixed_utility:\n    price_weight: 10\n    price:\n      input_weight: 3\n      output_weight: 1\n    tier_factors:\n      opus: 1\n      sonnet: 1\n      haiku: 0.5\n      free: 0\n      default: 0\n    # formula and price_weight cannot be used together; see README for the whitelist.\n", dataDir), nil
 }
 
 // Load reads the config. A missing file is not an error: every value it holds
@@ -129,7 +134,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{}, nil
+		return Config{DefaultFilter: DefaultFilter}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -140,10 +145,36 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&c); err != nil && err != io.EOF {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(b, &document); err != nil {
+		return Config{}, fmt.Errorf("config: %s: %w", path, err)
+	}
+	c.TUIFilterSet = yamlMappingHasKey(document, "tui_filter")
+	if !yamlMappingHasKey(document, "default_filter") {
+		c.DefaultFilter = DefaultFilter
+	}
+	for name, value := range map[string]string{"default_filter": c.DefaultFilter, "tui_filter": c.TUIFilter} {
+		if err := filter.ValidateTiers(value); err != nil {
+			return Config{}, fmt.Errorf("config: %s: invalid %s: %w", path, name, err)
+		}
+	}
 	if _, err := ranking.Compile(c.Ranking.MixedUtility); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return c, nil
+}
+
+func yamlMappingHasKey(document yaml.Node, key string) bool {
+	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+		return false
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) MixedUtilityPriceWeight() float64 {

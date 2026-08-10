@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
 )
 
 // Entry is one tracked model.
@@ -18,8 +20,6 @@ type Entry struct {
 	Tier  string
 	Names map[string]string
 }
-
-var validTiers = map[string]bool{"opus": true, "sonnet": true, "haiku": true, "free": true}
 
 // Load reads and validates the tab-separated map at path.
 func Load(path string) ([]Entry, error) {
@@ -56,8 +56,8 @@ func Load(path string) ([]Entry, error) {
 			}
 			key = strings.TrimSpace(key)
 			if key == "tier" {
-				if !validTiers[value] {
-					return nil, fmt.Errorf("modelmap: %s:%d: unknown tier %q (want opus|sonnet|haiku|free)", path, lineNo, value)
+				if !tier.IsValid(value) {
+					return nil, fmt.Errorf("modelmap: %s:%d: unknown tier %q (want %s)", path, lineNo, value, tier.ValuesString())
 				}
 				e.Tier = value
 				continue

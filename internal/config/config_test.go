@@ -27,6 +27,9 @@ func TestLoad(t *testing.T) {
 	if got.DefaultOutput != "/Users/sergey/projects/bobash/docs/openrouter-model-comparison.md" {
 		t.Errorf("DefaultOutput = %q", got.DefaultOutput)
 	}
+	if got.DefaultFilter != DefaultFilter {
+		t.Errorf("DefaultFilter = %q, want %q", got.DefaultFilter, DefaultFilter)
+	}
 	if got.MixedUtilityPriceWeight() != 3.5 {
 		t.Errorf("MixedUtilityPriceWeight = %v", got.MixedUtilityPriceWeight())
 	}
@@ -78,6 +81,35 @@ func TestMixedUtilityPriceWeightDefaultsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestLoadPreservesExplicitEmptyTUIFilterAndDefaultFilter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("default_filter: paid\ntui_filter: \"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DefaultFilter != "paid" || !got.TUIFilterSet || got.TUIFilter != "" {
+		t.Fatalf("config = %+v, want explicit default and empty TUI filter", got)
+	}
+}
+
+func TestLoadRejectsUnknownTierInFilters(t *testing.T) {
+	for _, field := range []string{"default_filter", "tui_filter"} {
+		t.Run(field, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(field+": tier:unknown\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), "unknown tier") || !strings.Contains(err.Error(), "opus, sonnet, haiku, free") {
+				t.Fatalf("Load error = %v, want unknown tier and allowed values", err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsInvalidMixedUtilityPriceWeight(t *testing.T) {
 	for _, value := range []string{"-1", ".NaN", ".Inf", "-.Inf"} {
 		t.Run(value, func(t *testing.T) {
@@ -98,8 +130,8 @@ func TestLoadMissingFileIsZeroConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load on a missing file returned %v, want nil error", err)
 	}
-	if got.DataDir != "" || got.DefaultOutput != "" {
-		t.Errorf("got %+v, want the zero Config", got)
+	if got.DataDir != "" || got.DefaultOutput != "" || got.DefaultFilter != DefaultFilter {
+		t.Errorf("got %+v, want zero paths and default filter", got)
 	}
 }
 

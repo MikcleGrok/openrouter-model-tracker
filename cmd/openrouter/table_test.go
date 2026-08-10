@@ -36,6 +36,21 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	}
 }
 
+func TestFilterTableModelsRejectsUnknownTier(t *testing.T) {
+	_, err := filterTableModels(nil, []string{"tier:unknown"})
+	if err == nil || !strings.Contains(err.Error(), `unknown tier "unknown"`) || !strings.Contains(err.Error(), "opus, sonnet, haiku, free") {
+		t.Fatalf("unknown tier error = %v, want the allowed tier values", err)
+	}
+}
+
+func TestFilterTableModelsAcceptsTierCaseInsensitively(t *testing.T) {
+	models := []model.Model{{Slug: "sonnet", Tier: "sonnet"}, {Slug: "free", Tier: "free"}}
+	filtered, err := filterTableModels(models, []string{"tier:SONNET"})
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "sonnet" {
+		t.Fatalf("case-insensitive tier filter = %+v, error %v", filtered, err)
+	}
+}
+
 func TestRenderTableTaskFitShortAndLong(t *testing.T) {
 	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "test"}}
 	short := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)

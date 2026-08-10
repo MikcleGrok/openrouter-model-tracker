@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Add the default TUI quality filter (`quality>=75`) and validate tier filters against the canonical whitelist.
 
 ## [1.12.1]
 

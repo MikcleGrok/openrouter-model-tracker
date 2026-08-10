@@ -25,6 +25,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
+	tierpkg "github.com/sboborikin/openrouter-model-tracker/internal/tier"
 	"golang.org/x/term"
 )
 
@@ -370,6 +371,9 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
 				if tier == "" {
 					return nil, fmt.Errorf("table: malformed filter %q; tier must not be empty", raw)
+				}
+				if !tierpkg.IsValid(tier) {
+					return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", tier, raw, tierpkg.ValuesString())
 				}
 				parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
 			case strings.HasPrefix(filter, "quality>="):
