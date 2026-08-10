@@ -356,49 +356,55 @@ func tableFlagExpectsValue(arg string, flags *pflag.FlagSet) bool {
 
 func filterTableModels(models []model.Model, filters []string) ([]model.Model, error) {
 	parsed := make([]func(model.Model) bool, 0, len(filters))
-	for _, raw := range filters {
-		filter := strings.ToLower(strings.TrimSpace(raw))
-		switch {
-		case filter == "paid":
-			parsed = append(parsed, func(m model.Model) bool { return !m.Free })
-		case filter == "free":
-			parsed = append(parsed, func(m model.Model) bool { return m.Free })
-		case filter == "scored":
-			parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable })
-		case strings.HasPrefix(filter, "tier:"):
-			tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
-			if tier == "" {
-				return nil, fmt.Errorf("table: malformed filter %q; tier must not be empty", raw)
+	for _, input := range filters {
+		for _, raw := range splitFilter(input) {
+			filter := strings.ToLower(strings.TrimSpace(raw))
+			switch {
+			case filter == "paid":
+				parsed = append(parsed, func(m model.Model) bool { return !m.Free })
+			case filter == "free":
+				parsed = append(parsed, func(m model.Model) bool { return m.Free })
+			case filter == "scored":
+				parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable })
+			case strings.HasPrefix(filter, "tier:"):
+				tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
+				if tier == "" {
+					return nil, fmt.Errorf("table: malformed filter %q; tier must not be empty", raw)
+				}
+				parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
+			case strings.HasPrefix(filter, "quality>="):
+				threshold, err := parseFiniteTableThreshold(raw, "quality", strings.TrimSpace(strings.TrimPrefix(filter, "quality>=")))
+				if err != nil {
+					return nil, err
+				}
+				if threshold < 0 || threshold > 100 {
+					return nil, fmt.Errorf("table: malformed filter %q; quality threshold must be between 0 and 100 (or a fraction between 0 and 1)", raw)
+				}
+				threshold = normalizeQualityFilterThreshold(threshold)
+				parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable && m.Score.Value >= threshold })
+			case strings.HasPrefix(filter, "context>="):
+				threshold, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(filter, "context>=")))
+				if err != nil {
+					return nil, fmt.Errorf("table: malformed filter %q; context threshold must be an integer", raw)
+				}
+				parsed = append(parsed, func(m model.Model) bool { return m.Context >= threshold })
+			case strings.HasPrefix(filter, "input<="):
+				field, value := "input", strings.TrimSpace(strings.TrimPrefix(filter, "input<="))
+				threshold, err := parseFiniteTableThreshold(raw, field, value)
+				if err != nil {
+					return nil, err
+				}
+				parsed = append(parsed, func(m model.Model) bool { return m.InPerM <= threshold })
+			case strings.HasPrefix(filter, "output<="):
+				field, value := "output", strings.TrimSpace(strings.TrimPrefix(filter, "output<="))
+				threshold, err := parseFiniteTableThreshold(raw, field, value)
+				if err != nil {
+					return nil, err
+				}
+				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
+			default:
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
-			parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
-		case strings.HasPrefix(filter, "quality>="):
-			threshold, err := parseFiniteTableThreshold(raw, "quality", strings.TrimSpace(strings.TrimPrefix(filter, "quality>=")))
-			if err != nil {
-				return nil, err
-			}
-			parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable && m.Score.Value >= threshold })
-		case strings.HasPrefix(filter, "context>="):
-			threshold, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(filter, "context>=")))
-			if err != nil {
-				return nil, fmt.Errorf("table: malformed filter %q; context threshold must be an integer", raw)
-			}
-			parsed = append(parsed, func(m model.Model) bool { return m.Context >= threshold })
-		case strings.HasPrefix(filter, "input<="):
-			field, value := "input", strings.TrimSpace(strings.TrimPrefix(filter, "input<="))
-			threshold, err := parseFiniteTableThreshold(raw, field, value)
-			if err != nil {
-				return nil, err
-			}
-			parsed = append(parsed, func(m model.Model) bool { return m.InPerM <= threshold })
-		case strings.HasPrefix(filter, "output<="):
-			field, value := "output", strings.TrimSpace(strings.TrimPrefix(filter, "output<="))
-			threshold, err := parseFiniteTableThreshold(raw, field, value)
-			if err != nil {
-				return nil, err
-			}
-			parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
-		default:
-			return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
 		}
 	}
 	filtered := make([]model.Model, 0, len(models))
@@ -417,12 +423,29 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 	return filtered, nil
 }
 
+func splitFilter(filter string) []string {
+	if strings.TrimSpace(filter) == "" {
+		return nil
+	}
+	return strings.Split(filter, ",")
+}
+
 func parseFiniteTableThreshold(raw, field, value string) (float64, error) {
 	threshold, err := strconv.ParseFloat(value, 64)
 	if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) {
 		return 0, fmt.Errorf("table: malformed filter %q; %s threshold must be a finite number", raw, field)
 	}
 	return threshold, nil
+}
+
+// Scores exposed to the table use a 0..100 percentage-like scale for both
+// SWE-bench and the normalized Arena view. Accepting a 0..1 quality fraction
+// keeps filters convenient without changing the stored score contract.
+func normalizeQualityFilterThreshold(threshold float64) float64 {
+	if threshold > 0 && threshold <= 1 {
+		return threshold * 100
+	}
+	return threshold
 }
 
 func limitTableModels(models []model.Model, limit int) []model.Model {

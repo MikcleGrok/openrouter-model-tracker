@@ -841,6 +841,80 @@ func TestFilterTableModelsUsesANDSemantics(t *testing.T) {
 	}
 }
 
+func TestFilterTableModelsAcceptsQualityPercentAndFraction(t *testing.T) {
+	models := []model.Model{
+		{Slug: "high", Score: &model.ScoreInfo{Value: 80}, Rankable: true},
+		{Slug: "low", Score: &model.ScoreInfo{Value: 79.9}, Rankable: true},
+	}
+	for _, filter := range []string{"quality>=80", "quality>=0.8"} {
+		filtered, err := filterTableModels(models, []string{filter})
+		if err != nil || len(filtered) != 1 || filtered[0].Slug != "high" {
+			t.Errorf("quality filter %q = %+v, err=%v; want high only", filter, filtered, err)
+		}
+	}
+}
+
+func TestFilterTableModelsRejectsQualityOutsideDocumentedBounds(t *testing.T) {
+	for _, filter := range []string{"quality>=-0.1", "quality>=100.1", "quality>=101"} {
+		if _, err := filterTableModels(nil, []string{filter}); err == nil || !strings.Contains(err.Error(), "between 0 and 100") {
+			t.Errorf("quality filter %q error = %v, want a clear bounds error", filter, err)
+		}
+	}
+}
+
+func TestFilterTableModelsQualityOneMeansOneHundredPercent(t *testing.T) {
+	models := []model.Model{
+		{Slug: "full", Score: &model.ScoreInfo{Value: 100}, Rankable: true},
+		{Slug: "partial", Score: &model.ScoreInfo{Value: 99.9}, Rankable: true},
+	}
+	filtered, err := filterTableModels(models, []string{"quality>=1"})
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "full" {
+		t.Fatalf("quality>=1 = %+v, err=%v; want full only", filtered, err)
+	}
+}
+
+func TestFilterTableModelsSplitsRepeatedCommaSeparatedFilters(t *testing.T) {
+	models := []model.Model{
+		{Slug: "match", Tier: "sonnet", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
+		{Slug: "wrong-tier", Tier: "opus", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
+		{Slug: "wrong-quality", Tier: "sonnet", Free: false, Score: &model.ScoreInfo{Value: 79}, Rankable: true},
+	}
+	filtered, err := filterTableModels(models, []string{"paid,quality>=80", "tier:sonnet"})
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "match" {
+		t.Fatalf("comma/repeated filters = %+v, err=%v; want match only", filtered, err)
+	}
+}
+
+func TestTableCommandSplitsRepeatedCommaSeparatedFilters(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+	output := executeCLI(t, "table", "--config", config, "--no-pager", "--slug", "--filter", "paid,quality>=80", "--filter", "tier:sonnet")
+	if !strings.Contains(output, "demo/high") || strings.Contains(output, "demo/low") || strings.Contains(output, "demo/missing") {
+		t.Fatalf("CLI comma/repeated filters output = %s; want demo/high only", output)
+	}
+}
+
+func TestTableCommandQualityFilterUsesActiveScoreSource(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+	swe := executeCLI(t, "table", "--config", config, "--no-pager", "--slug", "--filter", "quality>=0.6")
+	if !strings.Contains(swe, "demo/swe") || !strings.Contains(swe, "demo/both") || strings.Contains(swe, "demo/arena") {
+		t.Fatalf("SWE-bench quality filter output = %s; want swe and both", swe)
+	}
+	arena := executeCLI(t, "table", "--config", config, "--no-pager", "--slug", "--score-source=arena", "--filter", "quality>=0.8")
+	if !strings.Contains(arena, "demo/both") || strings.Contains(arena, "demo/swe") || strings.Contains(arena, "demo/arena") {
+		t.Fatalf("Arena quality filter output = %s; want both only", arena)
+	}
+}
+
 func TestFilterTableModelsRejectsMalformedAndUnknownFilters(t *testing.T) {
 	for _, filter := range []string{"tier:", "quality>=bad", "quality>=NaN", "quality>=+Inf", "quality>=-Inf", "input<=NaN", "output<=+Inf", "context>=bad", "input<=bad", "unknown"} {
 		if _, err := filterTableModels(nil, []string{filter}); err == nil || !strings.Contains(err.Error(), "filter") {
@@ -849,9 +923,9 @@ func TestFilterTableModelsRejectsMalformedAndUnknownFilters(t *testing.T) {
 	}
 }
 
-func TestFilterTableModelsAcceptsSignedFiniteThresholds(t *testing.T) {
-	models := []model.Model{{Slug: "negative", Context: -1, InPerM: -1, OutPerM: -1, Score: &model.ScoreInfo{Value: -1}, Rankable: true}}
-	if filtered, err := filterTableModels(models, []string{"quality>=-1", "context>=-1", "input<=-1", "output<=-1"}); err != nil || len(filtered) != 1 {
+func TestFilterTableModelsAcceptsSignedFiniteNonQualityThresholds(t *testing.T) {
+	models := []model.Model{{Slug: "negative", Context: -1, InPerM: -1, OutPerM: -1}}
+	if filtered, err := filterTableModels(models, []string{"context>=-1", "input<=-1", "output<=-1"}); err != nil || len(filtered) != 1 {
 		t.Fatalf("signed finite filters = %+v, err=%v; want one matching model", filtered, err)
 	}
 }

@@ -333,6 +333,9 @@ func TestTUIFilterFormOpensAppliesAndPersistsStructuredFields(t *testing.T) {
 	if m.overlay != "" || m.filter != want || len(m.visible) != 1 || m.visible[0].Slug != "match" {
 		t.Fatalf("applied filter = overlay %q, filter %q, visible %+v", m.overlay, m.filter, m.visible)
 	}
+	if m.status != "filter: "+want || !strings.Contains(m.View(), "filter: "+want) {
+		t.Fatalf("applied filter status = %q, view=%q", m.status, m.View())
+	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -357,6 +360,9 @@ func TestTUIFilterFormCancelAndClear(t *testing.T) {
 	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
 	if m.filter != "" || len(m.visible) != 2 {
 		t.Fatalf("clear result = filter %q, visible %+v", m.filter, m.visible)
+	}
+	if m.status != "filter: none (cleared)" || !strings.Contains(m.View(), "filter: none (cleared)") {
+		t.Fatalf("cleared filter status = %q, view=%q", m.status, m.View())
 	}
 }
 
@@ -401,6 +407,23 @@ func TestTUIFilterDraftStructuredConversion(t *testing.T) {
 	draft := tuiFilterDraftFromString("free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2")
 	if got := draft.string(); got != "free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2" {
 		t.Fatalf("draft conversion = %q", got)
+	}
+}
+
+func TestTUIFilterHelpDocumentsExamplesOperatorsAndScoreSource(t *testing.T) {
+	for _, want := range []string{
+		"openrouter table --filter 'paid,quality>=80'",
+		"press f",
+		"Predicates:",
+		"Operators:",
+		"repeated with CLI --filter",
+		"always use AND",
+		"active score source",
+		"quality>=0.8 means quality>=80",
+	} {
+		if !strings.Contains(tuiHelpDocument, want) {
+			t.Errorf("help does not contain %q", want)
+		}
 	}
 }
 
