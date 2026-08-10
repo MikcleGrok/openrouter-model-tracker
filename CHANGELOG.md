@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- No unreleased changes.
+
+## [1.13.27]
+
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
