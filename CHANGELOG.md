@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.13.13]
+
 - Canonicalize TUI numeric filter values: integer quality/context fields and
   two-decimal input/output prices, including configured absolute step sizes.
 - Change default TUI Input/Output price steps to $0.05 while keeping YAML overrides.
