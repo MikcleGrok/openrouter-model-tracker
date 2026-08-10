@@ -55,6 +55,69 @@ func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
 	}
 }
 
+func TestTUIUsesConfiguredKeymapAndRendersItInHelp(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap = config.DefaultTUIKeymap()
+	m.keymap["main"]["open_settings"] = config.TUIBindings{"z"}
+	m = tuiKey(m, "z")
+	if m.overlay != "settings" {
+		t.Fatalf("custom settings binding opened overlay %q", m.overlay)
+	}
+	m.overlay = "help"
+	m.helpMode = "shortcuts"
+	m.height = len(m.helpLines()) + 2
+	if !strings.Contains(m.View(), "z") {
+		t.Fatalf("configured settings binding is missing from help: %q", m.View())
+	}
+}
+
+func TestTUIRefreshMessageAppliesReloadedKeymapToKeyEvents(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.generation = 1
+	reloaded := config.DefaultTUIKeymap()
+	reloaded["main"]["open_settings"] = config.TUIBindings{"z"}
+	next, _ := m.Update(tuiRefreshMsg{generation: 1, keymap: reloaded, models: m.models})
+	m = next.(tuiModel)
+	m = tuiKey(m, "z")
+	if m.overlay != "settings" || m.keymap["main"]["open_settings"][0] != "z" {
+		t.Fatalf("refresh did not install keymap: overlay=%q keymap=%v", m.overlay, m.keymap["main"]["open_settings"])
+	}
+}
+
+func TestTUIConfiguredScalarBindingsHandleCanonicalAliases(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap["settings"]["switch_source"] = config.TUIBindings{"enter"}
+	m.overlay, m.settingsCursor = "settings", 1
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if !m.scoreSourceLoading || cmd == nil {
+		t.Fatalf("scalar enter source binding did not start loading: loading=%v cmd=%v", m.scoreSourceLoading, cmd)
+	}
+
+	m = newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap["columns"]["toggle"] = config.TUIBindings{" "}
+	m.keymap["columns"]["apply"] = config.TUIBindings{" enter "}
+	m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
+	if len(m.pendingColumns) == len(m.columns) {
+		t.Fatal("space binding did not toggle a column")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.overlay != "" {
+		t.Fatalf("scalar enter apply binding did not close columns overlay: %q", m.overlay)
+	}
+
+	m = newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap["detail"]["close"] = config.TUIBindings{" esc "}
+	m.overlay = "detail"
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if next.(tuiModel).overlay != "" {
+		t.Fatal("surrounding-space escape binding did not close detail overlay")
+	}
+}
+
 func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20}
 	view := m.View()
@@ -180,6 +243,25 @@ func tuiKey(m tuiModel, key string) tuiModel {
 	return next
 }
 
+func TestTUIMainCloseBindingsQuitThroughKeyEvents(t *testing.T) {
+	for _, key := range []string{"esc", "left", "h"} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		if key == "esc" {
+			msg = tea.KeyMsg{Type: tea.KeyEscape}
+		}
+		if _, cmd := m.Update(msg); cmd == nil {
+			t.Fatalf("default main.close binding %q did not return a quit command", key)
+		}
+	}
+
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap["main"]["close"] = config.TUIBindings{"z"}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")}); cmd == nil {
+		t.Fatal("custom main.close binding did not return a quit command")
+	}
+}
+
 func TestTUIKeyState(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}})
 	m = tuiKey(m, "j")
@@ -204,15 +286,15 @@ func TestTUIKeyState(t *testing.T) {
 	if m.overlay != "columns" {
 		t.Fatal("columns overlay not opened")
 	}
-	m, _ = m.columnKey("down")
-	m, _ = m.columnKey(" ")
-	m, _ = m.columnKey("enter")
+	m, _ = m.columnKey("down", "down")
+	m, _ = m.columnKey(" ", " ")
+	m, _ = m.columnKey("enter", "enter")
 	if !containsColumn(m.columns, tuiColumns[1]) {
 		t.Fatal("column was not applied")
 	}
 	m = tuiKey(m, "c")
-	m, _ = m.columnKey(" ")
-	m, _ = m.columnKey("esc")
+	m, _ = m.columnKey(" ", " ")
+	m, _ = m.columnKey("esc", "esc")
 	if !containsColumn(m.columns, tuiColumns[1]) {
 		t.Fatal("column cancel changed applied columns")
 	}
@@ -326,6 +408,47 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	}
 }
 
+func TestTUIHelpFullHelpUsesConfiguredBinding(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.keymap["main"]["full_help"] = config.TUIBindings{"z"}
+	m.keymap["help"]["full_help"] = config.TUIBindings{"y"}
+	m = tuiKey(m, "z")
+	if m.overlay != "help" || m.helpMode != "full" {
+		t.Fatalf("custom main full-help binding state = overlay %q, mode %q", m.overlay, m.helpMode)
+	}
+	m = tuiKey(m, "y")
+	if m.helpMode != "full" {
+		t.Fatalf("custom help full-help binding did not keep full mode: %q", m.helpMode)
+	}
+}
+
+func TestTUIHelpRendersConfiguredBindingsByActionGroup(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	for context, actions := range m.keymap {
+		for action := range actions {
+			m.keymap[context][action] = config.TUIBindings{"custom-" + context + "-" + action}
+		}
+	}
+	for _, mode := range []string{"shortcuts", "full"} {
+		m.helpMode = mode
+		view := strings.Join(m.helpLines(), "\n")
+		wants := []string{
+			"custom-main-navigate_up", "custom-main-navigate_down", "custom-main-open_details", "custom-main-close",
+			"custom-settings-navigate_up", "custom-settings-navigate_down", "custom-settings-close", "custom-settings-switch_source",
+			"custom-detail-navigate_up", "custom-detail-navigate_down", "custom-detail-close",
+			"custom-help-navigate_up", "custom-help-navigate_down", "custom-help-close",
+			"custom-columns-navigate_up", "custom-columns-navigate_down", "custom-columns-close", "custom-columns-toggle", "custom-columns-apply",
+			"custom-filter-navigate_up", "custom-filter-navigate_down", "custom-filter-close", "custom-filter-toggle", "custom-filter-apply",
+			"custom-help-close", "custom-main-help", "custom-main-full_help", "custom-settings-switch_source",
+		}
+		for _, want := range wants {
+			if !strings.Contains(view, want) {
+				t.Fatalf("%s help is missing configured binding %q: %q", mode, want, view)
+			}
+		}
+	}
+}
+
 func TestTUICommandKeySupportsRussianLayout(t *testing.T) {
 	for russian, english := range map[string]string{"й": "q", "с": "c", "р": "h", "П": "G"} {
 		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(russian)}
@@ -351,12 +474,12 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 		t.Fatalf("settings view is missing state: %q", view)
 	}
 	m = tuiKey(m, "down")
-	m, _ = m.settingsKey(" ")
+	m, _ = m.settingsKey(" ", " ")
 	if m.scoreSource != scoreSourceDefault {
 		t.Fatalf("score source changed before local snapshot loaded: %q", m.scoreSource)
 	}
 	m = tuiKey(m, "down")
-	m, _ = m.settingsKey("enter")
+	m, _ = m.settingsKey("enter", "enter")
 	if m.overlay != "filter" || m.inputMode != "" {
 		t.Fatalf("settings filter transition = overlay %q, input mode %q", m.overlay, m.inputMode)
 	}
@@ -365,9 +488,54 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	if m.filter != "free" || m.overlay != "" || m.inputMode != "" {
 		t.Fatalf("settings filter result = filter %q, overlay %q, input mode %q", m.filter, m.overlay, m.inputMode)
 	}
-	m, _ = m.settingsKey("esc")
+	m, _ = m.settingsKey("esc", "esc")
 	if m.overlay != "" {
 		t.Fatal("settings overlay did not close")
+	}
+}
+
+func TestTUIScoreSourceSwitchThroughUpdateShowsPendingSuccessAndError(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/model:\n    display: Demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := json.Marshal(refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{"demo/model": {Score: &model.ScoreInfo{Value: 80}, ArenaScore: &model.ScoreInfo{Value: 1400}, InPerM: 1, OutPerM: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), snapshot, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), root, refresh.Options{}, 0, []model.Model{{Slug: "demo/model"}})
+	m.overlay, m.settingsCursor, m.width, m.height = "settings", 1, 100, 30
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
+	if !m.scoreSourceLoading || m.scoreSource != scoreSourceDefault || !strings.Contains(ansi.Strip(m.View()), "loading arena") {
+		t.Fatalf("pending source state = loading %v, source %q, view %q", m.scoreSourceLoading, m.scoreSource, ansi.Strip(m.View()))
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if next.(tuiModel).scoreSourceLoading == false {
+		t.Fatal("repeated source switch was not blocked while loading")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(tuiModel)
+	if m.scoreSource != scoreSourceArena || m.scoreSourceLoading || !strings.Contains(m.status, "changed") {
+		t.Fatalf("success source state = source %q, loading %v, status %q", m.scoreSource, m.scoreSourceLoading, m.status)
+	}
+	m.dataDir = t.TempDir()
+	m.scoreSourceGeneration++
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
+	next, _ = m.Update(cmd())
+	m = next.(tuiModel)
+	if m.scoreSource != scoreSourceArena || m.scoreSourceLoading || m.err == "" || !strings.Contains(ansi.Strip(m.View()), "Error:") {
+		t.Fatalf("error source state = source %q, loading %v, err %q, view %q", m.scoreSource, m.scoreSourceLoading, m.err, ansi.Strip(m.View()))
 	}
 }
 
@@ -1187,7 +1355,7 @@ func TestTUIViewNarrowAndSanitized(t *testing.T) {
 	}
 	m.pendingColumns = []tuiColumn{colName}
 	m.columnCursor = 0
-	m, _ = m.columnKey(" ")
+	m, _ = m.columnKey(" ", " ")
 	if len(m.pendingColumns) != 1 {
 		t.Fatal("last column was removed")
 	}

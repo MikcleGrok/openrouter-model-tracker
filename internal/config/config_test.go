@@ -37,6 +37,9 @@ func TestLoad(t *testing.T) {
 	if got.TUISteps != DefaultTUISteps() {
 		t.Errorf("TUISteps = %+v, want %+v", got.TUISteps, DefaultTUISteps())
 	}
+	if got.TUIKeymap["main"]["open_settings"][0] != "o" {
+		t.Fatalf("default TUI keymap = %+v", got.TUIKeymap)
+	}
 	if got.TUISteps.InputCents != 5 || got.TUISteps.OutputCents != 5 {
 		t.Errorf("default price steps = %d/%d cents, want 5/5", got.TUISteps.InputCents, got.TUISteps.OutputCents)
 	}
@@ -48,6 +51,42 @@ func TestLoad(t *testing.T) {
 	interval, _ := got.TUI.EffectiveRefreshInterval()
 	if ttl != DefaultCacheTTL || timeout != DefaultRequestTimeout || interval != DefaultTUIRefreshInterval {
 		t.Errorf("duration defaults = %v, %v, %v", ttl, timeout, interval)
+	}
+}
+
+func TestLoadTUIKeymapSupportsCustomScalarAndListBindings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "tui_keymap:\n  main:\n    open_settings: ' z '\n    open_details: [enter, d]\n  settings:\n    switch_source: enter\n  columns:\n    toggle: ' space '\n    apply: ['  enter  ']\n  detail:\n    close: ['  esc  ']\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.TUIKeymap["main"]["open_settings"], ",") != "z" || len(got.TUIKeymap["main"]["open_details"]) != 2 || got.TUIKeymap["settings"]["switch_source"][0] != "enter" || got.TUIKeymap["columns"]["toggle"][0] != "space" || got.TUIKeymap["columns"]["apply"][0] != "enter" || got.TUIKeymap["detail"]["close"][0] != "esc" {
+		t.Fatalf("custom TUI keymap = %+v", got.TUIKeymap)
+	}
+}
+
+func TestLoadRejectsInvalidTUIKeymap(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown action":        "tui_keymap:\n  main:\n    nope: x\n",
+		"unknown context":       "tui_keymap:\n  popup:\n    close: esc\n",
+		"empty binding":         "tui_keymap:\n  main:\n    open_settings: [\"\"]\n",
+		"conflict":              "tui_keymap:\n  main:\n    open_settings: [x]\n    help: [x]\n",
+		"conflict with default": "tui_keymap:\n  main:\n    open_settings: l\n",
+		"space alias conflict":  "tui_keymap:\n  columns:\n    toggle: [' ']\n    apply: [space]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "tui_keymap") {
+				t.Fatalf("Load error = %v, want tui_keymap validation error", err)
+			}
+		})
 	}
 }
 
