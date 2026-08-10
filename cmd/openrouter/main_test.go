@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 )
 
 func executeCLI(t *testing.T, args ...string) string {
@@ -45,6 +47,34 @@ func TestResolveTUIFilterCLIOverridesSavedValue(t *testing.T) {
 	}
 	if got := resolveTUIFilter("", false, "", true, "quality>=75"); got != "" {
 		t.Fatalf("explicitly cleared TUI filter = %q, want empty", got)
+	}
+}
+
+func TestResolveTUIFilterFromPersistedConfigFeedsStructuredEditor(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("tui_filter: tier:opus,quality>=75,context>=0,input<=0.00,output<=0.00\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
+	m := tuiModel{configPath: configPath, filter: filter, filterFormExplicit: cfg.TUIFilterSet}
+	m.openFilterEditor()
+	if m.filterDraft.tier != "opus" || m.filterDraft.quality != "75" || m.filterDraft.context != "" || m.filterDraft.input != "" || m.filterDraft.output != "" {
+		t.Fatalf("resolved persisted filter draft = %+v", m.filterDraft)
+	}
+	m, _ = m.applyFilterDraft()
+	if m.filter != "tier:opus,quality>=75" {
+		t.Fatalf("resolved persisted filter after Enter = %q, want tier:opus,quality>=75", m.filter)
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.TUIFilter != "tier:opus,quality>=75" {
+		t.Fatalf("resolved persisted filter saved after Enter = %q, want tier:opus,quality>=75", saved.TUIFilter)
 	}
 }
 

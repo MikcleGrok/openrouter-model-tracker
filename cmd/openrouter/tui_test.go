@@ -547,6 +547,23 @@ func TestTUIFilterDraftCanonicalizesQualityAndPrices(t *testing.T) {
 	}
 }
 
+func TestTUIFilterDraftTreatsZeroContextAndPricesAsAny(t *testing.T) {
+	draft := tuiFilterDraftFromString("tier:opus,quality>=75,context>=0,input<=0.00,output<=0")
+	if draft.tier != "opus" || draft.quality != "75" || draft.context != "" || draft.input != "" || draft.output != "" {
+		t.Fatalf("zero predicates draft = %+v, want tier opus, quality 75, other numeric fields unset", draft)
+	}
+	if got := draft.string(); got != "tier:opus,quality>=75" {
+		t.Fatalf("zero predicates serialization = %q, want tier:opus,quality>=75", got)
+	}
+}
+
+func TestTUIFilterDraftPreservesExplicitQualityZero(t *testing.T) {
+	draft := tuiFilterDraftFromString("quality>=0")
+	if got := draft.string(); got != "quality>=0" {
+		t.Fatalf("quality zero serialization = %q, want quality>=0", got)
+	}
+}
+
 func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
 	if got, want := tuiFilterTierValues(), append([]string{""}, tier.Values()...); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tier select values = %v, want %v", got, want)
@@ -717,12 +734,12 @@ func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	}
-	if got := m.filterDraft.string(); got != "quality>=0,context>=0,input<=0.00,output<=0.00" {
+	if got := m.filterDraft.string(); got != "quality>=0" {
 		t.Fatalf("numeric left clamp serialization = %q", got)
 	}
 	m.filterDraft = tuiFilterDraft{quality: "101", context: "-1", input: "-0.5", output: "-2"}
 	m, _ = m.applyFilterDraft()
-	if got := m.filter; got != "quality>=100,context>=0,input<=0.00,output<=0.00" {
+	if got := m.filter; got != "quality>=100" {
 		t.Fatalf("manual negative clamp serialization = %q", got)
 	}
 }

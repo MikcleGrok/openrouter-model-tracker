@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
+
+## [1.13.17]
+
+- Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
+
 ## [1.13.16]
 
 - Open the TUI filter form with `(any)` for unset numeric fields, while preserving explicit YAML, saved, and CLI filters.
