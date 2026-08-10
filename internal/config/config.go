@@ -21,16 +21,17 @@ import (
 
 // Config is the whole configuration file.
 type Config struct {
-	DataDir       string        `yaml:"data_dir"`
-	DefaultOutput string        `yaml:"default_output"`
-	DefaultFilter string        `yaml:"default_filter"`
-	Cache         CacheConfig   `yaml:"cache"`
-	Table         TableConfig   `yaml:"table"`
-	TUI           TUIConfig     `yaml:"tui"`
-	TUIFilter     string        `yaml:"tui_filter"`
-	TUIFilterSet  bool          `yaml:"-"`
-	TUISteps      TUISteps      `yaml:"tui_steps"`
-	Ranking       RankingConfig `yaml:"ranking"`
+	DataDir          string        `yaml:"data_dir"`
+	DefaultOutput    string        `yaml:"default_output"`
+	DefaultFilter    string        `yaml:"default_filter"`
+	DefaultFilterSet bool          `yaml:"-"`
+	Cache            CacheConfig   `yaml:"cache"`
+	Table            TableConfig   `yaml:"table"`
+	TUI              TUIConfig     `yaml:"tui"`
+	TUIFilter        string        `yaml:"tui_filter"`
+	TUIFilterSet     bool          `yaml:"-"`
+	TUISteps         TUISteps      `yaml:"tui_steps"`
+	Ranking          RankingConfig `yaml:"ranking"`
 }
 
 type CacheConfig struct {
@@ -331,6 +332,7 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	c.TUIFilterSet = yamlMappingHasKey(document, "tui_filter")
+	c.DefaultFilterSet = yamlMappingHasKey(document, "default_filter")
 	c.Cache.TTLSet = yamlNestedMappingHasKey(document, "cache", "ttl")
 	c.Cache.RequestTimeoutSet = yamlNestedMappingHasKey(document, "cache", "request_timeout")
 	if !yamlMappingHasKey(document, "default_filter") {

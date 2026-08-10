@@ -71,7 +71,7 @@ immutable revision formula до любой reinstall. Stable install не исп
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, используется `default_filter` (по умолчанию `quality>=75`). Явный `--filter` имеет приоритет над сохранённым и default-значением; очистка фильтра сохраняет пустое значение и отключает default-фильтр. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
+- `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, используется `default_filter` (по умолчанию `quality>=75`), но при одном лишь встроенном default числовые поля формы открываются как `(any)`. Явный `--filter` имеет приоритет над сохранённым и default-значением; очистка фильтра сохраняет пустое значение и отключает default-фильтр. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
 - `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter completion bash` — сгенерировать Bash completion
 - `openrouter version`
@@ -248,7 +248,7 @@ tui_steps:
 ключи не создаёт. Конфиг перечитывается при каждом auto-refresh TUI
 вместе с `default_filter`, поэтому изменение `tui_steps` применяется без перезапуска.
 
-`tui_filter` имеет приоритет над `default_filter`, включая явно пустое значение. CLI `--filter` имеет наивысший приоритет. Остальные hardcoded значения интерфейса и фильтрации (например, хоткеи, набор колонок, разрешённые имена predicates, ограничения ranking expression и semantic thresholds) не выносились.
+`tui_filter` имеет приоритет над `default_filter`, включая явно пустое значение. CLI `--filter` имеет наивысший приоритет. При чистом открытии формы Quality/Context/Input/Output показываются как `(any)`, если нет явного `default_filter`, `tui_filter` или CLI-фильтра; tier сохраняет `(any)` независимо. Остальные hardcoded значения интерфейса и фильтрации (например, хоткеи, набор колонок, разрешённые имена predicates, ограничения ranking expression и semantic thresholds) не выносились.
 
 Операционные defaults можно менять в конфиге без пересборки. Относительный `cache.dir` разрешается относительно `data_dir`; CLI flags имеют приоритет над config:
 
