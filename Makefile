@@ -87,7 +87,7 @@ security:
 
 dependency-check:
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/govuln-version.txt .release/osv-version.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=passed; test $$mod_exit -eq 0 || mod_status=error; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; osv-scanner scan source -r . > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; input_digest="$$(shasum -a 256 go.mod go.sum | shasum -a 256 | cut -d ' ' -f 1)"; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/govuln-version.txt .release/osv-version.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=passed; test $$mod_exit -eq 0 || mod_status=error; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; osv-scanner scan source -r . > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; shasum -a 256 go.mod go.sum > .release/module-checksums.txt || exit $$?; input_digest="$$(shasum -a 256 .release/module-checksums.txt)" || exit $$?; input_digest="$${input_digest%% *}"; rm -f .release/module-checksums.txt; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
 	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-passed scans are explicit blockers/errors.'
 
 secrets-check:
@@ -104,10 +104,10 @@ sbom:
 
 release-manifest: check-tag artifact sbom
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && printf '{"schema":"guide-tools/release-manifest-v1","project":"openrouter-model-tracker","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[{"name":"openrouter","path":"bin/openrouter","sha256":"%s"}],"sbom":{"path":"%s","sha256":"%s"},"builder":{"platform":"github-actions","repository":"%s","workflow":"release.yml","run_id":"%s"}}\n' \
+	@cd $(ROOT) && sbom_digest="$$(openssl dgst -sha256 -r $(SBOM_FILE))" || exit $$?; sbom_digest="$${sbom_digest%% *}"; artifact_digest="$$(cat .release/openrouter.sha256)" || exit $$?; artifact_digest="$${artifact_digest%% *}"; printf '{"schema":"guide-tools/release-manifest-v1","project":"openrouter-model-tracker","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[{"name":"openrouter","path":"bin/openrouter","sha256":"%s"}],"sbom":{"path":"%s","sha256":"%s"},"builder":{"platform":"github-actions","repository":"%s","workflow":"release.yml","run_id":"%s"}}\n' \
 		'$(VERSION)' '$(TAG_VERSION)' "$$(git rev-parse HEAD)" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		"$$(cut -d ' ' -f1 .release/openrouter.sha256)" \
-		'$(SBOM_FILE)' "$$(openssl dgst -sha256 -r $(SBOM_FILE) | cut -d' ' -f1)" \
+		"$$artifact_digest" \
+		'$(SBOM_FILE)' "$$sbom_digest" \
 		'$(GITHUB_REPOSITORY)' '$(GITHUB_RUN_ID)' \
 		> $(RELEASE_MANIFEST)
 	@test -s $(RELEASE_MANIFEST)
@@ -220,7 +220,7 @@ verify-local-artifact: check-tag check-homebrew-formula
 	@test -x "$(BINARY)" || { printf '%s\n' 'local release artifact is missing or not executable'; exit 1; }
 	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$(TAG_VERSION)" --commit "$$(git rev-parse HEAD)" --version "$(VERSION)"
 	@cd $(ROOT) && test "$$(./bin/openrouter --version)" = "openrouter version $(VERSION)" && test "$$(./bin/openrouter version)" = "openrouter $(VERSION)" && ./bin/openrouter --help >/dev/null
-	@cd $(ROOT) && test "$$(shasum -a 256 bin/openrouter | cut -d ' ' -f 1)" = "$$(cut -d ' ' -f 1 .release/openrouter.sha256)" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
+	@cd $(ROOT) && artifact_digest="$$(shasum -a 256 bin/openrouter)" || exit $$?; artifact_digest="$${artifact_digest%% *}"; evidence_digest="$$(cat .release/openrouter.sha256)" || exit $$?; evidence_digest="$${evidence_digest%% *}"; test "$$artifact_digest" = "$$evidence_digest" || { printf '%s\n' 'local artifact digest does not match evidence'; exit 1; }
 	@printf '%s\n' 'Verified local exact-tag artifact only.'
 
 verify-release: check-tag
@@ -235,24 +235,21 @@ whats-new:
 
 release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
 	@set -eu; \
-	version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
-	rm -rf "$$out"; mkdir -p "$$out/artifacts"; \
-	for platform in $(LOCAL_RELEASE_PLATFORMS); do \
+		version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
+		rm -rf "$$out"; mkdir -p "$$out/artifacts"; artifacts_json=''; first=1; \
+		for platform in $(LOCAL_RELEASE_PLATFORMS); do \
 		os="$${platform%/*}"; arch="$${platform#*/}"; name="openrouter-$$version-$$os-$$arch"; \
 		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$name" '$(ROOT)cmd/openrouter'; \
 		chmod 0755 "$$out/$$name"; \
 		touch -t 197001010000 "$$out/$$name"; \
 		tar -C "$$out" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$name.tar.gz" "$$name"; \
-		shasum -a 256 "$$out/artifacts/$$name.tar.gz" | awk '{print $$1"  "$$2}' >> "$$out/SHA256SUMS"; \
+		digest="$$(shasum -a 256 "$$out/artifacts/$$name.tar.gz")" || exit $$?; digest="$${digest%% *}"; \
+		printf '%s  %s\n' "$$digest" "artifacts/$$name.tar.gz" >> "$$out/SHA256SUMS"; \
+		if test "$$first" -eq 0; then artifacts_json="$$artifacts_json,"; fi; first=0; \
+		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$name.tar.gz\",\"sha256\":\"$$digest\"}"; \
 		rm "$$out/$$name"; \
 	done; \
-	awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
-	artifacts_json=''; first=1; \
-	for file in "$$out"/artifacts/*.tar.gz; do \
-		name="$${file##*/}"; digest="$$(shasum -a 256 "$$file" | awk '{print $$1}')"; \
-		if test "$$first" -eq 0; then artifacts_json="$$artifacts_json,"; fi; first=0; \
-		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$name\",\"sha256\":\"$$digest\"}"; \
-	done; \
+		awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
 	printf '%s\n' "Local release written to $$out"
 
