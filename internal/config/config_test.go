@@ -40,6 +40,9 @@ func TestLoad(t *testing.T) {
 	if got.TUIKeymap["main"]["open_settings"][0] != "o" {
 		t.Fatalf("default TUI keymap = %+v", got.TUIKeymap)
 	}
+	if got.TUIKeymap["main"]["switch_source"][0] != "space" {
+		t.Fatalf("default main source binding = %+v", got.TUIKeymap["main"]["switch_source"])
+	}
 	if got.TUISteps.InputCents != 5 || got.TUISteps.OutputCents != 5 {
 		t.Errorf("default price steps = %d/%d cents, want 5/5", got.TUISteps.InputCents, got.TUISteps.OutputCents)
 	}
@@ -56,7 +59,7 @@ func TestLoad(t *testing.T) {
 
 func TestLoadTUIKeymapSupportsCustomScalarAndListBindings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	body := "tui_keymap:\n  main:\n    open_settings: ' z '\n    open_details: [enter, d]\n  settings:\n    switch_source: enter\n  columns:\n    toggle: ' space '\n    apply: ['  enter  ']\n  detail:\n    close: ['  esc  ']\n"
+	body := "tui_keymap:\n  main:\n    open_settings: ' z '\n    open_details: [enter, d]\n    switch_source: x\n  settings:\n    switch_source: enter\n  columns:\n    toggle: ' space '\n    apply: ['  enter  ']\n  detail:\n    close: ['  esc  ']\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +67,7 @@ func TestLoadTUIKeymapSupportsCustomScalarAndListBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(got.TUIKeymap["main"]["open_settings"], ",") != "z" || len(got.TUIKeymap["main"]["open_details"]) != 2 || got.TUIKeymap["settings"]["switch_source"][0] != "enter" || got.TUIKeymap["columns"]["toggle"][0] != "space" || got.TUIKeymap["columns"]["apply"][0] != "enter" || got.TUIKeymap["detail"]["close"][0] != "esc" {
+	if strings.Join(got.TUIKeymap["main"]["open_settings"], ",") != "z" || len(got.TUIKeymap["main"]["open_details"]) != 2 || got.TUIKeymap["main"]["switch_source"][0] != "x" || got.TUIKeymap["settings"]["switch_source"][0] != "enter" || got.TUIKeymap["columns"]["toggle"][0] != "space" || got.TUIKeymap["columns"]["apply"][0] != "enter" || got.TUIKeymap["detail"]["close"][0] != "esc" {
 		t.Fatalf("custom TUI keymap = %+v", got.TUIKeymap)
 	}
 }

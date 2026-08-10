@@ -406,6 +406,58 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	if m.helpMode != "full" || !strings.Contains(m.View(), "Model detail view") {
 		t.Fatalf("F1 did not open full help: mode=%q view=%q", m.helpMode, m.View())
 	}
+	if !strings.Contains(m.View(), "version "+version) {
+		t.Fatalf("full help does not show runtime version %q: %q", version, m.View())
+	}
+	m.helpMode = "shortcuts"
+	if !strings.Contains(strings.Join(m.helpLines(), "\n"), "version "+version) {
+		t.Fatalf("shortcut help does not show runtime version %q", version)
+	}
+}
+
+func TestTUIMainSpaceSwitchesSourceThroughUpdate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/model:\n    display: Demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := json.Marshal(refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{"demo/model": {Score: &model.ScoreInfo{Value: 80}, ArenaScore: &model.ScoreInfo{Value: 1400}, InPerM: 1, OutPerM: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), snapshot, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), root, refresh.Options{}, 0, []model.Model{{Slug: "demo/model"}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
+	if !m.scoreSourceLoading || m.pendingScoreSource != scoreSourceArena || !strings.Contains(m.status, "loading") || cmd == nil {
+		t.Fatalf("main Space pending state = loading %v, pending %q, status %q, cmd %v", m.scoreSourceLoading, m.pendingScoreSource, m.status, cmd)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if next.(tuiModel).scoreSourceGeneration != m.scoreSourceGeneration {
+		t.Fatal("main Space started a second switch while loading")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(tuiModel)
+	if m.scoreSource != scoreSourceArena || m.scoreSourceLoading || m.pendingScoreSource != "" || m.status != "score source changed" {
+		t.Fatalf("main Space success state = source %q, loading %v, pending %q, status %q", m.scoreSource, m.scoreSourceLoading, m.pendingScoreSource, m.status)
+	}
+	m = newTUIModel(context.Background(), root, refresh.Options{}, 0, []model.Model{{Slug: "demo/model"}})
+	m.keymap["main"]["switch_source"] = config.TUIBindings{"z"}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if next.(tuiModel).scoreSourceLoading || cmd != nil {
+		t.Fatal("default Space ignored custom main.switch_source")
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	if !next.(tuiModel).scoreSourceLoading || cmd == nil {
+		t.Fatal("custom main.switch_source did not start source switch")
+	}
 }
 
 func TestTUIHelpFullHelpUsesConfiguredBinding(t *testing.T) {
@@ -1650,7 +1702,7 @@ func TestTUIHelpRowsUseColumnsAndFitNarrowTerminals(t *testing.T) {
 	tuiForceColorProfile(t)
 	m := tuiModel{overlay: "help", helpMode: "full", width: 80, height: 20, helpSearch: "quality"}
 	view := tuiHelpView(m)
-	if !strings.Contains(view, tuiHeaderStyle.Render("openrouter tui keys")) {
+	if !strings.Contains(view, tuiHeaderStyle.Render("openrouter tui keys (version "+version+")")) {
 		t.Fatal("help title is not colour-accented")
 	}
 	if ansi.Strip(view) == view {
@@ -1852,7 +1904,7 @@ func TestTUIHelpSearchWithEmptyNeedleDoesNotHighlightContent(t *testing.T) {
 		assertTUIViewFits(t, view, m.width, m.height, "help without search")
 		for index, line := range strings.Split(view, "\n") {
 			plain := ansi.Strip(line)
-			isHeader := strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
+			isHeader := strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
 			if !isHeader && line != plain {
 				t.Fatalf("empty needle styled content line %d for %q: %q", index, needle, line)
 			}

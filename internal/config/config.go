@@ -58,7 +58,7 @@ func (b *TUIBindings) UnmarshalYAML(value *yaml.Node) error {
 type TUIKeymap map[string]map[string]TUIBindings
 
 var defaultTUIKeymap = TUIKeymap{
-	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
+	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}},
 	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
 	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
@@ -67,7 +67,7 @@ var defaultTUIKeymap = TUIKeymap{
 }
 
 var tuiKeymapActions = map[string]map[string]bool{
-	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true},
+	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
 	"settings": {"close": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
 	"detail":   {"close": true, "navigate_up": true, "navigate_down": true},
 	"help":     {"close": true, "full_help": true, "navigate_up": true, "navigate_down": true},
@@ -241,7 +241,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_filter: quality>=75\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
-	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
+	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space]}\n" +
 	"  settings: {close: [esc, o], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space, enter]}\n" +
 	"  detail: {close: [esc, left, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
 	"  help: {close: [esc, '?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +

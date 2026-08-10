@@ -348,6 +348,21 @@ func (m tuiModel) scoreSourceCmd(source string) tea.Cmd {
 	}
 }
 
+func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
+	if m.scoreSourceLoading {
+		return m, nil
+	}
+	m.scoreSourceGeneration++
+	m.scoreSourceLoading = true
+	source := scoreSourceArena
+	if m.scoreSource == scoreSourceArena {
+		source = scoreSourceSWEBench
+	}
+	m.status, m.err = "loading "+source+" from local snapshot...", ""
+	m.pendingScoreSource = source
+	return m, m.scoreSourceCmd(source)
+}
+
 func (m tuiModel) keyMatches(context, action, key string) bool {
 	bindings := m.keymap
 	if bindings == nil {
@@ -437,6 +452,9 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		key = "f1"
 	}
 	if m.overlay == "settings" && m.settingsCursor == 1 && m.keyMatches("settings", "switch_source", key) {
+		key = " "
+	}
+	if m.overlay == "" && m.keyMatches("main", "switch_source", key) {
 		key = " "
 	}
 	context := "main"
@@ -555,6 +573,11 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "s":
 		m.sortKey = tuiSortKeys[(indexOf(tuiSortKeys, m.sortKey)+1)%len(tuiSortKeys)]
 		m.rebuild()
+	case " ":
+		if !m.keyMatches("main", "switch_source", originalKey) {
+			break
+		}
+		return m.switchScoreSource()
 	case "m":
 		if m.ranking == rankingTier {
 			m.ranking = rankingMixed
@@ -789,18 +812,10 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			m.sortKey = "q/p"
 			m.rebuild()
 		case 1:
-			if !m.keyMatches("settings", "switch_source", originalKey) || m.scoreSourceLoading {
+			if !m.keyMatches("settings", "switch_source", originalKey) {
 				return m, nil
 			}
-			m.scoreSourceGeneration++
-			m.scoreSourceLoading = true
-			source := scoreSourceArena
-			if m.scoreSource == scoreSourceArena {
-				source = scoreSourceSWEBench
-			}
-			m.status, m.err = "loading "+source+" from local snapshot...", ""
-			m.pendingScoreSource = source
-			return m, m.scoreSourceCmd(source)
+			return m.switchScoreSource()
 		case 2:
 			m.openFilterEditor()
 		case 3:
@@ -1533,6 +1548,7 @@ func (m tuiModel) helpLines() []string {
 	if m.helpMode == "shortcuts" {
 		lines = tuiShortcutHelpLines()
 	}
+	lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
 	return tuiConfiguredHelpLines(lines, m.keymap)
 }
 
@@ -1552,6 +1568,7 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		`\tdetail\topen model details.`:                               keymap["main"]["open_details"],
 		`\thelp\topen shortcut help.`:                                 keymap["main"]["help"],
 		`\thelp\topen full help.`:                                     keymap["main"]["full_help"],
+		`\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
 		`\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
 		`\tSpace\tcolumns\t`:                                          keymap["columns"]["toggle"],
 		`\tSpace\ttier\t`:                                             keymap["filter"]["toggle"],
@@ -1635,7 +1652,7 @@ func tuiHelpView(m tuiModel) string {
 			continue
 		}
 		plain := ansi.Strip(line)
-		if strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
+		if strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
@@ -1839,7 +1856,8 @@ Data/view
 \tm\tranking\ttoggle ranking mode.
 \to\tsettings\topen settings.
 \tDown\tnavigate\tmove to Score source in Settings.
-\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
+	\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
+	\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen column selection.
 \tn\tview\tswitch the last column between Task fit and Note.
@@ -1911,7 +1929,8 @@ Data/view
 \tS\tordering\treverse order.
 \to\tsettings\topen Settings.
 \tDown\tnavigate\tmove to Score source in Settings.
-\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
+	\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
+	\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen selection.
 \tn\tview\tswitch the last column between Task fit and Note.
