@@ -48,6 +48,13 @@ func TestTUIModelUsesConfiguredRanking(t *testing.T) {
 	}
 }
 
+func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	if m.filterSteps.InputCents != 5 || m.filterSteps.OutputCents != 5 {
+		t.Fatalf("default TUI price steps = %d/%d cents, want 5/5", m.filterSteps.InputCents, m.filterSteps.OutputCents)
+	}
+}
+
 func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20}
 	view := m.View()
@@ -540,7 +547,7 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		field int
 		want  string
 	}{
-		{4, "5"}, {5, "8192"}, {6, "0.01"}, {7, "0.01"},
+		{4, "5"}, {5, "8192"}, {6, "0.05"}, {7, "0.05"},
 	} {
 		m.filterCursor = test.field
 		m.filterDraft = tuiFilterDraft{}
@@ -554,7 +561,7 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	}
-	if m.filterDraft.quality != "100" || m.filterDraft.context != "108192" || m.filterDraft.input != "1.01" || m.filterDraft.output != "2.01" {
+	if m.filterDraft.quality != "100" || m.filterDraft.context != "108192" || m.filterDraft.input != "1.05" || m.filterDraft.output != "2.05" {
 		t.Fatalf("right steps = %+v", m.filterDraft)
 	}
 }
@@ -568,8 +575,8 @@ func TestTUIFilterNumericArrowsMakeProgressAcrossRepeatedSteps(t *testing.T) {
 		wantLeft  string
 	}{
 		{"context", 5, "5", "24581", "0"},
-		{"input", 6, "1", "1.03", "0.97"},
-		{"output", 7, "1", "1.03", "0.97"},
+		{"input", 6, "1", "1.15", "0.85"},
+		{"output", 7, "1", "1.15", "0.85"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			m := tuiModel{overlay: "filter", filterCursor: test.field, filterDraft: tuiFilterDraft{context: test.start, input: test.start, output: test.start}}
@@ -649,7 +656,7 @@ func TestTUIPriceStepsUseConfiguredCentsAndReachZero(t *testing.T) {
 
 func TestTUIPriceStepsCrossCanonicalBoundaries(t *testing.T) {
 	for _, test := range []struct{ start, want string }{{"0.99", "1.00"}, {"9.99", "10.00"}} {
-		m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: test.start}}
+		m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: test.start}, filterSteps: config.TUISteps{InputCents: 1}}
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 		if m.filterDraft.input != test.want {
 			t.Fatalf("price step %s = %q, want %s", test.start, m.filterDraft.input, test.want)

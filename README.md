@@ -232,12 +232,12 @@ default_filter: quality>=75
 tui_steps:
   quality_points: 5 # percentage points
   context_tokens: 8192 # integer tokens per step
-  input_cents: 1 # cents per $/M per step
-  output_cents: 1 # cents per $/M per step
+  input_cents: 5 # cents per $/M per step ($0.05 by default)
+  output_cents: 5 # cents per $/M per step ($0.05 by default)
 ```
 
 Все значения должны быть неотрицательными целыми; отсутствующие или нулевые ключи
-получают defaults `5/8192/1/1`. `Context minimum` показывается целым числом
+получают defaults `5/8192/5/5` (Input/Output по `$0.05`). `Context minimum` показывается целым числом
 токенов, а Input/Output всегда показываются и сохраняются канонически с двумя
 знаками после запятой. Шаг цены всегда равен настроенному числу cents, поэтому
 переходы `$0.99 -> $1.00` и `$9.99 -> $10.00` не пропускаются.
