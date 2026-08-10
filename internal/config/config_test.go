@@ -147,7 +147,7 @@ func TestLoadPreservesExplicitEmptyTUIFilterAndDefaultFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.DefaultFilter != "paid" || !got.TUIFilterSet || got.TUIFilter != "" {
+	if got.DefaultFilter != "paid" || !got.DefaultFilterSet || !got.TUIFilterSet || got.TUIFilter != "" {
 		t.Fatalf("config = %+v, want explicit default and empty TUI filter", got)
 	}
 }

@@ -122,6 +122,7 @@ type tuiRefreshMsg struct {
 	models                []model.Model
 	filter                string
 	filterSteps           config.TUISteps
+	filterFormExplicit    bool
 	err                   error
 }
 type tuiScoreSourceMsg struct {
@@ -155,6 +156,7 @@ type tuiModel struct {
 	width, height         int
 	filter                string
 	filterExplicit        bool
+	filterFormExplicit    bool
 	lastNote              bool
 	status, err           string
 	updatedAt             string
@@ -235,6 +237,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 			return loadErr
 		}
 		m.filterSteps = cfg.TUISteps
+		m.filterFormExplicit = filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
@@ -302,7 +305,7 @@ func tuiTick(d time.Duration) tea.Cmd { return func() tea.Msg { time.Sleep(d); r
 func (m tuiModel) refreshCmd() tea.Cmd {
 	generation, scoreSourceGeneration, opts, dir, source := m.generation, m.scoreSourceGeneration, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
-		filter := m.filter
+		filter, filterFormExplicit := m.filter, m.filterFormExplicit
 		filterSteps := m.filterSteps
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
@@ -310,6 +313,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
 			}
 			filterSteps = cfg.TUISteps
+			filterFormExplicit = m.filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 			if !m.filterExplicit {
 				filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
 			}
@@ -324,7 +328,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, filterFormExplicit: filterFormExplicit, err: err}
 	}
 }
 
@@ -362,6 +366,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
 		m.filterSteps = msg.filterSteps
+		m.filterFormExplicit = msg.filterFormExplicit
 		if !m.filterExplicit {
 			m.filter = msg.filter
 		}
@@ -707,7 +712,11 @@ func (m *tuiModel) openFilterEditor() {
 	m.overlay = "filter"
 	m.inputMode = ""
 	m.filterCursor = 0
-	m.filterDraft = tuiFilterDraftFromString(m.filter)
+	if m.filterFormExplicit || m.filter != config.DefaultFilter {
+		m.filterDraft = tuiFilterDraftFromString(m.filter)
+	} else {
+		m.filterDraft = tuiFilterDraft{}
+	}
 }
 
 func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
@@ -772,6 +781,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 		return m, nil
 	}
 	m.filter, m.err, m.overlay = candidate, "", ""
+	m.filterFormExplicit = true
 	m.status = "filter: " + filterStatusValue(candidate)
 	if m.configPath != "" {
 		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {

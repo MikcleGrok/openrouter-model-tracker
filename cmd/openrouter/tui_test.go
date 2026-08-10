@@ -63,6 +63,44 @@ func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	}
 }
 
+func TestTUIFilterOpensNumericFieldsAsAnyWithoutExplicitFilter(t *testing.T) {
+	m := tuiModel{filter: config.DefaultFilter}
+	m.openFilterEditor()
+	if m.filterDraft != (tuiFilterDraft{}) {
+		t.Fatalf("implicit default filter draft = %+v, want all fields unset", m.filterDraft)
+	}
+	view := tuiFilterView(tuiModel{width: 100, height: 20, overlay: "filter", filterDraft: m.filterDraft})
+	for _, label := range []string{"Quality minimum", "Context minimum", "Input max", "Output max"} {
+		if !strings.Contains(view, label+": (any)") {
+			t.Fatalf("clean filter view missing %q: %q", label, view)
+		}
+	}
+}
+
+func TestTUIFilterKeepsExplicitDefaultFilterInForm(t *testing.T) {
+	m := tuiModel{filter: config.DefaultFilter, filterFormExplicit: true}
+	m.openFilterEditor()
+	if m.filterDraft.quality != "75" {
+		t.Fatalf("explicit default filter draft = %+v, want quality 75", m.filterDraft)
+	}
+}
+
+func TestTUIRefreshUpdatesFilterFormExplicitness(t *testing.T) {
+	m := tuiModel{filter: config.DefaultFilter, generation: 1}
+	next, _ := m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: true})
+	m = next.(tuiModel)
+	m.openFilterEditor()
+	if m.filterDraft.quality != "75" {
+		t.Fatalf("reloaded explicit default draft = %+v, want quality 75", m.filterDraft)
+	}
+	next, _ = m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: false})
+	m = next.(tuiModel)
+	m.openFilterEditor()
+	if m.filterDraft != (tuiFilterDraft{}) {
+		t.Fatalf("reloaded implicit default draft = %+v, want all fields unset", m.filterDraft)
+	}
+}
+
 func TestTUIModelShowsRuntimeFormulaError(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	body := "ranking:\n  mixed_utility:\n    formula:\n      op: log\n      args:\n        - const: 0\n"
