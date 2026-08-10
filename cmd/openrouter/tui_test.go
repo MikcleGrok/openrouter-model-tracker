@@ -186,6 +186,11 @@ func TestTUIKeyState(t *testing.T) {
 	if m.cursor != 1 {
 		t.Fatalf("cursor = %d", m.cursor)
 	}
+	m = tuiKey(m, "enter")
+	if m.overlay != "detail" {
+		t.Fatalf("Enter overlay = %q, want detail", m.overlay)
+	}
+	m = tuiKey(m, "esc")
 	old := m.sortKey
 	m = tuiKey(m, "s")
 	if m.sortKey == old {
@@ -302,7 +307,10 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	if !strings.Contains(tuiShortcutHelpDocument, `\tF1\thelp\topen full help.`) {
 		t.Fatalf("shortcut help does not document F1: %q", tuiShortcutHelpDocument)
 	}
-	if !strings.Contains(tuiShortcutHelpDocument, `\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.`) {
+	if !strings.Contains(tuiShortcutHelpDocument, `\tEnter / Right / l\tdetail\topen model details.`) {
+		t.Fatalf("shortcut help does not document Enter for model details: %q", tuiShortcutHelpDocument)
+	}
+	if !strings.Contains(tuiShortcutHelpDocument, `\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`) {
 		t.Fatalf("shortcut help does not document score-source switching: %q", tuiShortcutHelpDocument)
 	}
 	for _, r := range tuiShortcutHelpDocument {
@@ -339,11 +347,11 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	if m.overlay != "settings" {
 		t.Fatal("settings overlay not opened")
 	}
-	if view := m.View(); !strings.Contains(view, "Score source: swebench (Enter/Space switches SWE-bench/Arena)") || !strings.Contains(view, "Move Down to Score source, then press Enter/Space to switch.") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
+	if view := m.View(); !strings.Contains(view, "Score source: swebench (Space switches SWE-bench/Arena)") || !strings.Contains(view, "Move Down to Score source, then press Space to switch.") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
 		t.Fatalf("settings view is missing state: %q", view)
 	}
 	m = tuiKey(m, "down")
-	m, _ = m.settingsKey("enter")
+	m, _ = m.settingsKey(" ")
 	if m.scoreSource != scoreSourceDefault {
 		t.Fatalf("score source changed before local snapshot loaded: %q", m.scoreSource)
 	}
@@ -1514,7 +1522,7 @@ func TestTUIHelpRowsDoNotMixActions(t *testing.T) {
 		for _, row := range []string{
 			`\tSpace\tcolumns\ttoggle a column.`,
 			`\tSpace\ttier\tcycle Tier.`,
-			`\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.`,
+			`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`,
 		} {
 			if !strings.Contains(document, row) {
 				t.Fatalf("help document is missing single-action row %q: %q", row, document)
@@ -1540,7 +1548,7 @@ func TestTUIHelpRowsDoNotMixActions(t *testing.T) {
 		`\tSpace\tcolumns/tier\ttoggle a column or cycle Tier.`,
 		`\tc / Space / Enter / Esc\tcolumns\topen selection; toggle a column; apply or cancel.`,
 		`\tx / Ctrl-C / Esc\tclose\texit, close help, or return to the list.`,
-		`open settings; move Down to Score source, then press Enter/Space to switch`,
+		`open settings; move Down to Score source, then press Space to switch`,
 		`open shortcut help or close help.`,
 	} {
 		if strings.Contains(tuiShortcutHelpDocument, mixed) || strings.Contains(tuiHelpDocument, mixed) {
