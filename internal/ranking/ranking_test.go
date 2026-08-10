@@ -23,6 +23,36 @@ func TestDefaultCompatibility(t *testing.T) {
 	}
 }
 
+func TestQualityUtilityIsPrePriceBaseline(t *testing.T) {
+	c, err := Compile(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	quality, err := c.QualityUtility(90, 1, 3, "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quality != 90 {
+		t.Fatalf("quality utility = %v, want 90 before price bonus", quality)
+	}
+	full, err := c.Evaluate(c.Context(90, 1, 3, "sonnet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full <= quality {
+		t.Fatalf("full utility = %v, want price bonus above baseline %v", full, quality)
+	}
+	baseQP := quality / 2.5
+	full, err = c.FullUtility(90, 1, 3, baseQP, "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 90 + 10*math.Log1p(baseQP)
+	if math.Abs(full-want) > 1e-9 {
+		t.Fatalf("full utility = %v, want %v from base_qp=%v", full, want, baseQP)
+	}
+}
+
 func TestCustomFormulaAndPriceMix(t *testing.T) {
 	var expr Expr
 	if err := yaml.Unmarshal([]byte("op: add\nargs:\n  - var: score\n  - op: mul\n    args:\n      - var: tier_factor\n      - op: log1p\n        args:\n          - var: quality_price\n"), &expr); err != nil {

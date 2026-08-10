@@ -101,6 +101,9 @@ func TestFetchArenaElo(t *testing.T) {
 	if hy3.SourceURL != srv.URL {
 		t.Errorf("hy3.SourceURL = %q, want %q", hy3.SourceURL, srv.URL)
 	}
+	if hy3.Provider != "Tencent" || hy3.License != "Apache-2.0" || hy3.ModelURL != "https://arena.ai/models/hy3" || hy3.MetadataSourceURL != srv.URL {
+		t.Errorf("hy3 metadata = %+v, want provider/license/link and the Arena source URL", hy3)
+	}
 	if rows[0].Slug > rows[1].Slug || rows[1].Slug > rows[2].Slug {
 		t.Errorf("rows are not sorted by slug: %+v", rows)
 	}

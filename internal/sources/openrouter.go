@@ -36,6 +36,7 @@ type PriceInfo struct {
 	// is this model's entry in the OpenRouter catalogue.
 	Created     int64
 	Description string
+	Name        string
 
 	// CanonicalSlug is the catalogue's own stable identifier for this
 	// entry — OpenRouter builds its own links.details URLs out of it rather
@@ -157,6 +158,7 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			Found:         true,
 			Created:       m.Created,
 			Description:   m.Description,
+			Name:          m.Name,
 			CanonicalSlug: m.CanonicalSlug,
 			HuggingFaceID: m.HuggingFaceID,
 		}

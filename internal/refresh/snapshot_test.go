@@ -165,7 +165,7 @@ func TestSnapshotOmitsAnEmptyArenaScore(t *testing.T) {
 // permanent н/д.
 func TestSnapshotRoundTripsCatalogueMetadata(t *testing.T) {
 	models := []model.Model{
-		{Slug: "a/dated", InPerM: 1, OutPerM: 3, Context: 1000, Created: 1786034890, Description: "A dated model."},
+		{Slug: "a/dated", InPerM: 1, OutPerM: 3, Context: 1000, Created: 1786034890, Description: "A dated model.", CatalogName: "Qwen: Qwen3.8 Max", Provider: "Qwen", License: "Apache-2.0", ModelURL: "https://arena.ai/models/qwen", MetadataSourceURL: "https://arena.ai/leaderboard/text"},
 		{Slug: "a/bare", InPerM: 1, OutPerM: 3, Context: 1000},
 	}
 	path := filepath.Join(t.TempDir(), "snap.json")
@@ -180,6 +180,9 @@ func TestSnapshotRoundTripsCatalogueMetadata(t *testing.T) {
 	dated := loaded.Models["a/dated"]
 	if dated.Created != 1786034890 || dated.Description != "A dated model." {
 		t.Errorf("dated = %+v, want the catalogue metadata to survive the disk round trip", dated)
+	}
+	if dated.CatalogName != "Qwen: Qwen3.8 Max" || dated.Provider != "Qwen" || dated.License != "Apache-2.0" || dated.ModelURL != "https://arena.ai/models/qwen" || dated.MetadataSourceURL != "https://arena.ai/leaderboard/text" {
+		t.Errorf("dated metadata = %+v, want catalogue name and sourced Arena metadata", dated)
 	}
 	bare := loaded.Models["a/bare"]
 	if bare.Created != 0 || bare.Description != "" {

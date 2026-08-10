@@ -33,7 +33,7 @@ const defaultTableWidth = 120
 const minTableWidth = 40
 const maxTableIdentityWidth = 40
 
-const tableSortHelp = "name, slug, context, input, output, price, quality (Q), q/p (QP), P"
+const tableSortHelp = "name, slug, context, input, output, price, quality (Q), q/p (QP), utility, P"
 
 const (
 	rankingLegacy  = "legacy"
@@ -111,14 +111,14 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 			Free: entry.InPerM == 0 && entry.OutPerM == 0, Found: true,
 			HasOverride: entry.HasOverride, OverrideMinTokens: entry.OverrideMinTokens,
 			OverrideInPerM: entry.OverrideInPerM, OverrideOutPerM: entry.OverrideOutPerM,
-			Created: entry.Created, Description: entry.Description,
+			Created: entry.Created, Description: entry.Description, Name: entry.CatalogName,
 			CanonicalSlug: entry.CanonicalSlug, HuggingFaceID: entry.HuggingFaceID,
 		}
 		if entry.Score != nil {
 			scores = append(scores, sources.ScoreRow{Slug: slug, Metric: entry.Score.Metric, Value: entry.Score.Value, VariantMeasured: entry.Score.VariantMeasured, SourceURL: entry.Score.SourceURL, Checked: entry.Score.Checked})
 		}
 		if entry.ArenaScore != nil {
-			arena = append(arena, sources.ScoreRow{Slug: slug, Metric: entry.ArenaScore.Metric, Value: entry.ArenaScore.Value, VariantMeasured: entry.ArenaScore.VariantMeasured, SourceURL: entry.ArenaScore.SourceURL, Checked: entry.ArenaScore.Checked})
+			arena = append(arena, sources.ScoreRow{Slug: slug, Metric: entry.ArenaScore.Metric, Value: entry.ArenaScore.Value, VariantMeasured: entry.ArenaScore.VariantMeasured, SourceURL: entry.ArenaScore.SourceURL, Checked: entry.ArenaScore.Checked, Provider: entry.Provider, License: entry.License, ModelURL: entry.ModelURL, MetadataSourceURL: entry.MetadataSourceURL})
 		}
 	}
 	models := model.MergeWithArena(entries, prices, scores, arena, nt)
@@ -170,13 +170,19 @@ func sortTableModelsWithRankingAndConfig(models []model.Model, key string, rever
 		key = alias
 	}
 	if key == "" {
-		key = "q/p"
+		key = "utility"
 	}
-	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "price": true, "quality": true, "q/p": true}
+	if err := applyCanonicalQualityPrice(models, compiled); err != nil {
+		return err
+	}
+	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "price": true, "quality": true, "q/p": true, "utility": true}
 	if !valid[key] {
 		return fmt.Errorf("table: unknown sort %q; allowed values: %s", key, tableSortHelp)
 	}
-	if rankingName != rankingLegacy && key == "q/p" {
+	if key == "utility" && rankingName == rankingLegacy {
+		key = "q/p"
+	}
+	if rankingName != rankingLegacy && key == "utility" {
 		utilities, err := rankingUtilities(models, compiled)
 		if err != nil {
 			return err
@@ -236,6 +242,38 @@ func sortTableModelsWithRankingAndConfig(models []model.Model, key string, rever
 	return nil
 }
 
+// applyCanonicalQualityPrice is the one table/TUI boundary where the
+// displayed and q/p-sorted metric is derived. The dependency is intentionally
+// one-way: base_quality -> base_qp -> full_utility -> displayed q/p.
+func applyCanonicalQualityPrice(models []model.Model, compiled ranking.Compiled) error {
+	for i := range models {
+		m := &models[i]
+		if m.InPerM == 0 && m.OutPerM == 0 {
+			continue
+		}
+		if m.Free || m.Score == nil || !m.Rankable || m.MixedPrice <= 0 {
+			if m.MixedPrice <= 0 {
+				m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
+			}
+		}
+		if m.Free || m.Score == nil || !m.Rankable || m.MixedPrice <= 0 {
+			continue
+		}
+		baseQuality, err := compiled.QualityUtility(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
+		if err != nil {
+			return fmt.Errorf("table: cannot rank model %q: cannot derive base quality: %w", m.Slug, err)
+		}
+		baseQP := baseQuality / m.MixedPrice
+		fullUtility, err := compiled.FullUtility(m.Score.Value, m.InPerM, m.OutPerM, baseQP, m.Tier)
+		if err != nil {
+			return fmt.Errorf("table: cannot rank model %q: cannot derive full utility: %w", m.Slug, err)
+		}
+		m.QualityPrice = fullUtility / m.MixedPrice
+		m.QualityPriceLabel = pricing.FormatQualityPrice(m.QualityPrice)
+	}
+	return nil
+}
+
 func rankingUtilities(models []model.Model, compiled ranking.Compiled) (map[string]float64, error) {
 	utilities := make(map[string]float64, len(models))
 	for _, m := range models {
@@ -286,11 +324,17 @@ func compareRanking(left, right model.Model, rankingName string, utilities map[s
 }
 
 func mixedUtility(m model.Model, compiled ranking.Compiled) (float64, error) {
-	context := compiled.Context(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
 	if m.InPerM == 0 && m.OutPerM == 0 {
+		context := compiled.Context(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
 		context.QualityPrice = m.QualityPrice
+		return compiled.Evaluate(context)
 	}
-	return compiled.Evaluate(context)
+	baseQuality, err := compiled.QualityUtility(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
+	if err != nil {
+		return 0, err
+	}
+	baseQP := baseQuality / m.MixedPrice
+	return compiled.FullUtility(m.Score.Value, m.InPerM, m.OutPerM, baseQP, m.Tier)
 }
 
 func rankingTierValue(tier string) int {
