@@ -57,12 +57,19 @@ type TUIConfig struct {
 	Limit           int    `yaml:"limit"`
 }
 
-// TUISteps contains percentage steps used by the structured TUI filter editor.
+// TUISteps contains unit-specific steps used by the structured TUI filter editor.
 type TUISteps struct {
-	Quality int `yaml:"quality"`
-	Context int `yaml:"context"`
-	Input   int `yaml:"input"`
-	Output  int `yaml:"output"`
+	QualityPoints int `yaml:"quality_points"`
+	ContextTokens int `yaml:"context_tokens"`
+	InputCents    int `yaml:"input_cents"`
+	OutputCents   int `yaml:"output_cents"`
+	// These fields are accepted for configs written before v1.13.10. They keep
+	// their old percentage semantics and are not emitted by init.
+	Quality int  `yaml:"quality"`
+	Context int  `yaml:"context"`
+	Input   int  `yaml:"input"`
+	Output  int  `yaml:"output"`
+	Legacy  bool `yaml:"-"`
 }
 
 type RankingConfig struct {
@@ -77,29 +84,45 @@ const DefaultRequestTimeout = 30 * time.Second
 const DefaultTUIRefreshInterval = 5 * time.Minute
 
 const (
-	DefaultTUIQualityStep = 5
-	DefaultTUIContextStep = 5
-	DefaultTUIInputStep   = 5
-	DefaultTUIOutputStep  = 5
+	DefaultTUIQualityPoints = 5
+	DefaultTUIContextTokens = 8192
+	DefaultTUIInputCents    = 1
+	DefaultTUIOutputCents   = 1
 )
 
 func DefaultTUISteps() TUISteps {
-	return TUISteps{Quality: DefaultTUIQualityStep, Context: DefaultTUIContextStep, Input: DefaultTUIInputStep, Output: DefaultTUIOutputStep}
+	return TUISteps{QualityPoints: DefaultTUIQualityPoints, ContextTokens: DefaultTUIContextTokens, InputCents: DefaultTUIInputCents, OutputCents: DefaultTUIOutputCents}
 }
 
 func (s TUISteps) WithDefaults() TUISteps {
+	if s.Legacy || (s.QualityPoints == 0 && s.ContextTokens == 0 && s.InputCents == 0 && s.OutputCents == 0 && (s.Quality != 0 || s.Context != 0 || s.Input != 0 || s.Output != 0)) {
+		s.Legacy = true
+		if s.Quality == 0 {
+			s.Quality = DefaultTUIQualityPoints
+		}
+		if s.Context == 0 {
+			s.Context = 5
+		}
+		if s.Input == 0 {
+			s.Input = 5
+		}
+		if s.Output == 0 {
+			s.Output = 5
+		}
+		return s
+	}
 	defaults := DefaultTUISteps()
-	if s.Quality == 0 {
-		s.Quality = defaults.Quality
+	if s.QualityPoints == 0 {
+		s.QualityPoints = defaults.QualityPoints
 	}
-	if s.Context == 0 {
-		s.Context = defaults.Context
+	if s.ContextTokens == 0 {
+		s.ContextTokens = defaults.ContextTokens
 	}
-	if s.Input == 0 {
-		s.Input = defaults.Input
+	if s.InputCents == 0 {
+		s.InputCents = defaults.InputCents
 	}
-	if s.Output == 0 {
-		s.Output = defaults.Output
+	if s.OutputCents == 0 {
+		s.OutputCents = defaults.OutputCents
 	}
 	return s
 }
@@ -138,7 +161,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75\n" +
-	"tui_steps: {quality: 5, context: 5, input: 5, output: 5}\n" +
+	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 1, output_cents: 1}\n" +
 	"cache:\n" +
 	"  dir: cache\n" +
 	"  ttl: 12h\n" +
@@ -313,10 +336,18 @@ func Load(path string) (Config, error) {
 	if !yamlMappingHasKey(document, "default_filter") {
 		c.DefaultFilter = DefaultFilter
 	}
-	for name, value := range map[string]int{"quality": c.TUISteps.Quality, "context": c.TUISteps.Context, "input": c.TUISteps.Input, "output": c.TUISteps.Output} {
+	for name, value := range map[string]int{"quality_points": c.TUISteps.QualityPoints, "context_tokens": c.TUISteps.ContextTokens, "input_cents": c.TUISteps.InputCents, "output_cents": c.TUISteps.OutputCents, "quality": c.TUISteps.Quality, "context": c.TUISteps.Context, "input": c.TUISteps.Input, "output": c.TUISteps.Output} {
 		if value < 0 {
 			return Config{}, fmt.Errorf("config: %s: tui_steps.%s must be non-negative", path, name)
 		}
+	}
+	if !yamlNestedMappingHasKey(document, "tui_steps", "quality_points") && !yamlNestedMappingHasKey(document, "tui_steps", "context_tokens") && !yamlNestedMappingHasKey(document, "tui_steps", "input_cents") && !yamlNestedMappingHasKey(document, "tui_steps", "output_cents") && (yamlNestedMappingHasKey(document, "tui_steps", "quality") || yamlNestedMappingHasKey(document, "tui_steps", "context") || yamlNestedMappingHasKey(document, "tui_steps", "input") || yamlNestedMappingHasKey(document, "tui_steps", "output")) {
+		c.TUISteps.Legacy = true
+	}
+	legacySteps := yamlNestedMappingHasKey(document, "tui_steps", "quality") || yamlNestedMappingHasKey(document, "tui_steps", "context") || yamlNestedMappingHasKey(document, "tui_steps", "input") || yamlNestedMappingHasKey(document, "tui_steps", "output")
+	newSteps := yamlNestedMappingHasKey(document, "tui_steps", "quality_points") || yamlNestedMappingHasKey(document, "tui_steps", "context_tokens") || yamlNestedMappingHasKey(document, "tui_steps", "input_cents") || yamlNestedMappingHasKey(document, "tui_steps", "output_cents")
+	if legacySteps && newSteps {
+		return Config{}, fmt.Errorf("config: tui_steps mixes legacy keys (quality/context/input/output) with new keys (quality_points/context_tokens/input_cents/output_cents); choose one schema")
 	}
 	c.TUISteps = c.TUISteps.WithDefaults()
 	if c.Table.Limit < 0 || c.TUI.Limit < 0 {

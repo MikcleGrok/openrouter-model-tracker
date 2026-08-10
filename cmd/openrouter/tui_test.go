@@ -339,6 +339,7 @@ func TestTUIFilterFormOpensAppliesAndPersistsStructuredFields(t *testing.T) {
 	m.filterDraft.scored = true
 	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
 	want := "paid,scored,tier:sonnet,quality>=90,context>=100000,input<=1,output<=2"
+	want = "paid,scored,tier:sonnet,quality>=90,context>=100000,input<=1.00,output<=2.00"
 	if m.overlay != "" || m.filter != want || len(m.visible) != 1 || m.visible[0].Slug != "match" {
 		t.Fatalf("applied filter = overlay %q, filter %q, visible %+v", m.overlay, m.filter, m.visible)
 	}
@@ -476,15 +477,28 @@ func TestTUIFilterTextFieldCanBeEditedAfterClear(t *testing.T) {
 		t.Fatalf("field edit after clear = %q, want 3", got)
 	}
 	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
-	if m.filter != "output<=3" {
-		t.Fatalf("applied filter after clear/edit = %q, want output<=3", m.filter)
+	if m.filter != "output<=3.00" {
+		t.Fatalf("applied filter after clear/edit = %q, want output<=3.00", m.filter)
 	}
 }
 
 func TestTUIFilterDraftStructuredConversion(t *testing.T) {
 	draft := tuiFilterDraftFromString("free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2")
-	if got := draft.string(); got != "free,tier:haiku,quality>=85,context>=64000,input<=0.5,output<=1.2" {
+	if got := draft.string(); got != "free,tier:haiku,quality>=85,context>=64000,input<=0.50,output<=1.20" {
 		t.Fatalf("draft conversion = %q", got)
+	}
+}
+
+func TestTUIFilterDraftCanonicalizesQualityAndPrices(t *testing.T) {
+	draft := tuiFilterDraftFromString("quality>=0.8,context>=100000.9,input<=0.88,output<=1")
+	if got := draft.string(); got != "quality>=80,context>=100001,input<=0.88,output<=1.00" {
+		t.Fatalf("canonical draft = %q", got)
+	}
+	view := tuiFilterView(tuiModel{width: 100, height: 20, overlay: "filter", filterDraft: draft})
+	for _, want := range []string{"Quality minimum: 80", "Context minimum: 100001", "Input max: 0.88", "Output max: 1.00"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
+		}
 	}
 }
 
@@ -526,7 +540,7 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		field int
 		want  string
 	}{
-		{4, "5"}, {5, "5"}, {6, "1"}, {7, "1"},
+		{4, "5"}, {5, "8192"}, {6, "0.01"}, {7, "0.01"},
 	} {
 		m.filterCursor = test.field
 		m.filterDraft = tuiFilterDraft{}
@@ -540,8 +554,41 @@ func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	}
-	if m.filterDraft.quality != "100" || m.filterDraft.context != "105000" || m.filterDraft.input != "1" || m.filterDraft.output != "2" {
+	if m.filterDraft.quality != "100" || m.filterDraft.context != "108192" || m.filterDraft.input != "1.01" || m.filterDraft.output != "2.01" {
 		t.Fatalf("right steps = %+v", m.filterDraft)
+	}
+}
+
+func TestTUIFilterNumericArrowsMakeProgressAcrossRepeatedSteps(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		field     int
+		start     string
+		wantRight string
+		wantLeft  string
+	}{
+		{"context", 5, "5", "24581", "0"},
+		{"input", 6, "1", "1.03", "0.97"},
+		{"output", 7, "1", "1.03", "0.97"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := tuiModel{overlay: "filter", filterCursor: test.field, filterDraft: tuiFilterDraft{context: test.start, input: test.start, output: test.start}}
+			for i := 0; i < 3; i++ {
+				m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+			}
+			got := []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-5]
+			if got != test.wantRight {
+				t.Fatalf("three right steps = %q, want %q", got, test.wantRight)
+			}
+			m.filterDraft = tuiFilterDraft{context: test.start, input: test.start, output: test.start}
+			for i := 0; i < 3; i++ {
+				m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+			}
+			got = []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-5]
+			if got != test.wantLeft {
+				t.Fatalf("three left steps = %q, want %q", got, test.wantLeft)
+			}
+		})
 	}
 }
 
@@ -553,16 +600,69 @@ func TestTUIFilterDisplayRoundsPricesWithoutChangingFilterSyntax(t *testing.T) {
 			t.Fatalf("filter view does not contain %q: %q", want, view)
 		}
 	}
-	if got := m.filterDraft.string(); got != "context>=100000.999,input<=1.23456789,output<=2.999999" {
+	if got := m.filterDraft.string(); got != "context>=100001,input<=1.23,output<=3.00" {
 		t.Fatalf("display formatting changed filter syntax: %q", got)
 	}
 }
 
 func TestTUIFilterNumericStepsUseConfiguredValues(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "100"}, filterSteps: config.TUISteps{Quality: 1, Context: 1, Input: 10, Output: 20}}
+	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "0.1"}, filterSteps: config.TUISteps{QualityPoints: 1, ContextTokens: 1, InputCents: 10, OutputCents: 20}}
 	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
-	if m.filterDraft.input != "110" {
-		t.Fatalf("configured input step = %q, want 110", m.filterDraft.input)
+	if m.filterDraft.input != "0.20" {
+		t.Fatalf("configured input step = %q, want 0.20", m.filterDraft.input)
+	}
+}
+
+func TestTUIFilterNumericStepsUseConfiguredValuesWithProgress(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 5, filterDraft: tuiFilterDraft{context: "5"}, filterSteps: config.TUISteps{ContextTokens: 1, InputCents: 1, OutputCents: 1}}
+	for i := 0; i < 2; i++ {
+		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	}
+	if m.filterDraft.context != "7" {
+		t.Fatalf("configured context right steps = %q, want 7", m.filterDraft.context)
+	}
+	m.filterCursor = 6
+	m.filterDraft.input = "5"
+	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+	if m.filterDraft.input != "4.99" {
+		t.Fatalf("configured input left step = %q, want 4.99", m.filterDraft.input)
+	}
+}
+
+func TestTUIPriceStepsUseConfiguredCentsAndReachZero(t *testing.T) {
+	for _, test := range []struct {
+		cents int
+		want  int
+	}{
+		{9, 1}, {99, 1}, {100, 1}, {999, 1}, {1000, 1}, {9999, 1}, {10000, 1},
+	} {
+		if got := tuiPriceStep(test.cents, 1); got != test.want {
+			t.Errorf("tuiPriceStep(%d) = %d, want %d", test.cents, got, test.want)
+		}
+	}
+	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "0.01"}}
+	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+	if m.filterDraft.input != "0.00" {
+		t.Fatalf("price step crossed zero: %q", m.filterDraft.input)
+	}
+}
+
+func TestTUIPriceStepsCrossCanonicalBoundaries(t *testing.T) {
+	for _, test := range []struct{ start, want string }{{"0.99", "1.00"}, {"9.99", "10.00"}} {
+		m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: test.start}}
+		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+		if m.filterDraft.input != test.want {
+			t.Fatalf("price step %s = %q, want %s", test.start, m.filterDraft.input, test.want)
+		}
+	}
+}
+
+func TestTUIRefreshAppliesUpdatedSteps(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.filterSteps = config.DefaultTUISteps()
+	next, _ := m.Update(tuiRefreshMsg{generation: 0, scoreSourceGeneration: 0, filterSteps: config.TUISteps{QualityPoints: 2, ContextTokens: 2048, InputCents: 3, OutputCents: 4}})
+	if got := next.(tuiModel).filterSteps.InputCents; got != 3 {
+		t.Fatalf("refresh did not apply input step: %d", got)
 	}
 }
 
@@ -572,13 +672,30 @@ func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
 		m.filterCursor = field
 		m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	}
-	if got := m.filterDraft.string(); got != "quality>=0,context>=0,input<=0,output<=0" {
+	if got := m.filterDraft.string(); got != "quality>=0,context>=0,input<=0.00,output<=0.00" {
 		t.Fatalf("numeric left clamp serialization = %q", got)
 	}
 	m.filterDraft = tuiFilterDraft{quality: "101", context: "-1", input: "-0.5", output: "-2"}
 	m, _ = m.applyFilterDraft()
-	if got := m.filter; got != "quality>=100,context>=0,input<=0,output<=0" {
+	if got := m.filter; got != "quality>=100,context>=0,input<=0.00,output<=0.00" {
 		t.Fatalf("manual negative clamp serialization = %q", got)
+	}
+}
+
+func TestTUIFilterNumericArrowsDoNotCrossZero(t *testing.T) {
+	for _, field := range []int{5, 6, 7} {
+		m := tuiModel{overlay: "filter", filterCursor: field, filterDraft: tuiFilterDraft{context: "1", input: "1", output: "1"}}
+		for i := 0; i < 200; i++ {
+			m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+		}
+		got := []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-5]
+		want := "0"
+		if field >= 6 {
+			want = "0.00"
+		}
+		if got != want {
+			t.Fatalf("field %d repeated left = %q, want 0", field, got)
+		}
 	}
 }
 
