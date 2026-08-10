@@ -1113,11 +1113,11 @@ func (m tuiModel) View() string {
 			"Settings (Enter/Space change, Esc close)",
 			"",
 			"> Ranking: " + rankingName,
-			"  Score source: " + m.scoreSource + " (Enter/Space switches SWE-bench/Arena)",
+			"  Score source: " + m.scoreSource + " (Space switches SWE-bench/Arena)",
 			"  Filter: " + tuiDetailValue(m.filter),
 			"  Columns: " + strings.Join(columns, ", "),
 			"",
-			"Move Down to Score source, then press Enter/Space to switch.",
+			"Move Down to Score source, then press Space to switch.",
 			"Source uses the local snapshot; R refreshes data.",
 			"Select Filter to reuse the structured filter input.",
 		}
@@ -1662,8 +1662,8 @@ Data/view
 \tS\tordering\treverse order.
 \tm\tranking\ttoggle ranking mode.
 \to\tsettings\topen settings.
-\tDown\tnavigate\tmove to Score source.
-\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.
+\tDown\tnavigate\tmove to Score source in Settings.
+\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen column selection.
 \tn\tview\tswitch the last column between Task fit and Note.
@@ -1719,8 +1719,8 @@ Data/view
 \ts\tordering\tcycle sort key.
 \tS\tordering\treverse order.
 \to\tsettings\topen Settings.
-\tDown\tnavigate\tmove to Score source.
-\tEnter / Space\tswitch\tswitch between SWE-bench and Arena.
+\tDown\tnavigate\tmove to Score source in Settings.
+\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen selection.
 \tn\tview\tswitch the last column between Task fit and Note.
@@ -1781,7 +1781,7 @@ Refresh and finish
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
 mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
-Use o, then Down to Score source, then Enter/Space to switch between SWE-bench and Arena.
+Use o, then Down to Score source, then Space to switch between SWE-bench and Arena.
 The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
 
 Score sources
