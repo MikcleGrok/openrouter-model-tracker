@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.36]
+
+- Synchronize with the remote local-only release transition.
+- Preserve release packaging without the macOS-only LaunchAgent prerequisite for Linux archives.
+
 ## [1.13.35]
 
 - Keep the macOS-only LaunchAgent check from blocking the Linux release archive build.
