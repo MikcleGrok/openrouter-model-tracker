@@ -2311,15 +2311,19 @@ func tuiDetailArenaBlock(m model.Model) []string {
 func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 	lines := []string{"  Значение: " + tuiDetailValue(label)}
 	if info == nil {
-		return lines
+		return append(lines, "  Provenance: "+model.FormatScoreProvenance(nil))
 	}
 	if info.Stale {
 		lines = append(lines, "  Устарело: значение взято из прошлого снапшота")
 	}
-	if info.VariantMeasured != "" {
-		lines = append(lines, "  Измеренный вариант: "+plainTableText(info.VariantMeasured))
-	}
-	return append(lines, "  Источник: "+tuiDetailValue(info.SourceURL), "  Проверено: "+tuiDetailValue(info.Checked))
+	return append(lines,
+		"  Измеренный вариант: "+tuiDetailValue(info.VariantMeasured),
+		"  Метрика: "+tuiDetailValue(info.Metric),
+		"  Единица: "+tuiDetailValue(info.Unit),
+		"  Согласованность identity: "+tuiDetailValue(info.IdentityStatus),
+		"  Источник: "+tuiDetailValue(info.SourceURL),
+		"  Проверено: "+tuiDetailValue(info.Checked),
+		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 
 // tuiDetailLines builds the detail screen's content for one model: twelve
@@ -2347,6 +2351,8 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	lines = append(lines,
 		"",
 		"Производитель: "+tuiDetailValue(m.Owner),
+		"Capability estimate / Claude tier: "+tuiDetailValue(m.Tier)+" (manual model-map.tsv)",
+		"Tier estimate: "+tuiDetailValue(m.ClaudeRef)+" (manual estimate)",
 		"Тир: "+tuiDetailValue(m.Tier),
 		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
 		"Дата релиза: "+tuiDetailReleaseDate(m.Created, now),

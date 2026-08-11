@@ -4,15 +4,20 @@
 
 - No unreleased changes.
 
-## [1.13.27]
+## [1.13.29]
 
-- Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
-- Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
+- Preserve benchmark provenance and source-family-aware product identity, keeping mismatched, missing, legacy, and observation-only scores out of quality, Q/P, filters, and ranking.
+- Treat Arena model keys as a separate namespace and reject ambiguous or cross-namespace identity matches while retaining raw Elo metadata.
 
 ## [1.13.28]
 
 - Preserve model detail metadata and provenance in refreshed snapshots and expose it in the model detail view.
 - Canonicalize ranking utility and displayed Q/P as `full_utility / mixed_price`, with price-independent base quality and provenance-aware metadata.
+
+## [1.13.27]
+
+- Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
+- Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
 ## [1.13.26]
 

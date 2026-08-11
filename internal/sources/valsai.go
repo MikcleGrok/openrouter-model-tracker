@@ -122,12 +122,16 @@ func FetchValsSWEBench(ctx context.Context, c *httpcache.Client, names map[strin
 			continue
 		}
 		out = append(out, ScoreRow{
-			Slug:            slug,
-			Metric:          MetricSWEBenchVerified,
-			Value:           entry.Accuracy,
-			VariantMeasured: key,
-			SourceURL:       ValsSWEBenchURL,
-			Checked:         page.BenchmarkView.Default.Metadata.Updated,
+			Slug:               slug,
+			SourceFamily:       "vals",
+			ConfiguredIdentity: key,
+			Metric:             MetricSWEBenchVerified,
+			Value:              entry.Accuracy,
+			Unit:               "%",
+			VariantMeasured:    key,
+			SourceURL:          ValsSWEBenchURL,
+			Checked:            page.BenchmarkView.Default.Metadata.Updated,
+			Provider:           entry.Provider,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })

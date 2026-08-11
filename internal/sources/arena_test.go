@@ -101,6 +101,9 @@ func TestFetchArenaElo(t *testing.T) {
 	if hy3.SourceURL != srv.URL {
 		t.Errorf("hy3.SourceURL = %q, want %q", hy3.SourceURL, srv.URL)
 	}
+	if hy3.SourceFamily != "arena" || hy3.ConfiguredIdentity != "hy3-tencent-cloud-text" || hy3.CanonicalID != "hy3-tencent-cloud-text" {
+		t.Errorf("hy3 identity = %+v, want the configured Arena namespace identity", hy3)
+	}
 	if hy3.Provider != "Tencent" || hy3.License != "Apache-2.0" || hy3.ModelURL != "https://arena.ai/models/hy3" || hy3.MetadataSourceURL != srv.URL {
 		t.Errorf("hy3 metadata = %+v, want provider/license/link and the Arena source URL", hy3)
 	}

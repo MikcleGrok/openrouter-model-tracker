@@ -156,6 +156,12 @@ func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]st
 		}
 		byKey[e.ModelKey] = e
 	}
+	keyOwners := make(map[string]int, len(names))
+	for _, key := range names {
+		if key != "" {
+			keyOwners[key]++
+		}
+	}
 
 	out := make([]ScoreRow, 0, len(names))
 	for slug, key := range names {
@@ -164,16 +170,25 @@ func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]st
 			continue // tracked, but not on this leaderboard: report.go tells the human
 		}
 		out = append(out, ScoreRow{
-			Slug:              slug,
-			Metric:            MetricArenaElo,
-			Value:             e.Rating,
-			VariantMeasured:   e.ModelDisplayName,
-			SourceURL:         ArenaURL,
-			Checked:           checked,
-			Provider:          e.ModelOrganization,
-			License:           e.License,
-			ModelURL:          e.ModelURL,
-			MetadataSourceURL: ArenaURL,
+			Slug:               slug,
+			SourceFamily:       "arena",
+			ConfiguredIdentity: key,
+			IdentityAmbiguous:  keyOwners[key] > 1,
+			Metric:             MetricArenaElo,
+			Value:              e.Rating,
+			Unit:               "Elo",
+			VariantMeasured:    e.ModelDisplayName,
+			SourceURL:          ArenaURL,
+			Checked:            checked,
+			Provider:           e.ModelOrganization,
+			License:            e.License,
+			ModelURL:           e.ModelURL,
+			MetadataSourceURL:  ArenaURL,
+			CanonicalID:        e.ModelKey,
+			SampleSize:         "н/д",
+			Uncertainty:        "н/д",
+			Harness:            "LMArena text arena",
+			Scaffold:           "н/д",
 		})
 	}
 	// A specific request (len(names) > 0) that matched nothing is treated as a

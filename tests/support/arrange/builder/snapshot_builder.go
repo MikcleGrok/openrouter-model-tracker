@@ -17,8 +17,8 @@ type SnapshotBuilder struct {
 
 func NewSnapshot() *SnapshotBuilder {
 	return &SnapshotBuilder{fetchedAt: "2026-08-07", models: map[string]refresh.SnapshotEntry{
-		"demo/high": {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90}},
-		"demo/low":  {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10}},
+		"demo/high": {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90, Unit: "%", VariantMeasured: "demo/high", IdentityStatus: model.IdentityExact}},
+		"demo/low":  {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10, Unit: "%", VariantMeasured: "demo/low", IdentityStatus: model.IdentityExact}},
 	}}
 }
 
