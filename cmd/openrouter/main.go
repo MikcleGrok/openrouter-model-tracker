@@ -124,10 +124,15 @@ func resolveTUIFilter(flagValue string, flagSet bool, savedValue string, savedSe
 	if flagSet {
 		return flagValue
 	}
-	if savedSet {
+	if savedSet && !isLegacyTUIFilter(savedValue) {
 		return savedValue
 	}
 	return defaultValue
+}
+
+// v1.13.30 and earlier could persist these values without user intent.
+func isLegacyTUIFilter(value string) bool {
+	return strings.TrimSpace(value) == "" || strings.TrimSpace(value) == "has-q/p"
 }
 
 // Config-relative paths are anchored to the config file, not the caller's cwd.

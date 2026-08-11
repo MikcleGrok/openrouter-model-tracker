@@ -608,11 +608,18 @@ func SaveTUIFilter(path, filter string) error {
 	}
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		if root.Content[i].Value == "tui_filter" {
+			if filter == "" {
+				root.Content = append(root.Content[:i], root.Content[i+2:]...)
+				return writeYAML(path, &document)
+			}
 			root.Content[i+1].Kind = yaml.ScalarNode
 			root.Content[i+1].Tag = "!!str"
 			root.Content[i+1].Value = filter
 			return writeYAML(path, &document)
 		}
+	}
+	if filter == "" {
+		return writeYAML(path, &document)
 	}
 	root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui_filter"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: filter})
 	return writeYAML(path, &document)

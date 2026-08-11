@@ -159,6 +159,23 @@ func TestSaveTUIFilterPreservesConfig(t *testing.T) {
 	}
 }
 
+func TestSaveTUIFilterEmptyRemovesPersistedOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("data_dir: project\ntui_filter: paid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveTUIFilter(path, ""); err != nil {
+		t.Fatalf("SaveTUIFilter: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TUIFilterSet || got.TUIFilter != "" {
+		t.Fatalf("cleared config = %+v, want no persisted TUI filter", got)
+	}
+}
+
 func TestLoadRejectsFormulaAndPriceWeightTogether(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := "ranking:\n  mixed_utility:\n    price_weight: 0\n    formula:\n      op: neg\n      args:\n        - var: score\n"

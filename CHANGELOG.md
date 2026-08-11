@@ -9,6 +9,11 @@
 - Preserve benchmark provenance and source-family-aware product identity, keeping mismatched, missing, legacy, and observation-only scores out of quality, Q/P, filters, and ranking.
 - Treat Arena model keys as a separate namespace and reject ambiguous or cross-namespace identity matches while retaining raw Elo metadata.
 
+## [1.13.31]
+
+- Migrate empty and legacy persisted TUI filters to the configured default while preserving custom filters and explicit CLI overrides.
+- Show the effective default filter in the TUI editor and remove persisted overrides when the filter is cleared.
+
 ## [1.13.30]
 
 - Complete Q/P and availability metadata for valid Arena rows, including English `n/a` labels and paid/free defaults.

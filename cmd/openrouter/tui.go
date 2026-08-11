@@ -125,6 +125,7 @@ type tuiRefreshMsg struct {
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
 	filterFormExplicit    bool
+	filterDefaulted       bool
 	layout                string
 	topN                  int
 	err                   error
@@ -163,6 +164,7 @@ type tuiModel struct {
 	filter                string
 	filterExplicit        bool
 	filterFormExplicit    bool
+	filterDefaulted       bool
 	lastNote              bool
 	status, err           string
 	updatedAt             string
@@ -252,8 +254,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.filterSteps = cfg.TUISteps
 		m.keymap = cfg.TUIKeymap
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
+		m.filterFormExplicit = true
+		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 		m.rebuild()
-		m.filterFormExplicit = filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
@@ -321,7 +324,7 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 		paidFilters, freeFilters := make([]string, 0), make([]string, 0)
 		for _, raw := range splitFilter(m.filter) {
 			trimmed := strings.TrimSpace(raw)
-			if !m.filterFormExplicit && strings.EqualFold(trimmed, "availability:paid") {
+			if m.filterDefaulted && strings.EqualFold(trimmed, "availability:paid") {
 				continue
 			}
 			paidFilters = append(paidFilters, raw)
@@ -391,7 +394,7 @@ func tuiTick(d time.Duration) tea.Cmd { return func() tea.Msg { time.Sleep(d); r
 func (m tuiModel) refreshCmd() tea.Cmd {
 	generation, scoreSourceGeneration, opts, dir, source := m.generation, m.scoreSourceGeneration, m.refreshOpts, m.dataDir, m.scoreSource
 	return func() tea.Msg {
-		filter, filterFormExplicit := m.filter, m.filterFormExplicit
+		filter, filterFormExplicit, filterDefaulted := m.filter, m.filterFormExplicit, m.filterDefaulted
 		filterSteps := m.filterSteps
 		keymap := m.keymap
 		layout, topN := m.layout, m.topN
@@ -408,7 +411,8 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			if cfg.TUI.TopN > 0 {
 				topN = cfg.TUI.TopN
 			}
-			filterFormExplicit = m.filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
+			filterFormExplicit = true
+			filterDefaulted = !m.filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 			if !m.filterExplicit {
 				filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
 			}
@@ -423,7 +427,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, layout: layout, topN: topN, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -499,6 +503,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keymap = msg.keymap
 		}
 		m.filterFormExplicit = msg.filterFormExplicit
+		m.filterDefaulted = msg.filterDefaulted
 		if !m.filterExplicit {
 			m.filter = msg.filter
 		}
@@ -845,6 +850,7 @@ func (m *tuiModel) cycleAvailability() {
 	}
 	m.filter = strings.Join(parts, ",")
 	m.filterFormExplicit = true
+	m.filterDefaulted = false
 }
 
 func (m *tuiModel) persistLayout() {
@@ -1049,6 +1055,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	}
 	m.filter, m.err, m.overlay = candidate, "", ""
 	m.filterFormExplicit = true
+	m.filterDefaulted = false
 	m.status = "filter: " + filterStatusValue(candidate)
 	if m.configPath != "" {
 		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
