@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.35]
+
+- Keep the macOS-only LaunchAgent check from blocking the Linux release archive build.
+- Preserve the separate LaunchAgent check.
+
 ## [1.13.33]
 
 - Remove GitHub Actions workflows from the release process.
