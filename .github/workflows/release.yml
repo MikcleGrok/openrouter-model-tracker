@@ -1,20 +1,32 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag or ref to release
+        required: true
+        type: string
 
 jobs:
   release:
     runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
     permissions:
       contents: write
     steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag '$TAG'; expected vX.Y.Z" >&2
+            exit 1
+          fi
+
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.TAG }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -61,11 +73,12 @@ jobs:
         run: make whats-new > release-notes.md
 
       - name: Publish GitHub Release with signed provenance evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --notes-file release-notes.md \
             bin/openrouter \
             .release/release-manifest.json \
