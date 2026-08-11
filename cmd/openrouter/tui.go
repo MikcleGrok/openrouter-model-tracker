@@ -60,8 +60,9 @@ var (
 	// the main screen, 87 is the label colour whose contrast against values
 	// this whole change exists to create, and tuiSelectedStyle has a
 	// background that would read as a mouse selection on full-screen text.
-	tuiLinkStyle  = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
-	tuiMatchStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
+	tuiLinkStyle         = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
+	tuiMatchStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
+	tuiCurrentMatchStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("124"))
 )
 
 // tuiLayoutAliases приводит символ, который физическая клавиша печатает в
@@ -602,8 +603,10 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.helpOffset = 0
 		case "end", "G":
 			m.helpOffset = m.helpMaxOffset()
-		case "enter":
+		case "n":
 			m.helpNextMatch(1)
+		case "N":
+			m.helpNextMatch(-1)
 		}
 		return m, nil
 	}
@@ -756,16 +759,6 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	if m.inputMode == "help-search" {
-		switch msg.String() {
-		case "up":
-			m.helpNextMatch(-1)
-			return m, nil
-		case "down":
-			m.helpNextMatch(1)
-			return m, nil
-		}
-	}
 	switch msg.String() {
 	case "esc":
 		if m.inputMode == "help-search" {
@@ -1820,7 +1813,20 @@ func tuiHelpView(m tuiModel) string {
 		inputLineIndex = len(lines)
 		lines = append(lines, plainTableText("/ "+m.input+"_"))
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · / search · Enter next match · Esc close", offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()))
+	matchStatus := "0 matches"
+	if len(m.helpMatches) > 0 {
+		position := 0
+		if m.helpMatch >= 0 && m.helpMatch < len(m.helpMatches) {
+			position = m.helpMatch + 1
+		}
+		matchStatus = fmt.Sprintf("%d/%d matches", position, len(m.helpMatches))
+	}
+	footer := fmt.Sprintf("Help %d-%d/%d · %s", offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()), matchStatus)
+	if inputActive {
+		footer += " · / search · Enter confirm search · Esc cancel"
+	} else {
+		footer += " · / search · n next match · N previous match · Esc close"
+	}
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
 	}
@@ -1838,7 +1844,8 @@ func tuiHelpView(m tuiModel) string {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
-		styledLines[i] = tuiHighlightHelpMatches(line, needle)
+		current := m.helpMatch >= 0 && m.helpMatch < len(m.helpMatches) && m.helpMatches[m.helpMatch] == offset+i
+		styledLines[i] = tuiHighlightHelpMatches(line, needle, current)
 	}
 	return strings.Join(styledLines, "\n")
 }
@@ -1864,7 +1871,7 @@ func tuiFormatHelpLine(line string, width int) string {
 	return tuiPadCell(truncateTable(parts[0], keyWidth), keyWidth, false) + "  " + tuiPadCell(truncateTable(parts[1], actionWidth), actionWidth, false) + "  " + truncateTable(parts[2], descriptionWidth)
 }
 
-func tuiHighlightHelpMatches(line, needle string) string {
+func tuiHighlightHelpMatches(line, needle string, current bool) string {
 	if needle == "" || line == "" || ansi.Strip(line) != line {
 		return line
 	}
@@ -1881,7 +1888,11 @@ func tuiHighlightHelpMatches(line, needle string) string {
 		}
 		start, end := from+index, from+index+len(needle)
 		out.WriteString(line[from:start])
-		out.WriteString(tuiMatchStyle.Render(line[start:end]))
+		if current {
+			out.WriteString(tuiCurrentMatchStyle.Render(line[start:end]))
+		} else {
+			out.WriteString(tuiMatchStyle.Render(line[start:end]))
+		}
 		from = end
 	}
 	return out.String()
@@ -2043,6 +2054,7 @@ Data/view
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen column selection.
 \tn\tview\tswitch the last column between Task fit and Note.
+\tv\tview\ttoggle all/top-paid-free.
 
 Filters/settings
 \tf\tfilter\tedit structured filter.
@@ -2072,7 +2084,8 @@ General/help
 \tHome / End / g / G\tjump\tjump in help.
 \tPgUp / PgDown\tscroll\tpage through help.
 \t/\tsearch\tsearch this help.
-\tEnter\tmatch\tgo to next match.
+\tn\tmatch\tgo to next match.
+\tN\tmatch\tgo to previous match.
 \tEsc\tclose\tclose help.`
 
 const tuiHelpDocument = `openrouter tui keys
@@ -2185,7 +2198,10 @@ The two are never mixed: in one view a model with no number on the active source
 
 Help search
 \t/\tsearch\tstart a search in this document; type text and press Enter.
-\tEnter / Up / Down\tmatches\tgo to the next, previous, or next match; search results stay selected.
+\tn\tmatches\tgo to the next match; search results stay selected.
+\tN\tmatches\tgo to the previous match; search results stay selected.
+\tUp / Down\tscroll\tscroll this help; they do not change the selected match.
+\t0 matches\tstatus\tsearches with no matches are reported explicitly.
 \tEsc\tclose\tcancel search.
 
 General/help
@@ -2223,7 +2239,15 @@ func (m *tuiModel) helpNextMatch(direction int) {
 	if len(m.helpMatches) == 0 {
 		return
 	}
-	m.helpMatch = (m.helpMatch + direction + len(m.helpMatches)) % len(m.helpMatches)
+	if m.helpMatch < 0 {
+		if direction < 0 {
+			m.helpMatch = len(m.helpMatches) - 1
+		} else {
+			m.helpMatch = 0
+		}
+	} else {
+		m.helpMatch = (m.helpMatch + direction + len(m.helpMatches)) % len(m.helpMatches)
+	}
 	m.helpOffset = max(0, min(m.helpMaxOffset(), m.helpMatches[m.helpMatch]-max(0, m.height/2)))
 }
 

@@ -363,10 +363,10 @@ func TestTUIKeyState(t *testing.T) {
 	if m.inputMode != "" || len(m.helpMatches) == 0 || !strings.Contains(m.View(), "refresh") {
 		t.Fatalf("help search state = %+v", m)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	m = next.(tuiModel)
 	if m.helpMatch != 1%len(m.helpMatches) {
-		t.Fatalf("Enter did not advance search match: %d", m.helpMatch)
+		t.Fatalf("n did not advance search match: %d", m.helpMatch)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = next.(tuiModel)
@@ -393,6 +393,12 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	if !strings.Contains(tuiShortcutHelpDocument, `\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`) {
 		t.Fatalf("shortcut help does not document score-source switching: %q", tuiShortcutHelpDocument)
 	}
+	if !strings.Contains(tuiShortcutHelpDocument, `\tv\tview\ttoggle all/top-paid-free.`) {
+		t.Fatalf("shortcut help does not document v: %q", tuiShortcutHelpDocument)
+	}
+	if !strings.Contains(tuiHelpDocument, `\tv\tview\ttoggle all/top-paid-free.`) {
+		t.Fatalf("full help does not document v: %q", tuiHelpDocument)
+	}
 	for _, r := range tuiShortcutHelpDocument {
 		if unicode.Is(unicode.Cyrillic, r) {
 			t.Fatalf("shortcut help is not English-only: %q", tuiShortcutHelpDocument)
@@ -410,6 +416,112 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	m.helpMode = "shortcuts"
 	if !strings.Contains(strings.Join(m.helpLines(), "\n"), "version "+version) {
 		t.Fatalf("shortcut help does not show runtime version %q", version)
+	}
+}
+
+func TestTUIHelpSearchNextPreviousWrapsAndDoesNotCaptureInput(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 10, helpSearch: "search"}
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = 0
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.helpMatch != 0 {
+		t.Fatalf("Enter changed search match in browse mode: %d", m.helpMatch)
+	}
+	m = tuiKey(m, "n")
+	if m.helpMatch != 1%len(m.helpMatches) {
+		t.Fatalf("n selected match %d, want %d", m.helpMatch, 1%len(m.helpMatches))
+	}
+	m = tuiKey(m, "N")
+	if m.helpMatch != 0 {
+		t.Fatalf("N selected match %d, want 0", m.helpMatch)
+	}
+	m = tuiKey(m, "N")
+	if m.helpMatch != len(m.helpMatches)-1 {
+		t.Fatalf("N did not wrap to previous match: %d", m.helpMatch)
+	}
+	m.helpMatch = len(m.helpMatches) - 1
+	m = tuiKey(m, "n")
+	if m.helpMatch != 0 {
+		t.Fatalf("n did not wrap to first match: %d", m.helpMatch)
+	}
+	m.inputMode, m.input = "help-search", "search"
+	m = tuiKey(m, "n")
+	if m.input != "searchn" || m.helpMatch != 0 {
+		t.Fatalf("n was captured during search input: input=%q match=%d", m.input, m.helpMatch)
+	}
+	m = tuiKey(m, "N")
+	if m.input != "searchnN" || m.helpMatch != 0 {
+		t.Fatalf("N was captured during search input: input=%q match=%d", m.input, m.helpMatch)
+	}
+}
+
+func TestTUIHelpSearchInputDoesNotNavigateWithUpDown(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", inputMode: "help-search", input: "search", helpSearch: "search", helpMatches: []int{1, 2}, helpMatch: 0}
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyUp}, {Type: tea.KeyDown}} {
+		next, _ := m.Update(key)
+		m = next.(tuiModel)
+		if m.helpMatch != 0 || m.input != "search" {
+			t.Fatalf("%s changed search state during input: match=%d input=%q", key.String(), m.helpMatch, m.input)
+		}
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	if m.inputMode != "" || m.helpSearch != "search" || m.helpMatch != 0 {
+		t.Fatalf("Enter did not confirm help search: mode=%q search=%q match=%d", m.inputMode, m.helpSearch, m.helpMatch)
+	}
+}
+
+func TestTUIHelpFooterShowsMatchPositionAndInputHint(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", width: 200, height: len(tuiHelpLines()) + 2, helpSearch: "search", helpMatches: []int{1, 2, 3}, helpMatch: 2}
+	view := tuiHelpView(m)
+	lines := strings.Split(view, "\n")
+	footer := tuiHelpFooterLine(lines)
+	if !strings.Contains(ansi.Strip(footer), "3/3 matches") || !strings.Contains(ansi.Strip(footer), "n next match · N previous match") {
+		t.Fatalf("completed-search footer = %q", footer)
+	}
+	m.inputMode, m.input = "help-search", "search"
+	lines = strings.Split(tuiHelpView(m), "\n")
+	footer = tuiHelpFooterLine(lines)
+	if !strings.Contains(ansi.Strip(footer), "Enter confirm search · Esc cancel") || strings.Contains(ansi.Strip(footer), "n next") {
+		t.Fatalf("input-mode footer = %q", footer)
+	}
+	m.helpMatches, m.helpMatch = nil, -1
+	m.inputMode = ""
+	lines = strings.Split(tuiHelpView(m), "\n")
+	footer = tuiHelpFooterLine(lines)
+	if !strings.Contains(ansi.Strip(footer), "0 matches") {
+		t.Fatalf("zero-match footer = %q", footer)
+	}
+}
+
+func tuiHelpFooterLine(lines []string) string {
+	for _, line := range lines {
+		plain := ansi.Strip(line)
+		if strings.HasPrefix(plain, "Help ") && strings.Contains(plain, "/") {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestTUIHelpSearchCounterZeroAndCurrentStyle(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := tuiModel{overlay: "help", helpMode: "full", width: 200, height: len(tuiHelpLines()) + 2, helpSearch: "column"}
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = 0
+	view := tuiHelpView(m)
+	if !strings.Contains(ansi.Strip(view), fmt.Sprintf("%d matches", len(m.helpMatches))) {
+		t.Fatalf("help counter missing: %q", view)
+	}
+	if !strings.Contains(view, tuiMatchStyle.Render("column")) || !strings.Contains(view, tuiCurrentMatchStyle.Render("column")) {
+		t.Fatalf("help matches do not use ordinary and current styles: %q", view)
+	}
+	m.helpSearch = "no-such-help-term"
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = -1
+	if !strings.Contains(ansi.Strip(tuiHelpView(m)), "0 matches") {
+		t.Fatal("help does not report zero matches")
 	}
 }
 
@@ -3572,7 +3684,7 @@ func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
 	if inputIndex < 1 || footerIndex != inputIndex+1 {
 		t.Fatalf("строка ввода и футер имеют неверный порядок: input=%d footer=%d", inputIndex, footerIndex)
 	}
-	if got := ansi.Strip(lines[footerIndex]); !strings.Contains(got, "· / search · Enter next match · Esc close") {
+	if got := ansi.Strip(lines[footerIndex]); !strings.Contains(got, "· / search · Enter confirm search · Esc cancel") {
 		t.Fatalf("футер справки = %q, want строку навигации под строкой ввода", got)
 	}
 }
