@@ -7,6 +7,11 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.31]
+
+- Migrate empty and legacy persisted TUI filters to the configured default while preserving custom filters and explicit CLI overrides.
+- Show the effective default filter in the TUI editor and remove persisted overrides when the filter is cleared.
+
 ## [1.13.30]
 
 - Complete Q/P and availability metadata for valid Arena rows, including English `n/a` labels and paid/free defaults.

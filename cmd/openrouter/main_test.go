@@ -45,8 +45,26 @@ func TestResolveTUIFilterCLIOverridesSavedValue(t *testing.T) {
 	if got := resolveTUIFilter("", false, "", false, "quality>=75"); got != "quality>=75" {
 		t.Fatalf("default TUI filter = %q, want quality>=75", got)
 	}
-	if got := resolveTUIFilter("", false, "", true, "quality>=75"); got != "" {
-		t.Fatalf("explicitly cleared TUI filter = %q, want empty", got)
+	if got := resolveTUIFilter("", false, "", true, "quality>=75"); got != "quality>=75" {
+		t.Fatalf("legacy empty TUI filter = %q, want default", got)
+	}
+	if got := resolveTUIFilter("", false, "has-q/p", true, "quality>=75"); got != "quality>=75" {
+		t.Fatalf("legacy default TUI filter = %q, want current default", got)
+	}
+	if got := resolveTUIFilter("", false, "paid", true, "quality>=75"); got != "paid" {
+		t.Fatalf("custom TUI filter = %q, want paid", got)
+	}
+	if got := resolveTUIFilter("", true, "paid", true, "quality>=75"); got != "" {
+		t.Fatalf("explicit empty CLI filter = %q, want empty", got)
+	}
+}
+
+func TestEffectiveDefaultFilterOpensInStructuredEditor(t *testing.T) {
+	filter := resolveTUIFilter("", false, "", false, config.DefaultFilter)
+	m := tuiModel{filter: filter, filterFormExplicit: true}
+	m.openFilterEditor()
+	if m.filterDraft.quality != "75" || !m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("effective default draft = %+v, want quality 75, has Q/P and paid", m.filterDraft)
 	}
 }
 

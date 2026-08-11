@@ -126,17 +126,15 @@ func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	}
 }
 
-func TestTUIFilterOpensNumericFieldsAsAnyWithoutExplicitFilter(t *testing.T) {
-	m := tuiModel{filter: config.DefaultFilter}
+func TestTUIFilterOpensEffectiveDefaultFields(t *testing.T) {
+	m := tuiModel{filter: config.DefaultFilter, filterFormExplicit: true}
 	m.openFilterEditor()
-	if m.filterDraft != (tuiFilterDraft{}) {
-		t.Fatalf("implicit default filter draft = %+v, want all fields unset", m.filterDraft)
+	if m.filterDraft.quality != "75" || !m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("effective default filter draft = %+v, want quality 75, has Q/P and paid", m.filterDraft)
 	}
 	view := tuiFilterView(tuiModel{width: 100, height: 20, overlay: "filter", filterDraft: m.filterDraft})
-	for _, label := range []string{"Quality minimum", "Context minimum", "Input max", "Output max"} {
-		if !strings.Contains(view, label+": (any)") {
-			t.Fatalf("clean filter view missing %q: %q", label, view)
-		}
+	if !strings.Contains(view, "Quality minimum: 75") || !strings.Contains(view, "Has Q/P: [x]") || !strings.Contains(view, "Availability: paid") {
+		t.Fatalf("effective default filter view = %q", view)
 	}
 }
 
@@ -156,11 +154,11 @@ func TestTUIRefreshUpdatesFilterFormExplicitness(t *testing.T) {
 	if m.filterDraft.quality != "75" {
 		t.Fatalf("reloaded explicit default draft = %+v, want quality 75", m.filterDraft)
 	}
-	next, _ = m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: false})
+	next, _ = m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: true})
 	m = next.(tuiModel)
 	m.openFilterEditor()
-	if m.filterDraft != (tuiFilterDraft{}) {
-		t.Fatalf("reloaded implicit default draft = %+v, want all fields unset", m.filterDraft)
+	if m.filterDraft.quality != "75" {
+		t.Fatalf("reloaded effective default draft = %+v, want quality 75", m.filterDraft)
 	}
 }
 
@@ -229,7 +227,7 @@ func TestTUIInteractiveFilterPersistsAndClears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TUIFilter != "" || len(m.visible) != 2 {
+	if cfg.TUIFilterSet || cfg.TUIFilter != "" || len(m.visible) != 2 {
 		t.Fatalf("cleared filter = %q, visible = %+v", cfg.TUIFilter, m.visible)
 	}
 }
