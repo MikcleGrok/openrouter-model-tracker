@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.38]
+
+- Redesign the model detail view with grouped sections, aligned metadata cells, and a calmer color palette for clearer scanning.
+- Preserve the existing narrow-terminal behavior so the detail view remains usable in constrained terminal widths.
+
 ## [1.13.37]
 
 - Add less-style help search with `n` for next and `N` for previous, match counts and zero-state feedback, current-match highlighting, and a discoverable `v` shortcut.
