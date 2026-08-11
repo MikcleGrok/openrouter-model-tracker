@@ -26,3 +26,18 @@ func ValidateTiers(value string) error {
 	}
 	return nil
 }
+
+// ValidateAvailability validates the persisted tri-state pricing predicate.
+func ValidateAvailability(value string) error {
+	for _, raw := range strings.Split(value, ",") {
+		predicate := strings.ToLower(strings.TrimSpace(raw))
+		if !strings.HasPrefix(predicate, "availability:") {
+			continue
+		}
+		choice := strings.TrimSpace(strings.TrimPrefix(predicate, "availability:"))
+		if choice != "any" && choice != "free" && choice != "paid" {
+			return fmt.Errorf("availability must be any, free, or paid")
+		}
+	}
+	return nil
+}

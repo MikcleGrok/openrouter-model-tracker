@@ -322,7 +322,7 @@ func TestTUIKeyState(t *testing.T) {
 	if !strings.Contains(m.View(), "openrouter tui keys") {
 		t.Fatal("help overlay missing")
 	}
-	if !strings.Contains(tuiHelpDocument, `\tq\tsort\tquality.`) || !strings.Contains(tuiHelpDocument, `\tp\tsort\tprice.`) || !strings.Contains(tuiHelpDocument, `\tr\tsort\tquality/price ratio`) {
+	if !strings.Contains(tuiHelpDocument, `\tq\tsort\tquality.`) || !strings.Contains(tuiHelpDocument, `\tp\tavailability\tcycle any/free/paid.`) || !strings.Contains(tuiHelpDocument, `\tr\tsort\tquality/price ratio`) {
 		t.Fatalf("help document is missing sort shortcuts: %q", tuiHelpDocument)
 	}
 	for _, r := range tuiHelpDocument {
@@ -1152,7 +1152,6 @@ func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
 		key, sortKey, first string
 	}{
 		{"q", "quality", "high-quality"},
-		{"p", "price", "low-quality"},
 		{"r", "q/p", "high-quality"},
 	} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
@@ -1161,6 +1160,108 @@ func TestTUISortShortcutsRebuildVisibleOrder(t *testing.T) {
 		if m.sortKey != test.sortKey || len(m.visible) != 2 || m.visible[0].Slug != test.first {
 			t.Fatalf("key %q: sort=%q visible=%+v", test.key, m.sortKey, m.visible)
 		}
+	}
+}
+
+func TestTUITopPaidFreeLayoutUsesIndependentTopNSections(t *testing.T) {
+	rows := []model.Model{{Slug: "paid-1", Free: false, Score: &model.ScoreInfo{Value: 90}, Rankable: true, HasQualityPrice: true}, {Slug: "paid-2", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true, HasQualityPrice: true}, {Slug: "free-1", Free: true, Score: &model.ScoreInfo{Value: 70}, Rankable: true}, {Slug: "free-2", Free: true, Score: &model.ScoreInfo{Value: 60}, Rankable: true}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.layout, m.topN, m.filter = "top-paid-free", 1, ""
+	m.rebuild()
+	if len(m.visible) != 2 || m.visible[0].Slug != "paid-1" || m.visible[1].Slug != "free-1" || m.topSeparator != 1 {
+		t.Fatalf("top layout = %+v, separator=%d", m.visible, m.topSeparator)
+	}
+}
+
+func TestTUITopPaidFreePipelineSearchAndGlobalLimit(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "paid-1", DisplayName: "Paid one", Free: false, Score: &model.ScoreInfo{Value: 90}, Rankable: true, HasQualityPrice: true},
+		{Slug: "paid-2", DisplayName: "Paid two", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true, HasQualityPrice: true},
+		{Slug: "free-1", DisplayName: "Free one", Free: true, Score: &model.ScoreInfo{Value: 70}, Rankable: true},
+		{Slug: "free-2", DisplayName: "Free two", Free: true, Score: &model.ScoreInfo{Value: 60}, Rankable: true},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.layout, m.topN, m.limit = "top-paid-free", 2, 3
+	m.rebuild()
+	if got := []string{m.visible[0].Slug, m.visible[1].Slug, m.visible[2].Slug}; !reflect.DeepEqual(got, []string{"paid-1", "paid-2", "free-1"}) || m.topSeparator != 2 {
+		t.Fatalf("limited top layout = %v, separator=%d", got, m.topSeparator)
+	}
+	m.inputMode, m.input = "search", "free"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.visible) != 2 || m.visible[0].Slug != "free-1" || m.visible[1].Slug != "free-2" || m.topSeparator != -1 {
+		t.Fatalf("searched top layout = %+v, separator=%d", m.visible, m.topSeparator)
+	}
+}
+
+func TestTUITopPaidFreeHonorsExplicitAvailabilityAndHasQP(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "paid", Free: false, HasQualityPrice: true},
+		{Slug: "free", Free: true, HasQualityPrice: false},
+	}
+	for _, test := range []struct {
+		name, filter string
+		want         []string
+	}{
+		{"free availability", "availability:free", []string{"free"}},
+		{"paid availability", "availability:paid", []string{"paid"}},
+		{"any availability", "availability:any", []string{"paid", "free"}},
+		{"legacy free", "free", []string{"free"}},
+		{"legacy paid", "paid", []string{"paid"}},
+		{"has q/p", "has-q/p", []string{"paid"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+			m.layout, m.topN, m.filter, m.filterFormExplicit = "top-paid-free", 3, test.filter, true
+			m.rebuild()
+			got := make([]string, 0, len(m.visible))
+			for _, row := range m.visible {
+				got = append(got, row.Slug)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("filter %q produced %v, want %v", test.filter, got, test.want)
+			}
+		})
+	}
+}
+
+func TestTUISettingsLayoutTogglePersistsAndReloads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui:\n  layout: all\n  top_n: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.configPath, m.overlay, m.settingsCursor = path, "settings", 4
+	m, _ = m.settingsKey("enter", "enter")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.Layout != "top-paid-free" {
+		t.Fatalf("saved layout = %q, want top-paid-free", cfg.TUI.Layout)
+	}
+	restarted := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	restarted.layout, restarted.topN = cfg.TUI.Layout, cfg.TUI.TopN
+	if restarted.layout != "top-paid-free" || restarted.topN != 3 {
+		t.Fatalf("reloaded layout = %q/%d, want top-paid-free/3", restarted.layout, restarted.topN)
+	}
+}
+
+func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui:\n  layout: top-paid-free\n  top_n: 7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.configPath = path
+	m.generation = 1
+	message, ok := m.refreshCmd()().(tuiRefreshMsg)
+	if !ok || message.layout != "top-paid-free" || message.topN != 7 {
+		t.Fatalf("refresh message = %#v, want reloaded layout/top_n", message)
+	}
+	next, _ := m.Update(message)
+	got := next.(tuiModel)
+	if got.layout != "top-paid-free" || got.topN != 7 {
+		t.Fatalf("refresh did not apply config: layout=%q topN=%d", got.layout, got.topN)
 	}
 }
 
@@ -1359,6 +1460,13 @@ func TestTUISelectionAndStructuredFilter(t *testing.T) {
 	}
 }
 
+func TestTUIDetailNormalizesLegacyMissingLabels(t *testing.T) {
+	lines := tuiDetailScoreLines(&model.ScoreInfo{Metric: "н/д", Uncertainty: "н/д", SampleSize: "н/д"}, "n/a")
+	if strings.Contains(strings.Join(lines, "\n"), "н/д") {
+		t.Fatalf("TUI detail contains legacy missing label: %v", lines)
+	}
+}
+
 func TestTUISelectionDoesNotReturnAfterFilteredRowDisappears(t *testing.T) {
 	rows := []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
@@ -1452,7 +1560,7 @@ func TestTUIStatusDescribesShortcuts(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.width, m.height = 100, 10
 	status := m.View()
-	for _, shortcut := range []string{"q quality", "p price", "r q/p", "R refresh", "x quit", "o settings", "f filter"} {
+	for _, shortcut := range []string{"q quality", "p availability", "r q/p", "R refresh", "x quit", "o settings", "f filter"} {
 		if !strings.Contains(status, shortcut) {
 			t.Fatalf("status is missing %q: %q", shortcut, status)
 		}
@@ -2001,7 +2109,7 @@ func TestTUICellClaudeColumnUsesActiveScoreSource(t *testing.T) {
 	if got := tuiCell(row, colClaude, false, scoreSourceSWEBench); got != "≈ Haiku 4.5" {
 		t.Fatalf("swebench-mode Claude cell = %q, want ≈ Haiku 4.5", got)
 	}
-	if got := tuiCell(row, colClaude, false, scoreSourceArena); got != "н/д" {
+	if got := tuiCell(row, colClaude, false, scoreSourceArena); got != "n/a" {
 		t.Fatalf("arena-mode Claude cell = %q, want н/д (must not blend Arena and SWE-bench scales)", got)
 	}
 }
@@ -2041,7 +2149,7 @@ func TestNewConfiguredTUIModelAppliesScoreSourceEndToEnd(t *testing.T) {
 	if len(cells) < 3 {
 		t.Fatalf("unexpected row shape: %q", line)
 	}
-	if got := strings.TrimSpace(cells[1]); got != "н/д" {
+	if got := strings.TrimSpace(cells[1]); got != "n/a" {
 		t.Errorf("Claude cell = %q, want н/д; a haiku row with only an Arena number must not claim a SWE-bench-calibrated tier:\n%s", got, view)
 	}
 	if got := strings.TrimSpace(cells[2]); got != "1400 Elo" {
@@ -2165,7 +2273,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		t.Errorf("header = %q, want the display name and the slug", lines[0])
 	}
 	for _, want := range []string{
-		"Провайдер: н/д · нет",
+		"Провайдер: n/a · нет",
 		"Описание:",
 		"Производитель: OpenAI (C)",
 		"Тир: opus",
@@ -2246,7 +2354,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 	if strings.Contains(block, "1453 Elo") || strings.Contains(block, "arena.ai") {
 		t.Fatalf("the arena-mode SWE-bench block carries Arena data:\n%s", block)
 	}
-	if !strings.Contains(block, "н/д") {
+	if !strings.Contains(block, "n/a") {
 		t.Errorf("the arena-mode SWE-bench block must say н/д instead of borrowing the other scale:\n%s", block)
 	}
 	if !strings.Contains(strings.Join(lines[arena:], "\n"), "1453 Elo") {
@@ -2257,7 +2365,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Провайдер: н/д · н/д", "Описание:", "Производитель: н/д", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+	for _, want := range []string{"Провайдер: n/a · n/a", "Описание:", "Производитель: n/a", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -2265,7 +2373,7 @@ func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	if strings.Contains(joined, "Длинный контекст") {
 		t.Errorf("a model without a long-context tier must not get that block at all:\n%s", joined)
 	}
-	if lines[len(lines)-1] != "  н/д" {
+	if lines[len(lines)-1] != "  n/a" {
 		t.Errorf("an empty description = %q, want the placeholder", lines[len(lines)-1])
 	}
 }
@@ -2291,7 +2399,7 @@ func TestTUIDetailAgeUsesRussianPluralForms(t *testing.T) {
 			t.Errorf("%d days after publication = %q, want %q", test.days, got, test.want)
 		}
 	}
-	if got := tuiDetailCreated(0, published); got != "н/д" {
+	if got := tuiDetailCreated(0, published); got != "n/a" {
 		t.Errorf("a zero timestamp = %q, want the placeholder", got)
 	}
 }
@@ -2490,11 +2598,11 @@ func TestTUIStyleDetailLineAppliesTheScreensStyleVocabulary(t *testing.T) {
 		{"block heading with brackets", "Оценка LMArena (рейтинг Elo):", tuiHeaderStyle.Render("Оценка LMArena (рейтинг Elo):")},
 		{"label and value", "Производитель: OpenAI (C)", tuiHeaderStyle.Render("Производитель: ") + "OpenAI (C)"},
 		{"indented label and value", "  Значение: 93.0%", tuiHeaderStyle.Render("  Значение: ") + "93.0%"},
-		{"label and placeholder", "Дата релиза: н/д", tuiHeaderStyle.Render("Дата релиза: ") + tuiHintStyle.Render("н/д")},
+		{"label and placeholder", "Дата релиза: n/a", tuiHeaderStyle.Render("Дата релиза: ") + tuiHintStyle.Render("n/a")},
 		{"provenance link", "  Источник: https://www.vals.ai/benchmarks/swebench", tuiHeaderStyle.Render("  Источник: ") + tuiLinkStyle.Render("https://www.vals.ai/benchmarks/swebench")},
 		{"model link", "Страница OpenRouter: https://openrouter.ai/openai/gpt-5.6-luna-20260804", tuiHeaderStyle.Render("Страница OpenRouter: ") + tuiLinkStyle.Render("https://openrouter.ai/openai/gpt-5.6-luna-20260804")},
-		{"bare placeholder", "  н/д", tuiHintStyle.Render("  н/д")},
-		{"qualified placeholder", "  н/д (активно представление arena)", tuiHintStyle.Render("  н/д (активно представление arena)")},
+		{"bare placeholder", "  n/a", tuiHintStyle.Render("  n/a")},
+		{"qualified placeholder", "  n/a (active arena view)", tuiHintStyle.Render("  n/a (active arena view)")},
 		{"prose", "  GPT-5.6 Luna is OpenAI's long-context flagship.", "  GPT-5.6 Luna is OpenAI's long-context flagship."},
 		{"footer text is not special on its own", "Detail 1-9/40 · ↑↓ scroll · Esc close", "Detail 1-9/40 · ↑↓ scroll · Esc close"},
 	} {

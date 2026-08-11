@@ -10,7 +10,7 @@ import (
 func Config(t *testing.T, dataDir string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	body := []byte("data_dir: " + dataDir + "\ndefault_output: output.md\n")
+	body := []byte("data_dir: " + dataDir + "\ndefault_output: output.md\ndefault_filter: \"\"\n")
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}

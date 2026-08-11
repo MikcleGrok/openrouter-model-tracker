@@ -7,6 +7,12 @@
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
 - Add regression coverage for zero context and input/output predicates in TUI filter parsing and serialization.
 
+## [1.13.30]
+
+- Complete Q/P and availability metadata for valid Arena rows, including English `n/a` labels and paid/free defaults.
+- Add tri-state paid/free filtering with the `p` hotkey, top paid/free layout with the `v` hotkey, and configurable `top_n` defaults.
+- Unify filter, sort, search, and limit processing and persist configuration changes with runtime reload support.
+
 ## [1.13.28]
 
 - Preserve model detail metadata and provenance in refreshed snapshots and expose it in the model detail view.

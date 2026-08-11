@@ -117,11 +117,29 @@ func TestMissingKeysFallBackToNeedsReview(t *testing.T) {
 	if got := n.DisplayName(unknown); got != unknown {
 		t.Errorf("DisplayName(unknown) = %q, want the slug itself so the table still renders", got)
 	}
-	if got := n.NoScoreReason(unknown); got != "н/д (нет оценки по SWE-bench Verified)" {
+	if got := n.NoScoreReason(unknown); got != "n/a (no SWE-bench Verified score)" {
 		t.Errorf("NoScoreReason(unknown) = %q, want the default reason", got)
 	}
-	if got := n.NoScoreReason("deepseek/deepseek-v4-pro"); got != "н/д (оценка не для этого варианта)" {
+	if got := n.NoScoreReason("deepseek/deepseek-v4-pro"); got != "n/a (variant mismatch)" {
 		t.Errorf("NoScoreReason(v4-pro) = %q, want the per-model override", got)
+	}
+}
+
+func TestLoadNormalizesLegacyMissingLabels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	body := "models:\n  demo/model:\n    owner: Demo (н/д)\n    no_score_reason: \"н/д (нет оценки по SWE-bench Verified)\"\n    score:\n      label: \"н/д\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := n.Owner("demo/model"); got != "Demo (n/a)" || n.NoScoreReason("demo/model") != "n/a (no SWE-bench Verified score)" {
+		t.Fatalf("normalized note = owner %q, reason %q", got, n.NoScoreReason("demo/model"))
+	}
+	if score, ok := n.ScoreOverride("demo/model"); !ok || strings.Contains(score.Label, "н/д") {
+		t.Fatalf("normalized score override = %+v, found=%v", score, ok)
 	}
 }
 

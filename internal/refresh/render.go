@@ -111,7 +111,7 @@ func ClaudeEquivalent(m model.Model) string {
 		}
 		return "<<≈ Haiku 4.5"
 	}
-	return "н/д"
+	return "n/a"
 }
 
 func scoreValue(m model.Model) float64 {

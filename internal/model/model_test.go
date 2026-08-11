@@ -108,7 +108,7 @@ func TestMerge(t *testing.T) {
 	if m3.Rankable {
 		t.Error("m3.Rankable = true, want false — a manual observation is not exact-product quality")
 	}
-	if m3.QualityPriceLabel != "н/д (observation only)" {
+	if m3.QualityPriceLabel != "n/a (observation only)" {
 		t.Errorf("m3.QualityPriceLabel = %q, want observation-only quality", m3.QualityPriceLabel)
 	}
 	if m3.LongContextPriceLabel != "" || m3.LongContextInLabel != "" || m3.LongContextOutLabel != "" {
@@ -120,10 +120,10 @@ func TestMerge(t *testing.T) {
 	if pro.Score != nil {
 		t.Errorf("v4-pro.Score = %+v, want nil — no source and no override", pro.Score)
 	}
-	if pro.ScoreLabel != "н/д" {
-		t.Errorf("v4-pro.ScoreLabel = %q, want %q", pro.ScoreLabel, "н/д")
+	if pro.ScoreLabel != "n/a" {
+		t.Errorf("v4-pro.ScoreLabel = %q, want %q", pro.ScoreLabel, "n/a")
 	}
-	if pro.QualityPriceLabel != "н/д (оценка не для этого варианта)" {
+	if pro.QualityPriceLabel != "n/a (variant mismatch)" {
 		t.Errorf("v4-pro.QualityPriceLabel = %q, want the per-model no_score_reason", pro.QualityPriceLabel)
 	}
 	if pro.Rankable {
@@ -131,7 +131,7 @@ func TestMerge(t *testing.T) {
 	}
 
 	free := m["nvidia/nemotron-3-ultra-550b-a55b:free"]
-	if !free.Free || free.QualityPriceLabel != "н/д (цена $0)" {
+	if !free.Free || free.QualityPriceLabel != "n/a (free)" {
 		t.Errorf("free = %+v, want Free with the $0 quality/price label", free)
 	}
 	if free.ClaudeRef != "<≈ Haiku 4.5 (середина диапазона)" {
@@ -154,7 +154,7 @@ func TestBenchmarkIdentityGate(t *testing.T) {
 	}
 	models := byslug(Merge(entries, prices, scores, testNotes(t)))
 	deepseek, luna := models["deepseek/deepseek-v4-flash"], models["openai/gpt-5.6-luna"]
-	if deepseek.Score.IdentityStatus != IdentityVariantMismatch || deepseek.Rankable || deepseek.QualityPriceLabel != "н/д (variant mismatch)" {
+	if deepseek.Score.IdentityStatus != IdentityVariantMismatch || deepseek.Rankable || deepseek.QualityPriceLabel != "n/a (variant mismatch)" {
 		t.Fatalf("DeepSeek gate = %+v, want visible mismatch and non-rankable quality", deepseek)
 	}
 	if luna.Score.IdentityStatus != IdentityExact || !luna.Rankable || luna.QualityPrice == 0 {
@@ -167,7 +167,7 @@ func TestLegacyScoreIsNotPromotedByMissingProvenance(t *testing.T) {
 	prices := map[string]sources.PriceInfo{"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", InPerM: 1, OutPerM: 1, Found: true}}
 	scores := []sources.ScoreRow{{Slug: "openai/gpt-5.6-luna", Metric: sources.MetricSWEBenchVerified, Value: 93, VariantMeasured: "openai/gpt-5.6-luna", IdentityStatus: IdentityLegacyUnknown}}
 	luna := Merge(entries, prices, scores, testNotes(t))[0]
-	if luna.Rankable || luna.QualityPriceLabel != "н/д (legacy provenance)" {
+	if luna.Rankable || luna.QualityPriceLabel != "n/a (legacy)" {
 		t.Fatalf("legacy score = %+v, want unknown/non-rankable", luna)
 	}
 }
@@ -270,6 +270,26 @@ func TestArenaIdentityUsesConfiguredArenaNamespace(t *testing.T) {
 	for slug, m := range byslug(MergeWithArena(ambiguousEntries, ambiguousPrices, nil, ambiguousRows, testNotes(t))) {
 		if m.ArenaRankable || m.ArenaScore.IdentityStatus != IdentityMissing {
 			t.Fatalf("ambiguous Arena mapping %q was promoted: %+v", slug, m)
+		}
+	}
+}
+
+func TestArenaExactMappingsProducePaidQualityPrice(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "deepseek/deepseek-v4-pro", Tier: "sonnet", Names: map[string]string{"arena": "deepseek-v4-pro-ch1-text"}},
+		{Slug: "google/gemini-3.1-pro-preview", Tier: "sonnet", Names: map[string]string{"arena": "gemini-3.1-pro-preview"}},
+		{Slug: "google/gemini-3.6-flash", Tier: "sonnet", Names: map[string]string{"arena": "gemini-3.6-flash"}},
+	}
+	prices := map[string]sources.PriceInfo{}
+	arena := make([]sources.ScoreRow, 0, len(entries))
+	for i, entry := range entries {
+		prices[entry.Slug] = sources.PriceInfo{Slug: entry.Slug, InPerM: 1, OutPerM: 3, Found: true}
+		arena = append(arena, sources.ScoreRow{Slug: entry.Slug, SourceFamily: ScoreSourceArena, ConfiguredIdentity: entry.Names["arena"], CanonicalID: entry.Names["arena"], Metric: sources.MetricArenaElo, Value: float64(1400 + i*50), Unit: "Elo"})
+	}
+	models := ForScoreSource(MergeWithArena(entries, prices, nil, arena, testNotes(t)), ScoreSourceArena)
+	for _, got := range models {
+		if !got.ArenaRankable || !got.HasQualityPrice || got.QualityPriceLabel == "n/a (no LMArena score)" {
+			t.Fatalf("exact Arena mapping lost rankable Q/P for %s: %+v", got.Slug, got)
 		}
 	}
 }
@@ -465,7 +485,7 @@ func TestMergeWithArenaKeepsTheTwoSourcesApart(t *testing.T) {
 	}
 
 	low := byslug["a/low"]
-	if low.Score != nil || low.ScoreLabel != "н/д" {
+	if low.Score != nil || low.ScoreLabel != "n/a" {
 		t.Errorf("a/low SWE-bench cell = %+v / %q, want no number at all — an Arena Elo must never fill it", low.Score, low.ScoreLabel)
 	}
 	if low.ArenaNormalized != 0 || !low.ArenaRankable {
@@ -476,10 +496,10 @@ func TestMergeWithArenaKeepsTheTwoSourcesApart(t *testing.T) {
 	if none.ArenaScore != nil || none.ArenaRankable {
 		t.Errorf("a/none arena = %+v / rankable %v, want nothing", none.ArenaScore, none.ArenaRankable)
 	}
-	if none.ArenaLabel != "н/д" {
+	if none.ArenaLabel != "n/a" {
 		t.Errorf("a/none ArenaLabel = %q, want %q", none.ArenaLabel, "н/д")
 	}
-	if none.ArenaQualityPriceLabel != "н/д (нет оценки на LMArena)" {
+	if none.ArenaQualityPriceLabel != "n/a (no LMArena score)" {
 		t.Errorf("a/none ArenaQualityPriceLabel = %q, want the Arena-specific reason, not the SWE-bench one", none.ArenaQualityPriceLabel)
 	}
 }
@@ -519,7 +539,7 @@ func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
 			Slug: "a/swe-only", Tier: "sonnet", MixedPrice: 2,
 			Score: &ScoreInfo{Metric: "SWE-bench Verified", Value: 60}, ScoreLabel: "60.0%", Rankable: true,
 			QualityPrice: 30, QualityPriceLabel: "30",
-			ArenaLabel: "н/д", ArenaQualityPriceLabel: "н/д (нет оценки на LMArena)",
+			ArenaLabel: "n/a", ArenaQualityPriceLabel: "n/a (no LMArena score)",
 		},
 	}
 
@@ -544,7 +564,7 @@ func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
 	if arena[1].Score != nil || arena[1].Rankable {
 		t.Errorf("a/swe-only = %+v / rankable %v, want no number at all in the Arena view", arena[1].Score, arena[1].Rankable)
 	}
-	if arena[1].ScoreLabel != "н/д" {
+	if arena[1].ScoreLabel != "n/a" {
 		t.Errorf("a/swe-only ScoreLabel = %q, want н/д even though it has a real SWE-bench score", arena[1].ScoreLabel)
 	}
 

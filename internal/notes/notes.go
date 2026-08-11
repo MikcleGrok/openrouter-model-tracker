@@ -8,6 +8,7 @@ package notes
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +26,7 @@ const NeedsReview = "_нужен обзор_"
 
 // defaultNoScoreReason fills the Качество/цена column for a row that has no
 // rankable SWE-bench Verified number.
-const defaultNoScoreReason = "н/д (нет оценки по SWE-bench Verified)"
+const defaultNoScoreReason = "n/a (no SWE-bench Verified score)"
 
 // ScoreOverride is a manually entered benchmark number for a model no automated
 // source covers — typically a vendor-published figure.
@@ -102,6 +103,16 @@ func Load(path string) (*Notes, error) {
 		return nil, fmt.Errorf("notes: %s: %w", path, err)
 	}
 	for slug, m := range f.Models {
+		m.Display = normalizeMissingLabels(m.Display)
+		m.Owner = normalizeMissingLabels(m.Owner)
+		m.OpenWeights = normalizeMissingLabels(m.OpenWeights)
+		m.ClaudeRef = normalizeMissingLabels(m.ClaudeRef)
+		m.Note = normalizeMissingLabels(m.Note)
+		m.NoScoreReason = normalizeMissingLabels(m.NoScoreReason)
+		if m.Score != nil {
+			m.Score.Label = normalizeMissingLabels(m.Score.Label)
+			m.Score.Source = normalizeMissingLabels(m.Score.Source)
+		}
 		values := m.TaskFit
 		if values == nil {
 			values = f.TaskFit[slug]
@@ -120,7 +131,53 @@ func Load(path string) (*Notes, error) {
 		}
 		f.TaskFit[slug] = fit
 	}
+	f.UpdatedNote = normalizeMissingLabels(f.UpdatedNote)
+	f.FableVerdict = normalizeMissingLabels(f.FableVerdict)
+	f.ClaudeNote = normalizeMissingLabels(f.ClaudeNote)
+	for i := range f.ClaudePrices {
+		f.ClaudePrices[i].Model = normalizeMissingLabels(f.ClaudePrices[i].Model)
+		f.ClaudePrices[i].In = normalizeMissingLabels(f.ClaudePrices[i].In)
+		f.ClaudePrices[i].Out = normalizeMissingLabels(f.ClaudePrices[i].Out)
+		f.ClaudePrices[i].Context = normalizeMissingLabels(f.ClaudePrices[i].Context)
+		f.ClaudePrices[i].Note = normalizeMissingLabels(f.ClaudePrices[i].Note)
+	}
+	for i := range f.ClaudeTokens {
+		f.ClaudeTokens[i].Model = normalizeMissingLabels(f.ClaudeTokens[i].Model)
+		f.ClaudeTokens[i].In = normalizeMissingLabels(f.ClaudeTokens[i].In)
+		f.ClaudeTokens[i].Out = normalizeMissingLabels(f.ClaudeTokens[i].Out)
+		f.ClaudeTokens[i].Mixed = normalizeMissingLabels(f.ClaudeTokens[i].Mixed)
+	}
+	for i := range f.Companies {
+		f.Companies[i].Name = normalizeMissingLabels(f.Companies[i].Name)
+		f.Companies[i].Grade = normalizeMissingLabels(f.Companies[i].Grade)
+		f.Companies[i].Comment = normalizeMissingLabels(f.Companies[i].Comment)
+	}
+	for key, value := range f.Sections {
+		f.Sections[key] = normalizeMissingLabels(value)
+	}
+	for key, value := range f.FavoriteReasons {
+		for slug, reason := range value {
+			value[slug] = normalizeMissingLabels(reason)
+		}
+		f.FavoriteReasons[key] = value
+	}
+	for i := range f.Caveats {
+		f.Caveats[i] = normalizeMissingLabels(f.Caveats[i])
+	}
 	return &Notes{f: f}, nil
+}
+
+func normalizeMissingLabels(value string) string {
+	for _, legacy := range []string{"н/д", "Н/Д", "Н/д", "н/Д"} {
+		value = strings.ReplaceAll(value, legacy, "n/a")
+	}
+	switch value {
+	case "n/a (оценка не для этого варианта)":
+		return "n/a (variant mismatch)"
+	case "n/a (нет оценки по SWE-bench Verified)":
+		return defaultNoScoreReason
+	}
+	return value
 }
 
 func normalizeTaskFit(values []string) ([]string, error) {
@@ -185,9 +242,21 @@ func (n *Notes) ClaudeRef(slug string) string { return orNeedsReview(n.model(slu
 // rankable number.
 func (n *Notes) NoScoreReason(slug string) string {
 	if r := n.model(slug).NoScoreReason; r != "" {
-		return r
+		return englishNoScoreReason(r)
 	}
 	return defaultNoScoreReason
+}
+
+func englishNoScoreReason(value string) string {
+	value = strings.TrimSpace(value)
+	switch value {
+	case "н/д (оценка не для этого варианта)":
+		return "n/a (variant mismatch)"
+	case "н/д (нет оценки по SWE-bench Verified)":
+		return defaultNoScoreReason
+	default:
+		return strings.Replace(value, "н/д", "n/a", 1)
+	}
 }
 
 // ScoreOverride returns a manually entered benchmark number, if any.

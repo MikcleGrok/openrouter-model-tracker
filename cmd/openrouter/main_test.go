@@ -316,6 +316,9 @@ func TestReleaseLikeVersionInjection(t *testing.T) {
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
+	if !strings.Contains(body, "default_filter:") {
+		body += "\ndefault_filter: \"\"\n"
+	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

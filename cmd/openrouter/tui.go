@@ -125,6 +125,8 @@ type tuiRefreshMsg struct {
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
 	filterFormExplicit    bool
+	layout                string
+	topN                  int
 	err                   error
 }
 type tuiScoreSourceMsg struct {
@@ -137,6 +139,8 @@ type tuiTickMsg struct{}
 
 type tuiFilterDraft struct {
 	free, paid, scored bool
+	hasQP              bool
+	availability       string
 	tier               string
 	quality            string
 	context            string
@@ -179,7 +183,11 @@ type tuiModel struct {
 	filterDraft           tuiFilterDraft
 	pendingColumns        []tuiColumn
 	input, inputMode      string
+	search                string
 	limit                 int
+	layout                string
+	topN                  int
+	topSeparator          int
 	ranking               string
 	scoreSource           string
 	priceWeight           float64
@@ -193,7 +201,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), width: 100, height: 24, limit: 0}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -243,6 +251,8 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		}
 		m.filterSteps = cfg.TUISteps
 		m.keymap = cfg.TUIKeymap
+		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
+		m.rebuild()
 		m.filterFormExplicit = filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
@@ -276,13 +286,25 @@ func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Opt
 }
 
 func (m *tuiModel) rebuild() {
+	visible, separator, err := m.buildVisible()
+	if err != nil {
+		m.err = err.Error()
+		m.visible = nil
+		m.topSeparator = -1
+		return
+	}
+	m.err = ""
+	m.visible, m.topSeparator = visible, separator
+	m.restoreSelection()
+}
+
+func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 	filtered := append([]model.Model(nil), m.models...)
 	if m.filter != "" {
 		var err error
 		filtered, err = filterTableModels(filtered, strings.Split(m.filter, ","))
 		if err != nil {
-			m.err = err.Error()
-			return
+			return nil, -1, err
 		}
 	}
 	compiled := m.rankingConfig
@@ -292,13 +314,71 @@ func (m *tuiModel) rebuild() {
 		compiled, _ = ranking.Compile(c)
 	}
 	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, compiled); err != nil {
-		m.err = err.Error()
-		m.visible = nil
-		return
+		return nil, -1, err
+	}
+	separator := -1
+	if m.layout == "top-paid-free" {
+		paidFilters, freeFilters := make([]string, 0), make([]string, 0)
+		for _, raw := range splitFilter(m.filter) {
+			trimmed := strings.TrimSpace(raw)
+			if !m.filterFormExplicit && strings.EqualFold(trimmed, "availability:paid") {
+				continue
+			}
+			paidFilters = append(paidFilters, raw)
+			freeFilters = append(freeFilters, raw)
+		}
+		paidBase, err := filterTableModels(append([]model.Model(nil), m.models...), paidFilters)
+		freeBase, freeErr := filterTableModels(append([]model.Model(nil), m.models...), freeFilters)
+		if err != nil {
+			return nil, -1, err
+		}
+		if freeErr != nil {
+			return nil, -1, freeErr
+		}
+		_ = sortTableModelsWithRankingAndConfig(paidBase, m.sortKey, m.reverse, m.ranking, compiled)
+		_ = sortTableModelsWithRankingAndConfig(freeBase, m.sortKey, m.reverse, m.ranking, compiled)
+		paid, free := make([]model.Model, 0), make([]model.Model, 0)
+		for _, row := range paidBase {
+			if !row.Free {
+				paid = append(paid, row)
+			}
+		}
+		for _, row := range freeBase {
+			if row.Free {
+				free = append(free, row)
+			}
+		}
+		paid = paid[:min(len(paid), max(0, m.topN))]
+		free = free[:min(len(free), max(0, m.topN))]
+		if m.search != "" {
+			paid = searchTUIModels(paid, m.search)
+			free = searchTUIModels(free, m.search)
+		}
+		filtered = append(paid, free...)
+		if len(paid) > 0 && len(free) > 0 {
+			separator = len(paid)
+		}
+	} else {
+		if m.search != "" {
+			filtered = searchTUIModels(filtered, m.search)
+		}
 	}
 	filtered = limitTableModels(filtered, m.limit)
-	m.visible = filtered
-	m.restoreSelection()
+	if separator >= len(filtered) {
+		separator = -1
+	}
+	return filtered, separator, nil
+}
+
+func searchTUIModels(models []model.Model, query string) []model.Model {
+	needle := strings.ToLower(plainTableText(query))
+	filtered := make([]model.Model, 0, len(models))
+	for _, row := range models {
+		if strings.Contains(strings.ToLower(plainTableText(row.Slug)), needle) || strings.Contains(strings.ToLower(plainTableText(row.DisplayName)), needle) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 func (m tuiModel) Init() tea.Cmd {
@@ -314,6 +394,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		filter, filterFormExplicit := m.filter, m.filterFormExplicit
 		filterSteps := m.filterSteps
 		keymap := m.keymap
+		layout, topN := m.layout, m.topN
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
 			if err != nil {
@@ -321,22 +402,28 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			}
 			filterSteps = cfg.TUISteps
 			keymap = cfg.TUIKeymap
+			if cfg.TUI.Layout != "" {
+				layout = cfg.TUI.Layout
+			}
+			if cfg.TUI.TopN > 0 {
+				topN = cfg.TUI.TopN
+			}
 			filterFormExplicit = m.filterExplicit || cfg.TUIFilterSet || cfg.DefaultFilterSet
 			if !m.filterExplicit {
 				filter = resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
 			}
 		}
 		if opts.OutputPath == "" {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, layout: layout, topN: topN, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
 		}
 		_, err := refresh.Run(m.ctx, opts)
 		if err != nil {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, layout: layout, topN: topN, err: err}
 		}
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -396,6 +483,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.refreshing = false
+		if msg.layout != "" {
+			m.layout = msg.layout
+		}
+		if msg.topN > 0 {
+			m.topN = msg.topN
+		}
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			return m, nil
@@ -598,6 +691,21 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.inputMode, m.input = "search", ""
 	case "f":
 		m.openFilterEditor()
+	case "p":
+		if m.keyMatches("main", "cycle_availability", originalKey) {
+			m.cycleAvailability()
+			m.rebuild()
+		}
+	case "v":
+		if m.keyMatches("main", "toggle_layout", originalKey) {
+			if m.layout == "top-paid-free" {
+				m.layout = "all"
+			} else {
+				m.layout = "top-paid-free"
+			}
+			m.persistLayout()
+			m.rebuild()
+		}
 	case "o":
 		if !m.keyMatches("main", "open_settings", originalKey) {
 			break
@@ -622,8 +730,8 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if len(m.visible) > 0 {
 			m.overlay, m.detailOffset = "detail", 0
 		}
-	case "q", "p", "r":
-		m.sortKey = map[string]string{"q": "quality", "p": "price", "r": "q/p"}[key]
+	case "q", "r":
+		m.sortKey = map[string]string{"q": "quality", "r": "q/p"}[key]
 		m.rebuild()
 	case "R":
 		if len(m.visible) > 0 {
@@ -670,16 +778,9 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		candidate := m.input
 		inputMode := m.inputMode
 		if m.inputMode == "search" {
-			needle := strings.ToLower(plainTableText(candidate))
-			filtered := make([]model.Model, 0, len(m.models))
-			for _, row := range m.models {
-				if strings.Contains(strings.ToLower(plainTableText(row.Slug)), needle) || strings.Contains(strings.ToLower(plainTableText(row.DisplayName)), needle) {
-					filtered = append(filtered, row)
-				}
-			}
-			m.inputMode, m.err = "", ""
-			m.visible = filtered
-			m.restoreSelection()
+			m.inputMode, m.search = "", candidate
+			m.rebuild()
+			m.search = ""
 			return m, nil
 		}
 		m.inputMode = ""
@@ -696,7 +797,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.rebuild()
 			return m, nil
 		}
-		filtered, err := filterTableModels(append([]model.Model(nil), m.models...), strings.Split(candidate, ","))
+		_, err := filterTableModels(append([]model.Model(nil), m.models...), strings.Split(candidate, ","))
 		if err != nil {
 			m.err = err.Error()
 			return m, nil
@@ -710,7 +811,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 				m.err = err.Error()
 			}
 		}
-		m.rebuildWith(filtered)
+		m.rebuild()
 		return m, nil
 	case "backspace":
 		_, n := utf8.DecodeLastRuneInString(m.input)
@@ -727,15 +828,32 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m *tuiModel) rebuildWith(filtered []model.Model) {
-	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, m.rankingConfig); err != nil {
-		m.err = err.Error()
-		m.visible = nil
+func (m *tuiModel) cycleAvailability() {
+	parts := make([]string, 0, len(splitFilter(m.filter)))
+	current := "any"
+	for _, raw := range splitFilter(m.filter) {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(strings.ToLower(trimmed), "availability:") {
+			current = strings.TrimPrefix(strings.ToLower(trimmed), "availability:")
+			continue
+		}
+		parts = append(parts, trimmed)
+	}
+	next := map[string]string{"any": "free", "free": "paid", "paid": "any"}[current]
+	if next != "any" {
+		parts = append(parts, "availability:"+next)
+	}
+	m.filter = strings.Join(parts, ",")
+	m.filterFormExplicit = true
+}
+
+func (m *tuiModel) persistLayout() {
+	if m.configPath == "" {
 		return
 	}
-	filtered = limitTableModels(filtered, m.limit)
-	m.visible = filtered
-	m.restoreSelection()
+	if err := config.SaveTUILayout(m.configPath, m.layout, m.topN); err != nil {
+		m.err = err.Error()
+	}
 }
 
 func (m *tuiModel) restoreSelection() {
@@ -793,7 +911,7 @@ func (m tuiModel) columnKey(key, originalKey string) (tuiModel, tea.Cmd) {
 }
 
 func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
-	const settingsItems = 4
+	const settingsItems = 6
 	switch key {
 	case "esc", "o":
 		m.overlay = ""
@@ -820,9 +938,37 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			m.openFilterEditor()
 		case 3:
 			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
+		case 4:
+			if m.layout == "top-paid-free" {
+				m.layout = "all"
+			} else {
+				m.layout = "top-paid-free"
+			}
+			m.persistLayout()
+			m.rebuild()
+		case 5:
+			m.topN = max(1, m.topN+1)
+			m.persistLayout()
+			m.rebuild()
+		}
+	case "left", "right":
+		if m.settingsCursor == 5 {
+			m.topN = max(1, m.topN+map[string]int{"left": -1, "right": 1}[key])
+			m.persistLayout()
+			m.rebuild()
 		}
 	}
 	return m, nil
+}
+
+func tuiAvailabilityFromFilter(value string) string {
+	for _, raw := range splitFilter(value) {
+		trimmed := strings.ToLower(strings.TrimSpace(raw))
+		if strings.HasPrefix(trimmed, "availability:") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "availability:"))
+		}
+	}
+	return "any"
 }
 
 func (m *tuiModel) openFilterEditor() {
@@ -837,7 +983,7 @@ func (m *tuiModel) openFilterEditor() {
 }
 
 func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	const filterFields = 8
+	const filterFields = 10
 	switch key {
 	case "esc":
 		m.overlay = ""
@@ -873,6 +1019,10 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.filterDraft.scored = !m.filterDraft.scored
 		case 3:
 			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
+		case 8:
+			m.filterDraft.hasQP = !m.filterDraft.hasQP
+		case 9:
+			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
 		}
 	case "c":
 		m.filterDraft = tuiFilterDraft{}
@@ -952,6 +1102,10 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 			draft.paid = true
 		case lower == "scored":
 			draft.scored = true
+		case lower == "has-q/p":
+			draft.hasQP = true
+		case strings.HasPrefix(lower, "availability:"):
+			draft.availability = strings.TrimSpace(value[len("availability:"):])
 		case strings.HasPrefix(lower, "tier:"):
 			draft.tier = strings.TrimSpace(value[len("tier:"):])
 		case strings.HasPrefix(lower, "quality>="):
@@ -977,7 +1131,7 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 }
 
 func (d tuiFilterDraft) string() string {
-	filters := make([]string, 0, 8)
+	filters := make([]string, 0, 10)
 	if d.free {
 		filters = append(filters, "free")
 	}
@@ -986,6 +1140,12 @@ func (d tuiFilterDraft) string() string {
 	}
 	if d.scored {
 		filters = append(filters, "scored")
+	}
+	if d.hasQP {
+		filters = append(filters, "has-q/p")
+	}
+	if d.availability != "" && d.availability != "any" {
+		filters = append(filters, "availability:"+d.availability)
 	}
 	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
 		if strings.TrimSpace(item.value) != "" {
@@ -1001,6 +1161,16 @@ func (d tuiFilterDraft) string() string {
 		}
 	}
 	return strings.Join(filters, ",")
+}
+
+func tuiNextAvailability(current string) string {
+	values := []string{"", "any", "free", "paid"}
+	for i, value := range values {
+		if value == current {
+			return values[(i+1)%len(values)]
+		}
+	}
+	return values[0]
 }
 
 func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
@@ -1232,6 +1402,8 @@ func (m tuiModel) View() string {
 			"> Ranking: " + rankingName,
 			"  Score source: " + m.scoreSource + " (Space switches SWE-bench/Arena)",
 			"  Filter: " + tuiDetailValue(m.filter),
+			"  Availability: " + tuiAvailabilityFromFilter(m.filter),
+			"  Layout: " + m.layout + " (top N=" + strconv.Itoa(m.topN) + ")",
 			"  Columns: " + strings.Join(columns, ", "),
 			"",
 			"Move Down to Score source, then press Space to switch.",
@@ -1245,7 +1417,7 @@ func (m tuiModel) View() string {
 		} else if m.status != "" {
 			lines = append(lines, "Status: "+m.status)
 		}
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 6; i++ {
 			prefix := "  "
 			if i == m.settingsCursor {
 				prefix = "> "
@@ -1255,7 +1427,7 @@ func (m tuiModel) View() string {
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
 	title := truncateTable("OpenRouter models", m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.filter, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -1273,7 +1445,7 @@ func (m tuiModel) View() string {
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · q quality · p price · r q/p · R refresh · x quit · o settings · ↓ source · f filter · ? help/,"
+	hints := "↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p"
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
 	if m.inputMode == "" {
@@ -1287,6 +1459,9 @@ func (m tuiModel) View() string {
 		start := max(0, min(m.cursor-max(1, rowsBudget)/2, max(0, len(m.visible)-1)))
 		end := min(len(m.visible), start+rowsBudget)
 		for i := start; i < end; i++ {
+			if i == m.topSeparator {
+				lines = append(lines, "")
+			}
 			values := make([]string, len(columns))
 			for j, col := range columns {
 				values[j] = tuiCell(m.visible[i], col, m.lastNote, m.scoreSource)
@@ -1313,9 +1488,9 @@ func (m tuiModel) View() string {
 }
 
 func tuiFilterView(m tuiModel) string {
-	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}
-	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max"}
-	lines := []string{"Filter", "", "↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit", ""}
+	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability}
+	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability"}
+	lines := []string{"Filter", "", "↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit", "Tier options: (any), " + tier.ValuesString(), ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -1922,8 +2097,9 @@ Navigation
 
 Data/view
 \tq\tsort\tquality.
-\tp\tsort\tprice.
+\tp\tavailability\tcycle any/free/paid.
 \tr\tsort\tquality/price ratio (q/p).
+\tv\tview\ttoggle all/top-paid-free.
 \tm\tranking\ttoggle ranking mode: mixed-utility or tier-priority.
 \ts\tordering\tcycle sort key.
 \tS\tordering\treverse order.
@@ -2138,7 +2314,7 @@ const (
 	// pass in tuiStyleDetailLine recognises it by text: a literal repeated
 	// in six places and a rule that greys out a seventh copy of it would
 	// drift apart the first time one of them is reworded.
-	tuiDetailPlaceholder = "н/д"
+	tuiDetailPlaceholder = "n/a"
 
 	// The two link prefixes are constants for the same reason no ready-made
 	// URL is stored in model.Model or in the snapshot: the address is
@@ -2317,12 +2493,12 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 		lines = append(lines, "  Устарело: значение взято из прошлого снапшота")
 	}
 	return append(lines,
-		"  Измеренный вариант: "+tuiDetailValue(info.VariantMeasured),
-		"  Метрика: "+tuiDetailValue(info.Metric),
-		"  Единица: "+tuiDetailValue(info.Unit),
-		"  Согласованность identity: "+tuiDetailValue(info.IdentityStatus),
-		"  Источник: "+tuiDetailValue(info.SourceURL),
-		"  Проверено: "+tuiDetailValue(info.Checked),
+		"  Измеренный вариант: "+tuiDetailValue(model.NormalizeMissingLabels(info.VariantMeasured)),
+		"  Метрика: "+tuiDetailValue(model.NormalizeMissingLabels(info.Metric)),
+		"  Единица: "+tuiDetailValue(model.NormalizeMissingLabels(info.Unit)),
+		"  Согласованность identity: "+tuiDetailValue(model.NormalizeMissingLabels(info.IdentityStatus)),
+		"  Источник: "+tuiDetailValue(model.NormalizeMissingLabels(info.SourceURL)),
+		"  Проверено: "+tuiDetailValue(model.NormalizeMissingLabels(info.Checked)),
 		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 

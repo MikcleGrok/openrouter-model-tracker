@@ -36,7 +36,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		Slug: "nvidia/nemotron-3-ultra-550b-a55b:free", DisplayName: "NVIDIA Nemotron 3 Ultra", Tier: "free",
 		Context: 1000000, Free: true,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70.4, VariantMeasured: "vendor-claimed"},
-		ScoreLabel: "65–70.4% (только вендор)", QualityPriceLabel: "н/д (цена $0)", Rankable: true,
+		ScoreLabel: "65–70.4% (только вендор)", QualityPriceLabel: "n/a (free)", Rankable: true,
 		ClaudeRef: "<≈ Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
 		Note: "550B/55B-active MoE.",
 	}
@@ -112,7 +112,7 @@ func TestBuildRenderData(t *testing.T) {
 	weak := model.Model{
 		Slug: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro", Tier: "opus",
 		InPerM: 0.435, OutPerM: 0.87, MixedPrice: 0.54375,
-		ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)", Rankable: false,
+		ScoreLabel: "n/a", QualityPriceLabel: "n/a (variant mismatch)", Rankable: false,
 	}
 	luna.QualityPrice = 82.7
 	sol.QualityPrice = 8.6
@@ -171,6 +171,17 @@ func TestBuildRenderData(t *testing.T) {
 	if len(d.Caveats) != 2 || len(d.Companies) != 2 || len(d.ClaudePrices) != 2 {
 		t.Errorf("static blocks not pulled from notes.yaml: caveats %d, companies %d, claude prices %d",
 			len(d.Caveats), len(d.Companies), len(d.ClaudePrices))
+	}
+}
+
+func TestRenderNormalizesLegacyMissingLabelsInMarkdownProvenance(t *testing.T) {
+	var output bytes.Buffer
+	data := RenderData{Tiers: []TierSection{{Heading: "Tier", Rows: []model.Model{{DisplayName: "Demo", Slug: "demo/model", Score: &model.ScoreInfo{Value: 1, Metric: "н/д", Uncertainty: "н/д"}, ScoreLabel: "1.0%", QualityPriceLabel: "n/a", Owner: "Demo (n/a)", OpenWeights: "n/a"}}}}}
+	if err := Render(&output, data); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "н/д") {
+		t.Fatalf("rendered Markdown contains legacy missing label:\n%s", output.String())
 	}
 }
 
