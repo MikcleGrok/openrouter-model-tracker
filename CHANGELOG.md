@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.34]
+
+- Fully remove the GitHub Actions workflows.
+- Keep release packaging and publication local-only.
+
 ## [1.13.33]
 
 - Remove GitHub Actions workflows from the release process.
