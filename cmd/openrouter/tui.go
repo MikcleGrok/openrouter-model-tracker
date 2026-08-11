@@ -44,9 +44,10 @@ var tuiColumns = []tuiColumn{colName, colSlug, colClaude, colStatus, colQuality,
 var tuiSortKeys = []string{"name", "slug", "context", "input", "output", "price", "quality", "q/p", "utility"}
 
 var (
-	tuiTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	tuiTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
 	tuiMetaStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	tuiHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("87"))
+	tuiHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
+	tuiSectionStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("244"))
 	tuiSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("24"))
 	tuiStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	tuiErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
@@ -60,7 +61,7 @@ var (
 	// the main screen, 87 is the label colour whose contrast against values
 	// this whole change exists to create, and tuiSelectedStyle has a
 	// background that would read as a mouse selection on full-screen text.
-	tuiLinkStyle         = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("81"))
+	tuiLinkStyle         = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("74"))
 	tuiMatchStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213"))
 	tuiCurrentMatchStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("124"))
 )
@@ -472,6 +473,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.clampDetailOffset()
 	case tuiTickMsg:
 		if m.interval <= 0 {
 			return m, nil
@@ -510,6 +512,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
+		m.clampDetailOffset()
 	case tuiScoreSourceMsg:
 		if msg.generation != m.scoreSourceGeneration {
 			return m, nil
@@ -526,6 +529,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", "score source changed"
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
+		m.clampDetailOffset()
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
@@ -1994,6 +1998,8 @@ func tuiStyleDetailLine(line string) string {
 	index := strings.Index(plain, ": ")
 	if index < 0 {
 		switch {
+		case strings.HasPrefix(plain, "-- ") && strings.HasSuffix(plain, " --"):
+			return tuiSectionStyle.Render(plain)
 		case strings.HasSuffix(plain, ":"):
 			return tuiHeaderStyle.Render(plain)
 		case strings.HasPrefix(strings.TrimSpace(plain), tuiDetailPlaceholder):
@@ -2551,6 +2557,7 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	lines := []string{
 		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
 		"",
+		"-- Identity --",
 		"Провайдер: " + tuiDetailProviderLicense(m),
 	}
 	lines = append(lines, "Описание:")
@@ -2558,8 +2565,6 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	lines = append(lines,
 		"",
 		"Производитель: "+tuiDetailValue(m.Owner),
-		"Capability estimate / Claude tier: "+tuiDetailValue(m.Tier)+" (manual model-map.tsv)",
-		"Tier estimate: "+tuiDetailValue(m.ClaudeRef)+" (manual estimate)",
 		"Тир: "+tuiDetailValue(m.Tier),
 		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
 		"Дата релиза: "+tuiDetailReleaseDate(m.Created, now),
@@ -2583,6 +2588,7 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 	}
 	lines = append(lines,
 		"",
+		"-- Pricing --",
 		"Контекст: "+context,
 		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
 		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
@@ -2600,12 +2606,44 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 		)
 	}
 	lines = append(lines, "Открытые веса: "+tuiDetailValue(m.OpenWeights), "")
+	lines = append(lines, "-- Benchmarks --")
 	lines = append(lines, tuiDetailSWEBenchBlock(m, scoreSource)...)
 	lines = append(lines, "")
 	lines = append(lines, tuiDetailArenaBlock(m)...)
-	lines = append(lines, "", "Task fit: "+tuiDetailTaskFit(m), "", "Заметка:")
+	lines = append(lines, "", "-- Fit and notes --", "Task fit: "+tuiDetailTaskFit(m), "", "Заметка:")
 	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
-	return lines
+	return tuiDetailAlignRows(lines, width)
+}
+
+// tuiDetailAlignRows keeps the compact label/value form on narrow terminals,
+// but turns the same plain lines into a quiet two-column table when there is
+// room. Padding is inserted after ": " so existing labels and links remain
+// readable, and all of it still happens before ANSI styling.
+func tuiDetailAlignRows(lines []string, width int) []string {
+	if width < 140 {
+		return lines
+	}
+	labelWidth := 0
+	for _, line := range lines {
+		index := strings.Index(line, ": ")
+		if index > 0 && !strings.HasPrefix(line, "  ") {
+			labelWidth = max(labelWidth, tableDisplayWidth(line[:index]))
+		}
+	}
+	if labelWidth == 0 {
+		return lines
+	}
+	result := append([]string(nil), lines...)
+	for i, line := range result {
+		index := strings.Index(line, ": ")
+		if index <= 0 || strings.HasPrefix(line, "  ") {
+			continue
+		}
+		label := line[:index]
+		value := line[index+2:]
+		result[i] = label + ": " + strings.Repeat(" ", labelWidth-tableDisplayWidth(label)) + value
+	}
+	return result
 }
 
 // tuiDetailBodyHeight is how many content lines fit above the footer. The
@@ -2621,6 +2659,18 @@ func tuiDetailBodyHeight(height int) int { return max(1, height-1) }
 // lines actually built for this model rather than from a fixed document.
 func tuiDetailMaxOffset(m model.Model, scoreSource string, width, height int) int {
 	return max(0, len(tuiDetailLines(m, scoreSource, width, time.Now()))-tuiDetailBodyHeight(height))
+}
+
+func (m *tuiModel) clampDetailOffset() {
+	if m.overlay != "detail" {
+		return
+	}
+	row, ok := m.detailRow()
+	if !ok {
+		m.detailOffset = 0
+		return
+	}
+	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)))
 }
 
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {

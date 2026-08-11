@@ -2447,6 +2447,21 @@ func TestTUIDetailLinesKeepTheTwoScoreSourcesApart(t *testing.T) {
 	}
 }
 
+func TestTUIDetailLinesKeepCanonicalTierMetadataWithoutDuplicates(t *testing.T) {
+	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"Тир: opus", "Claude-референс: ≈ Opus 4.6"} {
+		if strings.Count(joined, want) != 1 {
+			t.Fatalf("canonical detail metadata %q appears %d times:\n%s", want, strings.Count(joined, want), joined)
+		}
+	}
+	for _, duplicate := range []string{"Capability estimate / Claude tier:", "Tier estimate:"} {
+		if strings.Contains(joined, duplicate) {
+			t.Fatalf("detail metadata still contains duplicate label %q:\n%s", duplicate, joined)
+		}
+	}
+}
+
 // TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading covers the trap
 // model.ForScoreSource sets for this screen: in the arena view it has
 // already overwritten Score/ScoreLabel with the Arena projection, so a
@@ -2528,6 +2543,65 @@ func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	lines := tuiDetailLines(row, scoreSourceSWEBench, 30, time.Now())
 	if want := len(lines) - tuiDetailBodyHeight(10); narrow != want {
 		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
+	}
+}
+
+func TestTUIDetailOffsetClampsAfterRefreshAndResize(t *testing.T) {
+	row := tuiDetailTestModel()
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.overlay, m.width, m.height, m.detailOffset = "detail", 30, 10, 10000
+	m.generation = 1
+	next, _ := m.Update(tuiRefreshMsg{generation: 1, scoreSourceGeneration: m.scoreSourceGeneration, models: []model.Model{row}})
+	m = next.(tuiModel)
+	if maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height); m.detailOffset != maxOffset {
+		t.Fatalf("detail offset after refresh = %d, want %d", m.detailOffset, maxOffset)
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 1000})
+	m = next.(tuiModel)
+	if m.detailOffset != 0 {
+		t.Fatalf("detail offset after widening and enlarging viewport = %d, want 0", m.detailOffset)
+	}
+}
+
+func TestTUIDetailGroupsDataAndAlignsWideRows(t *testing.T) {
+	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 200, time.Now())
+	joined := strings.Join(lines, "\n")
+	for _, marker := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Fit and notes --"} {
+		if !strings.Contains(joined, marker) {
+			t.Fatalf("detail view is missing section marker %q:\n%s", marker, joined)
+		}
+	}
+	positions := make([]int, 0, 3)
+	for _, label := range []string{"Производитель", "Дата релиза", "Контекст"} {
+		for _, line := range lines {
+			if strings.HasPrefix(line, label+": ") {
+				valueStart := strings.Index(line, ": ") + 2
+				valueStart += len(line[valueStart:]) - len(strings.TrimLeft(line[valueStart:], " "))
+				positions = append(positions, tableDisplayWidth(line[:valueStart]))
+				break
+			}
+		}
+	}
+	if len(positions) != 3 || positions[0] != positions[1] || positions[1] != positions[2] {
+		t.Fatalf("wide detail rows are not aligned: positions=%v\n%s", positions, joined)
+	}
+}
+
+func TestTUIDetailKeepsPlainContentAtNarrowWidths(t *testing.T) {
+	row := tuiDetailTestModel()
+	row.Description = "Описание с | markdown **маркерами** и управляющим\nсимволом"
+	for _, width := range []int{1, 5, 20, 40} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+		m.overlay, m.width, m.height = "detail", width, 24
+		view := ansi.Strip(m.View())
+		for _, line := range strings.Split(view, "\n") {
+			if tableDisplayWidth(line) > width {
+				t.Fatalf("width=%d: rendered detail line exceeds width: %q (%d)", width, line, tableDisplayWidth(line))
+			}
+		}
+		if strings.Contains(view, "**") || strings.Contains(view, "|") {
+			t.Fatalf("width=%d: unsanitized detail content: %q", width, view)
+		}
 	}
 }
 
@@ -2846,14 +2920,18 @@ func TestTUIDetailViewStylesBothLinkKinds(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 200, 60
 	view := m.View()
+	plainView := ansi.Strip(view)
 	for _, url := range []string{
 		"https://openrouter.ai/openai/gpt-5.6-luna-20260804",
 		"https://huggingface.co/openai-community/gpt-5-6-luna",
 		"https://www.vals.ai/benchmarks/swebench",
 	} {
-		if !strings.Contains(view, tuiLinkStyle.Render(url)) {
-			t.Errorf("the view does not carry %q in the link style:\n%s", url, view)
+		if !strings.Contains(plainView, url) {
+			t.Errorf("the view does not carry %q:\n%s", url, plainView)
 		}
+	}
+	if !strings.Contains(view, "38;5;74") || strings.Contains(view, "38;5;81") {
+		t.Errorf("the view does not use the calm link palette 74 exclusively:\n%s", view)
 	}
 	if !strings.Contains(view, tuiHeaderStyle.Render("Страница OpenRouter: ")) {
 		t.Errorf("the link label is not styled like every other field label:\n%s", view)
