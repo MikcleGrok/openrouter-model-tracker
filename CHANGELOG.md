@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.33]
+
+- Remove GitHub Actions workflows from the release process.
+- Switch releases to a local-only workflow.
+
 ## [1.13.29]
 
 - Preserve benchmark provenance and source-family-aware product identity, keeping mismatched, missing, legacy, and observation-only scores out of quality, Q/P, filters, and ranking.
