@@ -922,6 +922,15 @@ func TestDualFamilyFallbacksActIndependently(t *testing.T) {
 	})
 }
 
+func TestArenaFallbackKeepsArenaProviderWhenSnapshotTopLevelProviderIsEmpty(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "openai/gpt", Names: map[string]string{"arena": "openai-gpt"}}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{"openai/gpt": {ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, Provider: "OpenAI"}}}}
+	arena, _ := applyArenaFallback(entries, nil, map[string]bool{"arena": false}, snap)
+	if len(arena) != 1 || arena[0].Provider != "OpenAI" {
+		t.Fatalf("Arena fallback = %+v, want Arena organization OpenAI", arena)
+	}
+}
+
 func TestMarkStaleLabelsTheArenaColumn(t *testing.T) {
 	models := []model.Model{{
 		Slug:       "a/down",

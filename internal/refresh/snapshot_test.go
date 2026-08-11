@@ -43,6 +43,22 @@ func TestLoadSnapshotNormalizesLegacyMissingLabels(t *testing.T) {
 	}
 }
 
+func TestLoadSnapshotKeepsArenaProviderWhenTopLevelProviderIsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snapshot.json")
+	body := `{"models":{"openai/gpt":{"provider":"","arena_score":{"metric":"LMArena Elo","value":1453,"provider":"OpenAI"}}}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := snapshot.Models["openai/gpt"]
+	if entry.Provider != "" || entry.ArenaScore == nil || entry.ArenaScore.Provider != "OpenAI" {
+		t.Fatalf("legacy Arena provider = %+v, want empty top-level provider and OpenAI Arena provider", entry)
+	}
+}
+
 func TestSnapshotRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "last-run-snapshot.json")
 	want := &Snapshot{

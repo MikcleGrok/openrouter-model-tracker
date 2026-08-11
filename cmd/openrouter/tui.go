@@ -18,6 +18,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
@@ -195,6 +196,7 @@ type tuiModel struct {
 	ranking               string
 	scoreSource           string
 	priceWeight           float64
+	priceHistory          *pricehistory.History
 	rankingConfig         ranking.Compiled
 	rankingConfigSet      bool
 	filterSteps           config.TUISteps
@@ -278,6 +280,10 @@ func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Opt
 		return tuiModel{}, err
 	}
 	m := newTUIModel(ctx, dataDir, opts, interval, models)
+	m.priceHistory, err = pricehistory.Load(pricehistory.Path(dataDir))
+	if err != nil {
+		return tuiModel{}, err
+	}
 	m.rankingConfig = compiled
 	m.rankingConfigSet = true
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
@@ -501,6 +507,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", "refreshed"
+		history, err := pricehistory.Load(pricehistory.Path(m.dataDir))
+		if err != nil {
+			m.err = fmt.Sprintf("price history reload failed: %v", err)
+			return m, nil
+		}
+		m.priceHistory = history
 		m.filterSteps = msg.filterSteps
 		if msg.keymap != nil {
 			m.keymap = msg.keymap
@@ -620,7 +632,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.overlay, m.detailOffset = "", 0
 			return m, nil
 		}
-		maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)
+		maxOffset := tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, m.priceHistory)
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
@@ -1928,7 +1940,7 @@ func tuiDetailView(m tuiModel) string {
 	if !ok {
 		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
 	}
-	lines := tuiDetailLines(row, m.scoreSource, m.width, time.Now())
+	lines := tuiDetailLinesWithHistory(row, m.scoreSource, m.width, time.Now(), m.priceHistory)
 	body := tuiDetailBodyHeight(m.height)
 	offset := max(0, min(m.detailOffset, max(0, len(lines)-body)))
 	end := min(len(lines), offset+body)
@@ -2383,13 +2395,12 @@ func tuiDetailURL(prefix, id string) string {
 	return prefix + id
 }
 
-func tuiDetailProviderLicense(m model.Model) string {
-	provider := tuiDetailValue(m.Provider)
+func tuiDetailLicense(m model.Model) string {
 	license := m.License
 	if strings.TrimSpace(license) == "" {
 		license = m.OpenWeights
 	}
-	return provider + " · " + tuiDetailValue(license)
+	return tuiDetailValue(license)
 }
 
 func tuiDetailOpenRouterURL(m model.Model) string {
@@ -2419,6 +2430,31 @@ func tuiDetailTaskFit(m model.Model) string {
 		return tuiDetailPlaceholder
 	}
 	return strings.Join(m.TaskFit, " + ")
+}
+
+func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string {
+	if history == nil || len(history.Observations) < 2 {
+		return nil
+	}
+	lines := make([]string, 0)
+	var previous pricehistory.Price
+	var havePrevious bool
+	for _, observation := range history.Observations {
+		current, ok := observation.Prices[slug]
+		if !ok || !current.Found || (havePrevious && pricehistory.Equal(previous, current)) {
+			continue
+		}
+		if !havePrevious {
+			previous, havePrevious = current, true
+			continue
+		}
+		lines = append(lines, "  "+observation.ObservedAt.UTC().Format("2006-01-02")+": "+pricehistory.Format(previous)+" -> "+pricehistory.Format(current))
+		previous = current
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return append([]string{"Динамика цен:"}, lines...)
 }
 
 // tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
@@ -2550,6 +2586,10 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 // model.ForScoreSource; passing a mismatched pair defeats the SWE-bench
 // block's gate against printing Arena data under the wrong heading.
 func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
+	return tuiDetailLinesWithHistory(m, scoreSource, width, now, nil)
+}
+
+func tuiDetailLinesWithHistory(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History) []string {
 	context := tuiDetailPlaceholder
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
@@ -2558,13 +2598,15 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
 		"",
 		"-- Identity --",
-		"Провайдер: " + tuiDetailProviderLicense(m),
+		"Производитель: " + tuiDetailValue(manufacturerDisplay(m)),
+		"Провайдер: " + tuiDetailValue(m.Provider),
+		"Лицензия: " + tuiDetailLicense(m),
 	}
 	lines = append(lines, "Описание:")
 	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
+	lines = append(lines, "", "Task fit: "+tuiDetailTaskFit(m))
 	lines = append(lines,
 		"",
-		"Производитель: "+tuiDetailValue(m.Owner),
 		"Тир: "+tuiDetailValue(m.Tier),
 		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
 		"Дата релиза: "+tuiDetailReleaseDate(m.Created, now),
@@ -2605,12 +2647,15 @@ func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time)
 			"  выход: "+plainTableText(m.LongContextOutLabel),
 		)
 	}
+	if historyLines := tuiDetailPriceHistory(history, m.Slug); len(historyLines) > 0 {
+		lines = append(lines, historyLines...)
+	}
 	lines = append(lines, "Открытые веса: "+tuiDetailValue(m.OpenWeights), "")
 	lines = append(lines, "-- Benchmarks --")
 	lines = append(lines, tuiDetailSWEBenchBlock(m, scoreSource)...)
 	lines = append(lines, "")
 	lines = append(lines, tuiDetailArenaBlock(m)...)
-	lines = append(lines, "", "-- Fit and notes --", "Task fit: "+tuiDetailTaskFit(m), "", "Заметка:")
+	lines = append(lines, "", "-- Fit and notes --", "Заметка:")
 	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
 	return tuiDetailAlignRows(lines, width)
 }
@@ -2658,7 +2703,11 @@ func tuiDetailBodyHeight(height int) int { return max(1, height-1) }
 // width the description wraps at, so the maximum is computed from the
 // lines actually built for this model rather than from a fixed document.
 func tuiDetailMaxOffset(m model.Model, scoreSource string, width, height int) int {
-	return max(0, len(tuiDetailLines(m, scoreSource, width, time.Now()))-tuiDetailBodyHeight(height))
+	return tuiDetailMaxOffsetWithHistory(m, scoreSource, width, height, nil)
+}
+
+func tuiDetailMaxOffsetWithHistory(m model.Model, scoreSource string, width, height int, history *pricehistory.History) int {
+	return max(0, len(tuiDetailLinesWithHistory(m, scoreSource, width, time.Now(), history))-tuiDetailBodyHeight(height))
 }
 
 func (m *tuiModel) clampDetailOffset() {
@@ -2670,14 +2719,14 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)))
+	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, m.priceHistory)))
 }
 
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
 	var value string
 	switch col {
 	case colName:
-		value = m.DisplayName
+		value = manufacturerDisplay(m) + " " + m.DisplayName
 	case colSlug:
 		value = m.Slug
 	case colClaude:

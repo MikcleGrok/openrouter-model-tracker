@@ -21,6 +21,7 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
@@ -1513,6 +1514,36 @@ func TestTUIRefreshGenerationKeepsRowsOnErrorAndRejectsStale(t *testing.T) {
 	}
 }
 
+func TestTUIRefreshReloadsPriceHistoryBeforeClampingDetail(t *testing.T) {
+	dataDir := t.TempDir()
+	row := tuiDetailTestModel()
+	base := pricehistory.Price{Found: true, InPerM: row.InPerM, OutPerM: row.OutPerM, Context: row.Context}
+	changed := base
+	changed.OutPerM = 4
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: base}},
+	}}
+	if err := history.Save(pricehistory.Path(dataDir)); err != nil {
+		t.Fatal(err)
+	}
+	m := newTUIModel(context.Background(), dataDir, refresh.Options{}, 0, []model.Model{row})
+	m.priceHistory = history
+	m.overlay, m.width, m.height, m.detailOffset, m.generation, m.refreshing = "detail", 30, 10, 10000, 1, true
+	updated := &pricehistory.History{Observations: append(history.Observations, pricehistory.Observation{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: changed}})}
+	if err := updated.Save(pricehistory.Path(dataDir)); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(tuiRefreshMsg{generation: 1, models: []model.Model{row}})
+	m = next.(tuiModel)
+	if len(m.priceHistory.Observations) != 2 {
+		t.Fatalf("refresh kept stale price history: %+v", m.priceHistory)
+	}
+	want := tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, m.priceHistory)
+	if m.detailOffset != want {
+		t.Fatalf("detail offset after history refresh = %d, want %d", m.detailOffset, want)
+	}
+}
+
 func TestTUIRefreshIgnoresResultFromPreviousScoreSource(t *testing.T) {
 	oldRows := []model.Model{{Slug: "old"}}
 	newRows := []model.Model{{Slug: "new"}}
@@ -2383,9 +2414,10 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		t.Errorf("header = %q, want the display name and the slug", lines[0])
 	}
 	for _, want := range []string{
-		"Провайдер: n/a · нет",
+		"Производитель: [OAI] OpenAI (C)",
+		"Провайдер: n/a",
+		"Лицензия: нет",
 		"Описание:",
-		"Производитель: OpenAI (C)",
 		"Тир: opus",
 		"Claude-референс: ≈ Opus 4.6",
 		"Дата релиза: 2026-08-06 (2 месяца назад); дата создания записи каталога, релиз неизвестен",
@@ -2406,7 +2438,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		}
 	}
 
-	order := []string{"GPT-5.6 Luna", "Провайдер:", "Описание:", "Производитель:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Task fit:", "Заметка:"}
+	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Описание:", "Task fit:", "Тир:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Заметка:"}
 	previous := -1
 	for _, prefix := range order {
 		index := tuiDetailIndex(t, lines, prefix)
@@ -2414,6 +2446,28 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 			t.Fatalf("block %q is at line %d, out of order against the previous block at %d:\n%s", prefix, index, previous, joined)
 		}
 		previous = index
+	}
+}
+
+func TestTUIDetailPricingShowsOnlyRecordedPriceChanges(t *testing.T) {
+	base := pricehistory.Price{Found: true, InPerM: 0.5, OutPerM: 3, Context: 1000000}
+	changed := base
+	changed.HasOverride = true
+	changed.OverrideMinTokens = 272000
+	changed.OverrideInPerM = 1
+	changed.OverrideOutPerM = 4
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"openai/gpt-5.6-luna": base}},
+		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"openai/gpt-5.6-luna": changed}},
+	}}
+	lines := tuiDetailLinesWithHistory(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now(), history)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Динамика цен:") || !strings.Contains(joined, "2026-08-02: $0.5/$3, 1000K -> $0.5/$3, 1000K; long-context $1/$4 от 272K+") {
+		t.Fatalf("pricing history is missing the recorded change:\n%s", joined)
+	}
+	withoutHistory := strings.Join(tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now()), "\n")
+	if strings.Contains(withoutHistory, "Динамика цен:") {
+		t.Fatalf("detail invented pricing history without observations:\n%s", withoutHistory)
 	}
 }
 
@@ -2490,7 +2544,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Провайдер: n/a · n/a", "Описание:", "Производитель: n/a", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
+	for _, want := range []string{"Производитель: [?]", "Провайдер: n/a", "Лицензия: n/a", "Описание:", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -2560,6 +2614,22 @@ func TestTUIDetailOffsetClampsAfterRefreshAndResize(t *testing.T) {
 	m = next.(tuiModel)
 	if m.detailOffset != 0 {
 		t.Fatalf("detail offset after widening and enlarging viewport = %d, want 0", m.detailOffset)
+	}
+}
+
+func TestTUIDetailScrollAccountsForPricingHistory(t *testing.T) {
+	row := tuiDetailTestModel()
+	base := pricehistory.Price{Found: true, InPerM: row.InPerM, OutPerM: row.OutPerM, Context: row.Context}
+	changed := base
+	changed.OutPerM = 4
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: base}},
+		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: changed}},
+	}}
+	lines := tuiDetailLinesWithHistory(row, scoreSourceSWEBench, 30, time.Now(), history)
+	want := max(0, len(lines)-tuiDetailBodyHeight(10))
+	if got := tuiDetailMaxOffsetWithHistory(row, scoreSourceSWEBench, 30, 10, history); got != want {
+		t.Fatalf("history-aware max offset = %d, want %d", got, want)
 	}
 }
 
@@ -3038,6 +3108,26 @@ func TestTUIDetailOverlayScrollsWithinItsBounds(t *testing.T) {
 	}
 	if m.overlay != "detail" {
 		t.Fatalf("overlay = %q, want scrolling to keep the overlay open", m.overlay)
+	}
+}
+
+func TestTUIDetailNavigationUsesHistoryAwareBounds(t *testing.T) {
+	row := tuiDetailTestModel()
+	base := pricehistory.Price{Found: true, InPerM: row.InPerM, OutPerM: row.OutPerM, Context: row.Context}
+	changed := base
+	changed.OutPerM = 4
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{Prices: map[string]pricehistory.Price{row.Slug: base}},
+		{Prices: map[string]pricehistory.Price{row.Slug: changed}},
+	}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.priceHistory, m.width, m.height, m.overlay = history, 60, 10, "detail"
+	maxOffset := tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, history)
+	for _, msg := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyPgDown}, {Type: tea.KeyEnd}} {
+		m, _ = m.key(msg)
+	}
+	if m.detailOffset != maxOffset {
+		t.Fatalf("detail navigation offset = %d, want history-aware maximum %d", m.detailOffset, maxOffset)
 	}
 }
 

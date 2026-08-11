@@ -120,7 +120,10 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 		}
 		if entry.ArenaScore != nil {
 			row := scoreRowFromInfo(slug, entry.ArenaScore, snapshotFallbackIdentity(entry))
-			row.Provider, row.License, row.ModelURL, row.MetadataSourceURL = entry.Provider, entry.License, entry.ModelURL, entry.MetadataSourceURL
+			if row.Provider == "" {
+				row.Provider = entry.Provider
+			}
+			row.License, row.ModelURL, row.MetadataSourceURL = entry.License, entry.ModelURL, entry.MetadataSourceURL
 			arena = append(arena, row)
 		}
 	}
@@ -727,6 +730,37 @@ func tableNote(m model.Model) string {
 	return plainTableText(m.Note)
 }
 
+func manufacturerName(m model.Model) string {
+	if m.ArenaScore != nil && strings.TrimSpace(m.ArenaScore.Provider) != "" {
+		return strings.TrimSpace(m.ArenaScore.Provider)
+	}
+	if strings.TrimSpace(m.Owner) != "" {
+		return strings.TrimSpace(m.Owner)
+	}
+	return strings.TrimSpace(m.Provider)
+}
+
+func manufacturerBadge(name string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(name), " "))
+	for _, entry := range []struct{ match, badge string }{
+		{"openai", "[OAI]"}, {"anthropic", "[ANT]"}, {"google", "[GOOG]"}, {"meta", "[META]"},
+		{"deepseek", "[DS]"}, {"qwen", "[QWEN]"}, {"mistral", "[MSTR]"}, {"xai", "[XAI]"},
+	} {
+		if strings.Contains(normalized, entry.match) {
+			return entry.badge
+		}
+	}
+	return "[?]"
+}
+
+func manufacturerDisplay(m model.Model) string {
+	name := manufacturerName(m)
+	if name == "" {
+		return manufacturerBadge("")
+	}
+	return manufacturerBadge(name) + " " + name
+}
+
 func plainTableText(value string) string {
 	for _, marker := range []string{"**", "__", "`"} {
 		value = strings.ReplaceAll(value, marker, "")
@@ -785,6 +819,8 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 		identity := m.DisplayName
 		if showSlug {
 			identity = m.Slug
+		} else {
+			identity = manufacturerDisplay(m) + " " + m.DisplayName
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}

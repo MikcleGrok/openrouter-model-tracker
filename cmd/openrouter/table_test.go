@@ -36,6 +36,51 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	}
 }
 
+func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
+	for _, test := range []struct{ name, badge string }{
+		{" OpenAI  Labs ", "[OAI]"}, {"ANTHROPIC", "[ANT]"}, {"Google DeepMind", "[GOOG]"},
+		{"Meta AI", "[META]"}, {"DeepSeek", "[DS]"}, {"Qwen", "[QWEN]"}, {"Mistral AI", "[MSTR]"},
+		{"xAI", "[XAI]"}, {"  ", "[?]"}, {"Unknown vendor", "[?]"},
+	} {
+		if got := manufacturerBadge(test.name); got != test.badge {
+			t.Errorf("manufacturerBadge(%q) = %q, want %q", test.name, got, test.badge)
+		}
+	}
+}
+
+func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
+	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI "}}
+	if got := manufacturerDisplay(row); got != "[OAI] OpenAI" {
+		t.Fatalf("manufacturerDisplay = %q, want Arena organization with badge", got)
+	}
+	row.ArenaScore.Provider = ""
+	row.Owner = "Mystery Vendor"
+	if got := manufacturerDisplay(row); got != "[?] Mystery Vendor" {
+		t.Fatalf("unknown manufacturer display = %q, want badge and original text", got)
+	}
+}
+
+func TestTUITableCellShowsManufacturerBadgeWithoutLosingModelName(t *testing.T) {
+	got := tuiCell(model.Model{DisplayName: "GPT", Owner: "OpenAI"}, colName, true, scoreSourceDefault)
+	if got != "[OAI] OpenAI GPT" {
+		t.Fatalf("TUI identity = %q, want badge and model name", got)
+	}
+}
+
+func TestRenderTableModeShowsManufacturerBadgeAndStaysWithinWidth(t *testing.T) {
+	row := model.Model{DisplayName: "GPT-5.6 Luna", Owner: "OpenAI", ScoreLabel: "93.0%", QualityPriceLabel: "82.7"}
+	wide := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
+	if !strings.Contains(wide, "[OAI] OpenAI GPT-5.6 Luna") {
+		t.Fatalf("CLI table lost manufacturer badge or model name:\n%s", wide)
+	}
+	narrow := renderTableMode([]model.Model{row}, 40, false, "short", scoreSourceDefault)
+	for _, line := range strings.Split(strings.TrimSuffix(narrow, "\n"), "\n") {
+		if tableDisplayWidth(line) > 42 {
+			t.Fatalf("narrow CLI table line exceeds the existing border budget: %d > 42: %q", tableDisplayWidth(line), line)
+		}
+	}
+}
+
 func TestFilterTableModelsRejectsUnknownTier(t *testing.T) {
 	_, err := filterTableModels(nil, []string{"tier:unknown"})
 	if err == nil || !strings.Contains(err.Error(), `unknown tier "unknown"`) || !strings.Contains(err.Error(), "opus, sonnet, haiku, free") {
@@ -335,7 +380,8 @@ func tableRowCell(t *testing.T, output, identity string, column int) string {
 		if len(cells) != 8 {
 			t.Fatalf("table row has %d columns, want 8: %q", len(cells), line)
 		}
-		if len(cells) <= column || strings.TrimSpace(cells[0]) != identity {
+		cellIdentity := strings.TrimSpace(cells[0])
+		if len(cells) <= column || (cellIdentity != identity && !strings.HasSuffix(cellIdentity, " "+identity)) {
 			continue
 		}
 		return strings.TrimSpace(cells[column])
