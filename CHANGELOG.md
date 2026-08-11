@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.33]
+
+- Remove GitHub Actions workflows from the release process.
+- Switch releases to a local-only workflow.
+
 ## [1.13.27]
 
 - Treat persisted zero context and input/output predicates as `(any)` in the TUI filter editor and omit them when saving the filter.
