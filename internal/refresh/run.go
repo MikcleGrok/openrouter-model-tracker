@@ -242,7 +242,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		report.CatalogAdded, report.CatalogRemoved = catalogDelta(snap.CatalogSlugs, catalog)
 	}
 	sort.Strings(warnings)
-	report.Warnings = warnings
+	report.Warnings = append(report.Warnings, warnings...)
 
 	// Most of the raw NewCandidates list is preview/dated/distilled variants
 	// of already-tracked families nobody will realistically add — filter
@@ -490,7 +490,7 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 			if !ok {
 				continue
 			}
-			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, Created: se.Created, Description: se.Description, CanonicalSlug: se.CanonicalSlug, HuggingFaceID: se.HuggingFaceID, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
+			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, Created: se.Created, Description: se.Description, CanonicalSlug: se.CanonicalSlug, HuggingFaceID: se.HuggingFaceID, Provider: se.Provider, ReleaseVariant: se.ReleaseVariant, ModelVariant: se.ModelVariant, Reasoning: se.Reasoning, Configuration: se.Configuration, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
 			stalePrices[e.Slug] = true
 		}
 	}
@@ -536,13 +536,32 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 		if !ok || se.Score == nil {
 			continue
 		}
+		identity := se.Score.IdentityStatus
+		if snapshotIdentityUnavailable(se) {
+			identity = model.IdentityLegacyUnknown
+		}
 		scores = append(scores, sources.ScoreRow{
-			Slug:            e.Slug,
-			Metric:          se.Score.Metric,
-			Value:           se.Score.Value,
-			VariantMeasured: se.Score.VariantMeasured,
-			SourceURL:       se.Score.SourceURL,
-			Checked:         se.Score.Checked,
+			Slug:               e.Slug,
+			SourceFamily:       se.Score.SourceFamily,
+			ConfiguredIdentity: se.Score.ConfiguredIdentity,
+			IdentityAmbiguous:  se.Score.IdentityAmbiguous,
+			Metric:             se.Score.Metric,
+			Value:              se.Score.Value,
+			Unit:               se.Score.Unit,
+			VariantMeasured:    se.Score.VariantMeasured,
+			SourceURL:          se.Score.SourceURL,
+			Checked:            se.Score.Checked,
+			IdentityStatus:     identity,
+			CanonicalID:        se.Score.CanonicalID,
+			ReleaseVariant:     se.Score.ReleaseVariant,
+			ModelVariant:       se.Score.ModelVariant,
+			Reasoning:          se.Score.Reasoning,
+			Configuration:      se.Score.Configuration,
+			Provider:           se.Score.Provider,
+			Uncertainty:        se.Score.Uncertainty,
+			SampleSize:         se.Score.SampleSize,
+			Harness:            se.Score.Harness,
+			Scaffold:           se.Score.Scaffold,
 		})
 		staleScores[e.Slug] = true
 	}
@@ -578,17 +597,43 @@ func applyArenaFallback(entries []modelmap.Entry, arena []sources.ScoreRow, sour
 		if !ok || se.ArenaScore == nil {
 			continue
 		}
+		identity := se.ArenaScore.IdentityStatus
+		if snapshotIdentityUnavailable(se) {
+			identity = model.IdentityLegacyUnknown
+		}
 		arena = append(arena, sources.ScoreRow{
-			Slug:            e.Slug,
-			Metric:          se.ArenaScore.Metric,
-			Value:           se.ArenaScore.Value,
-			VariantMeasured: se.ArenaScore.VariantMeasured,
-			SourceURL:       se.ArenaScore.SourceURL,
-			Checked:         se.ArenaScore.Checked,
+			Slug:               e.Slug,
+			SourceFamily:       se.ArenaScore.SourceFamily,
+			ConfiguredIdentity: se.ArenaScore.ConfiguredIdentity,
+			IdentityAmbiguous:  se.ArenaScore.IdentityAmbiguous,
+			Metric:             se.ArenaScore.Metric,
+			Value:              se.ArenaScore.Value,
+			Unit:               se.ArenaScore.Unit,
+			VariantMeasured:    se.ArenaScore.VariantMeasured,
+			SourceURL:          se.ArenaScore.SourceURL,
+			Checked:            se.ArenaScore.Checked,
+			IdentityStatus:     identity,
+			CanonicalID:        se.ArenaScore.CanonicalID,
+			ReleaseVariant:     se.ArenaScore.ReleaseVariant,
+			ModelVariant:       se.ArenaScore.ModelVariant,
+			Reasoning:          se.ArenaScore.Reasoning,
+			Configuration:      se.ArenaScore.Configuration,
+			Provider:           se.ArenaScore.Provider,
+			License:            se.License,
+			ModelURL:           se.ModelURL,
+			MetadataSourceURL:  se.MetadataSourceURL,
+			Uncertainty:        se.ArenaScore.Uncertainty,
+			SampleSize:         se.ArenaScore.SampleSize,
+			Harness:            se.ArenaScore.Harness,
+			Scaffold:           se.ArenaScore.Scaffold,
 		})
 		staleArena[e.Slug] = true
 	}
 	return arena, staleArena
+}
+
+func snapshotIdentityUnavailable(se SnapshotEntry) bool {
+	return se.CanonicalSlug == "" && se.Provider == "" && se.ReleaseVariant == "" && se.ModelVariant == "" && se.Reasoning == "" && se.Configuration == ""
 }
 
 // markStale labels the rows whose values came from the snapshot rather than
@@ -603,10 +648,12 @@ func markStale(models []model.Model, stalePrices, staleScores, staleArena map[st
 		}
 		if staleScores[m.Slug] && m.Score != nil {
 			m.Score.Stale = true
+			m.Score.Provenance = strings.TrimSpace(m.Score.Provenance + " [snapshot fallback]")
 			m.ScoreLabel += " (не удалось проверить на " + date + ")"
 		}
 		if staleArena[m.Slug] && m.ArenaScore != nil {
 			m.ArenaScore.Stale = true
+			m.ArenaScore.Provenance = strings.TrimSpace(m.ArenaScore.Provenance + " [snapshot fallback]")
 			m.ArenaLabel += " (не удалось проверить на " + date + ")"
 		}
 	}

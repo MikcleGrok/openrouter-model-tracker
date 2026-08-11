@@ -25,8 +25,8 @@ func DataDir(t *testing.T, marker string) string {
 		t.Fatal(err)
 	}
 	snapshot := refresh.Snapshot{FetchedAt: marker, Models: map[string]refresh.SnapshotEntry{
-		"demo/high": {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90}},
-		"demo/low":  {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10}},
+		"demo/high": {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90, Unit: "%", VariantMeasured: "demo/high", IdentityStatus: model.IdentityExact}},
+		"demo/low":  {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10, Unit: "%", VariantMeasured: "demo/low", IdentityStatus: model.IdentityExact}},
 	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {
@@ -58,8 +58,8 @@ func ScoreSourceDataDir(t *testing.T, marker string) string {
 		t.Fatal(err)
 	}
 	snapshot := refresh.Snapshot{FetchedAt: marker, Models: map[string]refresh.SnapshotEntry{
-		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
-		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "demo-arena"}},
+		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70, Unit: "%", VariantMeasured: "demo/swe", IdentityStatus: model.IdentityExact}},
+		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "demo/arena", Unit: "Elo", IdentityStatus: model.IdentityExact}},
 	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {

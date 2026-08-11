@@ -21,10 +21,10 @@ import (
 
 func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a very long model name that should be shortened", Slug: "vendor/model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "**a long note** that should also be shortened | safely"}}, 120, false)
-	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Status") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
+	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Score") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
-	assertTableHeaders(t, output, []string{"Name", "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Name", "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
 		t.Fatalf("table contains markup:\n%s", output)
 	}
@@ -128,7 +128,7 @@ func TestRenderTableDoesNotExpandEmptyNoteColumn(t *testing.T) {
 
 func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/a-very-long-model-slug-that-must-be-bounded"}}, 120, true)
-	assertTableHeaders(t, output, []string{"Slug", "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Slug", "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
 	if !strings.Contains(output, "vendor/a-very") || strings.Contains(output, "Display name") {
 		t.Fatalf("slug identity mode output = %s", output)
 	}
@@ -1173,8 +1173,8 @@ func TestSortQPIsIndependentOfRankingMode(t *testing.T) {
 			t.Fatalf("unrankable/missing-last row became rankable: %+v", row)
 		}
 	}
-	if math.Abs(rows[0].QualityPrice-238.6) > 0.2 {
-		t.Fatalf("Xiaomi utility-per-price = %v, want approximately 238.6 from full utility", rows[0].QualityPrice)
+	if math.Abs(rows[0].QualityPrice-153) > 0.2 {
+		t.Fatalf("Xiaomi raw quality-per-price = %v, want approximately 153 from benchmark quality only", rows[0].QualityPrice)
 	}
 	if err := sortTableModelsWithRanking(rows, "q/p", true, rankingTier); err != nil {
 		t.Fatal(err)
@@ -1324,8 +1324,8 @@ func copyTableFixture(t *testing.T, root string) error {
 		return err
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
-		"demo/high":    {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90}},
-		"demo/low":     {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10}},
+		"demo/high":    {InPerM: 100, OutPerM: 100, Context: 128000, Score: &model.ScoreInfo{Value: 90, Unit: "%", VariantMeasured: "demo/high", IdentityStatus: model.IdentityExact}},
+		"demo/low":     {InPerM: 1, OutPerM: 1, Context: 128000, Score: &model.ScoreInfo{Value: 10, Unit: "%", VariantMeasured: "demo/low", IdentityStatus: model.IdentityExact}},
 		"demo/missing": {InPerM: 1, OutPerM: 1, Context: 128000},
 	}}
 	body, err := json.Marshal(snapshot)
@@ -1351,9 +1351,9 @@ func copyScoreSourceFixture(t *testing.T, root string) error {
 		return err
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
-		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70}},
-		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1300, VariantMeasured: "demo-arena"}},
-		"demo/both":  {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 60}, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1500, VariantMeasured: "demo-both"}},
+		"demo/swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70, Unit: "%", VariantMeasured: "demo/swe", IdentityStatus: model.IdentityExact}},
+		"demo/arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1300, SourceFamily: model.ScoreSourceArena, ConfiguredIdentity: "demo-arena", CanonicalID: "demo-arena", VariantMeasured: "demo/arena", Unit: "Elo", IdentityStatus: model.IdentityExact}},
+		"demo/both":  {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 60, Unit: "%", VariantMeasured: "demo/both", IdentityStatus: model.IdentityExact}, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1500, SourceFamily: model.ScoreSourceArena, ConfiguredIdentity: "demo-both", CanonicalID: "demo-both", VariantMeasured: "demo/both", Unit: "Elo", IdentityStatus: model.IdentityExact}},
 	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {
@@ -1445,7 +1445,7 @@ func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
 	}
 	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
 		"demo/haiku-swe":   {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 75}},
-		"demo/haiku-arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400, VariantMeasured: "demo-haiku-arena"}},
+		"demo/haiku-arena": {InPerM: 1, OutPerM: 3, Context: 128000, ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400, SourceFamily: model.ScoreSourceArena, ConfiguredIdentity: "demo-haiku-arena", CanonicalID: "demo-haiku-arena", VariantMeasured: "demo-haiku-arena"}},
 	}}
 	body, err := json.Marshal(snapshot)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 func TestLoadSnapshotMissingFileIsEmpty(t *testing.T) {
@@ -113,7 +114,7 @@ func TestNewSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal loaded entry: %v", err)
 	}
-	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":""}}` {
+	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":"","provenance":"","canonical_id":"","release_variant":"","model_variant":"","reasoning":"","configuration":"","provider":"","uncertainty":"","sample_size":"","harness":"","scaffold":""}}` {
 		t.Fatalf("loaded entry metadata = %s, want no task-fit or quality/price fields", body)
 	}
 }
@@ -138,6 +139,39 @@ func TestSnapshotRoundTripsTheArenaScore(t *testing.T) {
 	}
 	if entry.ArenaScore == nil || entry.ArenaScore.Value != 1453 || entry.ArenaScore.Metric != "LMArena Elo" {
 		t.Errorf("ArenaScore = %+v, want the raw Elo preserved so the next run can fall back to it", entry.ArenaScore)
+	}
+}
+
+func TestSnapshotRoundTripsFullScoreProvenance(t *testing.T) {
+	info := &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, Unit: "Elo", SourceFamily: model.ScoreSourceArena, ConfiguredIdentity: "hy3-tencent-cloud-text", CanonicalID: "hy3-tencent-cloud-text", VariantMeasured: "hy3", SourceURL: "u", Checked: "2026-08-06", IdentityStatus: model.IdentityVariantMismatch, Uncertainty: "95% CI 10", SampleSize: "10000", Harness: "arena", Scaffold: "chat", Provider: "Tencent", Configuration: "default"}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot([]model.Model{{Slug: "a/hy3", ArenaScore: info}}, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	got := loaded.Models["a/hy3"].ArenaScore
+	if got == nil || got.IdentityStatus != model.IdentityVariantMismatch || got.SourceFamily != model.ScoreSourceArena || got.ConfiguredIdentity != "hy3-tencent-cloud-text" || got.CanonicalID != "hy3-tencent-cloud-text" || got.Uncertainty != "95% CI 10" || got.SampleSize != "10000" || got.Harness != "arena" || got.Scaffold != "chat" || got.Provider != "Tencent" || got.Configuration != "default" {
+		t.Fatalf("provenance = %+v, want every supplied provenance field", got)
+	}
+}
+
+func TestSnapshotRoundTripsCatalogueIdentityForFallback(t *testing.T) {
+	models := []model.Model{{Slug: "a/model"}}
+	prices := map[string]sources.PriceInfo{"a/model": {Slug: "a/model", CanonicalSlug: "a/model", Provider: "A", ReleaseVariant: "2026-08", ModelVariant: "model", Reasoning: "high", Configuration: "default"}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshotWithPrices(models, prices, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry := got.Models["a/model"]
+	if entry.CanonicalSlug != "a/model" || entry.Provider != "A" || entry.ReleaseVariant != "2026-08" || entry.ModelVariant != "model" || entry.Reasoning != "high" || entry.Configuration != "default" {
+		t.Fatalf("catalog identity = %+v, want all identity fields preserved", entry)
 	}
 }
 

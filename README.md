@@ -66,6 +66,44 @@ immutable revision formula до любой reinstall. Stable install не исп
 
 ## Команды
 
+### Семантика score, quality и tier
+
+`Benchmark score` — сырое наблюдение с явными `metric`, `value`, `unit`, `source`,
+`measured variant` и датой проверки. SWE-bench Verified хранится в процентах;
+LMArena хранится отдельно как сырой Elo. Arena Elo не сравнивается с процентом
+SWE-bench и не подменяет его.
+
+`Capability estimate` / Claude tier — ручная Claude-relative оценка из
+`model-map.tsv`. Она не выводится из score, score не выводится из tier и не
+является измеренным quality. `Quality` и `quality>=` означают только
+rankable exact-product benchmark observation.
+
+Перед публикацией score проходит source-family-aware structured identity gate.
+Для SWE-bench/vals measured identity проверяется против identity каталога: например,
+DeepSeek 0731 против каталожного 0423 получает `variant_mismatch`, а не exact.
+Для Arena `modelKey` и configured `arena=` из `model-map.tsv` принадлежат отдельному
+namespace и не сравниваются с OpenRouter slug/canonical_slug: exact возможен только
+при непустом и совпадающем configured/source Arena key. Несовпадение доступного
+provider, release/model variant, reasoning или configuration также блокирует score;
+отсутствующая, неоднозначная или неполная Arena identity получает `missing_identity`
+или `legacy_unknown` и не допускается в ranking. Никаких cross-namespace догадок
+нет. Старое snapshot без статуса получает `legacy_unknown`; `exact_product` никогда
+не принимается только из входного status и всегда пересчитывается.
+
+Каждое наблюдение сохраняет raw value, metric, unit, source URL, measured
+variant, checked date, identity status, uncertainty/error bar, sample size,
+harness/scaffold, provider и configuration. Если источник поле не публикует,
+сохраняется явное `н/д` при отображении и пустой/missing marker в snapshot, а
+не молчаливое удаление provenance. Snapshot fallback помечается `stale` и
+`[snapshot fallback]`, включая Arena metadata/source URL/license/model URL.
+
+В таблице `Score` показывает raw benchmark number и короткое состояние; Q/P
+равен только `valid benchmark quality / mixed price`, а при mismatch, legacy,
+missing или ручном observation-only значении равен `н/д` и сортируется последним.
+`utility` — отдельная value heuristic: она может учитывать manual tier premium,
+но не меняет quality и не делает invalid score rankable. Detail view показывает
+metric, unit, source/provenance, measured variant, identity status и manual tier.
+
 - `openrouter init [--config PATH] [--data-dir PATH]` — создать пользовательский конфиг и локальный каталог кэша; существующие пути не изменяются
 - `openrouter refresh|update|up [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
@@ -217,8 +255,8 @@ digest входных файлов, metadata инструментов/базы �
 Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
 через `scripts/verify-distribution.sh`; путь можно переопределить через `GUIDE_TOOLS_ROOT`.
 
-По умолчанию таблица сортируется в явном режиме `utility` с ranking `mixed-utility`: сначала идут rankable-модели, а платные модели сравниваются по безопасной YAML expression formula. Без `formula` действует совместимая формула `score + price_weight*tier_factor*ln(1+quality_price)`, где `price_weight=10`, price mix равен 3:1, а факторы `opus=1`, `sonnet=1`, `haiku=0.5`, `free=0`. Бесплатные rankable-модели сравниваются по score. `--sort` принимает `utility`, `name`, `slug`,
-`context`, `input`, `output`, `price`, `quality`, `q/p` и `utility`, а также `Q`, `P`, `QP`; явный `q/p` всегда сортирует по показанному Q/P независимо от `--ranking`, а `utility` использует выбранный ranking. `Q` означает quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Фильтры объединяются через AND: например, `openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'`. Операторы: `:` для выбора значения, `>=` для минимального порога и `<=` для максимального. `quality` использует активный источник оценки и шкалу `0..100`: SWE-bench хранится в процентах, Arena нормализуется в `0..100`; для удобства допускается дробный формат `0..1`, поэтому `quality>=0.8` эквивалентен `quality>=80`. Качество и Q/P сортируются по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые значения всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
+По умолчанию таблица сортируется в явном режиме `utility` с ranking `mixed-utility`: сначала идут rankable-модели, а платные модели сравниваются по безопасной YAML expression formula. Без `formula` действует value heuristic формула `score + price_weight*tier_factor*ln(1+quality_price)`, где `price_weight=10`, price mix равен 3:1, а факторы `opus=1`, `sonnet=1`, `haiku=0.5`, `free=0`. Она не меняет quality и не делает invalid observation rankable. Бесплатные rankable-модели сравниваются по score. `--sort` принимает `utility`, `name`, `slug`,
+`context`, `input`, `output`, `price`, `quality`, `q/p` и `utility`, а также `Q`, `P`, `QP`; явный `q/p` всегда сортирует по показанному raw Q/P независимо от `--ranking`, а `utility` использует выбранный ranking. `Q` означает valid quality по убыванию, `P` — price по возрастанию, `QP` — q/p по убыванию. Фильтры: `paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`. Фильтры объединяются через AND: например, `openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'`. Операторы: `:` для выбора значения, `>=` для минимального порога и `<=` для максимального. `quality` использует только valid exact-product observation активного источника и шкалу `0..100`; mismatch, legacy и observation-only исключаются. Для удобства допускается дробный формат `0..1`, поэтому `quality>=0.8` эквивалентен `quality>=80`. Качество и Q/P сортируются по убыванию, `--reverse`/`-R` инвертирует основной порядок, а отсутствующие или неранжируемые значения всегда остаются в конце. Затем применяется `--limit`, поэтому `-n 1` выбирает первую модель уже отсортированного результата. `--reverse` меняет основной порядок, slug
 остаётся детерминированным tie-breaker. В интерактивном TTY вывод передаётся в `less -S`, если
 не указан `--no-pager`. При перенаправлении в pipe или файл pager не запускается.
 Колонка `Task fit` рассчитывается по полной display width самого длинного значения и не
@@ -250,17 +288,14 @@ SWE-bench, Arena-based Q/P не стабилен между прогонами. 
 
 ### Семантика Q/P и utility
 
-Показанный Q/P и `sort:q/p` используют один canonical derived metric:
-`base_qp = base_quality / mixed_price`, затем `full_utility = base_quality +
-price_weight*tier_factor*ln(1+base_qp)`, а отображаемый и сортируемый Q/P равен
-`utility_per_price = full_utility / mixed_price`. `base_quality` вычисляется
-той же ranking expression с отключёнными price-dependent inputs; non-price terms
-сохраняются. Для default formula это `base_quality = score`; полный utility для `sort:utility`
-остаётся `score + price_weight*tier_factor*ln(1+base_qp)`. Для
-`source=arena` score в этой формуле уже является normalized Arena quality.
-Такое явное разделение исключает circular formula: bonus использует только
-`base_qp`, а Q/P вычисляется из уже завершённого `full_utility`. Бесплатные,
-missing и unrankable модели не получают Q/P и всегда остаются последними.
+Показанный Q/P и `sort:q/p` используют только canonical raw metric:
+`raw_qp = valid_benchmark_quality / mixed_price`. Tier не входит в quality и не
+может создать Q/P для mismatch, legacy, observation-only, missing или free
+модели: такие строки получают `н/д` и остаются последними. `sort:utility`
+отдельно может использовать `score + price_weight*tier_factor*ln(1+raw_qp)` как
+value heuristic; это не quality и не benchmark score. Для `source=arena` quality
+внутри Arena view строится из normalized Arena Elo, тогда как raw Elo остаётся
+отдельно подписанным `Elo`.
 
 ### Настройка mixed utility
 

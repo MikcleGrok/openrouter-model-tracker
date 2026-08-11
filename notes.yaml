@@ -188,9 +188,10 @@ favorite_reasons:
       тоже вендорские, но относятся к ней самой.
   haiku:
     deepseek/deepseek-v4-flash: >-
-      Лучшая цена/качество во всём тире <≈ Claude Haiku 4.5: SWE-V 73.7–79.0% (вендорские
-      цифры по двум вариантам линейки) при цене вне конкуренции с остальными строками
-      тира — независимо от того, какая из двух оценок точнее.
+      Capability estimate — ручной Haiku-like. Показатель 88.8% измерен на
+      deepseek-v4-flash-0731, тогда как каталог OpenRouter сейчас содержит
+      deepseek-v4-flash-20260423/0423; это observation-only и не участвует в
+      quality, Q/P, фильтре или ранжировании до подтверждения exact product.
     tencent/hy3: >-
       Следующая по цена/качество среди строк с самоотчётной, но правдоподобной оценкой
       (78.0%, только вендор, достоверность низкая); уже заметно используется в проде —
@@ -231,7 +232,8 @@ models:
       Verified в принципе поддаются накрутке харнесс-трюком — это не про Sol персонально.
       Общая осторожность к eval-результатам Sol сохраняется.
 
-  # (2) Модель с ВЕНДОРСКОЙ оценкой, участвующей в ранжировании: score: с rankable: true.
+  # (2) Модели с ВЕНДОРСКОЙ оценкой: score сохраняется как observation-only и
+  # никогда не становится exact-product quality без независимого подтверждения.
   minimax/minimax-m3:
     display: MiniMax M3
     owner: MiniMax (н/д)
@@ -371,20 +373,20 @@ models:
       теперь идёт независимое число с vals.ai. GitHub Copilot отключает старый slug (Gemini
       3 Flash, вместе с Gemini 2.5 Pro) 2026-07-31 — подтверждено по changelog GitHub.
 
-  # (пограничный пример из брифа, Step 5): расхождение по вариантам — приведены оба,
-  # score считается по середине диапазона.
+  # Provenance is retained for audit, but the claim is not a product-quality observation.
   deepseek/deepseek-v4-flash:
     display: DeepSeek V4 Flash
     owner: DeepSeek (F)
     open_weights: "**да, MIT**"
     note: >-
-      Расхождение между тех-отчётом DeepSeek (73.7%, базовая модель) и llm-stats.com для
-      варианта «V4-Flash-Max» (79.0%) — разные продукты, расхождение не разрешено, приведены оба;
-      «качество/цена» посчитана по середине диапазона. При любой из оценок вне конкуренции по цене.
+      Старые vendor claims по базовой модели и V4-Flash-Max сохранены как provenance.
+      Живое независимое наблюдение 88.8% относится к deepseek-v4-flash-0731, а не к
+      каталожному deepseek-v4-flash-20260423/0423, поэтому качество этого OpenRouter
+      продукта неизвестно и число не ранжируется.
     score:
       label: "SWE-V 73.7–79.0% (только вендор)"
       value: 76.35
-      rankable: true
+      rankable: false
       source: "https://llm-stats.com/"
 
   tencent/hy3:

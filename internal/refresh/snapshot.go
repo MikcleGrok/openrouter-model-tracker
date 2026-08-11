@@ -24,6 +24,10 @@ type SnapshotEntry struct {
 	CanonicalSlug     string           `json:"canonical_slug,omitempty"`
 	HuggingFaceID     string           `json:"hugging_face_id,omitempty"`
 	Provider          string           `json:"provider,omitempty"`
+	ReleaseVariant    string           `json:"release_variant,omitempty"`
+	ModelVariant      string           `json:"model_variant,omitempty"`
+	Reasoning         string           `json:"reasoning,omitempty"`
+	Configuration     string           `json:"configuration,omitempty"`
 	License           string           `json:"license,omitempty"`
 	ModelURL          string           `json:"model_url,omitempty"`
 	MetadataSourceURL string           `json:"metadata_source_url,omitempty"`
@@ -120,6 +124,13 @@ func NewSnapshotWithPrices(models []model.Model, prices map[string]sources.Price
 		entry.OverrideMinTokens = price.OverrideMinTokens
 		entry.OverrideInPerM = price.OverrideInPerM
 		entry.OverrideOutPerM = price.OverrideOutPerM
+		entry.CanonicalSlug = price.CanonicalSlug
+		entry.HuggingFaceID = price.HuggingFaceID
+		entry.Provider = price.Provider
+		entry.ReleaseVariant = price.ReleaseVariant
+		entry.ModelVariant = price.ModelVariant
+		entry.Reasoning = price.Reasoning
+		entry.Configuration = price.Configuration
 		s.Models[slug] = entry
 	}
 	return s

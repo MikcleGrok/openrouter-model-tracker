@@ -123,7 +123,7 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	for _, want := range []string{
 		"Обновлено: 2026-08-04 (автоматический прогон)",
 		"| GPT-5.6 Luna | openai/gpt-5.6-luna | $0.50 | $3.00 | 1M | 93.0% | 82.7 |",
-		"| MiniMax M3 | minimax/minimax-m3 | $0.30 | $1.20 | 1M | 80.5% (только вендор) | 153 |",
+		"| MiniMax M3 | minimax/minimax-m3 | $0.30 | $1.20 | 1M | 80.5% (только вендор) | н/д (observation only) |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("output does not contain %q\n---\n%s", want, doc)
@@ -294,10 +294,10 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	if !strings.Contains(doc, "Цену не удалось проверить на 2026-08-04") {
 		t.Errorf("the fallen-back price is not labelled stale:\n%s", doc)
 	}
-	if !strings.Contains(doc, "$0.50 / $3.00") {
+	if !strings.Contains(doc, "$0.50") || !strings.Contains(doc, "$3.00") {
 		t.Errorf("the snapshot price did not make it into the document:\n%s", doc)
 	}
-	if !strings.Contains(doc, "$1.00 / $4.00 от 500K+") {
+	if !strings.Contains(doc, "$1.00 от 500K+") || !strings.Contains(doc, "$4.00 от 500K+") {
 		t.Errorf("the snapshot long-context override did not make it into the document:\n%s", doc)
 	}
 	// Created/Description are not rendered into the markdown document — they
@@ -326,9 +326,9 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	if got := newSnap.Models["openai/gpt-5.6-luna"].HuggingFaceID; got != "openai-community/gpt-5-6-luna" {
 		t.Errorf("HuggingFaceID = %q, want the snapshot's fallback value to survive applyFallback", got)
 	}
-	// The vendor-claimed number lives in notes.yaml and cannot go stale.
-	if strings.Contains(doc, "80.5% (только вендор) (не удалось проверить") {
-		t.Errorf("a notes.yaml score was wrongly labelled stale:\n%s", doc)
+	// The live score remains stale-visible even when its identity metadata is complete.
+	if !strings.Contains(doc, "93.0% (не удалось проверить") {
+		t.Errorf("the snapshot score was not labelled stale:\n%s", doc)
 	}
 	if _, statErr := os.Stat(pricehistory.Path(dir)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Error("fallback prices wrote price history")
@@ -717,6 +717,35 @@ func TestApplyFallbackDoesNotFabricateStaleScoreWhenSourceSucceededButHadNoRow(t
 	}
 	if staleScores["openai/gpt-5.6-luna"] {
 		t.Error("staleScores marked luna stale even though its declared source succeeded — genuine absence, not a failure")
+	}
+}
+
+func TestApplyFallbackKeepsMissingIdentityConservativeAndPreservesCatalogIdentity(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/model", Tier: "sonnet", Names: map[string]string{"vals": "a/model"}}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/model": {
+			CanonicalSlug: "a/model", Provider: "A", ReleaseVariant: "2026-08", ModelVariant: "model", Reasoning: "high", Configuration: "default",
+			Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 80, VariantMeasured: "a/model", IdentityStatus: model.IdentityExact},
+		},
+	}}
+	nt := loadTestNotes(t, "{}")
+	prices, scores, _, stale := applyFallback(entries, map[string]sources.PriceInfo{}, false, nil, map[string]bool{"vals": false}, nt, snap)
+	if !stale["a/model"] || len(scores) != 1 {
+		t.Fatalf("fallback = prices=%+v scores=%+v stale=%v, want one stale score", prices, scores, stale)
+	}
+	got := model.Merge(entries, prices, scores, nt)[0]
+	if got.Score.IdentityStatus != model.IdentityExact || !got.Rankable {
+		t.Fatalf("preserved catalog identity was not revalidated: score=%+v rankable=%v", got.Score, got.Rankable)
+	}
+
+	snap.Models["a/model"] = SnapshotEntry{Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 80, VariantMeasured: "a/model", IdentityStatus: model.IdentityExact}}
+	_, scores, _, _ = applyFallback(entries, map[string]sources.PriceInfo{"a/model": {Slug: "a/model", Found: true}}, true, nil, map[string]bool{"vals": false}, nt, snap)
+	if len(scores) != 1 || scores[0].IdentityStatus != model.IdentityLegacyUnknown {
+		t.Fatalf("missing catalog identity was promoted: %+v", scores)
+	}
+	got = model.Merge(entries, map[string]sources.PriceInfo{"a/model": {Slug: "a/model", Found: true}}, scores, nt)[0]
+	if got.Rankable || got.Score.IdentityStatus != model.IdentityLegacyUnknown {
+		t.Fatalf("missing fallback identity became rankable: score=%+v rankable=%v", got.Score, got.Rankable)
 	}
 }
 

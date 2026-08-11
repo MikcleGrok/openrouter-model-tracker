@@ -61,9 +61,10 @@ type RenderData struct {
 }
 
 var tmpl = template.Must(template.New("comparison").Funcs(template.FuncMap{
-	"price": pricing.FormatDollar,
-	"ctx":   pricing.FormatContext,
-	"tok":   pricing.FormatTokens10,
+	"price":      pricing.FormatDollar,
+	"ctx":        pricing.FormatContext,
+	"tok":        pricing.FormatTokens10,
+	"provenance": model.FormatScoreProvenance,
 }).Parse(comparisonTemplate))
 
 // Render writes the whole document. The previous file is never read: the
@@ -102,15 +103,25 @@ func ClaudeEquivalent(m model.Model) string {
 			}
 			return "≈ Haiku 4.5"
 		}
-		if m.Score.Value >= 70 {
+		if scoreValue(m) >= 70 {
 			return "≈ Haiku 4.5"
 		}
-		if m.Score.Value >= 60 {
+		if scoreValue(m) >= 60 {
 			return "<≈ Haiku 4.5"
 		}
 		return "<<≈ Haiku 4.5"
 	}
 	return "н/д"
+}
+
+func scoreValue(m model.Model) float64 {
+	if m.HasRankingScore {
+		return m.RankingScore
+	}
+	if m.Score == nil {
+		return 0
+	}
+	return m.Score.Value
 }
 
 // BuildRenderData turns merged models plus the prose file into the flat,

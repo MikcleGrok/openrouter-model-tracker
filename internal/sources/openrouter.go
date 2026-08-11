@@ -46,8 +46,13 @@ type PriceInfo struct {
 	// catalogue, and hugging_face_id routinely sits under a different
 	// organisation than the slug does, so a guess would link to a 404 or,
 	// worse, to a different model's page.
-	CanonicalSlug string
-	HuggingFaceID string
+	CanonicalSlug  string
+	HuggingFaceID  string
+	Provider       string
+	ReleaseVariant string
+	ModelVariant   string
+	Reasoning      string
+	Configuration  string
 
 	// HasOverride and the three fields below surface the catalogue's
 	// long-context pricing tier: a model whose prompt exceeds
@@ -73,14 +78,19 @@ type catalogResponse struct {
 // the payload is skipped by encoding/json, which keeps us immune to new or
 // polymorphic fields appearing upstream.
 type catalogModel struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Created       int64  `json:"created"`
-	Description   string `json:"description"`
-	CanonicalSlug string `json:"canonical_slug"`
-	HuggingFaceID string `json:"hugging_face_id"`
-	ContextLength int    `json:"context_length"`
-	Pricing       struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Created        int64  `json:"created"`
+	Description    string `json:"description"`
+	CanonicalSlug  string `json:"canonical_slug"`
+	HuggingFaceID  string `json:"hugging_face_id"`
+	Provider       string `json:"provider"`
+	ReleaseVariant string `json:"release_variant"`
+	ModelVariant   string `json:"model_variant"`
+	Reasoning      string `json:"reasoning_effort"`
+	Configuration  string `json:"configuration"`
+	ContextLength  int    `json:"context_length"`
+	Pricing        struct {
 		Prompt     string `json:"prompt"`
 		Completion string `json:"completion"`
 		// Overrides is the long-context pricing tier: alternate prompt/
@@ -150,17 +160,22 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			return nil, fmt.Errorf("openrouter: %s: parse completion price %q: %w", slug, m.Pricing.Completion, err)
 		}
 		info := PriceInfo{
-			Slug:          slug,
-			InPerM:        in,
-			OutPerM:       outPrice,
-			Context:       m.ContextLength,
-			Free:          m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
-			Found:         true,
-			Created:       m.Created,
-			Description:   m.Description,
-			Name:          m.Name,
-			CanonicalSlug: m.CanonicalSlug,
-			HuggingFaceID: m.HuggingFaceID,
+			Slug:           slug,
+			InPerM:         in,
+			OutPerM:        outPrice,
+			Context:        m.ContextLength,
+			Free:           m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
+			Found:          true,
+			Created:        m.Created,
+			Description:    m.Description,
+			Name:           m.Name,
+			CanonicalSlug:  m.CanonicalSlug,
+			HuggingFaceID:  m.HuggingFaceID,
+			Provider:       m.Provider,
+			ReleaseVariant: m.ReleaseVariant,
+			ModelVariant:   m.ModelVariant,
+			Reasoning:      m.Reasoning,
+			Configuration:  m.Configuration,
 		}
 		for _, ov := range m.Pricing.Overrides {
 			// A zero/absent threshold is not a usable long-context tier —

@@ -105,11 +105,11 @@ func TestMerge(t *testing.T) {
 	if m3.ScoreLabel != "80.5% (только вендор)" {
 		t.Errorf("m3.ScoreLabel = %q, want the override's own label", m3.ScoreLabel)
 	}
-	if !m3.Rankable {
-		t.Error("m3.Rankable = false, want true — the override declares rankable: true")
+	if m3.Rankable {
+		t.Error("m3.Rankable = true, want false — a manual observation is not exact-product quality")
 	}
-	if m3.QualityPriceLabel != "153" {
-		t.Errorf("m3.QualityPriceLabel = %q, want %q (80.5 / 0.525 = 153.3, and >= 100 prints as an integer)", m3.QualityPriceLabel, "153")
+	if m3.QualityPriceLabel != "н/д (observation only)" {
+		t.Errorf("m3.QualityPriceLabel = %q, want observation-only quality", m3.QualityPriceLabel)
 	}
 	if m3.LongContextPriceLabel != "" || m3.LongContextInLabel != "" || m3.LongContextOutLabel != "" {
 		t.Errorf("m3 long-context labels = %q / %q / %q, want all empty — the catalogue reported no override for this slug",
@@ -136,6 +136,141 @@ func TestMerge(t *testing.T) {
 	}
 	if free.ClaudeRef != "<≈ Haiku 4.5 (середина диапазона)" {
 		t.Errorf("free.ClaudeRef = %q", free.ClaudeRef)
+	}
+}
+
+func TestBenchmarkIdentityGate(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "deepseek/deepseek-v4-flash", Tier: "haiku"},
+		{Slug: "openai/gpt-5.6-luna", Tier: "opus"},
+	}
+	prices := map[string]sources.PriceInfo{
+		"deepseek/deepseek-v4-flash": {Slug: "deepseek/deepseek-v4-flash", InPerM: 0.1, OutPerM: 0.4, Found: true},
+		"openai/gpt-5.6-luna":        {Slug: "openai/gpt-5.6-luna", InPerM: 0.5, OutPerM: 3, Found: true},
+	}
+	scores := []sources.ScoreRow{
+		{Slug: "deepseek/deepseek-v4-flash", Metric: sources.MetricSWEBenchVerified, Value: 88.8, Unit: "%", VariantMeasured: "deepseek-v4-flash-0731", SourceURL: "https://vals.ai"},
+		{Slug: "openai/gpt-5.6-luna", Metric: sources.MetricSWEBenchVerified, Value: 93, Unit: "%", VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://vals.ai"},
+	}
+	models := byslug(Merge(entries, prices, scores, testNotes(t)))
+	deepseek, luna := models["deepseek/deepseek-v4-flash"], models["openai/gpt-5.6-luna"]
+	if deepseek.Score.IdentityStatus != IdentityVariantMismatch || deepseek.Rankable || deepseek.QualityPriceLabel != "н/д (variant mismatch)" {
+		t.Fatalf("DeepSeek gate = %+v, want visible mismatch and non-rankable quality", deepseek)
+	}
+	if luna.Score.IdentityStatus != IdentityExact || !luna.Rankable || luna.QualityPrice == 0 {
+		t.Fatalf("Luna gate = %+v, want exact rankable observation", luna)
+	}
+}
+
+func TestLegacyScoreIsNotPromotedByMissingProvenance(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "openai/gpt-5.6-luna", Tier: "opus"}}
+	prices := map[string]sources.PriceInfo{"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", InPerM: 1, OutPerM: 1, Found: true}}
+	scores := []sources.ScoreRow{{Slug: "openai/gpt-5.6-luna", Metric: sources.MetricSWEBenchVerified, Value: 93, VariantMeasured: "openai/gpt-5.6-luna", IdentityStatus: IdentityLegacyUnknown}}
+	luna := Merge(entries, prices, scores, testNotes(t))[0]
+	if luna.Rankable || luna.QualityPriceLabel != "н/д (legacy provenance)" {
+		t.Fatalf("legacy score = %+v, want unknown/non-rankable", luna)
+	}
+}
+
+func TestEmptyIdentityIsExplicitlyNonRankableForBothSources(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/model", Tier: "sonnet"}}
+	prices := map[string]sources.PriceInfo{"a/model": {Slug: "a/model", InPerM: 1, OutPerM: 1, Found: true}}
+	models := MergeWithArena(entries, prices, []sources.ScoreRow{{Slug: "a/model", Metric: sources.MetricSWEBenchVerified, Value: 80}}, []sources.ScoreRow{{Slug: "a/model", Metric: sources.MetricArenaElo, Value: 1400}}, testNotes(t))
+	if models[0].Score.IdentityStatus != IdentityMissing || models[0].Rankable {
+		t.Fatalf("SWE empty identity = %+v, want missing_identity/non-rankable", models[0].Score)
+	}
+	if models[0].ArenaScore.IdentityStatus != IdentityMissing || models[0].ArenaRankable {
+		t.Fatalf("Arena empty identity = %+v, want missing_identity/non-rankable", models[0].ArenaScore)
+	}
+}
+
+func TestIdentityGateRecomputesForgedExactAndConflicts(t *testing.T) {
+	tests := []struct {
+		name  string
+		price sources.PriceInfo
+		row   sources.ScoreRow
+	}{
+		{name: "missing fields", price: sources.PriceInfo{Slug: "a/model", Found: true}, row: sources.ScoreRow{Slug: "a/model", Value: 80, IdentityStatus: IdentityExact}},
+		{name: "canonical conflict", price: sources.PriceInfo{Slug: "a/model", CanonicalSlug: "a/model", Found: true}, row: sources.ScoreRow{Slug: "a/model", Value: 80, IdentityStatus: IdentityExact, CanonicalID: "a/other", VariantMeasured: "a/model"}},
+		{name: "variant conflict", price: sources.PriceInfo{Slug: "a/model", Found: true}, row: sources.ScoreRow{Slug: "a/model", Value: 80, IdentityStatus: IdentityExact, VariantMeasured: "a/other"}},
+		{name: "provider conflict", price: sources.PriceInfo{Slug: "a/model", Provider: "A", Found: true}, row: sources.ScoreRow{Slug: "a/model", Value: 80, IdentityStatus: IdentityExact, VariantMeasured: "a/model", Provider: "B"}},
+		{name: "reasoning conflict", price: sources.PriceInfo{Slug: "a/model", Reasoning: "high", Found: true}, row: sources.ScoreRow{Slug: "a/model", Value: 80, IdentityStatus: IdentityExact, VariantMeasured: "a/model", Reasoning: "low"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Merge([]modelmap.Entry{{Slug: "a/model", Tier: "sonnet"}}, map[string]sources.PriceInfo{"a/model": tt.price}, []sources.ScoreRow{tt.row}, testNotes(t))[0]
+			if got.Score.IdentityStatus == IdentityExact || got.Rankable {
+				t.Fatalf("forged exact survived: score=%+v rankable=%v", got.Score, got.Rankable)
+			}
+		})
+	}
+	arena := MergeWithArena(
+		[]modelmap.Entry{{Slug: "a/model", Tier: "sonnet", Names: map[string]string{"arena": "a-model-arena"}}},
+		map[string]sources.PriceInfo{"a/model": {Slug: "a/model", InPerM: 1, OutPerM: 1, Found: true}},
+		nil,
+		[]sources.ScoreRow{{Slug: "a/model", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "a-model-arena", CanonicalID: "forged-other-key", IdentityStatus: IdentityExact, Metric: sources.MetricArenaElo, Value: 1400}},
+		testNotes(t),
+	)[0]
+	if arena.ArenaScore.IdentityStatus == IdentityExact || arena.ArenaRankable {
+		t.Fatalf("forged Arena exact survived: score=%+v rankable=%v", arena.ArenaScore, arena.ArenaRankable)
+	}
+}
+
+func TestArenaNormalizationIgnoresInvalidScores(t *testing.T) {
+	models := []Model{
+		{Slug: "a/valid-low", ArenaScore: &ScoreInfo{Value: 100}, ArenaRankable: true},
+		{Slug: "a/valid-high", ArenaScore: &ScoreInfo{Value: 200}, ArenaRankable: true},
+		{Slug: "a/invalid", ArenaScore: &ScoreInfo{Value: 10000}, ArenaRankable: false},
+	}
+	fillArenaDerived(models)
+	if models[0].ArenaNormalized != 0 || models[1].ArenaNormalized != 100 {
+		t.Fatalf("invalid Arena score contaminated normalization: low=%v high=%v", models[0].ArenaNormalized, models[1].ArenaNormalized)
+	}
+}
+
+func TestArenaIdentityUsesConfiguredArenaNamespace(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "openai/gpt-5.6-luna", Tier: "opus", Names: map[string]string{"arena": "gpt-5.6-luna-xhigh-text"}},
+		{Slug: "openai/gpt-5.6-sol", Tier: "opus", Names: map[string]string{"arena": "gpt-5.6-sol-xhigh-text"}},
+		{Slug: "deepseek/deepseek-v4-pro", Tier: "sonnet", Names: map[string]string{"arena": "deepseek-v4-pro-ch1-text"}},
+	}
+	prices := map[string]sources.PriceInfo{
+		"openai/gpt-5.6-luna":      {Slug: "openai/gpt-5.6-luna", InPerM: 1, OutPerM: 3, Found: true},
+		"openai/gpt-5.6-sol":       {Slug: "openai/gpt-5.6-sol", InPerM: 1, OutPerM: 3, Found: true},
+		"deepseek/deepseek-v4-pro": {Slug: "deepseek/deepseek-v4-pro", InPerM: 1, OutPerM: 3, Found: true},
+	}
+	arena := []sources.ScoreRow{
+		{Slug: "openai/gpt-5.6-luna", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "gpt-5.6-luna-xhigh-text", CanonicalID: "gpt-5.6-luna-xhigh-text", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "GPT-5.6 Luna", Unit: "Elo"},
+		{Slug: "openai/gpt-5.6-sol", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "gpt-5.6-sol-xhigh-text", CanonicalID: "gpt-5.6-sol-xhigh-text", Metric: sources.MetricArenaElo, Value: 1400, VariantMeasured: "GPT-5.6 Sol", Unit: "Elo"},
+		{Slug: "deepseek/deepseek-v4-pro", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "deepseek-v4-pro-ch1-text", CanonicalID: "unknown-arena-key", Metric: sources.MetricArenaElo, Value: 9999, VariantMeasured: "DeepSeek V4 Pro", Unit: "Elo"},
+	}
+	models := byslug(MergeWithArena(entries, prices, nil, arena, testNotes(t)))
+	luna, sol, deepseek := models["openai/gpt-5.6-luna"], models["openai/gpt-5.6-sol"], models["deepseek/deepseek-v4-pro"]
+	if !luna.ArenaRankable || luna.ArenaNormalized != 100 {
+		t.Fatalf("configured Arena key was rejected: %+v", luna)
+	}
+	if !sol.ArenaRankable || sol.ArenaNormalized != 0 {
+		t.Fatalf("configured Arena key was not ranked: %+v", sol)
+	}
+	if deepseek.ArenaRankable || deepseek.ArenaNormalized != 0 || deepseek.ArenaScore.IdentityStatus != IdentityVariantMismatch {
+		t.Fatalf("unknown Arena key contaminated normalization: %+v", deepseek)
+	}
+	ambiguousEntries := []modelmap.Entry{
+		{Slug: "a/base", Tier: "sonnet", Names: map[string]string{"arena": "shared-arena-key"}},
+		{Slug: "a/base:free", Tier: "free", Names: map[string]string{"arena": "shared-arena-key"}},
+	}
+	ambiguousPrices := map[string]sources.PriceInfo{
+		"a/base":      {Slug: "a/base", InPerM: 1, OutPerM: 1, Found: true},
+		"a/base:free": {Slug: "a/base:free", Found: true, Free: true},
+	}
+	ambiguousRows := []sources.ScoreRow{
+		{Slug: "a/base", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "shared-arena-key", IdentityAmbiguous: true, CanonicalID: "shared-arena-key", Metric: sources.MetricArenaElo, Value: 1500},
+		{Slug: "a/base:free", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "shared-arena-key", IdentityAmbiguous: true, CanonicalID: "shared-arena-key", Metric: sources.MetricArenaElo, Value: 1500},
+	}
+	for slug, m := range byslug(MergeWithArena(ambiguousEntries, ambiguousPrices, nil, ambiguousRows, testNotes(t))) {
+		if m.ArenaRankable || m.ArenaScore.IdentityStatus != IdentityMissing {
+			t.Fatalf("ambiguous Arena mapping %q was promoted: %+v", slug, m)
+		}
 	}
 }
 
@@ -304,10 +439,10 @@ func TestMergeWithArenaKeepsTheTwoSourcesApart(t *testing.T) {
 		"a/low":  {Slug: "a/low", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
 		"a/none": {Slug: "a/none", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
 	}
-	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70}}
+	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70, VariantMeasured: "a/high"}}
 	arena := []sources.ScoreRow{
-		{Slug: "a/high", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "a-high"},
-		{Slug: "a/low", Metric: sources.MetricArenaElo, Value: 1300, VariantMeasured: "a-low"},
+		{Slug: "a/high", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "a-high", CanonicalID: "a-high", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "a/high"},
+		{Slug: "a/low", SourceFamily: ScoreSourceArena, ConfiguredIdentity: "a-low", CanonicalID: "a-low", Metric: sources.MetricArenaElo, Value: 1300, VariantMeasured: "a/low"},
 	}
 	models := MergeWithArena(entries, prices, scores, arena, testNotes(t))
 	byslug := map[string]Model{}
@@ -352,7 +487,7 @@ func TestMergeWithArenaKeepsTheTwoSourcesApart(t *testing.T) {
 func TestMergeStillWorksWithoutArena(t *testing.T) {
 	entries := []modelmap.Entry{{Slug: "a/high", Tier: "sonnet", Names: map[string]string{"vals": "a/high"}}}
 	prices := map[string]sources.PriceInfo{"a/high": {Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000, Found: true}}
-	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70}}
+	scores := []sources.ScoreRow{{Slug: "a/high", Metric: sources.MetricSWEBenchVerified, Value: 70, VariantMeasured: "a/high"}}
 	models := Merge(entries, prices, scores, testNotes(t))
 	if len(models) != 1 || models[0].ScoreLabel != "70.0%" || models[0].ArenaScore != nil {
 		t.Errorf("Merge = %+v, want the pre-existing behaviour and an empty Arena column", models)
@@ -376,7 +511,7 @@ func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
 			Slug: "a/both", Tier: "sonnet", MixedPrice: 2,
 			Score: &ScoreInfo{Metric: "SWE-bench Verified", Value: 70}, ScoreLabel: "70.0%", Rankable: true,
 			QualityPrice: 35, QualityPriceLabel: "35",
-			ArenaScore:      &ScoreInfo{Metric: "LMArena Elo", Value: 1500, VariantMeasured: "a-both", SourceURL: "u", Checked: "2026-08-06"},
+			ArenaScore:      &ScoreInfo{Metric: "LMArena Elo", Value: 1500, Unit: "Elo", VariantMeasured: "a-both", SourceURL: "u", Checked: "2026-08-06", IdentityStatus: IdentityExact},
 			ArenaNormalized: 100, ArenaLabel: "1500 Elo", ArenaRankable: true,
 			ArenaQualityPrice: 50, ArenaQualityPriceLabel: "50",
 		},
@@ -394,13 +529,13 @@ func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
 	}
 
 	arena := ForScoreSource(models, ScoreSourceArena)
-	if arena[0].Score == nil || arena[0].Score.Value != 100 {
-		t.Errorf("a/both Score = %+v, want the normalised 100, because that is what the formula is tuned for", arena[0].Score)
+	if arena[0].Score == nil || arena[0].Score.Value != 1500 {
+		t.Errorf("a/both Score = %+v, want raw Elo 1500", arena[0].Score)
 	}
-	if arena[0].Score.Metric != "LMArena Elo" || arena[0].Score.Checked != "2026-08-06" {
+	if arena[0].Score.Metric != "LMArena Elo" || arena[0].Score.Checked != "2026-08-06" || arena[0].Score.Unit != "Elo" {
 		t.Errorf("a/both provenance = %+v, want the Arena metric and date", arena[0].Score)
 	}
-	if arena[0].ScoreLabel != "1500 Elo" {
+	if arena[0].ScoreLabel != "1500 Elo" || arena[0].RankingScore != 100 {
 		t.Errorf("a/both ScoreLabel = %q, want the raw Elo, which is what a human should read", arena[0].ScoreLabel)
 	}
 	if arena[0].QualityPriceLabel != "50" || arena[0].QualityPrice != 50 {

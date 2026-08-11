@@ -121,6 +121,15 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		if m.ArenaScore != nil && m.Score == nil {
 			r.ArenaOnly = append(r.ArenaOnly, m.Slug)
 		}
+		if m.ManualScore != nil && m.Score != nil && m.Score.Value != m.ManualScore.Value {
+			r.Warnings = append(r.Warnings, m.Slug+": notes.yaml score claim conflicts with live benchmark observation; provenance preserved, no automatic overwrite")
+		}
+		if m.Score != nil && m.Score.IdentityStatus == model.IdentityVariantMismatch {
+			r.Warnings = append(r.Warnings, m.Slug+": benchmark identity is variant_mismatch and excluded from quality/Q/P/ranking")
+		}
+		if m.ArenaScore != nil && m.ArenaScore.IdentityStatus == model.IdentityVariantMismatch {
+			r.Warnings = append(r.Warnings, m.Slug+": Arena identity is variant_mismatch and excluded from Arena quality/Q/P/ranking")
+		}
 	}
 
 	sort.Strings(r.NewCandidates)

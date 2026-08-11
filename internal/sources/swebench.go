@@ -25,16 +25,30 @@ const modelTagPrefix = "Model: "
 // ScoreRow is one benchmark number attributed to one OpenRouter slug. Every
 // source produces these.
 type ScoreRow struct {
-	Slug              string
-	Metric            string
-	Value             float64
-	VariantMeasured   string
-	SourceURL         string
-	Checked           string
-	Provider          string
-	License           string
-	ModelURL          string
-	MetadataSourceURL string
+	Slug               string
+	SourceFamily       string
+	ConfiguredIdentity string
+	IdentityAmbiguous  bool
+	Metric             string
+	Value              float64
+	Unit               string
+	VariantMeasured    string
+	SourceURL          string
+	Checked            string
+	IdentityStatus     string
+	Provider           string
+	License            string
+	ModelURL           string
+	MetadataSourceURL  string
+	CanonicalID        string
+	ReleaseVariant     string
+	ModelVariant       string
+	Reasoning          string
+	Configuration      string
+	SampleSize         string
+	Uncertainty        string
+	Harness            string
+	Scaffold           string
 }
 
 type sweGroup struct {
@@ -108,12 +122,15 @@ func FetchSWEBenchVerified(ctx context.Context, c *httpcache.Client, names map[s
 			continue
 		}
 		best[slug] = ScoreRow{
-			Slug:            slug,
-			Metric:          MetricSWEBenchVerified,
-			Value:           r.Resolved,
-			VariantMeasured: r.Name,
-			SourceURL:       SWEBenchURL,
-			Checked:         r.Date,
+			Slug:               slug,
+			SourceFamily:       "swebench",
+			ConfiguredIdentity: names[slug],
+			Metric:             MetricSWEBenchVerified,
+			Value:              r.Resolved,
+			Unit:               "%",
+			VariantMeasured:    r.Name,
+			SourceURL:          SWEBenchURL,
+			Checked:            r.Date,
 		}
 	}
 

@@ -19,13 +19,37 @@ import (
 // ScoreInfo is a benchmark number attached to a model, plus the provenance the
 // document's own rules require. It is also what the run snapshot persists.
 type ScoreInfo struct {
-	Metric          string  `json:"metric"`
-	Value           float64 `json:"value"`
-	VariantMeasured string  `json:"variant_measured"`
-	SourceURL       string  `json:"source_url"`
-	Checked         string  `json:"checked"`
-	Stale           bool    `json:"stale,omitempty"`
+	Metric             string  `json:"metric"`
+	Value              float64 `json:"value"`
+	Unit               string  `json:"unit,omitempty"`
+	SourceFamily       string  `json:"source_family,omitempty"`
+	ConfiguredIdentity string  `json:"configured_identity,omitempty"`
+	IdentityAmbiguous  bool    `json:"identity_ambiguous,omitempty"`
+	VariantMeasured    string  `json:"variant_measured"`
+	SourceURL          string  `json:"source_url"`
+	Checked            string  `json:"checked"`
+	IdentityStatus     string  `json:"identity_status,omitempty"`
+	Provenance         string  `json:"provenance"`
+	Stale              bool    `json:"stale,omitempty"`
+	CanonicalID        string  `json:"canonical_id"`
+	ReleaseVariant     string  `json:"release_variant"`
+	ModelVariant       string  `json:"model_variant"`
+	Reasoning          string  `json:"reasoning"`
+	Configuration      string  `json:"configuration"`
+	Provider           string  `json:"provider"`
+	Uncertainty        string  `json:"uncertainty"`
+	SampleSize         string  `json:"sample_size"`
+	Harness            string  `json:"harness"`
+	Scaffold           string  `json:"scaffold"`
 }
+
+const (
+	IdentityExact           = "exact_product"
+	IdentityVariantMismatch = "variant_mismatch"
+	IdentityLegacyUnknown   = "legacy_unknown"
+	IdentityObservationOnly = "observation_only"
+	IdentityMissing         = "missing_identity"
+)
 
 // ScoreSourceSWEBench and ScoreSourceArena name the two independent score
 // sources a rendered table can be built from. They are never blended: one
@@ -94,17 +118,20 @@ type Model struct {
 	ModelURL          string
 	MetadataSourceURL string
 
-	Score        *ScoreInfo
-	MixedPrice   float64
-	QualityPrice float64
-	InputPrice   float64
-	OutputPrice  float64
+	Score           *ScoreInfo
+	RankingScore    float64
+	HasRankingScore bool
+	MixedPrice      float64
+	QualityPrice    float64
+	InputPrice      float64
+	OutputPrice     float64
 
 	Note        string
 	TaskFit     []string
 	Owner       string
 	OpenWeights string
 	ClaudeRef   string
+	ManualScore *notes.ScoreOverride
 
 	// Display strings, precomputed so the template stays logic-free.
 	ScoreLabel        string
@@ -163,6 +190,21 @@ func FormatArenaScore(v float64) string {
 	return strconv.FormatFloat(v, 'f', 0, 64) + " Elo"
 }
 
+// FormatScoreProvenance keeps the overview compact while making every missing
+// provenance field explicit rather than silently dropping it.
+func FormatScoreProvenance(info *ScoreInfo) string {
+	value := func(s string) string {
+		if s == "" {
+			return "н/д"
+		}
+		return s
+	}
+	if info == nil {
+		return "raw=н/д; metric=н/д; unit=н/д; variant=н/д; identity=missing_identity; checked=н/д; source=н/д; uncertainty=н/д; sample=н/д; harness=н/д; scaffold=н/д; provider=н/д; configuration=н/д"
+	}
+	return fmt.Sprintf("raw=%s; metric=%s; unit=%s; variant=%s; identity=%s; checked=%s; source=%s; uncertainty=%s; sample=%s; harness=%s; scaffold=%s; provider=%s; configuration=%s", strconv.FormatFloat(info.Value, 'f', -1, 64), value(info.Metric), value(info.Unit), value(info.VariantMeasured), value(info.IdentityStatus), value(info.Checked), value(info.SourceURL), value(info.Uncertainty), value(info.SampleSize), value(info.Harness), value(info.Scaffold), value(info.Provider), value(info.Configuration))
+}
+
 // Merge builds the rendered rows with the SWE-bench column only. It stays
 // for callers that have no Arena data to pass.
 func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores []sources.ScoreRow, nt *notes.Notes) []Model {
@@ -210,6 +252,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			CatalogName:   price.Name,
 			CanonicalSlug: price.CanonicalSlug,
 			HuggingFaceID: price.HuggingFaceID,
+			Provider:      price.Provider,
 			Note:          nt.ModelNote(e.Slug),
 			TaskFit:       nt.TaskFit(e.Slug),
 			Owner:         nt.Owner(e.Slug),
@@ -229,42 +272,96 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		}
 
 		if row, has := firstRow[e.Slug]; has {
+			identity := identityForRow(row, e.Slug, price)
 			m.Score = &ScoreInfo{
-				Metric:          row.Metric,
-				Value:           row.Value,
-				VariantMeasured: row.VariantMeasured,
-				SourceURL:       row.SourceURL,
-				Checked:         row.Checked,
+				Metric:             row.Metric,
+				Value:              row.Value,
+				Unit:               row.Unit,
+				SourceFamily:       sourceFamilyForRow(row),
+				ConfiguredIdentity: row.ConfiguredIdentity,
+				IdentityAmbiguous:  row.IdentityAmbiguous,
+				VariantMeasured:    row.VariantMeasured,
+				SourceURL:          row.SourceURL,
+				Checked:            row.Checked,
+				IdentityStatus:     identity,
+				Provenance:         row.SourceURL,
+				CanonicalID:        row.CanonicalID,
+				ReleaseVariant:     row.ReleaseVariant,
+				ModelVariant:       row.ModelVariant,
+				Reasoning:          row.Reasoning,
+				Configuration:      row.Configuration,
+				Provider:           row.Provider,
+				Uncertainty:        row.Uncertainty,
+				SampleSize:         row.SampleSize,
+				Harness:            row.Harness,
+				Scaffold:           row.Scaffold,
 			}
 			m.ScoreLabel = FormatScore(row.Value)
-			m.Rankable = true
+			m.Rankable = identity == IdentityExact
+			if !m.Rankable {
+				m.ScoreLabel += " [" + identity + "]"
+			}
 		} else if ov, has := nt.ScoreOverride(e.Slug); has {
 			m.Score = &ScoreInfo{
 				Metric:          sources.MetricSWEBenchVerified,
 				Value:           ov.Value,
+				Unit:            "%",
 				VariantMeasured: "vendor-claimed",
 				SourceURL:       ov.Source,
+				IdentityStatus:  IdentityObservationOnly,
+				Provenance:      ov.Source,
 			}
 			m.ScoreLabel = ov.Label
-			m.Rankable = ov.Rankable
+			m.Rankable = false
 		} else {
 			m.ScoreLabel = "н/д"
+		}
+		if ov, has := nt.ScoreOverride(e.Slug); has {
+			m.ManualScore = &ov
 		}
 
 		// The Arena column has no notes.yaml fallback: manual overrides in
 		// notes.yaml describe SWE-bench Verified, and reusing them here would
 		// put a percentage on an Elo scale.
 		if row, has := firstArena[e.Slug]; has {
-			m.Provider, m.License, m.ModelURL, m.MetadataSourceURL = row.Provider, row.License, row.ModelURL, row.MetadataSourceURL
+			identity := identityForRow(row, e.Slug, price)
+			if row.Provider != "" {
+				m.Provider = row.Provider
+			}
+			if row.License != "" {
+				m.License = row.License
+			}
+			if row.ModelURL != "" {
+				m.ModelURL = row.ModelURL
+			}
+			if row.MetadataSourceURL != "" {
+				m.MetadataSourceURL = row.MetadataSourceURL
+			}
 			m.ArenaScore = &ScoreInfo{
-				Metric:          row.Metric,
-				Value:           row.Value,
-				VariantMeasured: row.VariantMeasured,
-				SourceURL:       row.SourceURL,
-				Checked:         row.Checked,
+				Metric:             row.Metric,
+				Value:              row.Value,
+				Unit:               row.Unit,
+				SourceFamily:       sourceFamilyForRow(row),
+				ConfiguredIdentity: row.ConfiguredIdentity,
+				IdentityAmbiguous:  row.IdentityAmbiguous,
+				VariantMeasured:    row.VariantMeasured,
+				SourceURL:          row.SourceURL,
+				Checked:            row.Checked,
+				IdentityStatus:     identity,
+				Provenance:         row.SourceURL,
+				CanonicalID:        row.CanonicalID,
+				ReleaseVariant:     row.ReleaseVariant,
+				ModelVariant:       row.ModelVariant,
+				Reasoning:          row.Reasoning,
+				Configuration:      row.Configuration,
+				Provider:           row.Provider,
+				Uncertainty:        row.Uncertainty,
+				SampleSize:         row.SampleSize,
+				Harness:            row.Harness,
+				Scaffold:           row.Scaffold,
 			}
 			m.ArenaLabel = FormatArenaScore(row.Value)
-			m.ArenaRankable = true
+			m.ArenaRankable = identity == IdentityExact
 		} else {
 			m.ArenaLabel = "н/д"
 		}
@@ -273,8 +370,16 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		case m.Free:
 			m.QualityPriceLabel = "н/д (цена $0)"
 		case m.Rankable && m.Score != nil:
-			m.QualityPrice = pricing.QualityPrice(m.Score.Value, m.MixedPrice)
+			m.QualityPrice = pricing.QualityPrice(m.scoreValue(), m.MixedPrice)
 			m.QualityPriceLabel = pricing.FormatQualityPrice(m.QualityPrice)
+		case m.Score != nil && m.Score.IdentityStatus == IdentityVariantMismatch:
+			m.QualityPriceLabel = "н/д (variant mismatch)"
+		case m.Score != nil && m.Score.IdentityStatus == IdentityLegacyUnknown:
+			m.QualityPriceLabel = "н/д (legacy provenance)"
+		case m.Score != nil && m.Score.IdentityStatus == IdentityMissing:
+			m.QualityPriceLabel = "н/д (missing identity)"
+		case m.Score != nil && m.Score.IdentityStatus == IdentityObservationOnly:
+			m.QualityPriceLabel = "н/д (observation only)"
 		default:
 			m.QualityPriceLabel = nt.NoScoreReason(e.Slug)
 		}
@@ -288,13 +393,74 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 	return out
 }
 
+// classifyIdentity accepts only the catalogue id or its explicit canonical id.
+// A dated release or source alias remains visible evidence, not product quality.
+func classifyIdentity(row sources.ScoreRow, slug string, price sources.PriceInfo) string {
+	if sourceFamilyForRow(row) == ScoreSourceArena {
+		if row.IdentityAmbiguous || row.ConfiguredIdentity == "" || row.CanonicalID == "" {
+			return IdentityMissing
+		}
+		if row.CanonicalID != row.ConfiguredIdentity {
+			return IdentityVariantMismatch
+		}
+		if row.Provider != "" && price.Provider != "" && row.Provider != price.Provider {
+			return IdentityVariantMismatch
+		}
+		for _, pair := range [][2]string{{row.ReleaseVariant, price.ReleaseVariant}, {row.ModelVariant, price.ModelVariant}, {row.Reasoning, price.Reasoning}, {row.Configuration, price.Configuration}} {
+			if pair[0] != "" && pair[1] != "" && pair[0] != pair[1] {
+				return IdentityVariantMismatch
+			}
+		}
+		return IdentityExact
+	}
+	if row.CanonicalID == "" && row.VariantMeasured == "" && row.ReleaseVariant == "" && row.ModelVariant == "" {
+		return IdentityMissing
+	}
+	if row.CanonicalID != "" && row.CanonicalID != slug && row.CanonicalID != price.CanonicalSlug {
+		return IdentityVariantMismatch
+	}
+	if row.VariantMeasured != "" && row.VariantMeasured != slug && row.VariantMeasured != price.CanonicalSlug {
+		return IdentityVariantMismatch
+	}
+	if row.Provider != "" && price.Provider != "" && row.Provider != price.Provider {
+		return IdentityVariantMismatch
+	}
+	for _, pair := range [][2]string{{row.ReleaseVariant, price.ReleaseVariant}, {row.ModelVariant, price.ModelVariant}, {row.Reasoning, price.Reasoning}, {row.Configuration, price.Configuration}} {
+		if pair[0] != "" && pair[1] != "" && pair[0] != pair[1] {
+			return IdentityVariantMismatch
+		}
+	}
+	return IdentityExact
+}
+
+func sourceFamilyForRow(row sources.ScoreRow) string {
+	if row.SourceFamily != "" {
+		return row.SourceFamily
+	}
+	switch row.Metric {
+	case sources.MetricArenaElo:
+		return ScoreSourceArena
+	case sources.MetricSWEBenchVerified:
+		return ScoreSourceSWEBench
+	default:
+		return ""
+	}
+}
+
+func identityForRow(row sources.ScoreRow, slug string, price sources.PriceInfo) string {
+	if row.IdentityStatus == IdentityLegacyUnknown || row.IdentityStatus == IdentityObservationOnly {
+		return row.IdentityStatus
+	}
+	return classifyIdentity(row, slug, price)
+}
+
 // fillArenaDerived rescales every row's raw Elo onto 0–100 over the current
 // Arena set and computes that view's quality/price cell.
 func fillArenaDerived(models []Model) {
 	indexes := make([]int, 0, len(models))
 	raw := make([]float64, 0, len(models))
 	for i := range models {
-		if models[i].ArenaScore == nil {
+		if models[i].ArenaScore == nil || !models[i].ArenaRankable {
 			continue
 		}
 		indexes = append(indexes, i)
@@ -325,9 +491,8 @@ func fillArenaDerived(models []Model) {
 // needs to know a second source exists, and no table can end up showing two
 // scales at once.
 //
-// The Arena view carries the normalised 0–100 value in Score.Value, because
-// that is what the ranking formula is tuned for, and the raw Elo in
-// ScoreLabel, because that is what a human should see. The input slice is
+// The Arena view keeps raw Elo in Score.Value and carries the normalised value
+// separately for ranking. The input slice is
 // never mutated: the caller keeps a row that still knows both sources.
 func ForScoreSource(models []Model, source string) []Model {
 	if source != ScoreSourceArena {
@@ -338,19 +503,46 @@ func ForScoreSource(models []Model, source string) []Model {
 	for i := range out {
 		m := &out[i]
 		m.Score, m.Rankable, m.ScoreLabel = nil, m.ArenaRankable, m.ArenaLabel
+		m.RankingScore, m.HasRankingScore = m.ArenaNormalized, true
 		if m.ArenaScore != nil {
 			m.Score = &ScoreInfo{
-				Metric:          m.ArenaScore.Metric,
-				Value:           m.ArenaNormalized,
-				VariantMeasured: m.ArenaScore.VariantMeasured,
-				SourceURL:       m.ArenaScore.SourceURL,
-				Checked:         m.ArenaScore.Checked,
-				Stale:           m.ArenaScore.Stale,
+				Metric:             m.ArenaScore.Metric,
+				Value:              m.ArenaScore.Value,
+				Unit:               m.ArenaScore.Unit,
+				SourceFamily:       m.ArenaScore.SourceFamily,
+				ConfiguredIdentity: m.ArenaScore.ConfiguredIdentity,
+				IdentityAmbiguous:  m.ArenaScore.IdentityAmbiguous,
+				VariantMeasured:    m.ArenaScore.VariantMeasured,
+				SourceURL:          m.ArenaScore.SourceURL,
+				Checked:            m.ArenaScore.Checked,
+				IdentityStatus:     m.ArenaScore.IdentityStatus,
+				Provenance:         m.ArenaScore.Provenance,
+				Stale:              m.ArenaScore.Stale,
+				CanonicalID:        m.ArenaScore.CanonicalID,
+				ReleaseVariant:     m.ArenaScore.ReleaseVariant,
+				ModelVariant:       m.ArenaScore.ModelVariant,
+				Reasoning:          m.ArenaScore.Reasoning,
+				Configuration:      m.ArenaScore.Configuration,
+				Provider:           m.ArenaScore.Provider,
+				Uncertainty:        m.ArenaScore.Uncertainty,
+				SampleSize:         m.ArenaScore.SampleSize,
+				Harness:            m.ArenaScore.Harness,
+				Scaffold:           m.ArenaScore.Scaffold,
 			}
 		}
 		m.QualityPrice, m.QualityPriceLabel = m.ArenaQualityPrice, m.ArenaQualityPriceLabel
 	}
 	return out
+}
+
+func (m Model) scoreValue() float64 {
+	if m.HasRankingScore {
+		return m.RankingScore
+	}
+	if m.Score == nil {
+		return 0
+	}
+	return m.Score.Value
 }
 
 // RankFavorites returns the rankable models of one tier, best first. Paid tiers
@@ -367,8 +559,8 @@ func RankFavorites(models []Model, tier string) []Model {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if tier == "free" {
-			if a.Score.Value != b.Score.Value {
-				return a.Score.Value > b.Score.Value
+			if a.scoreValue() != b.scoreValue() {
+				return a.scoreValue() > b.scoreValue()
 			}
 			return a.Slug < b.Slug
 		}

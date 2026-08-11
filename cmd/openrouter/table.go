@@ -112,13 +112,16 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 			HasOverride: entry.HasOverride, OverrideMinTokens: entry.OverrideMinTokens,
 			OverrideInPerM: entry.OverrideInPerM, OverrideOutPerM: entry.OverrideOutPerM,
 			Created: entry.Created, Description: entry.Description, Name: entry.CatalogName,
-			CanonicalSlug: entry.CanonicalSlug, HuggingFaceID: entry.HuggingFaceID,
+			CanonicalSlug: entry.CanonicalSlug, HuggingFaceID: entry.HuggingFaceID, Provider: entry.Provider,
+			ReleaseVariant: entry.ReleaseVariant, ModelVariant: entry.ModelVariant, Reasoning: entry.Reasoning, Configuration: entry.Configuration,
 		}
 		if entry.Score != nil {
-			scores = append(scores, sources.ScoreRow{Slug: slug, Metric: entry.Score.Metric, Value: entry.Score.Value, VariantMeasured: entry.Score.VariantMeasured, SourceURL: entry.Score.SourceURL, Checked: entry.Score.Checked})
+			scores = append(scores, scoreRowFromInfo(slug, entry.Score, snapshotFallbackIdentity(entry)))
 		}
 		if entry.ArenaScore != nil {
-			arena = append(arena, sources.ScoreRow{Slug: slug, Metric: entry.ArenaScore.Metric, Value: entry.ArenaScore.Value, VariantMeasured: entry.ArenaScore.VariantMeasured, SourceURL: entry.ArenaScore.SourceURL, Checked: entry.ArenaScore.Checked, Provider: entry.Provider, License: entry.License, ModelURL: entry.ModelURL, MetadataSourceURL: entry.MetadataSourceURL})
+			row := scoreRowFromInfo(slug, entry.ArenaScore, snapshotFallbackIdentity(entry))
+			row.Provider, row.License, row.ModelURL, row.MetadataSourceURL = entry.Provider, entry.License, entry.ModelURL, entry.MetadataSourceURL
+			arena = append(arena, row)
 		}
 	}
 	models := model.MergeWithArena(entries, prices, scores, arena, nt)
@@ -126,6 +129,21 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
 	return model.ForScoreSource(models, source), nil
+}
+
+func snapshotFallbackIdentity(entry refresh.SnapshotEntry) string {
+	if entry.CanonicalSlug == "" && entry.Provider == "" && entry.ReleaseVariant == "" && entry.ModelVariant == "" && entry.Reasoning == "" && entry.Configuration == "" {
+		return model.IdentityLegacyUnknown
+	}
+	return ""
+}
+
+func scoreRowFromInfo(slug string, info *model.ScoreInfo, fallbackIdentity string) sources.ScoreRow {
+	identity := info.IdentityStatus
+	if identity == "" {
+		identity = fallbackIdentity
+	}
+	return sources.ScoreRow{Slug: slug, SourceFamily: info.SourceFamily, ConfiguredIdentity: info.ConfiguredIdentity, IdentityAmbiguous: info.IdentityAmbiguous, Metric: info.Metric, Value: info.Value, Unit: info.Unit, VariantMeasured: info.VariantMeasured, SourceURL: info.SourceURL, Checked: info.Checked, IdentityStatus: identity, CanonicalID: info.CanonicalID, ReleaseVariant: info.ReleaseVariant, ModelVariant: info.ModelVariant, Reasoning: info.Reasoning, Configuration: info.Configuration, Provider: info.Provider, Uncertainty: info.Uncertainty, SampleSize: info.SampleSize, Harness: info.Harness, Scaffold: info.Scaffold}
 }
 
 func loadLocalUpdatedAt(dataDir string) string {
@@ -259,16 +277,10 @@ func applyCanonicalQualityPrice(models []model.Model, compiled ranking.Compiled)
 		if m.Free || m.Score == nil || !m.Rankable || m.MixedPrice <= 0 {
 			continue
 		}
-		baseQuality, err := compiled.QualityUtility(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
-		if err != nil {
-			return fmt.Errorf("table: cannot rank model %q: cannot derive base quality: %w", m.Slug, err)
+		if _, err := compiled.QualityUtility(modelScoreValue(*m), m.InPerM, m.OutPerM, m.Tier); err != nil {
+			return fmt.Errorf("table: cannot rank model %q: cannot validate ranking formula: %w", m.Slug, err)
 		}
-		baseQP := baseQuality / m.MixedPrice
-		fullUtility, err := compiled.FullUtility(m.Score.Value, m.InPerM, m.OutPerM, baseQP, m.Tier)
-		if err != nil {
-			return fmt.Errorf("table: cannot rank model %q: cannot derive full utility: %w", m.Slug, err)
-		}
-		m.QualityPrice = fullUtility / m.MixedPrice
+		m.QualityPrice = pricing.QualityPrice(modelScoreValue(*m), m.MixedPrice)
 		m.QualityPriceLabel = pricing.FormatQualityPrice(m.QualityPrice)
 	}
 	return nil
@@ -304,14 +316,14 @@ func compareRanking(left, right model.Model, rankingName string, utilities map[s
 		if leftTier, rightTier := rankingTierValue(left.Tier), rankingTierValue(right.Tier); leftTier != rightTier {
 			return compareInts(rightTier, leftTier)
 		}
-		if left.Score.Value != right.Score.Value {
-			return compareFloats(right.Score.Value, left.Score.Value)
+		if modelScoreValue(left) != modelScoreValue(right) {
+			return compareFloats(modelScoreValue(right), modelScoreValue(left))
 		}
 		return compareFloats(right.QualityPrice, left.QualityPrice)
 	}
 	if left.Free || right.Free {
 		if left.Free && right.Free {
-			return compareFloats(right.Score.Value, left.Score.Value)
+			return compareFloats(modelScoreValue(right), modelScoreValue(left))
 		}
 		return compareInts(rankingTierValue(right.Tier), rankingTierValue(left.Tier))
 	}
@@ -325,16 +337,26 @@ func compareRanking(left, right model.Model, rankingName string, utilities map[s
 
 func mixedUtility(m model.Model, compiled ranking.Compiled) (float64, error) {
 	if m.InPerM == 0 && m.OutPerM == 0 {
-		context := compiled.Context(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
+		context := compiled.Context(modelScoreValue(m), m.InPerM, m.OutPerM, m.Tier)
 		context.QualityPrice = m.QualityPrice
 		return compiled.Evaluate(context)
 	}
-	baseQuality, err := compiled.QualityUtility(m.Score.Value, m.InPerM, m.OutPerM, m.Tier)
+	baseQuality, err := compiled.QualityUtility(modelScoreValue(m), m.InPerM, m.OutPerM, m.Tier)
 	if err != nil {
 		return 0, err
 	}
 	baseQP := baseQuality / m.MixedPrice
-	return compiled.FullUtility(m.Score.Value, m.InPerM, m.OutPerM, baseQP, m.Tier)
+	return compiled.FullUtility(modelScoreValue(m), m.InPerM, m.OutPerM, baseQP, m.Tier)
+}
+
+func modelScoreValue(m model.Model) float64 {
+	if m.HasRankingScore {
+		return m.RankingScore
+	}
+	if m.Score == nil {
+		return 0
+	}
+	return m.Score.Value
 }
 
 func rankingTierValue(tier string) int {
@@ -429,7 +451,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 					return nil, fmt.Errorf("table: malformed filter %q; quality threshold must be between 0 and 100 (or a fraction between 0 and 1)", raw)
 				}
 				threshold = normalizeQualityFilterThreshold(threshold)
-				parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable && m.Score.Value >= threshold })
+				parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable && modelScoreValue(m) >= threshold })
 			case strings.HasPrefix(filter, "context>="):
 				threshold, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(filter, "context>=")))
 				if err != nil {
@@ -531,7 +553,7 @@ func tableNumericSortValue(m model.Model, key string) (float64, bool) {
 		if m.Score == nil || !m.Rankable {
 			return 0, false
 		}
-		return m.Score.Value, true
+		return modelScoreValue(m), true
 	}
 	if m.Free || m.Score == nil || !m.Rankable {
 		return 0, false
@@ -741,7 +763,7 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 	if columnMode == "notes" {
 		columnHeader = "Note"
 	}
-	headers := []string{identityHeader, "Claude", "Status", "Q/P", "Context", "Input $/M", "Output $/M", columnHeader}
+	headers := []string{identityHeader, "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", columnHeader}
 	rows := make([][]string, 0, len(models))
 	maxClaudeWidth := 0
 	maxNoteWidth := 0

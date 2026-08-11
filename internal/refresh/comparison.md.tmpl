@@ -3,7 +3,7 @@
 - [Фавориты по категориям (относительно уровня Claude)](#фавориты-по-категориям-относительно-уровня-claude)
 - [Цены Claude (справочно)](#цены-claude-справочно)
 - [Владельцы, открытость весов и рейтинг безопасности](#владельцы-открытость-весов-и-рейтинг-безопасности)
-- [Модели по уровню качества (ранжированы по качество/цена внутри категории)](#модели-по-уровню-качества-ранжированы-по-качествоцена-внутри-категории)
+- [Модели по capability estimate (ranked by valid benchmark quality / price)](#модели-по-capability-estimate-ranked-by-valid-benchmark-quality--price)
 - [Сколько токенов даст $10](#сколько-токенов-даст-10)
 - [На что обратить внимание](#на-что-обратить-внимание)
 - [Бесплатные модели (рейтинг по качеству)](#бесплатные-модели-рейтинг-по-качеству)
@@ -14,11 +14,14 @@
 
 {{.FavoritesIntro}}
 
-| Уровень Claude | Модель | Цена вход/выход, контекст | SWE-bench Verified | Качество/цена | Владелец (FLI) | Открытые веса | Почему фаворит |
+| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Почему фаворит |
 |---|---|---|---|---|---|---|---|
 {{- range .Favorites}}
 {{- if .Model}}
 | {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Reason}} |
+{{- if .Model}}
+  Provenance: {{provenance .Model.Score}}
+{{- end}}
 {{- else}}
 | {{.TierLabel}} | {{.Fallback}} | — | — | — | — | — | {{.Reason}} |
 {{- end}}
@@ -48,16 +51,17 @@
 
 {{.OpenWeights}}
 
-## Модели по уровню качества (ранжированы по качество/цена внутри категории)
+## Модели по capability estimate (ranked by valid benchmark quality / price)
 
 {{.TiersIntro}}
 {{range .Tiers}}
 ### {{.Heading}}
 
-| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | SWE-bench Verified | Качество/цена | Владелец (FLI) | Открытые веса | Примечание |
+| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Примечание |
 |---|---|---|---|---|---|---|---|---|---|
 {{- range .Rows}}
 | {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
+  Provenance: {{provenance .Score}}
 {{- end}}
 {{end}}
 ## Сколько токенов даст $10
@@ -88,10 +92,11 @@
 
 {{.FreeIntro}}
 
-| Модель | Slug на OpenRouter | Контекст | Оценка качества | Ориентир по Claude | Владелец | Открытые веса | Примечание |
+| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Примечание |
 |---|---|---|---|---|---|---|---|
 {{- range .FreeModels}}
 | {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
+  Provenance: {{provenance .Score}}
 {{- end}}
 
 {{.FreeTerms}}
