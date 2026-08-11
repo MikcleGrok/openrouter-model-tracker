@@ -51,6 +51,24 @@ func TestFilterTableModelsAcceptsTierCaseInsensitively(t *testing.T) {
 	}
 }
 
+func TestFilterTableModelsQualityPriceAndAvailabilityPredicates(t *testing.T) {
+	models := []model.Model{{Slug: "paid", Free: false, HasQualityPrice: true, QualityPrice: 4}, {Slug: "free", Free: true, HasQualityPrice: false}, {Slug: "invalid", Free: false, HasQualityPrice: false}}
+	got, err := filterTableModels(models, []string{"has-q/p", "availability:paid"})
+	if err != nil || len(got) != 1 || got[0].Slug != "paid" {
+		t.Fatalf("filtered models = %+v, error %v", got, err)
+	}
+	got, err = filterTableModels(models, []string{"availability:free"})
+	if err != nil || len(got) != 1 || got[0].Slug != "free" {
+		t.Fatalf("free models = %+v, error %v", got, err)
+	}
+}
+
+func TestFilterTableModelsRejectsInvalidAvailability(t *testing.T) {
+	if _, err := filterTableModels(nil, []string{"availability:discount"}); err == nil {
+		t.Fatal("invalid availability unexpectedly accepted")
+	}
+}
+
 func TestRenderTableTaskFitShortAndLong(t *testing.T) {
 	row := model.Model{DisplayName: "model", TaskFit: []string{"implement", "test"}}
 	short := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
@@ -293,7 +311,7 @@ func TestRenderTableShowsManualClaudeEquivalent(t *testing.T) {
 		"free-mid":       "<≈ Haiku 4.5",
 		"free-low":       "<<≈ Haiku 4.5",
 		"free-fallback":  "<≈ Haiku 4.5",
-		"unknown":        "н/д",
+		"unknown":        "n/a",
 	}
 	for slug, want := range wantClaude {
 		if got := tableRowCell(t, output, slug, 1); got != want {
@@ -1525,16 +1543,16 @@ func TestTableScoreSourceClaudeColumnNeverBlendsScales(t *testing.T) {
 	}
 
 	arena := executeCLI(t, "table", "--config", config, "--score-source=arena", "--slug")
-	if got := tableRowCell(t, arena, "demo/haiku-swe", 2); got != "н/д" {
+	if got := tableRowCell(t, arena, "demo/haiku-swe", 2); got != "n/a" {
 		t.Fatalf("test setup: demo/haiku-swe Status in arena mode = %q, want н/д (it has no Arena number):\n%s", got, arena)
 	}
-	if got := tableRowCell(t, arena, "demo/haiku-swe", 1); got != "н/д" {
+	if got := tableRowCell(t, arena, "demo/haiku-swe", 1); got != "n/a" {
 		t.Errorf("arena-mode Claude cell for demo/haiku-swe = %q, want %q; it must not claim a SWE-bench-calibrated tier next to a н/д Status:\n%s", got, "н/д", arena)
 	}
 	if got := tableRowCell(t, arena, "demo/haiku-arena", 2); got != "1400 Elo" {
 		t.Fatalf("test setup: demo/haiku-arena Status in arena mode = %q, want 1400 Elo:\n%s", got, arena)
 	}
-	if got := tableRowCell(t, arena, "demo/haiku-arena", 1); got != "н/д" {
+	if got := tableRowCell(t, arena, "demo/haiku-arena", 1); got != "n/a" {
 		t.Errorf("arena-mode Claude cell for demo/haiku-arena = %q, want %q; there is no established Elo-to-Claude-tier mapping:\n%s", got, "н/д", arena)
 	}
 }

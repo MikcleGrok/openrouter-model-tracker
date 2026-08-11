@@ -27,6 +27,22 @@ func TestLoadSnapshotMissingFileIsEmpty(t *testing.T) {
 	}
 }
 
+func TestLoadSnapshotNormalizesLegacyMissingLabels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snapshot.json")
+	body := `{"models":{"demo/model":{"provider":"Demo (н/д)","score":{"metric":"н/д","uncertainty":"н/д","sample_size":"н/д"}}}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := snapshot.Models["demo/model"]
+	if entry.Provider != "Demo (n/a)" || entry.Score.Metric != "n/a" || entry.Score.Uncertainty != "n/a" || entry.Score.SampleSize != "n/a" {
+		t.Fatalf("normalized snapshot entry = %+v", entry)
+	}
+}
+
 func TestSnapshotRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "last-run-snapshot.json")
 	want := &Snapshot{

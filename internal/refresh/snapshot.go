@@ -68,7 +68,48 @@ func LoadSnapshot(path string) (*Snapshot, error) {
 	if s.Models == nil {
 		s.Models = map[string]SnapshotEntry{}
 	}
+	for slug, entry := range s.Models {
+		entry.Description = model.NormalizeMissingLabels(entry.Description)
+		entry.CatalogName = model.NormalizeMissingLabels(entry.CatalogName)
+		entry.CanonicalSlug = model.NormalizeMissingLabels(entry.CanonicalSlug)
+		entry.HuggingFaceID = model.NormalizeMissingLabels(entry.HuggingFaceID)
+		entry.Provider = model.NormalizeMissingLabels(entry.Provider)
+		entry.ReleaseVariant = model.NormalizeMissingLabels(entry.ReleaseVariant)
+		entry.ModelVariant = model.NormalizeMissingLabels(entry.ModelVariant)
+		entry.Reasoning = model.NormalizeMissingLabels(entry.Reasoning)
+		entry.Configuration = model.NormalizeMissingLabels(entry.Configuration)
+		entry.License = model.NormalizeMissingLabels(entry.License)
+		entry.ModelURL = model.NormalizeMissingLabels(entry.ModelURL)
+		entry.MetadataSourceURL = model.NormalizeMissingLabels(entry.MetadataSourceURL)
+		normalizeScoreInfo(entry.Score)
+		normalizeScoreInfo(entry.ArenaScore)
+		s.Models[slug] = entry
+	}
 	return &s, nil
+}
+
+func normalizeScoreInfo(info *model.ScoreInfo) {
+	if info == nil {
+		return
+	}
+	info.Metric = model.NormalizeMissingLabels(info.Metric)
+	info.Unit = model.NormalizeMissingLabels(info.Unit)
+	info.ConfiguredIdentity = model.NormalizeMissingLabels(info.ConfiguredIdentity)
+	info.VariantMeasured = model.NormalizeMissingLabels(info.VariantMeasured)
+	info.SourceURL = model.NormalizeMissingLabels(info.SourceURL)
+	info.Checked = model.NormalizeMissingLabels(info.Checked)
+	info.IdentityStatus = model.NormalizeMissingLabels(info.IdentityStatus)
+	info.Provenance = model.NormalizeMissingLabels(info.Provenance)
+	info.CanonicalID = model.NormalizeMissingLabels(info.CanonicalID)
+	info.ReleaseVariant = model.NormalizeMissingLabels(info.ReleaseVariant)
+	info.ModelVariant = model.NormalizeMissingLabels(info.ModelVariant)
+	info.Reasoning = model.NormalizeMissingLabels(info.Reasoning)
+	info.Uncertainty = model.NormalizeMissingLabels(info.Uncertainty)
+	info.SampleSize = model.NormalizeMissingLabels(info.SampleSize)
+	info.Harness = model.NormalizeMissingLabels(info.Harness)
+	info.Scaffold = model.NormalizeMissingLabels(info.Scaffold)
+	info.Provider = model.NormalizeMissingLabels(info.Provider)
+	info.Configuration = model.NormalizeMissingLabels(info.Configuration)
 }
 
 // Save writes the snapshot, creating the parent directory if needed.

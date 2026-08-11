@@ -185,10 +185,10 @@ func FetchArenaElo(ctx context.Context, c *httpcache.Client, names map[string]st
 			ModelURL:           e.ModelURL,
 			MetadataSourceURL:  ArenaURL,
 			CanonicalID:        e.ModelKey,
-			SampleSize:         "н/д",
-			Uncertainty:        "н/д",
+			SampleSize:         "n/a",
+			Uncertainty:        "n/a",
 			Harness:            "LMArena text arena",
-			Scaffold:           "н/д",
+			Scaffold:           "n/a",
 		})
 	}
 	// A specific request (len(names) > 0) that matched nothing is treated as a

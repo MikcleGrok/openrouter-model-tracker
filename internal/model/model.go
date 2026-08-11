@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -54,7 +55,7 @@ const (
 // ScoreSourceSWEBench and ScoreSourceArena name the two independent score
 // sources a rendered table can be built from. They are never blended: one
 // table shows one of them, and a model with no number on the active source
-// shows "н/д" even when it has a number on the other one.
+// shows "n/a" even when it has a number on the other one.
 const (
 	ScoreSourceSWEBench = "swebench"
 	ScoreSourceArena    = "arena"
@@ -75,7 +76,7 @@ var SourceFamily = map[string]string{
 // no number for. It deliberately does not reuse notes.yaml's NoScoreReason:
 // that text names SWE-bench, which is exactly the confusion two separate
 // views exist to prevent.
-const arenaNoScoreLabel = "н/д (нет оценки на LMArena)"
+const arenaNoScoreLabel = "n/a (no LMArena score)"
 
 // Model is one rendered row.
 type Model struct {
@@ -136,6 +137,7 @@ type Model struct {
 	// Display strings, precomputed so the template stays logic-free.
 	ScoreLabel        string
 	QualityPriceLabel string
+	HasQualityPrice   bool
 
 	// LongContextPriceLabel is the catalogue's long-context pricing tier,
 	// pre-formatted as "$in / $out от <threshold>+", for display next to a
@@ -190,17 +192,26 @@ func FormatArenaScore(v float64) string {
 	return strconv.FormatFloat(v, 'f', 0, 64) + " Elo"
 }
 
+// NormalizeMissingLabels keeps legacy persisted data from leaking the old
+// Russian placeholder into generated Markdown and the TUI.
+func NormalizeMissingLabels(value string) string {
+	for _, legacy := range []string{"н/д", "Н/Д", "Н/д", "н/Д"} {
+		value = strings.ReplaceAll(value, legacy, "n/a")
+	}
+	return value
+}
+
 // FormatScoreProvenance keeps the overview compact while making every missing
 // provenance field explicit rather than silently dropping it.
 func FormatScoreProvenance(info *ScoreInfo) string {
 	value := func(s string) string {
 		if s == "" {
-			return "н/д"
+			return "n/a"
 		}
-		return s
+		return NormalizeMissingLabels(s)
 	}
 	if info == nil {
-		return "raw=н/д; metric=н/д; unit=н/д; variant=н/д; identity=missing_identity; checked=н/д; source=н/д; uncertainty=н/д; sample=н/д; harness=н/д; scaffold=н/д; provider=н/д; configuration=н/д"
+		return "raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a"
 	}
 	return fmt.Sprintf("raw=%s; metric=%s; unit=%s; variant=%s; identity=%s; checked=%s; source=%s; uncertainty=%s; sample=%s; harness=%s; scaffold=%s; provider=%s; configuration=%s", strconv.FormatFloat(info.Value, 'f', -1, 64), value(info.Metric), value(info.Unit), value(info.VariantMeasured), value(info.IdentityStatus), value(info.Checked), value(info.SourceURL), value(info.Uncertainty), value(info.SampleSize), value(info.Harness), value(info.Scaffold), value(info.Provider), value(info.Configuration))
 }
@@ -314,7 +325,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			m.ScoreLabel = ov.Label
 			m.Rankable = false
 		} else {
-			m.ScoreLabel = "н/д"
+			m.ScoreLabel = "n/a"
 		}
 		if ov, has := nt.ScoreOverride(e.Slug); has {
 			m.ManualScore = &ov
@@ -363,23 +374,24 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			m.ArenaLabel = FormatArenaScore(row.Value)
 			m.ArenaRankable = identity == IdentityExact
 		} else {
-			m.ArenaLabel = "н/д"
+			m.ArenaLabel = "n/a"
 		}
 
 		switch {
 		case m.Free:
-			m.QualityPriceLabel = "н/д (цена $0)"
-		case m.Rankable && m.Score != nil:
+			m.QualityPriceLabel = "n/a (free)"
+		case m.Rankable && m.Score != nil && validScore(m.scoreValue()) && m.MixedPrice > 0:
 			m.QualityPrice = pricing.QualityPrice(m.scoreValue(), m.MixedPrice)
 			m.QualityPriceLabel = pricing.FormatQualityPrice(m.QualityPrice)
+			m.HasQualityPrice = true
 		case m.Score != nil && m.Score.IdentityStatus == IdentityVariantMismatch:
-			m.QualityPriceLabel = "н/д (variant mismatch)"
+			m.QualityPriceLabel = "n/a (variant mismatch)"
 		case m.Score != nil && m.Score.IdentityStatus == IdentityLegacyUnknown:
-			m.QualityPriceLabel = "н/д (legacy provenance)"
+			m.QualityPriceLabel = "n/a (legacy)"
 		case m.Score != nil && m.Score.IdentityStatus == IdentityMissing:
-			m.QualityPriceLabel = "н/д (missing identity)"
+			m.QualityPriceLabel = "n/a (missing identity)"
 		case m.Score != nil && m.Score.IdentityStatus == IdentityObservationOnly:
-			m.QualityPriceLabel = "н/д (observation only)"
+			m.QualityPriceLabel = "n/a (observation only)"
 		default:
 			m.QualityPriceLabel = nt.NoScoreReason(e.Slug)
 		}
@@ -474,14 +486,19 @@ func fillArenaDerived(models []Model) {
 		m := &models[i]
 		switch {
 		case m.Free:
-			m.ArenaQualityPriceLabel = "н/д (цена $0)"
-		case m.ArenaRankable && m.ArenaScore != nil:
+			m.ArenaQualityPriceLabel = "n/a (free)"
+		case m.ArenaRankable && m.ArenaScore != nil && validScore(m.ArenaNormalized) && m.MixedPrice > 0:
 			m.ArenaQualityPrice = pricing.QualityPrice(m.ArenaNormalized, m.MixedPrice)
 			m.ArenaQualityPriceLabel = pricing.FormatQualityPrice(m.ArenaQualityPrice)
+			m.HasQualityPrice = true
 		default:
 			m.ArenaQualityPriceLabel = arenaNoScoreLabel
 		}
 	}
+}
+
+func validScore(value float64) bool {
+	return value >= 0 && value <= 100
 }
 
 // ForScoreSource returns the rows projected onto one score source: the
@@ -530,7 +547,7 @@ func ForScoreSource(models []Model, source string) []Model {
 				Scaffold:           m.ArenaScore.Scaffold,
 			}
 		}
-		m.QualityPrice, m.QualityPriceLabel = m.ArenaQualityPrice, m.ArenaQualityPriceLabel
+		m.QualityPrice, m.QualityPriceLabel, m.HasQualityPrice = m.ArenaQualityPrice, m.ArenaQualityPriceLabel, m.ArenaQualityPriceLabel != "" && m.ArenaRankable && !m.Free && m.MixedPrice > 0 && validScore(m.ArenaNormalized)
 	}
 	return out
 }

@@ -282,6 +282,7 @@ func applyCanonicalQualityPrice(models []model.Model, compiled ranking.Compiled)
 		}
 		m.QualityPrice = pricing.QualityPrice(modelScoreValue(*m), m.MixedPrice)
 		m.QualityPriceLabel = pricing.FormatQualityPrice(m.QualityPrice)
+		m.HasQualityPrice = true
 	}
 	return nil
 }
@@ -433,6 +434,19 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				parsed = append(parsed, func(m model.Model) bool { return m.Free })
 			case filter == "scored":
 				parsed = append(parsed, func(m model.Model) bool { return m.Score != nil && m.Rankable })
+			case filter == "has-q/p":
+				parsed = append(parsed, func(m model.Model) bool { return m.HasQualityPrice })
+			case strings.HasPrefix(filter, "availability:"):
+				availability := strings.TrimSpace(strings.TrimPrefix(filter, "availability:"))
+				switch availability {
+				case "any":
+				case "free":
+					parsed = append(parsed, func(m model.Model) bool { return m.Free })
+				case "paid":
+					parsed = append(parsed, func(m model.Model) bool { return !m.Free })
+				default:
+					return nil, fmt.Errorf("table: invalid availability %q; allowed values: any, free, paid", availability)
+				}
 			case strings.HasPrefix(filter, "tier:"):
 				tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
 				if tier == "" {
@@ -473,7 +487,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				}
 				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
 			default:
-				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
 		}
 	}
@@ -701,7 +715,7 @@ func tableClaude(m model.Model) string {
 // from a score value, so it stays correct under either source.
 func tableClaudeForSource(m model.Model, source string) string {
 	if source == scoreSourceArena && (m.Tier == "haiku" || m.Tier == "free") {
-		return "н/д"
+		return "n/a"
 	}
 	return tableClaude(m)
 }

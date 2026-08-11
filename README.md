@@ -299,10 +299,12 @@ value heuristic; это не quality и не benchmark score. Для `source=are
 
 ### Настройка mixed utility
 
+Фильтр по умолчанию: `quality>=75,has-q/p,availability:paid`. Дополнительно поддерживаются predicates `has-q/p` и `availability:any|free|paid`.
+
 Default filter для TUI настраивается отдельно и читается при запуске и auto-refresh:
 
 ```yaml
-default_filter: quality>=75
+default_filter: quality>=75,has-q/p,availability:paid
 ```
 
 Шаги числовых полей редактора фильтра настраиваются без пересборки бинарника:
@@ -374,7 +376,7 @@ ranking:
 Для `opus` выводится `>≈ Opus 5`, для `sonnet` — `≈ Sonnet 5`; для `haiku` и `free`
 с rankable Score применяются пороги 70 и 60 относительно `Claude Haiku 4.5`, а без score используются
 fallback `≈ Haiku 4.5` для `haiku` и `<≈ Haiku 4.5` для `free`. Неизвестный tier
-отображается как `н/д`.
+отображается как `n/a`.
 `Claude` и `Task fit` всегда выводятся полными значениями и могут сделать таблицу шире даже при
 `COLUMNS=40`; в интерактивном режиме `less -S` позволяет прокручивать её горизонтально, а pipe
 или файл сохраняют полный текст. Compact fallback относится только к структурным колонкам
@@ -495,6 +497,8 @@ OPENROUTER_OUTPUT="/path/to/report.md" \
 ```bash
 openrouter init
 ```
+
+Настройки layout TUI сохраняются в `tui.layout` и `tui.top_n` (`all`, `top-paid-free`; default `top_n: 3`). В `top-paid-free` сначала выполняются фильтрация и сортировка, затем выбирается до `top_n` платных и бесплатных строк, substring search работает внутри этого результата, а глобальный `tui.limit` ограничивает объединённый список. Явные `availability:any|free|paid` и legacy-предикаты `free`/`paid` ограничивают соответствующие секции; `has-q/p` применяется к обеим секциям и исключает бесплатные строки без Q/P. Чтобы стандартный встроенный фильтр с `availability:paid` не скрывал бесплатную секцию, только этот неявный default в top mode трактуется как `availability:any`; явно заданный `default_filter` или `tui_filter` соблюдается буквально. `p` переключает availability, `v` переключает layout.
 
 Будут созданы `~/.config/openrouter/config.yaml` и `<data_dir>/cache/`, если их ещё нет.
 Шаблон конфига не содержит machine-specific абсолютных путей. Относительные

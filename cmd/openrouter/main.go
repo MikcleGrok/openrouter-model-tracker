@@ -346,6 +346,9 @@ func newRootCmd() *cobra.Command {
 			if !cmd.Flags().Changed("task-fit") && cfg.Table.TaskFit != "" {
 				tableTaskFit = cfg.Table.TaskFit
 			}
+			if !cmd.Flags().Changed("filter") {
+				tableFilters = []string{cfg.DefaultFilter}
+			}
 			if cmd.Flags().Changed("limit") && tableLimit < 0 {
 				return fmt.Errorf("table: limit must be non-negative, got %d", tableLimit)
 			}

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func (b *TUIBindings) UnmarshalYAML(value *yaml.Node) error {
 type TUIKeymap map[string]map[string]TUIBindings
 
 var defaultTUIKeymap = TUIKeymap{
-	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}},
+	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
 	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
 	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
@@ -67,7 +68,7 @@ var defaultTUIKeymap = TUIKeymap{
 }
 
 var tuiKeymapActions = map[string]map[string]bool{
-	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
+	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true, "switch_source": true, "cycle_availability": true, "toggle_layout": true},
 	"settings": {"close": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
 	"detail":   {"close": true, "navigate_up": true, "navigate_down": true},
 	"help":     {"close": true, "full_help": true, "navigate_up": true, "navigate_down": true},
@@ -133,6 +134,8 @@ type TUIConfig struct {
 	Ranking         string `yaml:"ranking"`
 	ScoreSource     string `yaml:"score_source"`
 	Limit           int    `yaml:"limit"`
+	Layout          string `yaml:"layout"`
+	TopN            int    `yaml:"top_n"`
 }
 
 // TUISteps contains unit-specific steps used by the structured TUI filter editor.
@@ -155,7 +158,9 @@ type RankingConfig struct {
 }
 
 const DefaultMixedUtilityPriceWeight = ranking.DefaultPriceWeight
-const DefaultFilter = "quality>=75"
+const DefaultFilter = "quality>=75,has-q/p,availability:paid"
+const DefaultTUILayout = "all"
+const DefaultTUITopN = 3
 const DefaultCacheDir = "cache"
 const DefaultCacheTTL = 12 * time.Hour
 const DefaultRequestTimeout = 30 * time.Second
@@ -238,10 +243,10 @@ func configuredDuration(value string, fallback time.Duration, name string, set b
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
-	"default_filter: quality>=75\n" +
+	"default_filter: quality>=75,has-q/p,availability:paid\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
-	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space]}\n" +
+	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space], cycle_availability: [p], toggle_layout: [v]}\n" +
 	"  settings: {close: [esc, o], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space, enter]}\n" +
 	"  detail: {close: [esc, left, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
 	"  help: {close: [esc, '?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
@@ -263,6 +268,8 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  ranking: mixed\n" +
 	"  score_source: swebench\n" +
 	"  limit: 0\n" +
+	"  layout: all\n" +
+	"  top_n: 3\n" +
 	"\n" +
 	"ranking:\n" +
 	"  mixed_utility:\n" +
@@ -446,6 +453,18 @@ func Load(path string) (Config, error) {
 	if c.Table.Limit < 0 || c.TUI.Limit < 0 {
 		return Config{}, fmt.Errorf("config: table.limit and tui.limit must be non-negative")
 	}
+	if c.TUI.Layout == "" {
+		c.TUI.Layout = DefaultTUILayout
+	}
+	if c.TUI.TopN == 0 {
+		c.TUI.TopN = DefaultTUITopN
+	}
+	if c.TUI.Layout != "" && c.TUI.Layout != "all" && c.TUI.Layout != "top-paid-free" {
+		return Config{}, fmt.Errorf("config: %s: tui.layout must be all or top-paid-free", path)
+	}
+	if c.TUI.TopN < 0 {
+		return Config{}, fmt.Errorf("config: %s: tui.top_n must be non-negative", path)
+	}
 	if _, err := c.Cache.EffectiveTTL(); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -457,6 +476,9 @@ func Load(path string) (Config, error) {
 	}
 	for name, value := range map[string]string{"default_filter": c.DefaultFilter, "tui_filter": c.TUIFilter} {
 		if err := filter.ValidateTiers(value); err != nil {
+			return Config{}, fmt.Errorf("config: %s: invalid %s: %w", path, name, err)
+		}
+		if err := filter.ValidateAvailability(value); err != nil {
 			return Config{}, fmt.Errorf("config: %s: invalid %s: %w", path, name, err)
 		}
 	}
@@ -593,6 +615,60 @@ func SaveTUIFilter(path, filter string) error {
 		}
 	}
 	root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui_filter"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: filter})
+	return writeYAML(path, &document)
+}
+
+// SaveTUILayout persists the interactive layout settings without rewriting
+// unrelated user configuration.
+func SaveTUILayout(path, layout string, topN int) error {
+	body, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		body = []byte("{}\n")
+	} else if err != nil {
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if len(document.Content) == 0 {
+		document.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("config: %s: root must be a mapping", path)
+	}
+	var tui *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "tui" {
+			tui = root.Content[i+1]
+			break
+		}
+	}
+	if tui == nil {
+		tui = &yaml.Node{Kind: yaml.MappingNode}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui"}, tui)
+	}
+	for key, value := range map[string]string{"layout": layout, "top_n": strconv.Itoa(topN)} {
+		found := false
+		for i := 0; i+1 < len(tui.Content); i += 2 {
+			if tui.Content[i].Value == key {
+				tui.Content[i+1].Kind, tui.Content[i+1].Tag, tui.Content[i+1].Value = yaml.ScalarNode, "!!str", value
+				if key == "top_n" {
+					tui.Content[i+1].Tag = "!!int"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			valueNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+			if key == "top_n" {
+				valueNode.Tag = "!!int"
+			}
+			tui.Content = append(tui.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, valueNode)
+		}
+	}
 	return writeYAML(path, &document)
 }
 

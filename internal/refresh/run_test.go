@@ -123,7 +123,7 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	for _, want := range []string{
 		"Обновлено: 2026-08-04 (автоматический прогон)",
 		"| GPT-5.6 Luna | openai/gpt-5.6-luna | $0.50 | $3.00 | 1M | 93.0% | 82.7 |",
-		"| MiniMax M3 | minimax/minimax-m3 | $0.30 | $1.20 | 1M | 80.5% (только вендор) | н/д (observation only) |",
+		"| MiniMax M3 | minimax/minimax-m3 | $0.30 | $1.20 | 1M | 80.5% (только вендор) | n/a (observation only) |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("output does not contain %q\n---\n%s", want, doc)
@@ -791,7 +791,7 @@ func TestArenaRowsNeverFillTheSWEBenchColumn(t *testing.T) {
 	if len(models) != 1 {
 		t.Fatalf("got %d models, want 1", len(models))
 	}
-	if models[0].Score != nil || models[0].ScoreLabel != "н/д" {
+	if models[0].Score != nil || models[0].ScoreLabel != "n/a" {
 		t.Errorf("SWE-bench cell = %+v / %q, want it empty: an Elo is not a SWE-bench percentage", models[0].Score, models[0].ScoreLabel)
 	}
 }
