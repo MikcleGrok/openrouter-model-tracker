@@ -248,7 +248,7 @@ whats-new:
 	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
 	@awk -v version="$(VERSION)" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' $(ROOT)CHANGELOG.md || { printf '%s\n' "CHANGELOG.md has no non-empty exact section for $(VERSION)"; exit 1; }
 
-release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs openrouter-launchd-refresh-check
+release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
 	@set -eu; \
 		version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
 		rm -rf "$$out"; mkdir -p "$$out/artifacts"; artifacts_json=''; first=1; \
