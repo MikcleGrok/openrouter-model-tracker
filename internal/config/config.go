@@ -211,7 +211,7 @@ const (
 // IconGaps overrides the icon-to-manufacturer gap for matching manufacturers.
 type IconGaps map[string]IconGap
 
-var defaultIconGaps = map[string]IconGap{"meta": 2, "mistral": 2}
+var defaultIconGaps = map[string]IconGap{}
 
 func DefaultIconGaps() IconGaps {
 	result := make(IconGaps, len(defaultIconGaps))
@@ -457,7 +457,6 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  task_fit: short\n" +
 	"  name_width: 40\n" +
 	"  icon_gap: 1\n" +
-	"  icon_gaps: {meta: 2, mistral: 2}\n" +
 	"tui:\n" +
 	"  refresh_interval: 5m\n" +
 	"  sort: q/p\n" +

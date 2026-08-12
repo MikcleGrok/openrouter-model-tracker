@@ -201,6 +201,44 @@ func NormalizeMissingLabels(value string) string {
 	return value
 }
 
+// ProviderLabel keeps provider identity useful when catalogue metadata is
+// missing or an old snapshot predates the provider field. OpenRouter slugs use
+// a provider namespace, but several namespaces are not the display label.
+func ProviderLabel(slug, provider string) string {
+	if provider = strings.TrimSpace(provider); provider != "" && !IsPlaceholder(provider) {
+		return provider
+	}
+	namespace, _, ok := strings.Cut(strings.TrimSpace(slug), "/")
+	if !ok || namespace == "" {
+		return ""
+	}
+	if label, ok := map[string]string{
+		"anthropic": "Anthropic", "cohere": "Cohere", "deepseek": "DeepSeek", "google": "Google",
+		"inclusionai": "InclusionAI", "meta": "Meta", "meta-llama": "Meta", "mistral": "Mistral",
+		"mistralai": "Mistral AI", "moonshotai": "Moonshot AI", "nvidia": "NVIDIA", "openai": "OpenAI",
+		"poolside": "Poolside", "qwen": "Qwen", "tencent": "Tencent", "xiaomi": "Xiaomi",
+		"x-ai": "xAI", "z-ai": "Z.ai",
+	}[strings.ToLower(namespace)]; ok {
+		return label
+	}
+	return namespace
+}
+
+// IsPlaceholder reports whether a value is a standalone missing-data marker,
+// including the prose forms used in persisted notes and source snapshots.
+func IsPlaceholder(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if strings.HasPrefix(normalized, "(") && strings.HasSuffix(normalized, ")") {
+		normalized = strings.TrimSpace(normalized[1 : len(normalized)-1])
+	}
+	switch normalized {
+	case "n/a", "n/d", "н/д", notes.NeedsReview:
+		return true
+	default:
+		return strings.HasPrefix(normalized, "n/a ") || strings.HasPrefix(normalized, "n/a(") || strings.HasPrefix(normalized, "n/d ") || strings.HasPrefix(normalized, "n/d(") || strings.HasPrefix(normalized, "н/д ") || strings.HasPrefix(normalized, "н/д(") || strings.HasPrefix(normalized, strings.ToLower(notes.NeedsReview)+" ") || strings.HasPrefix(normalized, strings.ToLower(notes.NeedsReview)+"(")
+	}
+}
+
 // FormatScoreProvenance keeps the overview compact while making every missing
 // provenance field explicit rather than silently dropping it.
 func FormatScoreProvenance(info *ScoreInfo) string {
@@ -263,7 +301,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			CatalogName:   price.Name,
 			CanonicalSlug: price.CanonicalSlug,
 			HuggingFaceID: price.HuggingFaceID,
-			Provider:      price.Provider,
+			Provider:      ProviderLabel(e.Slug, price.Provider),
 			Note:          nt.ModelNote(e.Slug),
 			TaskFit:       nt.TaskFit(e.Slug),
 			Owner:         nt.Owner(e.Slug),
@@ -336,8 +374,8 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		// put a percentage on an Elo scale.
 		if row, has := firstArena[e.Slug]; has {
 			identity := identityForRow(row, e.Slug, price)
-			if row.Provider != "" {
-				m.Provider = row.Provider
+			if IsPlaceholder(m.Provider) && strings.TrimSpace(row.Provider) != "" {
+				m.Provider = ProviderLabel(e.Slug, row.Provider)
 			}
 			if row.License != "" {
 				m.License = row.License

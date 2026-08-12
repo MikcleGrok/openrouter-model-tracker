@@ -87,9 +87,6 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
 			gap := 1
-			if test.name == "Meta" {
-				gap = 2
-			}
 			wantManufacturer := test.icon + strings.Repeat(" ", gap) + test.name
 			wantIdentity := wantManufacturer + " " + row.DisplayName
 			if got := manufacturerDisplayWithIcons(row, icons); got != wantManufacturer {
@@ -129,9 +126,6 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
 			gap := 1
-			if test.name == "Meta" {
-				gap = 2
-			}
 			want := test.icon + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
 			got := modelIdentityWithIcons(row, icons)
 			t.Logf("rendered identity: %q bytes=% x width=%d", got, []byte(got), tableDisplayWidth(got))
@@ -202,7 +196,7 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 	}
 	for _, rowData := range rows {
 		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
-		gap := config.DefaultIconGaps().EffectiveGap(rowData.name, int(config.DefaultIconGap))
+		gap := config.TableConfig{IconGap: config.DefaultIconGap}.EffectiveIconGapFor(rowData.name)
 		want := rowData.icon + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
 		if got := modelIdentityWithIcons(row, icons); got != want {
 			t.Errorf("%s bytes = % x, want % x", rowData.name, []byte(got), []byte(want))
@@ -228,20 +222,20 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
 	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
-	want := "Ⓜ️  Meta Meta Muse Spark 1.1"
+	want := "Ⓜ️ Meta Meta Muse Spark 1.1"
 	if got := modelIdentityWithIcons(row, icons); got != want {
 		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
 	}
-	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️  Meta" {
-		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️  Meta")
+	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️ Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️ Meta")
 	}
-	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 2); got != "Ⓜ️  Meta" {
-		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️  Meta")
+	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 1); got != "Ⓜ️ Meta" {
+		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️ Meta")
 	}
 }
 
 func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
-	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	row := model.Model{DisplayName: "Demo", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
 	if got := manufacturerDisplay(row); got != "🌀 OpenAI" {
 		t.Fatalf("manufacturerDisplay = %q, want Arena organization with badge", got)
 	}
@@ -252,14 +246,72 @@ func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testi
 	}
 }
 
+func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *testing.T) {
+	for _, test := range []struct{ slug, want string }{
+		{"qwen/qwen3.7-flash", "🌸 Qwen"},
+		{"nvidia/nemotron-3-nano-30b-a3b", "❔ NVIDIA"},
+		{"poolside/laguna-xs-2.1", "❔ Poolside"},
+		{"google/gemma-4-31b-it", "🌐 Google"},
+		{"openai/gpt-5-mini", "🌀 OpenAI"},
+	} {
+		t.Run(test.slug, func(t *testing.T) {
+			row := model.Model{Slug: test.slug, DisplayName: "Model", Owner: notes.NeedsReview}
+			if got := manufacturerDisplay(row); got != test.want {
+				t.Fatalf("manufacturerDisplay = %q, want %q", got, test.want)
+			}
+			identity := modelIdentityWithIcons(row, config.DefaultIconConfig())
+			if strings.Contains(identity, notes.NeedsReview) || !strings.Contains(identity, test.want) {
+				t.Fatalf("model identity = %q, want provider and no placeholder", identity)
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != identity {
+				t.Fatalf("TUI identity = %q, want CLI identity %q", got, identity)
+			}
+		})
+	}
+}
+
+func TestManufacturerDisplayPrefersCatalogProviderAndFiltersPlaceholders(t *testing.T) {
+	row := model.Model{Slug: "catalog/model", DisplayName: "Model", Provider: "Catalog Provider", Owner: notes.NeedsReview, ArenaScore: &model.ScoreInfo{Provider: "Conflicting Arena Provider", IdentityStatus: model.IdentityExact}}
+	want := "❔ Catalog Provider"
+	if got := manufacturerDisplay(row); got != want {
+		t.Fatalf("manufacturerDisplay = %q, want catalog provider before Arena", got)
+	}
+	if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != want+" Model" {
+		t.Fatalf("TUI identity = %q, want CLI identity %q", got, want+" Model")
+	}
+
+	for _, placeholder := range []string{
+		"_нужен обзор_", "_нужен обзор_ (нет данных)", "_нужен обзор_(нет данных)",
+		"n/a", "n/a (нет данных)", "n/a(нет данных)", "n/d", "n/d (нет данных)",
+		"н/д", "н/д (нет данных)", "н/д(нет данных)", "(n/a)", "(н/д (нет данных))",
+	} {
+		t.Run(placeholder, func(t *testing.T) {
+			row := model.Model{Slug: "openai/model", DisplayName: "Model", Provider: placeholder, Owner: placeholder, ArenaScore: &model.ScoreInfo{Provider: placeholder, IdentityStatus: model.IdentityExact}}
+			want := "🌀 OpenAI Model"
+			if got := manufacturerDisplay(row); got != "🌀 OpenAI" {
+				t.Fatalf("manufacturerDisplay = %q, want namespace fallback %q", got, want)
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != want {
+				t.Fatalf("TUI identity = %q, want CLI identity %q", got, want)
+			}
+		})
+	}
+
+	row = model.Model{Slug: "openai/model", DisplayName: "Model", Owner: "n/a", ArenaScore: &model.ScoreInfo{Provider: "Arena Provider", IdentityStatus: model.IdentityExact}}
+	if got := manufacturerDisplay(row); got != "❔ Arena Provider" {
+		t.Fatalf("manufacturerDisplay = %q, want valid Arena fallback", got)
+	}
+}
+
 func TestManufacturerDisplayRejectsUnverifiedArenaOrganization(t *testing.T) {
 	for _, status := range []string{model.IdentityVariantMismatch, model.IdentityMissing, model.IdentityLegacyUnknown, model.IdentityObservationOnly, ""} {
 		t.Run(status, func(t *testing.T) {
-			row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: "Wrong Arena Organization", IdentityStatus: status}}
+			row := model.Model{DisplayName: "Demo", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: "Wrong Arena Organization", IdentityStatus: status}}
 			if got := manufacturerDisplay(row); got != "❔ Owner" {
 				t.Fatalf("manufacturerDisplay with Arena status %q = %q, want Owner fallback", status, got)
 			}
 			row.Owner = ""
+			row.Provider = "Provider"
 			if got := manufacturerDisplay(row); got != "❔ Provider" {
 				t.Fatalf("manufacturerDisplay with Arena status %q and empty Owner = %q, want catalogue Provider fallback", status, got)
 			}
@@ -299,7 +351,7 @@ func TestRenderTableConfiguredNameWidthIsBoundedByViewport(t *testing.T) {
 
 func TestConfiguredIconsPreserveRenderingWidthAndArenaFallback(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"openai": "🧩"}, Unknown: "❔"}
-	row := model.Model{DisplayName: "GPT", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	row := model.Model{DisplayName: "GPT", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
 	if got := manufacturerDisplayWithIcons(row, icons); got != "🧩 OpenAI" {
 		t.Fatalf("Arena manufacturer display = %q", got)
 	}

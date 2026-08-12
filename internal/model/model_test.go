@@ -139,6 +139,64 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestProviderLabelUsesCatalogueValueOrNamespaceAlias(t *testing.T) {
+	tests := []struct {
+		slug, provider, want string
+	}{
+		{"qwen/qwen3.7-flash", "", "Qwen"},
+		{"nvidia/nemotron-3-nano-30b-a3b", "", "NVIDIA"},
+		{"poolside/laguna-xs-2.1", "", "Poolside"},
+		{"google/gemma-4-31b-it", "", "Google"},
+		{"openai/gpt-5-mini", "", "OpenAI"},
+		{"openai/gpt-5-mini", "n/a", "OpenAI"},
+		{"openai/gpt-5-mini", "n/a (catalog missing)", "OpenAI"},
+		{"openai/gpt-5-mini", "н/д (каталог)", "OpenAI"},
+		{"openai/gpt-5-mini", "_нужен обзор_ (каталог)", "OpenAI"},
+		{"openai/gpt-5-mini", "n/a(каталог)", "OpenAI"},
+		{"openai/gpt-5-mini", "n/d(каталог)", "OpenAI"},
+		{"x-ai/grok-4.5", "xAI", "xAI"},
+		{"mistralai/codestral", "", "Mistral AI"},
+		{"demo/model", "Demo Vendor", "Demo Vendor"},
+	}
+	for _, test := range tests {
+		if got := ProviderLabel(test.slug, test.provider); got != test.want {
+			t.Errorf("ProviderLabel(%q, %q) = %q, want %q", test.slug, test.provider, got, test.want)
+		}
+	}
+}
+
+func TestIsPlaceholderRecognizesSupportedForms(t *testing.T) {
+	for _, value := range []string{
+		"_нужен обзор_", " _НУЖЕН ОБЗОР_ ", "_нужен обзор_ (нет данных)", "_нужен обзор_(нет данных)",
+		"n/a", "N/A (catalog missing)", "n/a(catalog missing)", "n/d", "N/D (нет данных)",
+		"н/д", "н/д (нет оценки)", "н/д(нет оценки)", "(n/a)", "(н/д (нет оценки))",
+	} {
+		if !IsPlaceholder(value) {
+			t.Errorf("IsPlaceholder(%q) = false, want true", value)
+		}
+	}
+	for _, value := range []string{"OpenAI", "OpenAI (n/a)", "Catalog Provider"} {
+		if IsPlaceholder(value) {
+			t.Errorf("IsPlaceholder(%q) = true, want false", value)
+		}
+	}
+}
+
+func TestMergeWithArenaKeepsValidCatalogProvider(t *testing.T) {
+	const slug = "catalog/model"
+	entries := []modelmap.Entry{{Slug: slug, Tier: "sonnet"}}
+	prices := map[string]sources.PriceInfo{slug: {Slug: slug, Provider: "Catalog Provider", Found: true}}
+	arena := []sources.ScoreRow{{Slug: slug, Metric: sources.MetricArenaElo, Value: 1453, ConfiguredIdentity: slug, CanonicalID: slug, Provider: "Conflicting Arena Provider"}}
+
+	models := MergeWithArena(entries, prices, nil, arena, testNotes(t))
+	if len(models) != 1 {
+		t.Fatalf("merged models = %d, want 1", len(models))
+	}
+	if models[0].Provider != "Catalog Provider" {
+		t.Fatalf("provider = %q, want valid catalog provider", models[0].Provider)
+	}
+}
+
 func TestBenchmarkIdentityGate(t *testing.T) {
 	entries := []modelmap.Entry{
 		{Slug: "deepseek/deepseek-v4-flash", Tier: "haiku"},

@@ -208,6 +208,14 @@ func orNeedsReview(s string) string {
 	return s
 }
 
+func isDisplayPlaceholder(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == strings.ToLower(NeedsReview) || normalized == "n/a" || normalized == "n/d" || normalized == "н/д" {
+		return true
+	}
+	return strings.HasPrefix(normalized, "n/a (") || strings.HasPrefix(normalized, "n/d (") || strings.HasPrefix(normalized, "н/д (") || strings.HasPrefix(normalized, strings.ToLower(NeedsReview)+" ") || strings.HasPrefix(normalized, strings.ToLower(NeedsReview)+"(")
+}
+
 // ModelNote returns the per-model commentary shown in the Примечание column.
 func (n *Notes) ModelNote(slug string) string { return orNeedsReview(n.model(slug).Note) }
 
@@ -223,7 +231,7 @@ func (n *Notes) TaskFit(slug string) []string {
 // DisplayName returns the human-facing model name, falling back to the slug so
 // a brand-new row still renders.
 func (n *Notes) DisplayName(slug string) string {
-	if d := n.model(slug).Display; d != "" {
+	if d := n.model(slug).Display; d != "" && !isDisplayPlaceholder(d) {
 		return d
 	}
 	return slug

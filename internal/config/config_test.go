@@ -52,8 +52,8 @@ func TestLoad(t *testing.T) {
 	if got.Table.EffectiveNameWidth() != DefaultNameWidth {
 		t.Fatalf("default name width = %d, want %d", got.Table.EffectiveNameWidth(), DefaultNameWidth)
 	}
-	if got.Table.EffectiveIconGap() != 1 || got.Table.EffectiveIconGapFor("Meta AI") != 2 || got.Table.EffectiveIconGapFor("Mistral AI") != 2 || got.Table.EffectiveIconGapFor("OpenAI") != 1 {
-		t.Fatalf("default icon gap = %d, want 1", got.Table.EffectiveIconGap())
+	if got.Table.EffectiveIconGap() != 1 || got.Table.EffectiveIconGapFor("Meta AI") != 1 || got.Table.EffectiveIconGapFor("Mistral AI") != 1 || got.Table.EffectiveIconGapFor("OpenAI") != 1 {
+		t.Fatalf("default icon gaps = meta %d, mistral %d, openai %d, want 1", got.Table.EffectiveIconGapFor("Meta AI"), got.Table.EffectiveIconGapFor("Mistral AI"), got.Table.EffectiveIconGapFor("OpenAI"))
 	}
 	ttl, _ := got.Cache.EffectiveTTL()
 	timeout, _ := got.Cache.EffectiveRequestTimeout()
@@ -230,7 +230,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || !strings.Contains(string(body), "icon_gaps: {meta: 2, mistral: 2}") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || strings.Contains(string(body), "icon_gaps:") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }

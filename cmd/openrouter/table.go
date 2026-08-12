@@ -752,13 +752,18 @@ func tableNote(m model.Model) string {
 }
 
 func manufacturerName(m model.Model) string {
+	if provider := strings.TrimSpace(m.Provider); provider != "" && !model.IsPlaceholder(provider) {
+		return provider
+	}
 	if m.ArenaScore != nil && m.ArenaScore.IdentityStatus == model.IdentityExact && strings.TrimSpace(m.ArenaScore.Provider) != "" {
-		return strings.TrimSpace(m.ArenaScore.Provider)
+		if provider := strings.TrimSpace(m.ArenaScore.Provider); !model.IsPlaceholder(provider) {
+			return provider
+		}
 	}
-	if strings.TrimSpace(m.Owner) != "" {
-		return strings.TrimSpace(m.Owner)
+	if owner := strings.TrimSpace(m.Owner); owner != "" && !model.IsPlaceholder(owner) {
+		return owner
 	}
-	return strings.TrimSpace(m.Provider)
+	return model.ProviderLabel(m.Slug, m.Provider)
 }
 
 func manufacturerBadge(name string) string {

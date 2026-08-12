@@ -125,6 +125,26 @@ func TestMissingKeysFallBackToNeedsReview(t *testing.T) {
 	}
 }
 
+func TestDisplayNameDoesNotExposePlaceholders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	for _, display := range []string{
+		"_нужен обзор_", " _НУЖЕН ОБЗОР_ ", "_нужен обзор_ (нет данных)",
+		"n/a", "N/A", "n/d", "N/D", "н/д", "н/д (нет оценки)", "n/a (no score)",
+	} {
+		body := "models:\n  demo/model:\n    display: " + display + "\n"
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		n, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := n.DisplayName("demo/model"); got != "demo/model" {
+			t.Errorf("DisplayName(%q) = %q, want slug fallback", display, got)
+		}
+	}
+}
+
 func TestLoadNormalizesLegacyMissingLabels(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.yaml")
 	body := "models:\n  demo/model:\n    owner: Demo (н/д)\n    no_score_reason: \"н/д (нет оценки по SWE-bench Verified)\"\n    score:\n      label: \"н/д\"\n"
