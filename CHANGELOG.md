@@ -4,6 +4,12 @@
 
 - No unreleased changes.
 
+## [1.13.40]
+
+- Add individual ASCII manufacturer icons for clearer provider identity.
+- Verify the Arena identity fallback when manufacturer metadata is incomplete.
+- Display manufacturer icons safely in the CLI, TUI, and model detail views.
+
 ## [1.13.39]
 
 - Correct the Arena manufacturer/provider fallback so provider identity remains accurate when manufacturer metadata is incomplete.
