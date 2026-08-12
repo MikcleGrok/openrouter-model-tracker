@@ -830,7 +830,11 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 	if columnMode == "notes" {
 		columnHeader = "Note"
 	}
-	headers := []string{identityHeader, "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", columnHeader}
+	scoreHeader := "SWE %"
+	if scoreSource == scoreSourceArena {
+		scoreHeader = "Arena Elo"
+	}
+	headers := []string{identityHeader, "Claude", scoreHeader, "Q/P score/$M", "Context tok", "In $/M", "Out $/M", columnHeader}
 	rows := make([][]string, 0, len(models))
 	maxClaudeWidth := 0
 	maxNoteWidth := 0
@@ -850,8 +854,8 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		maxClaudeWidth = max(maxClaudeWidth, tableDisplayWidth(values[1]))
 		maxNoteWidth = max(maxNoteWidth, tableDisplayWidth(values[7]))
 	}
-	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, 5, 8, 13, 13, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
-	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 3, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
 	// Claude keeps its full width; structural columns and the selected last column use compact fallback.
 	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
 	widths := append([]int(nil), preferred...)

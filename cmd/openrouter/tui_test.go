@@ -233,6 +233,50 @@ func TestTUIInteractiveFilterPersistsAndClears(t *testing.T) {
 	}
 }
 
+func TestTUISearchPersistsAcrossRebuildAndRefreshUntilCleared(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "alpha", DisplayName: "Alpha"}, {Slug: "beta", DisplayName: "Beta"}})
+	m.width, m.height = 120, 12
+	m.inputMode, m.input = "search", "Beta"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.search != "Beta" || len(m.visible) != 1 || m.visible[0].Slug != "beta" {
+		t.Fatalf("search state = %q, visible = %+v", m.search, m.visible)
+	}
+	if !strings.Contains(m.View(), `search:"Beta" (1 matches)`) {
+		t.Fatalf("active search context missing from view: %s", m.View())
+	}
+	m.generation = 1
+	next, _ := m.Update(tuiRefreshMsg{generation: 1, models: m.models, filter: m.filter})
+	m = next.(tuiModel)
+	if m.search != "Beta" || len(m.visible) != 1 || m.visible[0].Slug != "beta" {
+		t.Fatalf("refresh lost search state = %q, visible = %+v", m.search, m.visible)
+	}
+	m.inputMode, m.input = "search", ""
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.search != "" || len(m.visible) != 2 {
+		t.Fatalf("empty search did not clear: search=%q visible=%+v", m.search, m.visible)
+	}
+}
+
+func TestTUISearchEscapeKeepsAppliedQuery(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "beta", DisplayName: "Beta"}})
+	m.search, m.inputMode, m.input = "Beta", "search", "Other"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEscape})
+	if m.search != "Beta" || m.inputMode != "" || len(m.visible) != 1 {
+		t.Fatalf("search cancel changed applied state: search=%q mode=%q visible=%+v", m.search, m.inputMode, m.visible)
+	}
+}
+
+func TestTUIDetailPrioritizesFitPricingAndBenchmarks(t *testing.T) {
+	lines := tuiDetailLines(model.Model{DisplayName: "Model", Slug: "vendor/model", Description: "long description", TaskFit: []string{"implement"}, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, ScoreLabel: "90%"}, scoreSourceSWEBench, 100, time.Unix(0, 0))
+	joined := strings.Join(lines, "\n")
+	if strings.Index(joined, "Task fit:") > strings.Index(joined, "-- Pricing --") || strings.Index(joined, "-- Pricing --") > strings.Index(joined, "-- Benchmarks --") {
+		t.Fatalf("detail priority order is wrong:\n%s", joined)
+	}
+	if strings.Index(joined, "Описание:") < strings.Index(joined, "-- Benchmarks --") {
+		t.Fatalf("description appears before benchmarks:\n%s", joined)
+	}
+}
+
 func tuiKeyCmd(m tuiModel, key string) (tuiModel, tea.Cmd) {
 	return m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 }
@@ -1304,6 +1348,33 @@ func TestTUITopPaidFreePipelineSearchAndGlobalLimit(t *testing.T) {
 	}
 }
 
+func TestTUITopPaidFreeSearchKeepsSeparatorAcrossBothSections(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "paid-shared", DisplayName: "Shared paid", Free: false, Score: &model.ScoreInfo{Value: 90}, Rankable: true, HasQualityPrice: true},
+		{Slug: "paid-other", DisplayName: "Paid other", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true, HasQualityPrice: true},
+		{Slug: "free-shared", DisplayName: "Shared free", Free: true, Score: &model.ScoreInfo{Value: 70}, Rankable: true},
+		{Slug: "free-other", DisplayName: "Free other", Free: true, Score: &model.ScoreInfo{Value: 60}, Rankable: true},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.layout, m.topN, m.limit, m.width, m.height = "top-paid-free", 2, 3, 120, 12
+	m.inputMode, m.input = "search", "shared"
+	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := []string{m.visible[0].Slug, m.visible[1].Slug}; !reflect.DeepEqual(got, []string{"paid-shared", "free-shared"}) || m.topSeparator != 1 {
+		t.Fatalf("searched top layout = %v, separator=%d, want both sections separated at 1", got, m.topSeparator)
+	}
+	lines := strings.Split(m.View(), "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "Shared free") {
+			if i == 0 || lines[i-1] != "" {
+				t.Fatalf("missing paid/free separator before free row in view:\n%s", m.View())
+			}
+			return
+		}
+	}
+	t.Fatalf("free match missing from view:\n%s", m.View())
+}
+
 func TestTUITopPaidFreeHonorsExplicitAvailabilityAndHasQP(t *testing.T) {
 	rows := []model.Model{
 		{Slug: "paid", Free: false, HasQualityPrice: true},
@@ -1623,6 +1694,7 @@ func TestTUISelectionDoesNotReturnAfterFilteredRowDisappears(t *testing.T) {
 		t.Fatalf("selection returned to old row: selected=%q cursor=%d visible=%+v", m.selectedSlug, m.cursor, m.visible)
 	}
 	m.models = []model.Model{{Slug: "b", DisplayName: "B"}}
+	m.search = ""
 	m.rebuild()
 	if m.selectedSlug != "b" || m.visible[m.cursor].Slug != "b" {
 		t.Fatalf("selection was not rebound after refresh: selected=%q cursor=%d visible=%+v", m.selectedSlug, m.cursor, m.visible)
@@ -2438,7 +2510,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		}
 	}
 
-	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Описание:", "Task fit:", "Тир:", "Дата релиза:", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Заметка:"}
+	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Тир:", "Task fit:", "-- Pricing --", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Дата релиза:", "Описание:", "Заметка:"}
 	previous := -1
 	for _, prefix := range order {
 		index := tuiDetailIndex(t, lines, prefix)
@@ -2699,8 +2771,8 @@ func TestTUIDetailLinesShowBothModelLinks(t *testing.T) {
 	if openrouter != created+1 || hugging != created+2 {
 		t.Fatalf("link lines are at %d and %d, want them immediately after the release date at %d:\n%s", openrouter, hugging, created, joined)
 	}
-	if lines[hugging+1] != "" {
-		t.Errorf("line after the links = %q, want the blank line that separates the identity group from the context block", lines[hugging+1])
+	if lines[hugging+1] != "Описание:" {
+		t.Errorf("line after the links = %q, want the deferred description block", lines[hugging+1])
 	}
 }
 

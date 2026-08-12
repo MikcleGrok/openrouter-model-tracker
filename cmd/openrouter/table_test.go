@@ -21,10 +21,11 @@ import (
 
 func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a very long model name that should be shortened", Slug: "vendor/model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Note: "**a long note** that should also be shortened | safely"}}, 120, false)
-	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "Context") || !strings.Contains(output, "Input $/M") || !strings.Contains(output, "Output $/M") || !strings.Contains(output, "Score") || !strings.Contains(output, "Q/P") || !strings.Contains(output, "Note") {
+	if !strings.Contains(output, "Name") || strings.Contains(output, "| Slug") || !strings.Contains(output, "SWE %") || !strings.Contains(output, "In $/M") || !strings.Contains(output, "Out $/M") || !strings.Contains(output, "Note") {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
-	assertTableHeaders(t, output, []string{"Name", "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	wide := renderTable([]model.Model{{DisplayName: "model"}}, 220, false)
+	assertTableHeaders(t, wide, []string{"Name", "Claude", "SWE %", "Q/P score/$M", "Context tok", "In $/M", "Out $/M", "Note"})
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
 		t.Fatalf("table contains markup:\n%s", output)
 	}
@@ -270,7 +271,7 @@ func TestRenderTableDoesNotExpandEmptyNoteColumn(t *testing.T) {
 
 func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/a-very-long-model-slug-that-must-be-bounded"}}, 120, true)
-	assertTableHeaders(t, output, []string{"Slug", "Claude", "Score", "Q/P", "Context", "Input $/M", "Output $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Slug", "Claude", "SWE %", "Q/P score/$M", "Context tok", "In $/M", "Out $/M", "Note"})
 	if !strings.Contains(output, "vendor/a-very") || strings.Contains(output, "Display name") {
 		t.Fatalf("slug identity mode output = %s", output)
 	}
@@ -330,7 +331,7 @@ func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	if !strings.Contains(output, "| 93.0%") || !strings.Contains(output, "| 82.7") || !strings.Contains(output, "| review this") {
 		t.Fatalf("paid model cells are not separated:\n%s", output)
 	}
-	if !strings.Contains(output, "н/...") || strings.Contains(output, "н/д (цена $0)") || strings.Contains(output, "н/д (оценка") {
+	if !strings.Contains(output, "н/д (цена...") || !strings.Contains(output, "н/д (оцен...") || strings.Contains(output, "н/д (цена $0)") || strings.Contains(output, "н/д (оценка") {
 		t.Fatalf("free/no-score Q/P labels were not safely truncated:\n%s", output)
 	}
 	if strings.Contains(output, "93.0%; review this") || strings.Contains(output, "н/д;") || strings.Contains(output, notes.NeedsReview) {
@@ -338,12 +339,12 @@ func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	}
 }
 
-func TestRenderTableKeepsQualityPriceWithinFiveColumns(t *testing.T) {
+func TestRenderTableKeepsQualityPriceWithinReadableColumn(t *testing.T) {
 	models := []model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "436", Note: "status note"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "missing", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)"}}
 	for _, width := range []int{120, 40} {
 		output := renderTable(models, width, false)
-		if got := tableColumnWidths(output)[3]; got > 5 {
-			t.Errorf("Q/P column width at %d columns = %d, want <= 5:\n%s", width, got, output)
+		if got := tableColumnWidths(output)[3]; got > 12 {
+			t.Errorf("Q/P column width at %d columns = %d, want <= 12:\n%s", width, got, output)
 		}
 		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 			if !strings.HasPrefix(line, "| ") || strings.Contains(line, "| Name ") {
@@ -353,8 +354,8 @@ func TestRenderTableKeepsQualityPriceWithinFiveColumns(t *testing.T) {
 			if len(cells) < 4 {
 				t.Fatalf("malformed table row at %d columns: %q", width, line)
 			}
-			if got := tableDisplayWidth(strings.TrimSpace(cells[3])); got > 5 {
-				t.Errorf("Q/P cell width at %d columns = %d, want <= 5: %q", width, got, line)
+			if got := tableDisplayWidth(strings.TrimSpace(cells[3])); got > 12 {
+				t.Errorf("Q/P cell width at %d columns = %d, want <= 12: %q", width, got, line)
 			}
 		}
 	}

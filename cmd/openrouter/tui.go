@@ -367,6 +367,13 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 			paid = searchTUIModels(paid, m.search)
 			free = searchTUIModels(free, m.search)
 		}
+		if m.limit > 0 {
+			if len(paid) >= m.limit {
+				paid, free = paid[:m.limit], nil
+			} else {
+				free = free[:min(len(free), m.limit-len(paid))]
+			}
+		}
 		filtered = append(paid, free...)
 		if len(paid) > 0 && len(free) > 0 {
 			separator = len(paid)
@@ -376,7 +383,9 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 			filtered = searchTUIModels(filtered, m.search)
 		}
 	}
-	filtered = limitTableModels(filtered, m.limit)
+	if m.layout != "top-paid-free" {
+		filtered = limitTableModels(filtered, m.limit)
+	}
 	if separator >= len(filtered) {
 		separator = -1
 	}
@@ -714,7 +723,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.lastNote = !m.lastNote
 		m.toggleLastColumn()
 	case "/":
-		m.inputMode, m.input = "search", ""
+		m.inputMode, m.input = "search", m.search
 	case "f":
 		m.openFilterEditor()
 	case "p":
@@ -794,9 +803,13 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		candidate := m.input
 		inputMode := m.inputMode
 		if m.inputMode == "search" {
-			m.inputMode, m.search = "", candidate
+			m.inputMode, m.search = "", strings.TrimSpace(candidate)
 			m.rebuild()
-			m.search = ""
+			if m.search == "" {
+				m.status = "search: none (cleared)"
+			} else {
+				m.status = fmt.Sprintf("search: %q (%d matches)", m.search, len(m.visible))
+			}
 			return m, nil
 		}
 		m.inputMode = ""
@@ -1445,7 +1458,11 @@ func (m tuiModel) View() string {
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
 	title := truncateTable("OpenRouter models", m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, len(m.visible), m.updatedAt)), m.width)
+	searchContext := "none"
+	if m.search != "" {
+		searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
+	}
+	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -1464,6 +1481,9 @@ func (m tuiModel) View() string {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
 	hints := "↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p"
+	if m.search != "" {
+		hints += " · / search · Enter empty search to clear"
+	}
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
 	if m.inputMode == "" {
@@ -1604,7 +1624,7 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	widths := tuiCellWidths(columns, available)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
-		value := string(col)
+		value := tuiColumnLabel(col, m.scoreSource)
 		if values != nil {
 			if i < len(values) {
 				value = values[i]
@@ -1659,6 +1679,36 @@ func tuiNumericColumn(column tuiColumn) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func tuiColumnLabel(column tuiColumn, scoreSource string) string {
+	switch column {
+	case colName:
+		return "Name"
+	case colSlug:
+		return "Slug"
+	case colClaude:
+		return "Claude"
+	case colStatus:
+		if scoreSource == scoreSourceArena {
+			return "Arena Elo"
+		}
+		return "SWE %"
+	case colQuality:
+		return "Q/P score/$M"
+	case colContext:
+		return "Context tok"
+	case colInput:
+		return "In $/M"
+	case colOutput:
+		return "Out $/M"
+	case colTask:
+		return "Task fit"
+	case colNote:
+		return "Note"
+	default:
+		return string(column)
 	}
 }
 
@@ -2607,37 +2657,14 @@ func tuiDetailLinesWithHistoryAndIcons(m model.Model, scoreSource string, width 
 		"Производитель: " + tuiDetailValue(manufacturerDisplayWithIcons(m, icons)),
 		"Провайдер: " + tuiDetailValue(m.Provider),
 		"Лицензия: " + tuiDetailLicense(m),
-	}
-	lines = append(lines, "Описание:")
-	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
-	lines = append(lines, "", "Task fit: "+tuiDetailTaskFit(m))
-	lines = append(lines,
-		"",
-		"Тир: "+tuiDetailValue(m.Tier),
-		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
-		"Дата релиза: "+tuiDetailReleaseDate(m.Created, now),
-		"Страница OpenRouter: "+tuiDetailOpenRouterURL(m),
-	)
-	if m.MetadataSourceURL != "" {
-		lines = append(lines, "Источник метаданных: "+tuiDetailValue(m.MetadataSourceURL))
-	}
-	// The HuggingFace line is the screen's one deliberate exception to
-	// "always print the label, н/д when the value is empty". That rule
-	// exists to tell "no data" apart from "field forgotten", which is worth
-	// a line when the absence is a data defect. Here it is a fact about the
-	// model — a proprietary model has no repository, there is nothing to
-	// fix — the fact is already stated one block down by Открытые веса, and
-	// it is the majority case: hugging_face_id is set on roughly 40% of
-	// catalogue entries, so the line would be permanently empty on three
-	// screens out of five, at the very top of the screen where vertical
-	// space is scarcest.
-	if strings.TrimSpace(m.HuggingFaceID) != "" {
-		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURL(tuiHuggingFaceModelURL, m.HuggingFaceID))
+		"Тир: " + tuiDetailValue(m.Tier),
+		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
+		"Task fit: " + tuiDetailTaskFit(m),
 	}
 	lines = append(lines,
 		"",
 		"-- Pricing --",
-		"Контекст: "+context,
+		"Контекст: "+context+" токенов",
 		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
 		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
 	)
@@ -2661,6 +2688,15 @@ func tuiDetailLinesWithHistoryAndIcons(m model.Model, scoreSource string, width 
 	lines = append(lines, tuiDetailSWEBenchBlock(m, scoreSource)...)
 	lines = append(lines, "")
 	lines = append(lines, tuiDetailArenaBlock(m)...)
+	lines = append(lines, "", "-- Provenance and metadata --", "Дата релиза: "+tuiDetailReleaseDate(m.Created, now), "Страница OpenRouter: "+tuiDetailOpenRouterURL(m))
+	if m.MetadataSourceURL != "" {
+		lines = append(lines, "Источник метаданных: "+tuiDetailValue(m.MetadataSourceURL))
+	}
+	if strings.TrimSpace(m.HuggingFaceID) != "" {
+		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURL(tuiHuggingFaceModelURL, m.HuggingFaceID))
+	}
+	lines = append(lines, "Описание:")
+	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
 	lines = append(lines, "", "-- Fit and notes --", "Заметка:")
 	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
 	return tuiDetailAlignRows(lines, width)
