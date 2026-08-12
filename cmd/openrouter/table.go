@@ -778,11 +778,15 @@ func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string
 	if name == "" {
 		return manufacturerBadgeWithIcons("", icons)
 	}
-	return manufacturerBadgeWithIcons(name, icons) + " " + name
+	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, 2)
 }
 
 func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {
-	return manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
+	return joinTerminalWords(manufacturerDisplayWithIcons(m, icons), m.DisplayName, 1)
+}
+
+func joinTerminalWords(left, right string, gap int) string {
+	return strings.TrimRightFunc(left, unicode.IsSpace) + strings.Repeat(" ", max(1, gap)) + strings.TrimLeftFunc(right, unicode.IsSpace)
 }
 
 func plainTableText(value string) string {
