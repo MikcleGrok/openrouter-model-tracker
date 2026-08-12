@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.14]
+
+- Make `x` exit the main TUI and close child or modal windows.
+- Add regression coverage for `x` handling, including the Cyrillic `ч` key.
+
 ## [Unreleased]
 
 - Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
