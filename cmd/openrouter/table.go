@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/pflag"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
@@ -612,13 +613,13 @@ func tableDisplayWidth(value string) int {
 func tableCluster(value string, start int) (int, int) {
 	index := start
 	r, size := utf8.DecodeRuneInString(value[index:])
+	base := r
 	clusterWidth := tableRuneWidth(r)
 	index += size
 	if tableIsRegionalIndicator(r) && index < len(value) {
 		next, nextSize := utf8.DecodeRuneInString(value[index:])
 		if tableIsRegionalIndicator(next) {
 			index += nextSize
-			clusterWidth = 2
 		}
 	}
 	for index < len(value) {
@@ -644,7 +645,18 @@ func tableCluster(value string, start int) (int, int) {
 			index += size
 		}
 	}
-	return index, clusterWidth
+	cluster := value[start:index]
+	width := runewidth.StringWidth(cluster)
+	if strings.ContainsRune(cluster, '\ufe0f') && !tableIsEmojiCapableBase(base) {
+		width = runewidth.StringWidth(strings.ReplaceAll(cluster, "\ufe0f", ""))
+	}
+	if clusterWidth > width {
+		width = clusterWidth
+	}
+	if tableIsEmojiCapableBase(base) && strings.ContainsRune(cluster, '\ufe0f') && width < 2 {
+		width = 2
+	}
+	return index, width
 }
 
 func tableIsRegionalIndicator(r rune) bool {
@@ -653,6 +665,10 @@ func tableIsRegionalIndicator(r rune) bool {
 
 func tableIsClusterContinuation(r rune) bool {
 	return r == '\ufe0e' || r == '\ufe0f' || (r >= 0x1f3fb && r <= 0x1f3ff) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
+}
+
+func tableIsEmojiCapableBase(r rune) bool {
+	return r == 0x00a9 || r == 0x00ae || r == 0x203c || r == 0x2049 || r == 0x2122 || r == 0x2139 || (r >= 0x2194 && r <= 0x21ff) || (r >= 0x2300 && r <= 0x23ff) || (r >= 0x2600 && r <= 0x27bf) || (r >= 0x2b00 && r <= 0x2bff) || (r >= 0x1f000 && r <= 0x1faff)
 }
 
 func tableRuneWidth(r rune) int {
@@ -743,14 +759,14 @@ func manufacturerName(m model.Model) string {
 func manufacturerBadge(name string) string {
 	normalized := strings.ToLower(strings.Join(strings.Fields(name), " "))
 	for _, entry := range []struct{ match, badge string }{
-		{"openai", "O"}, {"anthropic", "A"}, {"google", "G"}, {"meta", "M"},
-		{"deepseek", "D"}, {"qwen", "Q"}, {"mistral", "S"}, {"xai", "X"},
+		{"openai", "🧠"}, {"anthropic", "🔶"}, {"google", "🌐"}, {"meta", "♾️"},
+		{"deepseek", "🐋"}, {"qwen", "🌸"}, {"mistral", "🌪️"}, {"xai", "🚀"},
 	} {
 		if strings.Contains(normalized, entry.match) {
 			return entry.badge
 		}
 	}
-	return "?"
+	return "❔"
 }
 
 func manufacturerDisplay(m model.Model) string {

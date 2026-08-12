@@ -2414,7 +2414,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		t.Errorf("header = %q, want the display name and the slug", lines[0])
 	}
 	for _, want := range []string{
-		"Производитель: O OpenAI (C)",
+		"Производитель: 🧠 OpenAI (C)",
 		"Провайдер: n/a",
 		"Лицензия: нет",
 		"Описание:",
@@ -2544,7 +2544,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: ?", "Провайдер: n/a", "Лицензия: n/a", "Описание:", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
+	for _, want := range []string{"Производитель: ❔", "Провайдер: n/a", "Лицензия: n/a", "Описание:", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
