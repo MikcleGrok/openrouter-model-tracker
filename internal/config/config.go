@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
@@ -35,6 +36,74 @@ type Config struct {
 	TUISteps         TUISteps      `yaml:"tui_steps"`
 	TUIKeymap        TUIKeymap     `yaml:"tui_keymap"`
 	Ranking          RankingConfig `yaml:"ranking"`
+	Icons            IconConfig    `yaml:"icons"`
+}
+
+// IconConfig controls manufacturer badges shown by the CLI and TUI.
+type IconConfig struct {
+	Manufacturers map[string]string `yaml:"manufacturers"`
+	Unknown       string            `yaml:"unknown"`
+}
+
+var defaultManufacturerIcons = map[string]string{
+	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "♾️",
+	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀",
+}
+
+const defaultUnknownIcon = "❔"
+
+func DefaultIconConfig() IconConfig {
+	return IconConfig{Manufacturers: cloneStringMap(defaultManufacturerIcons), Unknown: defaultUnknownIcon}
+}
+
+func (c IconConfig) WithDefaults() IconConfig {
+	defaults := DefaultIconConfig()
+	for name, icon := range c.Manufacturers {
+		name = normalizeIconName(name)
+		if name == "" {
+			continue
+		}
+		if validIcon(icon) {
+			defaults.Manufacturers[name] = strings.TrimSpace(icon)
+		}
+	}
+	if validIcon(c.Unknown) {
+		defaults.Unknown = strings.TrimSpace(c.Unknown)
+	}
+	return defaults
+}
+
+func (c IconConfig) Icon(name string) string {
+	c = c.WithDefaults()
+	normalized := normalizeIconName(name)
+	match := ""
+	icon := c.Unknown
+	for candidate, candidateIcon := range c.Manufacturers {
+		if !strings.Contains(normalized, candidate) {
+			continue
+		}
+		if len(candidate) > len(match) || (len(candidate) == len(match) && candidate < match) {
+			match, icon = candidate, candidateIcon
+		}
+	}
+	return icon
+}
+
+func normalizeIconName(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), " "))
+}
+
+func validIcon(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && !strings.ContainsFunc(value, func(r rune) bool { return unicode.IsSpace(r) || r == '\x1b' || r < 0x20 })
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 // TUIKeymap groups configurable bindings by screen context and action.
@@ -244,6 +313,9 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75,has-q/p,availability:paid\n" +
+	"icons:\n" +
+	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: '♾️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀'}\n" +
+	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
 	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space], cycle_availability: [p], toggle_layout: [v]}\n" +
@@ -407,7 +479,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap()}, nil
+		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap(), Icons: DefaultIconConfig()}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -443,6 +515,7 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: tui_steps mixes legacy keys (quality/context/input/output) with new keys (quality_points/context_tokens/input_cents/output_cents); choose one schema")
 	}
 	c.TUISteps = c.TUISteps.WithDefaults()
+	c.Icons = c.Icons.WithDefaults()
 	if err := validateTUIKeymap(path, c.TUIKeymap); err != nil {
 		return Config{}, err
 	}

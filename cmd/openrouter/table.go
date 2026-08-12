@@ -757,24 +757,23 @@ func manufacturerName(m model.Model) string {
 }
 
 func manufacturerBadge(name string) string {
-	normalized := strings.ToLower(strings.Join(strings.Fields(name), " "))
-	for _, entry := range []struct{ match, badge string }{
-		{"openai", "🧠"}, {"anthropic", "🔶"}, {"google", "🌐"}, {"meta", "♾️"},
-		{"deepseek", "🐋"}, {"qwen", "🌸"}, {"mistral", "🌪️"}, {"xai", "🚀"},
-	} {
-		if strings.Contains(normalized, entry.match) {
-			return entry.badge
-		}
-	}
-	return "❔"
+	return manufacturerBadgeWithIcons(name, config.DefaultIconConfig())
 }
 
 func manufacturerDisplay(m model.Model) string {
+	return manufacturerDisplayWithIcons(m, config.DefaultIconConfig())
+}
+
+func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
+	return icons.Icon(name)
+}
+
+func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {
 	name := manufacturerName(m)
 	if name == "" {
-		return manufacturerBadge("")
+		return manufacturerBadgeWithIcons("", icons)
 	}
-	return manufacturerBadge(name) + " " + name
+	return manufacturerBadgeWithIcons(name, icons) + " " + name
 }
 
 func plainTableText(value string) string {
@@ -819,6 +818,10 @@ func renderTable(models []model.Model, width int, showSlug bool) string {
 }
 
 func renderTableMode(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string) string {
+	return renderTableModeWithIcons(models, width, showSlug, columnMode, scoreSource, config.DefaultIconConfig())
+}
+
+func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -836,7 +839,7 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 		if showSlug {
 			identity = m.Slug
 		} else {
-			identity = manufacturerDisplay(m) + " " + m.DisplayName
+			identity = manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}

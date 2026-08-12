@@ -299,6 +299,29 @@ value heuristic; это не quality и не benchmark score. Для `source=are
 
 ### Настройка mixed utility
 
+Иконки производителей CLI и TUI настраиваются в пользовательском YAML без пересборки:
+
+```yaml
+icons:
+  manufacturers:
+    openai: '🌀'
+    anthropic: '🔶'
+    google: '🌐'
+    meta: '♾️'
+    deepseek: '🐋'
+    qwen: '🌸'
+    mistral: '🌪️'
+    xai: '🚀'
+  unknown: '❔'
+```
+
+Ключи производителей нормализуются так же, как входное имя: обрезаются, пробелы
+схлопываются, регистр игнорируется, а совпадение остаётся substring-поиском.
+Arena organization используется только при verified Arena identity; иначе сохраняется
+fallback на Owner и Provider. Пустые или содержащие управляющие символы icons
+игнорируются: для известного производителя используется его default, для unknown
+используется `❔`. Изменение секции применяется при следующем запуске CLI/TUI.
+
 Фильтр по умолчанию: `quality>=75,has-q/p,availability:paid`. Дополнительно поддерживаются predicates `has-q/p` и `availability:any|free|paid`.
 
 Default filter для TUI настраивается отдельно и читается при запуске и auto-refresh:

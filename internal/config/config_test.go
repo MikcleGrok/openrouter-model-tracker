@@ -57,6 +57,77 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoadIconsUsesDefaultsAndCustomOverrides(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "icons:\n  manufacturers:\n    OpenAI: ' 🧩 '\n    Custom Vendor: '🛠️'\n  unknown: '  '\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Icons.Icon(" OpenAI Labs ") != "🧩" || got.Icons.Icon("Anthropic") != "🔶" || got.Icons.Icon("Unknown") != "❔" {
+		t.Fatalf("icons = %+v", got.Icons)
+	}
+}
+
+func TestIconPrefersMostSpecificOverlappingManufacturerKey(t *testing.T) {
+	icons := IconConfig{Manufacturers: map[string]string{"ai": "AI", "openai": "OpenAI", "beta": "Beta", "alpha": "Alpha"}, Unknown: "Unknown"}
+	for range 20 {
+		if got := icons.Icon("OpenAI Labs"); got != "OpenAI" {
+			t.Fatalf("overlapping manufacturer icon = %q, want OpenAI", got)
+		}
+		if got := icons.Icon("Alpha Beta vendor"); got != "Alpha" {
+			t.Fatalf("equal-length manufacturer tie-break icon = %q, want Alpha", got)
+		}
+	}
+}
+
+func TestIconOverlappingKeysPreserveDefaultsAndFallbacks(t *testing.T) {
+	icons := IconConfig{Manufacturers: map[string]string{"ai": "AI", "openai": "OpenAI2", "custom": "Custom"}, Unknown: "Question"}
+	if got := icons.Icon("OpenAI"); got != "OpenAI2" {
+		t.Fatalf("custom specific manufacturer icon = %q, want OpenAI2", got)
+	}
+	if got := icons.Icon("Anthropic"); got != "🔶" {
+		t.Fatalf("default manufacturer icon = %q, want 🔶", got)
+	}
+	if got := icons.Icon("Custom Vendor"); got != "Custom" {
+		t.Fatalf("custom manufacturer icon = %q, want Custom", got)
+	}
+	if got := icons.Icon("Unknown Vendor"); got != "Question" {
+		t.Fatalf("custom unknown fallback = %q, want Question", got)
+	}
+}
+
+func TestLoadIconsRejectsMalformedValuesWithoutBreakingDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("icons:\n  manufacturers:\n    OpenAI: 'bad\nicon'\n  unknown: ' '\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Icons.Icon("OpenAI") != "🌀" || got.Icons.Icon("new vendor") != "❔" {
+		t.Fatalf("malformed icon fallback = %+v", got.Icons)
+	}
+}
+
+func TestInitTemplateDocumentsIcons(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if _, err := Init(path, "."); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "openai: '🌀'") || !strings.Contains(string(body), "unknown: '❔'") {
+		t.Fatalf("template does not document icons: %s", body)
+	}
+}
+
 func TestLoadTUIKeymapSupportsCustomScalarAndListBindings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := "tui_keymap:\n  main:\n    open_settings: ' z '\n    open_details: [enter, d]\n    switch_source: x\n  settings:\n    switch_source: enter\n  columns:\n    toggle: ' space '\n    apply: ['  enter  ']\n  detail:\n    close: ['  esc  ']\n"

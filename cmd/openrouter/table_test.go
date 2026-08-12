@@ -38,7 +38,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 
 func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	for _, test := range []struct{ name, badge string }{
-		{" OpenAI  Labs ", "🧠"}, {"ANTHROPIC", "🔶"}, {"Google DeepMind", "🌐"},
+		{" OpenAI  Labs ", "🌀"}, {"ANTHROPIC", "🔶"}, {"Google DeepMind", "🌐"},
 		{"Meta AI", "♾️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
 		{"xAI", "🚀"}, {"  ", "❔"}, {"Unknown vendor", "❔"},
 	} {
@@ -70,14 +70,14 @@ func TestManufacturerBadgeIconsUseTerminalWidth(t *testing.T) {
 			t.Errorf("manufacturerBadge(%q) = %q has terminal width %d, want 2", name, icon, got)
 		}
 	}
-	if got := truncateTable("🧠 OpenAI", 2); got != "🧠" {
+	if got := truncateTable("🌀 OpenAI", 2); got != "🌀" {
 		t.Fatalf("truncateTable split or dropped the OpenAI icon: %q", got)
 	}
 }
 
 func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
 	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
-	if got := manufacturerDisplay(row); got != "🧠 OpenAI" {
+	if got := manufacturerDisplay(row); got != "🌀 OpenAI" {
 		t.Fatalf("manufacturerDisplay = %q, want Arena organization with badge", got)
 	}
 	row.ArenaScore.Provider = ""
@@ -102,9 +102,36 @@ func TestManufacturerDisplayRejectsUnverifiedArenaOrganization(t *testing.T) {
 	}
 }
 
+func TestManufacturerBadgeUsesConfiguredMapping(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{"openai": "🧩", "custom": "🛠️"}, Unknown: "❓"}
+	if got := manufacturerBadgeWithIcons("OpenAI Labs", icons); got != "🧩" {
+		t.Fatalf("configured OpenAI icon = %q", got)
+	}
+	if got := manufacturerBadgeWithIcons("Custom Vendor", icons); got != "🛠️" {
+		t.Fatalf("configured custom icon = %q", got)
+	}
+	if got := manufacturerBadgeWithIcons("Unknown Vendor", icons); got != "❓" {
+		t.Fatalf("configured unknown icon = %q", got)
+	}
+}
+
+func TestConfiguredIconsPreserveRenderingWidthAndArenaFallback(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{"openai": "🧩"}, Unknown: "❔"}
+	row := model.Model{DisplayName: "GPT", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	if got := manufacturerDisplayWithIcons(row, icons); got != "🧩 OpenAI" {
+		t.Fatalf("Arena manufacturer display = %q", got)
+	}
+	if got := tuiCellWithIcons(row, colName, true, scoreSourceDefault, icons); got != "🧩 OpenAI GPT" {
+		t.Fatalf("configured TUI identity = %q", got)
+	}
+	if got := renderTableModeWithIcons([]model.Model{row}, 120, false, "short", scoreSourceDefault, icons); !strings.Contains(got, "🧩 OpenAI GPT") {
+		t.Fatalf("configured CLI table identity missing: %s", got)
+	}
+}
+
 func TestTUITableCellShowsManufacturerBadgeWithoutLosingModelName(t *testing.T) {
 	got := tuiCell(model.Model{DisplayName: "GPT", Owner: "OpenAI"}, colName, true, scoreSourceDefault)
-	if got != "🧠 OpenAI GPT" {
+	if got != "🌀 OpenAI GPT" {
 		t.Fatalf("TUI identity = %q, want badge and model name", got)
 	}
 }
@@ -112,7 +139,7 @@ func TestTUITableCellShowsManufacturerBadgeWithoutLosingModelName(t *testing.T) 
 func TestRenderTableModeShowsManufacturerBadgeAndStaysWithinWidth(t *testing.T) {
 	row := model.Model{DisplayName: "GPT-5.6 Luna", Owner: "OpenAI", ScoreLabel: "93.0%", QualityPriceLabel: "82.7"}
 	wide := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
-	if !strings.Contains(wide, "🧠 OpenAI GPT-5.6 Luna") {
+	if !strings.Contains(wide, "🌀 OpenAI GPT-5.6 Luna") {
 		t.Fatalf("CLI table lost manufacturer badge or model name:\n%s", wide)
 	}
 	narrow := renderTableMode([]model.Model{row}, 40, false, "short", scoreSourceDefault)
