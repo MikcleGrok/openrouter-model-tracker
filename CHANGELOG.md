@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.13.41]
+
+- Add selected emoji manufacturer icons for clearer provider identity in the CLI, TUI, and model detail views.
+- Use width-safe rendering so manufacturer icons remain correctly aligned across terminal widths.
+
 ## [1.13.40]
 
 - Add individual ASCII manufacturer icons for clearer provider identity.
