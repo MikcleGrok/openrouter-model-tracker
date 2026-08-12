@@ -4,6 +4,8 @@
 
 - Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
 - Add contract coverage for manufacturer icon rendering and alignment.
+- Make `x` close child TUI windows and exit the application from the main window.
+- Add regression coverage for `x` handling across child TUI windows and the main window.
 
 ## [1.14.11]
 

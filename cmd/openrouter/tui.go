@@ -594,6 +594,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
+	if msg.String() == "x" {
+		if m.overlay != "" {
+			m.overlay = ""
+			m.inputMode, m.input = "", ""
+			return m, nil
+		}
+		return m, tea.Quit
+	}
 	if m.inputMode != "" {
 		return m.inputKey(msg)
 	}
