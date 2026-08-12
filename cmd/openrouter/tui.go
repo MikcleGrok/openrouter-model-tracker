@@ -4287,7 +4287,7 @@ func tuiCellWithIconsAndGap(m model.Model, col tuiColumn, note bool, scoreSource
 	return tuiCellWithIconsAndGaps(m, col, note, scoreSource, icons, iconGap, nil)
 }
 
-func tuiCellWithIconsAndGaps(m model.Model, col tuiColumn, note bool, scoreSource string, icons config.IconConfig, iconGap int, iconGaps config.IconGaps) string {
+func tuiCellWithIconsAndGaps(m model.Model, col tuiColumn, _ bool, scoreSource string, icons config.IconConfig, iconGap int, iconGaps config.IconGaps) string {
 	var value string
 	switch col {
 	case colName:
@@ -4309,10 +4309,6 @@ func tuiCellWithIconsAndGaps(m model.Model, col tuiColumn, note bool, scoreSourc
 	case colOutput:
 		value = pricing.FormatPrice(m.OutPerM)
 	case colTask:
-		if note {
-			value = tableNote(m)
-			break
-		}
 		value = tableTaskFit(m, "short")
 	case colNote:
 		value = tableNote(m)

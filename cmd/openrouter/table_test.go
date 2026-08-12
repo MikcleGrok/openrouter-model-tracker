@@ -644,6 +644,56 @@ func TestManufacturerDisplayRejectsUnverifiedArenaOrganization(t *testing.T) {
 	}
 }
 
+func TestQwenManufacturerUsesQwenIconForArenaAlibabaProvider(t *testing.T) {
+	row := model.Model{Slug: "qwen/qwen3.7-plus", DisplayName: "Qwen3.7 Plus", ArenaScore: &model.ScoreInfo{Provider: "Alibaba", IdentityStatus: model.IdentityExact}}
+	if got := manufacturerDisplay(row); got != "🌸 Alibaba" {
+		t.Fatalf("Qwen manufacturer display = %q, want Qwen icon with Arena provider name", got)
+	}
+	if got := tuiCell(row, colName, true, scoreSourceDefault); got != "🌸 Alibaba Qwen3.7 Plus" {
+		t.Fatalf("Qwen TUI identity = %q, want configured manufacturer display", got)
+	}
+	if got := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault); !strings.Contains(got, "🌸 Alibaba Qwen3.7 Plus") {
+		t.Fatalf("Qwen CLI identity missing Qwen icon: %s", got)
+	}
+}
+
+func TestRenderTableHeaderAndDataColumnsShareDisplayOffsets(t *testing.T) {
+	row := model.Model{DisplayName: "界🙂 model", ScoreLabel: "93.0%", QualityPriceLabel: "82.7", TaskFit: []string{"implement", "test"}}
+	for _, width := range []int{40, 80, 120, 220} {
+		output := renderTableMode([]model.Model{row}, width, false, "long", scoreSourceDefault)
+		lines := strings.Split(output, "\n")
+		var header, data string
+		for _, line := range lines {
+			if !strings.HasPrefix(line, "| ") {
+				continue
+			}
+			if strings.Contains(line, "| Name ") {
+				header = line
+			} else {
+				data = line
+			}
+		}
+		if got, want := tablePipeDisplayOffsets(header), tablePipeDisplayOffsets(data); !reflect.DeepEqual(got, want) {
+			t.Fatalf("CLI column offsets at width %d differ: header=%v data=%v\n%s", width, got, want, output)
+		}
+	}
+}
+
+func tablePipeDisplayOffsets(line string) []int {
+	offsets := []int{}
+	for index := 0; index < len(line); {
+		separator := strings.IndexByte(line[index:], '|')
+		if separator < 0 {
+			break
+		}
+		separator += index
+		offsets = append(offsets, tableDisplayWidth(line[:separator]))
+		_, size := utf8.DecodeRuneInString(line[separator:])
+		index = separator + size
+	}
+	return offsets
+}
+
 func TestManufacturerBadgeUsesConfiguredMapping(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"openai": "🧩", "custom": "🛠️"}, Unknown: "❓"}
 	if got := manufacturerBadgeWithIcons("OpenAI Labs", icons); got != "🧩" {

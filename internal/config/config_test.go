@@ -207,6 +207,16 @@ func TestIconOverlappingKeysPreserveDefaultsAndFallbacks(t *testing.T) {
 	}
 }
 
+func TestIconResolvesAlibabaAsQwenAndKeepsCustomQwenIcon(t *testing.T) {
+	if got := DefaultIconConfig().Icon("Alibaba"); got != "🌸" {
+		t.Fatalf("Alibaba default icon = %q, want Qwen icon", got)
+	}
+	icons := IconConfig{Manufacturers: map[string]string{"qwen": "🧩"}, Unknown: "❓"}
+	if got := icons.Icon("Alibaba Cloud"); got != "🧩" {
+		t.Fatalf("Alibaba custom Qwen icon = %q, want %q", got, "🧩")
+	}
+}
+
 func TestLoadIconsRejectsMalformedValuesWithoutBreakingDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("icons:\n  manufacturers:\n    OpenAI: 'bad\nicon'\n  unknown: ' '\n"), 0o644); err != nil {

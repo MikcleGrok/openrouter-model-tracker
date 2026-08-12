@@ -63,6 +63,8 @@ var defaultManufacturerIcons = map[string]string{
 	"z.ai": "🔷", "minimax": "🎲", "moonshot": "🌙", "tencent": "🐧",
 }
 
+var manufacturerIconAliases = map[string]string{"alibaba": "qwen", "alibaba cloud": "qwen"}
+
 const defaultUnknownIcon = "❔"
 
 func DefaultIconConfig() IconConfig {
@@ -91,12 +93,20 @@ func (c IconConfig) Icon(name string) string {
 	normalized := normalizeIconName(name)
 	match := ""
 	icon := c.Unknown
-	for candidate, candidateIcon := range c.Manufacturers {
-		if !strings.Contains(normalized, candidate) {
-			continue
+	searchNames := []string{normalized}
+	for alias, canonical := range manufacturerIconAliases {
+		if strings.Contains(normalized, alias) {
+			searchNames = append(searchNames, canonical)
 		}
-		if len(candidate) > len(match) || (len(candidate) == len(match) && candidate < match) {
-			match, icon = candidate, candidateIcon
+	}
+	for _, searchName := range searchNames {
+		for candidate, candidateIcon := range c.Manufacturers {
+			if !strings.Contains(searchName, candidate) {
+				continue
+			}
+			if len(candidate) > len(match) || (len(candidate) == len(match) && candidate < match) {
+				match, icon = candidate, candidateIcon
+			}
 		}
 	}
 	return icon

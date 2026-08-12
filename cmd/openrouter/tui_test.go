@@ -2636,6 +2636,29 @@ func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 	}
 }
 
+func TestTUIHeaderAndTaskFitDataShareDisplayOffsets(t *testing.T) {
+	m := tuiModel{width: 100, scoreSource: scoreSourceDefault}
+	columns := []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}
+	header := m.renderTUILine(columns, nil, false)
+	row := m.renderTUILine(columns, []string{"🌸 Alibaba Qwen3.7 Plus", "≈ Sonnet 5", "93.0%", "82.7", "1M", "$1", "$2", "IPDRT"}, false)
+	if got, want := tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(header); !reflect.DeepEqual(got, want) {
+		t.Fatalf("TUI column offsets differ: header=%v row=%v\nheader=%q\nrow=%q", want, got, header, row)
+	}
+	if !strings.Contains(header, "Task fit") || !strings.Contains(row, "IPDRT") {
+		t.Fatalf("Task fit column was not rendered: header=%q row=%q", header, row)
+	}
+}
+
+func TestTUITaskFitCellFollowsColumnWhenNoteStateIsStale(t *testing.T) {
+	row := model.Model{TaskFit: []string{"implement", "test"}, Note: "note"}
+	if got := tuiCellWithIcons(row, colTask, true, scoreSourceDefault, config.DefaultIconConfig()); got != "IT" {
+		t.Fatalf("stale note state changed Task fit cell to %q, want IT", got)
+	}
+	if got := tuiCellWithIcons(row, colNote, false, scoreSourceDefault, config.DefaultIconConfig()); got != "note" {
+		t.Fatalf("Note column cell = %q, want note", got)
+	}
+}
+
 func TestTUINameColumnGetsWeightedWidth(t *testing.T) {
 	m := tuiModel{width: 80}
 	columns := []tuiColumn{colName, colContext, colInput}
