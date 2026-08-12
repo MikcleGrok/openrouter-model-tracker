@@ -4,6 +4,13 @@
 
 - No unreleased changes.
 
+## [1.14.0]
+
+- Сделать заголовки и значения таблицы моделей однозначнее для score, Q/P, контекста и цен.
+- Сохранить поисковый запрос TUI между обновлениями, показывать число совпадений и корректно очищать поиск.
+- Исправить limit и разделитель платных и бесплатных моделей в режиме `top-paid-free`.
+- Перестроить экран деталей модели: сначала task fit, цены и оценки, затем provenance, описание и заметки.
+
 ## [1.13.41]
 
 - Add selected emoji manufacturer icons for clearer provider identity in the CLI, TUI, and model detail views.
