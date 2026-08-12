@@ -52,7 +52,7 @@ func TestLoad(t *testing.T) {
 	if got.Table.EffectiveNameWidth() != DefaultNameWidth {
 		t.Fatalf("default name width = %d, want %d", got.Table.EffectiveNameWidth(), DefaultNameWidth)
 	}
-	if got.Table.EffectiveIconGap() != 1 {
+	if got.Table.EffectiveIconGap() != 1 || got.Table.EffectiveIconGapFor("Meta AI") != 2 || got.Table.EffectiveIconGapFor("Mistral AI") != 2 || got.Table.EffectiveIconGapFor("OpenAI") != 1 {
 		t.Fatalf("default icon gap = %d, want 1", got.Table.EffectiveIconGap())
 	}
 	ttl, _ := got.Cache.EffectiveTTL()
@@ -103,6 +103,33 @@ func TestIconGapUsesConfiguredRangeAndFallback(t *testing.T) {
 		if err != nil || got.Table.EffectiveIconGap() != test.want {
 			t.Fatalf("icon gap %q = %d, err %v, want %d", test.value, got.Table.EffectiveIconGap(), err, test.want)
 		}
+	}
+}
+
+func TestIconGapsUseNormalizedVendorOverridesAndGlobalFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "table:\n  icon_gap: 3\n  icon_gaps: {'  META  ': 0, 'Mistral': 3, OpenAI: invalid, Google: 9}\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		want int
+	}{{"Meta AI", 0}, {"Mistral AI", 3}, {"OpenAI", 3}, {"Google", 3}} {
+		if value := got.Table.EffectiveIconGapFor(test.name); value != test.want {
+			t.Errorf("effective gap for %q = %d, want %d", test.name, value, test.want)
+		}
+	}
+}
+
+func TestIconGapsUseLexicographicallySmallestEqualLengthMatch(t *testing.T) {
+	gaps := IconGaps{"beta": 0, "alpha": 3}
+	if got := gaps.EffectiveGap("AlphaBeta model", 1); got != 3 {
+		t.Fatalf("effective gap = %d, want 3 from lexicographically smallest matching key", got)
 	}
 }
 
@@ -203,7 +230,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || !strings.Contains(string(body), "icon_gaps: {meta: 2, mistral: 2}") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }

@@ -1471,16 +1471,17 @@ func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
 
 func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 1\n  icon_gaps: {Meta: 0}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	row := model.Model{DisplayName: "OpenAI Model", Owner: "OpenAI"}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.configPath, m.generation, m.iconGap = path, 1, 1
-	if got := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, m.icons, m.iconGap); !strings.Contains(got, "🌀 OpenAI") {
+	m.iconGaps = config.IconGaps{"meta": 0}
+	if got := tuiCellWithIconsAndGaps(row, colName, false, scoreSourceDefault, m.icons, m.iconGap, m.iconGaps); !strings.Contains(got, "🌀 OpenAI") {
 		t.Fatalf("initial list identity = %q, want one gap", got)
 	}
-	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 3\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 3\n  icon_gaps: {Meta: 3}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	message, ok := m.refreshCmd()().(tuiRefreshMsg)
@@ -1496,7 +1497,11 @@ func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
 	if list := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, got.icons, got.iconGap); !strings.Contains(list, "🌀   OpenAI") {
 		t.Fatalf("refreshed list identity = %q, want three gaps", list)
 	}
-	detail := tuiDetailLinesWithHistoryAndIconsAndGap(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap)
+	meta := model.Model{DisplayName: "Meta Model", Owner: "Meta"}
+	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️   Meta Meta Model" {
+		t.Fatalf("refreshed vendor override = %q, want three gaps", list)
+	}
+	detail := tuiDetailLinesWithHistoryAndIconsAndGaps(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)
 	if !strings.Contains(strings.Join(detail, "\n"), "Производитель: 🌀   OpenAI") {
 		t.Fatalf("refreshed detail does not use gap 3: %v", detail)
 	}

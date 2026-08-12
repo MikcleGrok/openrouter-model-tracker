@@ -774,23 +774,31 @@ func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
 }
 
 func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {
-	return manufacturerDisplayWithIconsAndGap(m, icons, int(config.DefaultIconGap))
+	return manufacturerDisplayWithIconsAndGaps(m, icons, config.DefaultIconGaps(), int(config.DefaultIconGap))
 }
 
 func manufacturerDisplayWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
+	return manufacturerDisplayWithIconsAndGaps(m, icons, nil, iconGap)
+}
+
+func manufacturerDisplayWithIconsAndGaps(m model.Model, icons config.IconConfig, iconGaps config.IconGaps, globalGap int) string {
 	name := manufacturerName(m)
 	if name == "" {
 		return manufacturerBadgeWithIcons("", icons)
 	}
-	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, iconGap)
+	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, iconGaps.EffectiveGap(name, globalGap))
 }
 
 func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {
-	return modelIdentityWithIconsAndGap(m, icons, int(config.DefaultIconGap))
+	return modelIdentityWithIconsAndGaps(m, icons, config.DefaultIconGaps(), int(config.DefaultIconGap))
 }
 
 func modelIdentityWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
-	return joinTerminalWords(manufacturerDisplayWithIconsAndGap(m, icons, iconGap), m.DisplayName, 1)
+	return modelIdentityWithIconsAndGaps(m, icons, nil, iconGap)
+}
+
+func modelIdentityWithIconsAndGaps(m model.Model, icons config.IconConfig, iconGaps config.IconGaps, globalGap int) string {
+	return joinTerminalWords(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, globalGap), m.DisplayName, 1)
 }
 
 func joinTerminalWords(left, right string, gap int) string {
@@ -847,10 +855,14 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 }
 
 func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth int) string {
-	return renderTableModeWithIconsAndNameWidthAndGap(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, int(config.DefaultIconGap))
+	return renderTableModeWithIconsAndNameWidthAndGaps(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, int(config.DefaultIconGap), config.DefaultIconGaps())
 }
 
 func renderTableModeWithIconsAndNameWidthAndGap(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth, iconGap int) string {
+	return renderTableModeWithIconsAndNameWidthAndGaps(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, iconGap, nil)
+}
+
+func renderTableModeWithIconsAndNameWidthAndGaps(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth, iconGap int, iconGaps config.IconGaps) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -872,7 +884,7 @@ func renderTableModeWithIconsAndNameWidthAndGap(models []model.Model, width int,
 		if showSlug {
 			identity = m.Slug
 		} else {
-			identity = modelIdentityWithIconsAndGap(m, icons, iconGap)
+			identity = modelIdentityWithIconsAndGaps(m, icons, iconGaps, iconGap)
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}

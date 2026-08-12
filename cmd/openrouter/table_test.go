@@ -86,7 +86,11 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
-			wantManufacturer := test.icon + " " + test.name
+			gap := 1
+			if test.name == "Meta" {
+				gap = 2
+			}
+			wantManufacturer := test.icon + strings.Repeat(" ", gap) + test.name
 			wantIdentity := wantManufacturer + " " + row.DisplayName
 			if got := manufacturerDisplayWithIcons(row, icons); got != wantManufacturer {
 				t.Fatalf("manufacturer formatter = %q, want %q", got, wantManufacturer)
@@ -97,8 +101,8 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 			if got := tableDisplayWidth(test.icon); got != 2 {
 				t.Fatalf("icon display width = %d, want 2 for %q", got, test.icon)
 			}
-			if got := tableDisplayWidth(wantManufacturer); got != 2+1+len(test.name) {
-				t.Fatalf("manufacturer display width = %d, want %d", got, 2+1+len(test.name))
+			if got := tableDisplayWidth(wantManufacturer); got != 2+gap+len(test.name) {
+				t.Fatalf("manufacturer display width = %d, want %d", got, 2+gap+len(test.name))
 			}
 			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons); got != wantIdentity {
 				t.Fatalf("TUI identity = %q, want %q", got, wantIdentity)
@@ -124,15 +128,19 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
-			want := test.icon + " " + test.name + " " + row.DisplayName
+			gap := 1
+			if test.name == "Meta" {
+				gap = 2
+			}
+			want := test.icon + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
 			got := modelIdentityWithIcons(row, icons)
 			t.Logf("rendered identity: %q bytes=% x width=%d", got, []byte(got), tableDisplayWidth(got))
 			if got != want {
 				t.Fatalf("identity bytes = % x, want % x", []byte(got), []byte(want))
 			}
-			gap := strings.Index(got, " ")
-			if gap < 0 || tableDisplayWidth(got[:gap]) != 2 || got[gap:gap+1] != " " {
-				t.Fatalf("identity icon gap at byte %d, display position %d: %q", gap, tableDisplayWidth(got[:gap]), got)
+			byteGap := strings.Index(got, " ")
+			if byteGap < 0 || tableDisplayWidth(got[:byteGap]) != 2 || got[byteGap:byteGap+1] != " " {
+				t.Fatalf("identity icon gap at byte %d, display position %d: %q", byteGap, tableDisplayWidth(got[:byteGap]), got)
 			}
 			line := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40)
 			if !strings.Contains(line, want) {
@@ -141,13 +149,13 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 			tui := tuiModel{width: 120, nameWidth: 40}
 			rendered := tui.renderTUILine([]tuiColumn{colName}, []string{tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons)}, false)
 			t.Logf("rendered CLI=%q TUI=%q", line, rendered)
-			marker := test.icon + " " + test.name
+			marker := test.icon + strings.Repeat(" ", gap) + test.name
 			index := strings.Index(rendered, marker)
 			if index < 0 || tableDisplayWidth(rendered[:index+len(test.icon)]) != 4 {
 				t.Fatalf("TUI gap display position = %d, want 4: %q", tableDisplayWidth(rendered[:index+len(test.icon)]), rendered)
 			}
-			if tableDisplayWidth(rendered[:index+len(marker)]) != 5+tableDisplayWidth(test.name) {
-				t.Fatalf("TUI manufacturer position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(marker)]), 5+tableDisplayWidth(test.name), rendered)
+			if tableDisplayWidth(rendered[:index+len(marker)]) != 4+gap+tableDisplayWidth(test.name) {
+				t.Fatalf("TUI manufacturer position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(marker)]), 4+gap+tableDisplayWidth(test.name), rendered)
 			}
 		})
 	}
@@ -185,15 +193,47 @@ func TestConfiguredIconGapIsSharedByCLIAndTUI(t *testing.T) {
 	}
 }
 
+func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
+	icons := config.DefaultIconConfig()
+	rows := []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Google", "🌐"},
+	}
+	for _, rowData := range rows {
+		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+		gap := config.DefaultIconGaps().EffectiveGap(rowData.name, int(config.DefaultIconGap))
+		want := rowData.icon + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
+		if got := modelIdentityWithIcons(row, icons); got != want {
+			t.Errorf("%s bytes = % x, want % x", rowData.name, []byte(got), []byte(want))
+		}
+		if got := tableDisplayWidth(strings.Split(want, rowData.name)[0]); got != 2+gap {
+			t.Errorf("%s boundary width = %d, want %d", rowData.name, got, 2+gap)
+		}
+	}
+	custom := config.IconGaps{"meta": 0, "mistral": 3}.WithDefaults()
+	for _, rowData := range rows[:2] {
+		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+		wantGap := 0
+		if rowData.name == "Mistral" {
+			wantGap = 3
+		}
+		want := rowData.icon + strings.Repeat(" ", wantGap) + rowData.name + " " + row.DisplayName
+		if got := modelIdentityWithIconsAndGaps(row, icons, custom, 1); got != want {
+			t.Errorf("custom %s = %q, want %q", rowData.name, got, want)
+		}
+	}
+}
+
 func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
 	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
-	want := "Ⓜ️ Meta Meta Muse Spark 1.1"
+	want := "Ⓜ️  Meta Meta Muse Spark 1.1"
 	if got := modelIdentityWithIcons(row, icons); got != want {
 		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
 	}
-	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️ Meta" {
-		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️ Meta")
+	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️  Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️  Meta")
 	}
 	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 2); got != "Ⓜ️  Meta" {
 		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️  Meta")
