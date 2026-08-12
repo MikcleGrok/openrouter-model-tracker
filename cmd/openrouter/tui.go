@@ -131,6 +131,8 @@ type tuiRefreshMsg struct {
 	iconGap               int
 	iconGaps              config.IconGaps
 	iconGapSet            bool
+	icons                 config.IconConfig
+	iconsSet              bool
 	filterFormExplicit    bool
 	filterDefaulted       bool
 	layout                string
@@ -430,6 +432,8 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		iconGap := m.iconGap
 		iconGapSet := false
 		iconGaps := m.iconGaps
+		icons := m.icons
+		iconsSet := false
 		layout, topN := m.layout, m.topN
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
@@ -442,6 +446,8 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			iconGap = cfg.Table.EffectiveIconGap()
 			iconGapSet = true
 			iconGaps = cfg.Table.IconGaps
+			icons = cfg.Icons
+			iconsSet = true
 			if cfg.TUI.Layout != "" {
 				layout = cfg.TUI.Layout
 			}
@@ -464,7 +470,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, icons: icons, iconsSet: iconsSet, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -549,6 +555,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.iconGapSet {
 			m.iconGap = msg.iconGap
 			m.iconGaps = msg.iconGaps
+		}
+		if msg.iconsSet {
+			m.icons = msg.icons
 		}
 		if msg.keymap != nil {
 			m.keymap = msg.keymap
@@ -668,7 +677,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.overlay, m.detailOffset = "", 0
 			return m, nil
 		}
-		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGap(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap)
+		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
@@ -2719,17 +2728,20 @@ func tuiDetailLinesWithHistoryAndIconsAndGaps(m model.Model, scoreSource string,
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
 	}
-	lines := []string{
-		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
+	lines := tuiWrapText(tuiDetailValue(m.DisplayName)+" ("+tuiDetailValue(m.Slug)+")", max(1, width))
+	lines = append(lines,
 		"",
 		"-- Identity --",
-		"Производитель: " + tuiDetailValue(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap)),
-		"Провайдер: " + tuiDetailValue(m.Provider),
-		"Лицензия: " + tuiDetailLicense(m),
-		"Тир: " + tuiDetailValue(m.Tier),
-		"Claude-референс: " + tuiDetailValue(m.ClaudeRef),
-		"Task fit: " + tuiDetailTaskFit(m),
-	}
+	)
+	manufacturerLine := "Производитель: " + tuiDetailValue(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap))
+	lines = append(lines, tuiWrapWord(manufacturerLine, max(1, width))...)
+	lines = append(lines,
+		"Провайдер: "+tuiDetailValue(m.Provider),
+		"Лицензия: "+tuiDetailLicense(m),
+		"Тир: "+tuiDetailValue(m.Tier),
+		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
+		"Task fit: "+tuiDetailTaskFit(m),
+	)
 	lines = append(lines,
 		"",
 		"-- Pricing --",

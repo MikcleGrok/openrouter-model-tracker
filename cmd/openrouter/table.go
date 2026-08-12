@@ -781,7 +781,7 @@ func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
 const manufacturerIconSlotWidth = 2
 
 func manufacturerIconSlot(icon string) string {
-	return icon + strings.Repeat(" ", max(0, manufacturerIconSlotWidth-runewidth.StringWidth(icon)))
+	return icon + strings.Repeat(" ", max(0, manufacturerIconSlotWidth-tableDisplayWidth(icon)))
 }
 
 func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {

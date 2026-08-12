@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.14.10]
+
+- Align manufacturer icons and model table columns consistently in the CLI and TUI.
+- Add contract coverage for display-width alignment across table and configuration paths.
+
 ## [1.14.4]
 
 - Normalize manufacturer icon spacing and display width for consistent table alignment.

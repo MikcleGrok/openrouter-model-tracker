@@ -221,6 +221,30 @@ func TestLoadIconsRejectsMalformedValuesWithoutBreakingDefaults(t *testing.T) {
 	}
 }
 
+func TestIconValidationPolicyRejectsWhitespaceAndControlsButKeepsTrimmedValues(t *testing.T) {
+	// Icon policy: a non-empty value is accepted after outer trimming, but any
+	// internal Unicode whitespace, C0 control, or terminal escape is rejected.
+	for _, test := range []struct {
+		name, value string
+		valid       bool
+	}{
+		{"empty", "", false}, {"outer whitespace", "  🧩  ", true}, {"space", "🧩 x", false},
+		{"tab", "🧩\tx", false}, {"newline", "🧩\nx", false}, {"escape", "🧩\x1b[31m", false},
+		{"control", "🧩\x00", false}, {"emoji", "🧩", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			icons := IconConfig{Manufacturers: map[string]string{"acme": test.value}, Unknown: "?"}
+			got := icons.WithDefaults().Icon("Acme")
+			if test.valid && got != strings.TrimSpace(test.value) {
+				t.Fatalf("valid icon = %q, want %q", got, strings.TrimSpace(test.value))
+			}
+			if !test.valid && got != "?" {
+				t.Fatalf("invalid icon fallback = %q, want configured unknown icon", got)
+			}
+		})
+	}
+}
+
 func TestInitTemplateDocumentsIcons(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if _, err := Init(path, "."); err != nil {

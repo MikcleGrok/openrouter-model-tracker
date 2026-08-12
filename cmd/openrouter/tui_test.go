@@ -1498,7 +1498,7 @@ func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
 		t.Fatalf("refreshed list identity = %q, want three gaps", list)
 	}
 	meta := model.Model{DisplayName: "Meta Model", Owner: "Meta"}
-	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️    Meta Meta Model" {
+	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️   Meta Meta Model" {
 		t.Fatalf("refreshed vendor override = %q, want fixed-slot padding plus three gaps", list)
 	}
 	detail := tuiDetailLinesWithHistoryAndIconsAndGaps(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)
@@ -1797,12 +1797,13 @@ func TestTUIViewNarrowAndSanitized(t *testing.T) {
 func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 	m := tuiModel{width: 34}
 	columns := []tuiColumn{colName, colContext, colInput}
+	wantOffsets := []int{12, 26}
 	header := m.renderTUILine(columns, nil, false)
 	for _, values := range [][]string{{"Long model", "7", "1.5"}, {"Long model", "12345", "0.125"}} {
 		row := m.renderTUILine(columns, values, false)
 		selected := m.renderTUILine(columns, values, true)
-		if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(row)) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(selected)) {
-			t.Fatalf("separator display positions differ: header=%q row=%q selected=%q", header, row, selected)
+		if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), wantOffsets) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), wantOffsets) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(selected), wantOffsets) {
+			t.Fatalf("separator display positions = header=%v row=%v selected=%v, want %v", tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(selected), wantOffsets)
 		}
 		if lipgloss.Width(header) > m.width || lipgloss.Width(row) > m.width || lipgloss.Width(selected) > m.width {
 			t.Fatalf("rendered line exceeds width: header=%q row=%q selected=%q", header, row, selected)
@@ -1856,7 +1857,7 @@ func TestTUIRenderTUILineUsesDisplayWidthAndStripsANSI(t *testing.T) {
 	if lipgloss.Width(row) > m.width {
 		t.Fatalf("Unicode row exceeds width: %q", row)
 	}
-	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false))) {
+	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), []int{9}) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false)), []int{9}) {
 		t.Fatalf("Unicode separator display position changed with numeric width: %q", row)
 	}
 }
@@ -1969,6 +1970,20 @@ func tuiSeparatorDisplayOffsets(line string) []int {
 		index = separator + len(" | ")
 	}
 	return offsets
+}
+
+func testTUISeparatorColumns(width, columnCount int) []int {
+	if columnCount != 8 {
+		panic(fmt.Sprintf("missing independent TUI geometry contract for %d columns", columnCount))
+	}
+	want, ok := map[int][]int{
+		120: {43, 53, 62, 78, 93, 103, 114},
+		40:  {4, 8, 12, 16, 20, 24, 28},
+	}[width]
+	if !ok {
+		panic(fmt.Sprintf("missing independent TUI geometry contract for width %d", width))
+	}
+	return want
 }
 
 func tuiNumericCellDisplayEnd(line string, column int) int {
