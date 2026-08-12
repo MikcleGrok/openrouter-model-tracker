@@ -47,7 +47,7 @@ type IconConfig struct {
 
 var defaultManufacturerIcons = map[string]string{
 	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "Ⓜ️",
-	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀",
+	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀", "xiaomi": "ⓧ", "nvidia": "Ⓝ",
 }
 
 const defaultUnknownIcon = "❔"
@@ -435,7 +435,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75,has-q/p,availability:paid\n" +
 	"icons:\n" +
-	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: 'Ⓜ️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀'}\n" +
+	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: 'Ⓜ️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀', xiaomi: 'ⓧ', nvidia: 'Ⓝ'}\n" +
 	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +

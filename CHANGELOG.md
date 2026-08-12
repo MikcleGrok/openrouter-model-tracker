@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
+- Add contract coverage for manufacturer icon rendering and alignment.
 
 ## [1.14.11]
 

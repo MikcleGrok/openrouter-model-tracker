@@ -312,6 +312,8 @@ icons:
     qwen: '🌸'
     mistral: '🌪️'
     xai: '🚀'
+    xiaomi: 'ⓧ'
+    nvidia: 'Ⓝ'
   unknown: '❔'
 ```
 

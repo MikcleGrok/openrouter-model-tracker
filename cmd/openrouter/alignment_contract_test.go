@@ -66,6 +66,8 @@ func TestAlignmentCustomIconContractMatrix(t *testing.T) {
 		{"skin-tone", "👍🏽", "👍🏽", 2},
 		{"flag", "🇺🇸", "🇺🇸", 2},
 		{"zwj", "👩‍💻", "👩‍💻", 2},
+		{"xiaomi-default", "ⓧ", "ⓧ ", 1},
+		{"nvidia-default", "Ⓝ", "Ⓝ ", 1},
 	}
 	for _, test := range icons {
 		for _, gap := range []int{0, 1, 3} {
