@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.14.3]
+
+- Add a Meta manufacturer icon for clearer provider identity.
+- Add configurable `table.name_width` support for CLI and TUI model tables.
+
 ## [1.14.0]
 
 - Сделать заголовки и значения таблицы моделей однозначнее для score, Q/P, контекста и цен.
