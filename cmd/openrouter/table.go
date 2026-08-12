@@ -613,8 +613,6 @@ func tableDisplayWidth(value string) int {
 func tableCluster(value string, start int) (int, int) {
 	index := start
 	r, size := utf8.DecodeRuneInString(value[index:])
-	base := r
-	clusterWidth := tableRuneWidth(r)
 	index += size
 	if tableIsRegionalIndicator(r) && index < len(value) {
 		next, nextSize := utf8.DecodeRuneInString(value[index:])
@@ -646,22 +644,18 @@ func tableCluster(value string, start int) (int, int) {
 		}
 	}
 	cluster := value[start:index]
-	width := tableClusterDisplayWidth(cluster, base)
-	if clusterWidth > width {
-		width = clusterWidth
-	}
-	return index, width
+	return index, tableClusterDisplayWidth(cluster)
 }
 
-func tableClusterDisplayWidth(cluster string, base rune) int {
+func tableClusterDisplayWidth(cluster string) int {
 	width := runewidth.StringWidth(cluster)
-	if !strings.ContainsRune(cluster, '\ufe0f') {
-		return width
+	r, _ := utf8.DecodeRuneInString(cluster)
+	if tableIsRegionalIndicator(r) {
+		// runewidth v0.0.16 reports regional-indicator graphemes as one cell,
+		// while terminal flag rendering uses the two-cell flag glyph width.
+		return max(2, width)
 	}
-	if !tableIsEmojiCapableBase(base) {
-		return runewidth.StringWidth(strings.ReplaceAll(cluster, "\ufe0f", ""))
-	}
-	return max(2, width)
+	return width
 }
 
 func tableIsRegionalIndicator(r rune) bool {
@@ -670,23 +664,6 @@ func tableIsRegionalIndicator(r rune) bool {
 
 func tableIsClusterContinuation(r rune) bool {
 	return r == '\ufe0e' || r == '\ufe0f' || (r >= 0x1f3fb && r <= 0x1f3ff) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
-}
-
-func tableIsEmojiCapableBase(r rune) bool {
-	return r == 0x00a9 || r == 0x00ae || r == 0x203c || r == 0x2049 || r == 0x2122 || r == 0x2139 || (r >= 0x2194 && r <= 0x21ff) || (r >= 0x2300 && r <= 0x24ff) || (r >= 0x2600 && r <= 0x27bf) || (r >= 0x2b00 && r <= 0x2bff) || (r >= 0x1f000 && r <= 0x1faff)
-}
-
-func tableRuneWidth(r rune) int {
-	if tableIsClusterContinuation(r) || r == '\u200d' {
-		return 0
-	}
-	if tableIsRegionalIndicator(r) {
-		return 2
-	}
-	if r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a || (r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) || (r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe10 && r <= 0xfe19) || (r >= 0xfe30 && r <= 0xfe6f) || (r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) || (r >= 0x1f300 && r <= 0x1faff)) {
-		return 2
-	}
-	return 1
 }
 
 func tablePrefix(value string, width int) string {

@@ -62,7 +62,7 @@ func TestAlignmentCustomIconContractMatrix(t *testing.T) {
 		{"ascii", "x", "x ", 1},
 		{"cjk", "界", "界", 2},
 		{"emoji", "🙂", "🙂", 2},
-		{"variation", "☁️", "☁️", 2},
+		{"variation", "☁️", "☁️ ", 1},
 		{"skin-tone", "👍🏽", "👍🏽", 2},
 		{"flag", "🇺🇸", "🇺🇸", 2},
 		{"zwj", "👩‍💻", "👩‍💻", 2},

@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## [1.14.11]
+
+- Use terminal-compatible display widths for variation-selector manufacturer icons while preserving a two-column icon slot.
+- Add CLI and TUI alignment contract coverage across terminal widths and configured icon variants.
+
 ## [1.14.10]
 
 - Align manufacturer icons and model table columns consistently in the CLI and TUI.
