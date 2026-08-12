@@ -10,8 +10,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -87,7 +89,7 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
 			gap := 1
-			wantManufacturer := test.icon + strings.Repeat(" ", gap) + test.name
+			wantManufacturer := manufacturerIconSlot(test.icon) + strings.Repeat(" ", gap) + test.name
 			wantIdentity := wantManufacturer + " " + row.DisplayName
 			if got := manufacturerDisplayWithIcons(row, icons); got != wantManufacturer {
 				t.Fatalf("manufacturer formatter = %q, want %q", got, wantManufacturer)
@@ -98,8 +100,8 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 			if got := tableDisplayWidth(test.icon); got != 2 {
 				t.Fatalf("icon display width = %d, want 2 for %q", got, test.icon)
 			}
-			if got := tableDisplayWidth(wantManufacturer); got != 2+gap+len(test.name) {
-				t.Fatalf("manufacturer display width = %d, want %d", got, 2+gap+len(test.name))
+			if got := tableDisplayWidth(wantManufacturer); got != tableDisplayWidth(manufacturerIconSlot(test.icon))+gap+len(test.name) {
+				t.Fatalf("manufacturer display width = %d, want %d", got, tableDisplayWidth(manufacturerIconSlot(test.icon))+gap+len(test.name))
 			}
 			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons); got != wantIdentity {
 				t.Fatalf("TUI identity = %q, want %q", got, wantIdentity)
@@ -126,14 +128,14 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
 			gap := 1
-			want := test.icon + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
+			want := manufacturerIconSlot(test.icon) + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
 			got := modelIdentityWithIcons(row, icons)
 			t.Logf("rendered identity: %q bytes=% x width=%d", got, []byte(got), tableDisplayWidth(got))
 			if got != want {
 				t.Fatalf("identity bytes = % x, want % x", []byte(got), []byte(want))
 			}
 			byteGap := strings.Index(got, " ")
-			if byteGap < 0 || tableDisplayWidth(got[:byteGap]) != 2 || got[byteGap:byteGap+1] != " " {
+			if byteGap < 0 || tableDisplayWidth(got[:byteGap]) != tableDisplayWidth(test.icon) || got[byteGap:byteGap+1] != " " {
 				t.Fatalf("identity icon gap at byte %d, display position %d: %q", byteGap, tableDisplayWidth(got[:byteGap]), got)
 			}
 			line := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40)
@@ -143,13 +145,13 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 			tui := tuiModel{width: 120, nameWidth: 40}
 			rendered := tui.renderTUILine([]tuiColumn{colName}, []string{tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons)}, false)
 			t.Logf("rendered CLI=%q TUI=%q", line, rendered)
-			marker := test.icon + strings.Repeat(" ", gap) + test.name
+			marker := manufacturerIconSlot(test.icon) + strings.Repeat(" ", gap) + test.name
 			index := strings.Index(rendered, marker)
-			if index < 0 || tableDisplayWidth(rendered[:index+len(test.icon)]) != 4 {
-				t.Fatalf("TUI gap display position = %d, want 4: %q", tableDisplayWidth(rendered[:index+len(test.icon)]), rendered)
+			if index < 0 || runewidth.StringWidth(rendered[:index+len(manufacturerIconSlot(test.icon))]) != 4 {
+				t.Fatalf("TUI gap display position = %d, want 4: %q", runewidth.StringWidth(rendered[:index+len(manufacturerIconSlot(test.icon))]), rendered)
 			}
-			if tableDisplayWidth(rendered[:index+len(marker)]) != 4+gap+tableDisplayWidth(test.name) {
-				t.Fatalf("TUI manufacturer position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(marker)]), 4+gap+tableDisplayWidth(test.name), rendered)
+			if runewidth.StringWidth(rendered[:index+len(marker)]) != 4+gap+runewidth.StringWidth(test.name) {
+				t.Fatalf("TUI manufacturer position = %d, want %d: %q", runewidth.StringWidth(rendered[:index+len(marker)]), 4+gap+runewidth.StringWidth(test.name), rendered)
 			}
 		})
 	}
@@ -165,7 +167,7 @@ func TestConfiguredIconGapIsSharedByCLIAndTUI(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/gap-%d", test.name, gap), func(t *testing.T) {
 				icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
 				row := model.Model{DisplayName: test.name + " Model", Owner: test.name}
-				want := test.icon + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
+				want := manufacturerIconSlot(test.icon) + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
 				if got := modelIdentityWithIconsAndGap(row, icons, gap); got != want {
 					t.Fatalf("identity = %q, want %q", got, want)
 				}
@@ -197,11 +199,11 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 	for _, rowData := range rows {
 		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
 		gap := config.TableConfig{IconGap: config.DefaultIconGap}.EffectiveIconGapFor(rowData.name)
-		want := rowData.icon + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
+		want := manufacturerIconSlot(rowData.icon) + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
 		if got := modelIdentityWithIcons(row, icons); got != want {
 			t.Errorf("%s bytes = % x, want % x", rowData.name, []byte(got), []byte(want))
 		}
-		if got := tableDisplayWidth(strings.Split(want, rowData.name)[0]); got != 2+gap {
+		if got := runewidth.StringWidth(strings.Split(want, rowData.name)[0]); got != 2+gap {
 			t.Errorf("%s boundary width = %d, want %d", rowData.name, got, 2+gap)
 		}
 	}
@@ -212,9 +214,46 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 		if rowData.name == "Mistral" {
 			wantGap = 3
 		}
-		want := rowData.icon + strings.Repeat(" ", wantGap) + rowData.name + " " + row.DisplayName
+		want := manufacturerIconSlot(rowData.icon) + strings.Repeat(" ", wantGap) + rowData.name + " " + row.DisplayName
 		if got := modelIdentityWithIconsAndGaps(row, icons, custom, 1); got != want {
 			t.Errorf("custom %s = %q, want %q", rowData.name, got, want)
+		}
+	}
+}
+
+func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
+	rows := []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
+	}
+	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸", "google": "🌐", "custom": "x"}, Unknown: "❔"}
+	for _, gap := range []int{0, 3} {
+		positions := make(map[string]int, len(rows))
+		for _, rowData := range rows {
+			row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+			got := modelIdentityWithIconsAndGap(row, icons, gap)
+			want := manufacturerIconSlot(rowData.icon) + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
+			if got != want {
+				t.Fatalf("gap=%d %s bytes = % x, want %x", gap, rowData.name, []byte(got), []byte(want))
+			}
+			nameStart := strings.Index(got, rowData.name)
+			positions[rowData.name] = runewidth.StringWidth(got[:nameStart])
+			if positions[rowData.name] != manufacturerIconSlotWidth+gap {
+				t.Fatalf("gap=%d %s name starts at column %d, want %d", gap, rowData.name, positions[rowData.name], manufacturerIconSlotWidth+gap)
+			}
+			if tui := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, icons, gap); tui != got {
+				t.Fatalf("gap=%d %s TUI bytes = % x, want %x", gap, rowData.name, []byte(tui), []byte(got))
+			}
+			if detail := tuiDetailLinesWithHistoryAndIconsAndGap(row, scoreSourceDefault, 80, time.Unix(0, 0), nil, icons, gap); !strings.Contains(strings.Join(detail, "\n"), "Производитель: "+got[:strings.Index(got, " "+row.DisplayName)]) {
+				t.Fatalf("gap=%d %s detail does not contain %q", gap, rowData.name, got)
+			}
+		}
+		custom := model.Model{DisplayName: "Custom Model", Owner: "Custom"}
+		got := modelIdentityWithIconsAndGap(custom, icons, gap)
+		want := manufacturerIconSlot("x") + strings.Repeat(" ", gap) + "Custom Custom Model"
+		if got != want || runewidth.StringWidth(got[:strings.Index(got, "Custom")]) != manufacturerIconSlotWidth+gap {
+			t.Fatalf("gap=%d custom bytes/position = % x/%d, want %x/%d", gap, []byte(got), runewidth.StringWidth(got[:strings.Index(got, "Custom")]), []byte(want), manufacturerIconSlotWidth+gap)
 		}
 	}
 }
@@ -222,12 +261,12 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
 	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
-	want := "Ⓜ️ Meta Meta Muse Spark 1.1"
+	want := "Ⓜ️  Meta Meta Muse Spark 1.1"
 	if got := modelIdentityWithIcons(row, icons); got != want {
 		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
 	}
-	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️ Meta" {
-		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️ Meta")
+	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️  Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️  Meta")
 	}
 	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 1); got != "Ⓜ️ Meta" {
 		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️ Meta")

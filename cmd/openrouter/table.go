@@ -778,6 +778,12 @@ func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
 	return icons.Icon(name)
 }
 
+const manufacturerIconSlotWidth = 2
+
+func manufacturerIconSlot(icon string) string {
+	return icon + strings.Repeat(" ", max(0, manufacturerIconSlotWidth-runewidth.StringWidth(icon)))
+}
+
 func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {
 	return manufacturerDisplayWithIconsAndGaps(m, icons, config.DefaultIconGaps(), int(config.DefaultIconGap))
 }
@@ -791,7 +797,7 @@ func manufacturerDisplayWithIconsAndGaps(m model.Model, icons config.IconConfig,
 	if name == "" {
 		return manufacturerBadgeWithIcons("", icons)
 	}
-	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, iconGaps.EffectiveGap(name, globalGap))
+	return manufacturerIconSlot(manufacturerBadgeWithIcons(name, icons)) + strings.Repeat(" ", iconGaps.EffectiveGap(name, globalGap)) + strings.TrimSpace(name)
 }
 
 func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {

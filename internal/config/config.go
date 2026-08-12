@@ -200,7 +200,7 @@ type TableConfig struct {
 	IconGaps    IconGaps  `yaml:"icon_gaps"`
 }
 
-// IconGap is the number of spaces between a manufacturer icon and its name.
+// IconGap is the number of spaces after the fixed manufacturer icon slot.
 type IconGap int
 
 const (
@@ -208,7 +208,7 @@ const (
 	MaxIconGap     IconGap = 8
 )
 
-// IconGaps overrides the icon-to-manufacturer gap for matching manufacturers.
+// IconGaps overrides the gap after the fixed icon slot for matching manufacturers.
 type IconGaps map[string]IconGap
 
 var defaultIconGaps = map[string]IconGap{}
