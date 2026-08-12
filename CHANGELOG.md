@@ -4,6 +4,10 @@
 
 - No unreleased changes.
 
+## [1.14.4]
+
+- Normalize manufacturer icon spacing and display width for consistent table alignment.
+
 ## [1.14.3]
 
 - Add a Meta manufacturer icon for clearer provider identity.
