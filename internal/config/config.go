@@ -196,6 +196,25 @@ type TableConfig struct {
 	Limit       int       `yaml:"limit"`
 	TaskFit     string    `yaml:"task_fit"`
 	NameWidth   NameWidth `yaml:"name_width"`
+	IconGap     IconGap   `yaml:"icon_gap"`
+}
+
+// IconGap is the number of spaces between a manufacturer icon and its name.
+type IconGap int
+
+const (
+	DefaultIconGap IconGap = 2
+	MaxIconGap     IconGap = 8
+)
+
+func (g *IconGap) UnmarshalYAML(value *yaml.Node) error {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value.Value))
+	if err != nil || parsed < 0 || parsed > int(MaxIconGap) {
+		*g = DefaultIconGap
+		return nil
+	}
+	*g = IconGap(parsed)
+	return nil
 }
 
 // NameWidth is the preferred display width of the first table/TUI column.
@@ -221,6 +240,13 @@ func (c TableConfig) EffectiveNameWidth() int {
 		return DefaultNameWidth
 	}
 	return int(c.NameWidth)
+}
+
+func (c TableConfig) EffectiveIconGap() int {
+	if c.IconGap < 0 || c.IconGap > MaxIconGap {
+		return int(DefaultIconGap)
+	}
+	return int(c.IconGap)
 }
 
 type TUIConfig struct {
@@ -361,6 +387,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  limit: 0\n" +
 	"  task_fit: short\n" +
 	"  name_width: 40\n" +
+	"  icon_gap: 2\n" +
 	"tui:\n" +
 	"  refresh_interval: 5m\n" +
 	"  sort: q/p\n" +
@@ -506,7 +533,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap(), Icons: DefaultIconConfig()}, nil
+		return Config{DefaultFilter: DefaultFilter, Table: TableConfig{IconGap: DefaultIconGap}, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap(), Icons: DefaultIconConfig()}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -543,6 +570,9 @@ func Load(path string) (Config, error) {
 	}
 	c.TUISteps = c.TUISteps.WithDefaults()
 	c.Icons = c.Icons.WithDefaults()
+	if !yamlNestedMappingHasKey(document, "table", "icon_gap") {
+		c.Table.IconGap = DefaultIconGap
+	}
 	if err := validateTUIKeymap(path, c.TUIKeymap); err != nil {
 		return Config{}, err
 	}

@@ -1443,6 +1443,13 @@ func TestTUISettingsLayoutTogglePersistsAndReloads(t *testing.T) {
 	}
 }
 
+func TestNewTUIModelUsesDefaultIconGap(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	if m.iconGap != int(config.DefaultIconGap) {
+		t.Fatalf("default TUI icon gap = %d, want %d", m.iconGap, config.DefaultIconGap)
+	}
+}
+
 func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("tui:\n  layout: top-paid-free\n  top_n: 7\n"), 0o644); err != nil {
@@ -1459,6 +1466,39 @@ func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
 	got := next.(tuiModel)
 	if got.layout != "top-paid-free" || got.topN != 7 {
 		t.Fatalf("refresh did not apply config: layout=%q topN=%d", got.layout, got.topN)
+	}
+}
+
+func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	row := model.Model{DisplayName: "OpenAI Model", Owner: "OpenAI"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.configPath, m.generation, m.iconGap = path, 1, 1
+	if got := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, m.icons, m.iconGap); !strings.Contains(got, "🌀 OpenAI") {
+		t.Fatalf("initial list identity = %q, want one gap", got)
+	}
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	message, ok := m.refreshCmd()().(tuiRefreshMsg)
+	if !ok || !message.iconGapSet || message.iconGap != 3 {
+		t.Fatalf("refresh message icon gap = %#v, want effective gap 3", message)
+	}
+	message.err = nil
+	next, _ := m.Update(message)
+	got := next.(tuiModel)
+	if got.iconGap != 3 {
+		t.Fatalf("refreshed icon gap = %d, want 3", got.iconGap)
+	}
+	if list := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, got.icons, got.iconGap); !strings.Contains(list, "🌀   OpenAI") {
+		t.Fatalf("refreshed list identity = %q, want three gaps", list)
+	}
+	detail := tuiDetailLinesWithHistoryAndIconsAndGap(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap)
+	if !strings.Contains(strings.Join(detail, "\n"), "Производитель: 🌀   OpenAI") {
+		t.Fatalf("refreshed detail does not use gap 3: %v", detail)
 	}
 }
 

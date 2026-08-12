@@ -128,6 +128,8 @@ type tuiRefreshMsg struct {
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
 	nameWidth             int
+	iconGap               int
+	iconGapSet            bool
 	filterFormExplicit    bool
 	filterDefaulted       bool
 	layout                string
@@ -203,6 +205,7 @@ type tuiModel struct {
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
 	nameWidth             int
+	iconGap               int
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
@@ -210,7 +213,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -261,6 +264,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.filterSteps = cfg.TUISteps
 		m.keymap = cfg.TUIKeymap
 		m.nameWidth = cfg.Table.EffectiveNameWidth()
+		m.iconGap = cfg.Table.EffectiveIconGap()
 		m.icons = cfg.Icons
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
 		m.filterFormExplicit = true
@@ -420,15 +424,19 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		filterSteps := m.filterSteps
 		keymap := m.keymap
 		nameWidth := m.nameWidth
+		iconGap := m.iconGap
+		iconGapSet := false
 		layout, topN := m.layout, m.topN
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
 			if err != nil {
-				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, err: err}
+				return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGapSet: iconGapSet, err: err}
 			}
 			filterSteps = cfg.TUISteps
 			keymap = cfg.TUIKeymap
 			nameWidth = cfg.Table.EffectiveNameWidth()
+			iconGap = cfg.Table.EffectiveIconGap()
+			iconGapSet = true
 			if cfg.TUI.Layout != "" {
 				layout = cfg.TUI.Layout
 			}
@@ -442,16 +450,16 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			}
 		}
 		if opts.OutputPath == "" {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, layout: layout, topN: topN, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGapSet: iconGapSet, layout: layout, topN: topN, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
 		}
 		_, err := refresh.Run(m.ctx, opts)
 		if err != nil {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, layout: layout, topN: topN, err: err}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGapSet: iconGapSet, layout: layout, topN: topN, err: err}
 		}
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, iconGap: iconGap, iconGapSet: iconGapSet, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -532,6 +540,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filterSteps = msg.filterSteps
 		if msg.nameWidth > 0 {
 			m.nameWidth = msg.nameWidth
+		}
+		if msg.iconGapSet {
+			m.iconGap = msg.iconGap
 		}
 		if msg.keymap != nil {
 			m.keymap = msg.keymap
@@ -651,7 +662,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.overlay, m.detailOffset = "", 0
 			return m, nil
 		}
-		maxOffset := tuiDetailMaxOffsetWithHistoryAndIcons(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons)
+		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGap(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap)
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
@@ -1510,7 +1521,7 @@ func (m tuiModel) View() string {
 			}
 			values := make([]string, len(columns))
 			for j, col := range columns {
-				values[j] = tuiCellWithIcons(m.visible[i], col, m.lastNote, m.scoreSource, m.icons)
+				values[j] = tuiCellWithIconsAndGap(m.visible[i], col, m.lastNote, m.scoreSource, m.icons, m.iconGap)
 			}
 			prefix := " "
 			if i == m.cursor {
@@ -2036,7 +2047,7 @@ func tuiDetailView(m tuiModel) string {
 	if !ok {
 		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
 	}
-	lines := tuiDetailLinesWithHistoryAndIcons(row, m.scoreSource, m.width, time.Now(), m.priceHistory, m.icons)
+	lines := tuiDetailLinesWithHistoryAndIconsAndGap(row, m.scoreSource, m.width, time.Now(), m.priceHistory, m.icons, m.iconGap)
 	body := tuiDetailBodyHeight(m.height)
 	offset := max(0, min(m.detailOffset, max(0, len(lines)-body)))
 	end := min(len(lines), offset+body)
@@ -2690,6 +2701,10 @@ func tuiDetailLinesWithHistory(m model.Model, scoreSource string, width int, now
 }
 
 func tuiDetailLinesWithHistoryAndIcons(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig) []string {
+	return tuiDetailLinesWithHistoryAndIconsAndGap(m, scoreSource, width, now, history, icons, int(config.DefaultIconGap))
+}
+
+func tuiDetailLinesWithHistoryAndIconsAndGap(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int) []string {
 	context := tuiDetailPlaceholder
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
@@ -2698,7 +2713,7 @@ func tuiDetailLinesWithHistoryAndIcons(m model.Model, scoreSource string, width 
 		tuiDetailValue(m.DisplayName) + " (" + tuiDetailValue(m.Slug) + ")",
 		"",
 		"-- Identity --",
-		"Производитель: " + tuiDetailValue(manufacturerDisplayWithIcons(m, icons)),
+		"Производитель: " + tuiDetailValue(manufacturerDisplayWithIconsAndGap(m, icons, iconGap)),
 		"Провайдер: " + tuiDetailValue(m.Provider),
 		"Лицензия: " + tuiDetailLicense(m),
 		"Тир: " + tuiDetailValue(m.Tier),
@@ -2797,7 +2812,11 @@ func tuiDetailMaxOffsetWithHistory(m model.Model, scoreSource string, width, hei
 }
 
 func tuiDetailMaxOffsetWithHistoryAndIcons(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig) int {
-	return max(0, len(tuiDetailLinesWithHistoryAndIcons(m, scoreSource, width, time.Now(), history, icons))-tuiDetailBodyHeight(height))
+	return tuiDetailMaxOffsetWithHistoryAndIconsAndGap(m, scoreSource, width, height, history, icons, int(config.DefaultIconGap))
+}
+
+func tuiDetailMaxOffsetWithHistoryAndIconsAndGap(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig, iconGap int) int {
+	return max(0, len(tuiDetailLinesWithHistoryAndIconsAndGap(m, scoreSource, width, time.Now(), history, icons, iconGap))-tuiDetailBodyHeight(height))
 }
 
 func (m *tuiModel) clampDetailOffset() {
@@ -2809,7 +2828,7 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetWithHistoryAndIcons(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons)))
+	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetWithHistoryAndIconsAndGap(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap)))
 }
 
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
@@ -2817,10 +2836,14 @@ func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string
 }
 
 func tuiCellWithIcons(m model.Model, col tuiColumn, note bool, scoreSource string, icons config.IconConfig) string {
+	return tuiCellWithIconsAndGap(m, col, note, scoreSource, icons, int(config.DefaultIconGap))
+}
+
+func tuiCellWithIconsAndGap(m model.Model, col tuiColumn, note bool, scoreSource string, icons config.IconConfig, iconGap int) string {
 	var value string
 	switch col {
 	case colName:
-		value = modelIdentityWithIcons(m, icons)
+		value = modelIdentityWithIconsAndGap(m, icons, iconGap)
 	case colSlug:
 		value = m.Slug
 	case colClaude:

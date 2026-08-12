@@ -52,11 +52,57 @@ func TestLoad(t *testing.T) {
 	if got.Table.EffectiveNameWidth() != DefaultNameWidth {
 		t.Fatalf("default name width = %d, want %d", got.Table.EffectiveNameWidth(), DefaultNameWidth)
 	}
+	if got.Table.EffectiveIconGap() != int(DefaultIconGap) {
+		t.Fatalf("default icon gap = %d, want %d", got.Table.EffectiveIconGap(), DefaultIconGap)
+	}
 	ttl, _ := got.Cache.EffectiveTTL()
 	timeout, _ := got.Cache.EffectiveRequestTimeout()
 	interval, _ := got.TUI.EffectiveRefreshInterval()
 	if ttl != DefaultCacheTTL || timeout != DefaultRequestTimeout || interval != DefaultTUIRefreshInterval {
 		t.Errorf("duration defaults = %v, %v, %v", ttl, timeout, interval)
+	}
+}
+
+func TestLoadMissingFileUsesDefaultIconGap(t *testing.T) {
+	got, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Table.IconGap != DefaultIconGap || got.Table.EffectiveIconGap() != int(DefaultIconGap) {
+		t.Fatalf("missing-file icon gap = %d/%d, want %d", got.Table.IconGap, got.Table.EffectiveIconGap(), DefaultIconGap)
+	}
+}
+
+func TestLoadEmptyFileUsesDefaultIconGap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.yaml")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Table.IconGap != DefaultIconGap || got.Table.EffectiveIconGap() != int(DefaultIconGap) {
+		t.Fatalf("empty-file icon gap = %d/%d, want %d", got.Table.IconGap, got.Table.EffectiveIconGap(), DefaultIconGap)
+	}
+}
+
+func TestIconGapUsesConfiguredRangeAndFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	for _, test := range []struct {
+		value string
+		want  int
+	}{
+		{"0", 0}, {"1", 1}, {"3", 3}, {"8", 8}, {"-1", int(DefaultIconGap)}, {"9", int(DefaultIconGap)}, {"invalid", int(DefaultIconGap)},
+	} {
+		body := "table:\n  icon_gap: " + test.value + "\n"
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load(path)
+		if err != nil || got.Table.EffectiveIconGap() != test.want {
+			t.Fatalf("icon gap %q = %d, err %v, want %d", test.value, got.Table.EffectiveIconGap(), err, test.want)
+		}
 	}
 }
 
@@ -157,7 +203,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 2") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }

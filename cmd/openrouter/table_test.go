@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -149,6 +150,38 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 				t.Fatalf("TUI manufacturer position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(marker)]), 6+tableDisplayWidth(test.name), rendered)
 			}
 		})
+	}
+}
+
+func TestConfiguredIconGapIsSharedByCLIAndTUI(t *testing.T) {
+	for _, gap := range []int{1, 3} {
+		for _, test := range []struct {
+			name, icon string
+		}{
+			{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
+		} {
+			t.Run(fmt.Sprintf("%s/gap-%d", test.name, gap), func(t *testing.T) {
+				icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
+				row := model.Model{DisplayName: test.name + " Model", Owner: test.name}
+				want := test.icon + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
+				if got := modelIdentityWithIconsAndGap(row, icons, gap); got != want {
+					t.Fatalf("identity = %q, want %q", got, want)
+				}
+				if got := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, icons, gap); got != want {
+					t.Fatalf("TUI identity = %q, want %q", got, want)
+				}
+				cli := renderTableModeWithIconsAndNameWidthAndGap([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40, gap)
+				if !strings.Contains(cli, want) {
+					t.Fatalf("CLI output missing %q:\n%s", want, cli)
+				}
+				narrow := renderTableModeWithIconsAndNameWidthAndGap([]model.Model{row}, 40, false, "short", scoreSourceDefault, icons, 40, gap)
+				for _, line := range strings.Split(strings.TrimSuffix(narrow, "\n"), "\n") {
+					if tableDisplayWidth(line) > 42 {
+						t.Fatalf("narrow CLI line width = %d: %q", tableDisplayWidth(line), line)
+					}
+				}
+			})
+		}
 	}
 }
 

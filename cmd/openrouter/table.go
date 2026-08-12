@@ -774,19 +774,27 @@ func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
 }
 
 func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {
+	return manufacturerDisplayWithIconsAndGap(m, icons, int(config.DefaultIconGap))
+}
+
+func manufacturerDisplayWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
 	name := manufacturerName(m)
 	if name == "" {
 		return manufacturerBadgeWithIcons("", icons)
 	}
-	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, 2)
+	return joinTerminalWords(manufacturerBadgeWithIcons(name, icons), name, iconGap)
 }
 
 func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {
-	return joinTerminalWords(manufacturerDisplayWithIcons(m, icons), m.DisplayName, 1)
+	return modelIdentityWithIconsAndGap(m, icons, int(config.DefaultIconGap))
+}
+
+func modelIdentityWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
+	return joinTerminalWords(manufacturerDisplayWithIconsAndGap(m, icons, iconGap), m.DisplayName, 1)
 }
 
 func joinTerminalWords(left, right string, gap int) string {
-	return strings.TrimRightFunc(left, unicode.IsSpace) + strings.Repeat(" ", max(1, gap)) + strings.TrimLeftFunc(right, unicode.IsSpace)
+	return strings.TrimRightFunc(left, unicode.IsSpace) + strings.Repeat(" ", max(0, gap)) + strings.TrimLeftFunc(right, unicode.IsSpace)
 }
 
 func plainTableText(value string) string {
@@ -839,6 +847,10 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 }
 
 func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth int) string {
+	return renderTableModeWithIconsAndNameWidthAndGap(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, int(config.DefaultIconGap))
+}
+
+func renderTableModeWithIconsAndNameWidthAndGap(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth, iconGap int) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -860,7 +872,7 @@ func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showS
 		if showSlug {
 			identity = m.Slug
 		} else {
-			identity = modelIdentityWithIcons(m, icons)
+			identity = modelIdentityWithIconsAndGap(m, icons, iconGap)
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}
