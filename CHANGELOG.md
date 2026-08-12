@@ -4,6 +4,13 @@
 
 - No unreleased changes.
 
+## [1.13.39]
+
+- Correct the Arena manufacturer/provider fallback so provider identity remains accurate when manufacturer metadata is incomplete.
+- Add ASCII producer badges to the CLI, TUI, and model detail views.
+- Show pricing history in the model detail view.
+- Move Task fit to the beginning of the model detail view.
+
 ## [1.13.38]
 
 - Redesign the model detail view with grouped sections, aligned metadata cells, and a calmer color palette for clearer scanning.
