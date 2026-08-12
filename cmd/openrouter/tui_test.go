@@ -320,6 +320,50 @@ func TestTUIMainCloseBindingsQuitThroughKeyEvents(t *testing.T) {
 	}
 }
 
+func TestTUIXQuitsMainWindow(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if cmd == nil {
+		t.Fatal("x in the main window did not return a quit command")
+	}
+	if msg := cmd(); msg != (tea.QuitMsg{}) {
+		t.Fatalf("x in the main window returned %T, want tea.QuitMsg", msg)
+	}
+
+	m.inputMode, m.input = "search", "draft"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(tuiModel)
+	if cmd == nil {
+		t.Fatal("x in the main search input did not return a quit command")
+	}
+	if msg := cmd(); msg != (tea.QuitMsg{}) {
+		t.Fatalf("x in the main search input returned %T, want tea.QuitMsg", msg)
+	}
+	if m.inputMode != "search" || m.input != "draft" {
+		t.Fatalf("x changed the main search input: mode=%q input=%q", m.inputMode, m.input)
+	}
+}
+
+func TestTUIXClosesChildWithoutQuitting(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m = tuiKey(m, "enter")
+	if m.overlay != "detail" {
+		t.Fatalf("Enter overlay = %q, want detail", m.overlay)
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(tuiModel)
+	if m.overlay != "" || cmd != nil {
+		t.Fatalf("x in child window = overlay %q, cmd %v; want parent and no quit", m.overlay, cmd)
+	}
+
+	m.overlay, m.inputMode, m.input = "filter", "filter", "draft"
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(tuiModel)
+	if m.overlay != "" || m.inputMode != "" || m.input != "" || cmd != nil {
+		t.Fatalf("x in modal input = overlay %q, mode %q, input %q, cmd %v; want parent and no quit", m.overlay, m.inputMode, m.input, cmd)
+	}
+}
+
 func TestTUIKeyState(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}})
 	m = tuiKey(m, "j")
@@ -1309,6 +1353,18 @@ func TestTUIInputModeKeepsNonASCIIInput(t *testing.T) {
 			if m.sortKey != beforeSort || m.overlay != beforeOverlay || m.ranking != beforeRanking || m.generation != beforeGeneration || m.refreshing != beforeRefreshing {
 				t.Fatalf("non-ASCII input %q in mode %q changed model state: sort=%q overlay=%q ranking=%q generation=%d refreshing=%v", key, mode, m.sortKey, m.overlay, m.ranking, m.generation, m.refreshing)
 			}
+		}
+	}
+}
+
+func TestTUIInputModeKeepsCyrillicChe(t *testing.T) {
+	for _, mode := range []string{"search", "filter"} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+		m.inputMode = mode
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч")})
+		m = next.(tuiModel)
+		if m.input != "ч" || m.inputMode != mode || cmd != nil {
+			t.Fatalf("Cyrillic ч in %s input = %q, mode %q, cmd %v; want text input", mode, m.input, m.inputMode, cmd != nil)
 		}
 	}
 }
