@@ -203,7 +203,7 @@ type TableConfig struct {
 type IconGap int
 
 const (
-	DefaultIconGap IconGap = 2
+	DefaultIconGap IconGap = 1
 	MaxIconGap     IconGap = 8
 )
 
@@ -387,7 +387,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  limit: 0\n" +
 	"  task_fit: short\n" +
 	"  name_width: 40\n" +
-	"  icon_gap: 2\n" +
+	"  icon_gap: 1\n" +
 	"tui:\n" +
 	"  refresh_interval: 5m\n" +
 	"  sort: q/p\n" +

@@ -2570,7 +2570,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		t.Errorf("header = %q, want the display name and the slug", lines[0])
 	}
 	for _, want := range []string{
-		"Производитель: 🌀  OpenAI (C)",
+		"Производитель: 🌀 OpenAI (C)",
 		"Провайдер: n/a",
 		"Лицензия: нет",
 		"Описание:",

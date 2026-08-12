@@ -52,8 +52,8 @@ func TestLoad(t *testing.T) {
 	if got.Table.EffectiveNameWidth() != DefaultNameWidth {
 		t.Fatalf("default name width = %d, want %d", got.Table.EffectiveNameWidth(), DefaultNameWidth)
 	}
-	if got.Table.EffectiveIconGap() != int(DefaultIconGap) {
-		t.Fatalf("default icon gap = %d, want %d", got.Table.EffectiveIconGap(), DefaultIconGap)
+	if got.Table.EffectiveIconGap() != 1 {
+		t.Fatalf("default icon gap = %d, want 1", got.Table.EffectiveIconGap())
 	}
 	ttl, _ := got.Cache.EffectiveTTL()
 	timeout, _ := got.Cache.EffectiveRequestTimeout()
@@ -68,8 +68,8 @@ func TestLoadMissingFileUsesDefaultIconGap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Table.IconGap != DefaultIconGap || got.Table.EffectiveIconGap() != int(DefaultIconGap) {
-		t.Fatalf("missing-file icon gap = %d/%d, want %d", got.Table.IconGap, got.Table.EffectiveIconGap(), DefaultIconGap)
+	if got.Table.IconGap != 1 || got.Table.EffectiveIconGap() != 1 {
+		t.Fatalf("missing-file icon gap = %d/%d, want 1", got.Table.IconGap, got.Table.EffectiveIconGap())
 	}
 }
 
@@ -82,8 +82,8 @@ func TestLoadEmptyFileUsesDefaultIconGap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Table.IconGap != DefaultIconGap || got.Table.EffectiveIconGap() != int(DefaultIconGap) {
-		t.Fatalf("empty-file icon gap = %d/%d, want %d", got.Table.IconGap, got.Table.EffectiveIconGap(), DefaultIconGap)
+	if got.Table.IconGap != 1 || got.Table.EffectiveIconGap() != 1 {
+		t.Fatalf("empty-file icon gap = %d/%d, want 1", got.Table.IconGap, got.Table.EffectiveIconGap())
 	}
 }
 
@@ -93,7 +93,7 @@ func TestIconGapUsesConfiguredRangeAndFallback(t *testing.T) {
 		value string
 		want  int
 	}{
-		{"0", 0}, {"1", 1}, {"3", 3}, {"8", 8}, {"-1", int(DefaultIconGap)}, {"9", int(DefaultIconGap)}, {"invalid", int(DefaultIconGap)},
+		{"0", 0}, {"1", 1}, {"3", 3}, {"8", 8}, {"-1", 1}, {"9", 1}, {"invalid", 1},
 	} {
 		body := "table:\n  icon_gap: " + test.value + "\n"
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -203,7 +203,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 2") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }
