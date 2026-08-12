@@ -8,7 +8,7 @@
 - [На что обратить внимание](#на-что-обратить-внимание)
 - [Бесплатные модели (рейтинг по качеству)](#бесплатные-модели-рейтинг-по-качеству)
 
-Обновлено: 2026-08-11 (цены и контекст получены из каталога OpenRouter (/api/v1/models), оценки — с vals.ai и swebench.com по ручной карте model-map.tsv (21 запись vals=, 6 записей swebench=); остальные числа заданы вручную в notes.yaml и помечены как вендорские)
+Обновлено: 2026-08-12 (цены и контекст получены из каталога OpenRouter (/api/v1/models), оценки — с vals.ai и swebench.com по ручной карте model-map.tsv (21 запись vals=, 6 записей swebench=); остальные числа заданы вручную в notes.yaml и помечены как вендорские)
 
 ## Фавориты по категориям (относительно уровня Claude)
 
@@ -21,14 +21,14 @@
   Provenance: raw=93; metric=SWE-bench Verified; unit=%; variant=openai/gpt-5.6-luna; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=OpenAI; configuration=n/a
 | ↳ второй выбор | openai/gpt-5.6-terra | $1.00 / $6.00 ($2.00 / $9.00 от 272K+) · 1.1M | 75.2% | 33.4 | _нужен обзор_ | _нужен обзор_ | _нужен обзор_ |
   Provenance: raw=75.2; metric=SWE-bench Verified; unit=%; variant=openai/gpt-5.6-terra; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=OpenAI; configuration=n/a
-| ≈ Sonnet 5 | DeepSeek V4 Pro | $0.65 / $1.30 · 1M | 77.4% | 95.1 | DeepSeek (F) | **да, MIT** | _нужен обзор_ |
+| ≈ Sonnet 5 | DeepSeek V4 Pro | $1.17 / $2.34 · 1M | 77.4% | 53.0 | DeepSeek (F) | **да, MIT** | _нужен обзор_ |
   Provenance: raw=77.4; metric=SWE-bench Verified; unit=%; variant=deepseek/deepseek-v4-pro; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=DeepSeek; configuration=n/a
 | ↳ второй выбор | Gemini 3.6 Flash | $1.50 / $7.50 · 1M | 79.6% | 26.5 | Google DeepMind (C) | нет | _нужен обзор_ |
   Provenance: raw=79.6; metric=SWE-bench Verified; unit=%; variant=google/gemini-3.6-flash; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Google; configuration=n/a
 | <≈ Haiku 4.5 | Xiaomi MiMo-V2.5 | $0.14 / $0.28 · 1.1M | 71.0% | 406 | Xiaomi (n/a) | **да, MIT** | _нужен обзор_ |
   Provenance: raw=71; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
-| ↳ второй выбор | Xiaomi MiMo-V2.5-Pro | $0.44 / $0.87 · 1.1M | 78.9% | 145 | Xiaomi (n/a) | **да, MIT** | _нужен обзор_ |
-  Provenance: raw=78.9; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5-pro; identity=exact_product; checked=2026-08-08; source=https://huggingface.co/XiaomiMiMo; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
+| ↳ второй выбор | Xiaomi MiMo-V2.5-Pro | $0.44 / $0.87 · 1.1M | 74.0% | 136 | Xiaomi (n/a) | **да, MIT** | _нужен обзор_ |
+  Provenance: raw=74; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5-pro; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
 
 ## Цены Claude (справочно)
 
@@ -86,7 +86,7 @@
 
 | Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Примечание |
 |---|---|---|---|---|---|---|---|---|---|
-| DeepSeek V4 Pro | deepseek/deepseek-v4-pro | $0.65 | $1.30 | 1M | 77.4% | 95.1 | DeepSeek (F) | **да, MIT** | Заявленная оценка ~80.6% измерена для варианта «V4-Pro-Max», которого на OpenRouter не существует — это не тот продукт, что продаётся под `deepseek/deepseek-v4-pro`. Для реального продукта теперь есть независимая оценка на vals.ai (77.4%). |
+| DeepSeek V4 Pro | deepseek/deepseek-v4-pro | $1.17 | $2.34 | 1M | 77.4% | 53.0 | DeepSeek (F) | **да, MIT** | Заявленная оценка ~80.6% измерена для варианта «V4-Pro-Max», которого на OpenRouter не существует — это не тот продукт, что продаётся под `deepseek/deepseek-v4-pro`. Для реального продукта теперь есть независимая оценка на vals.ai (77.4%). |
   Provenance: raw=77.4; metric=SWE-bench Verified; unit=%; variant=deepseek/deepseek-v4-pro; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=DeepSeek; configuration=n/a
 | Gemini 3.6 Flash | google/gemini-3.6-flash | $1.50 | $7.50 | 1M | 79.6% | 26.5 | Google DeepMind (C) | нет | Независимая оценка SWE-bench Verified теперь есть на vals.ai (79.6%) — на официальной странице Google DeepMind по-прежнему только **SWE-bench Pro 58.7% (другая метрика)**. Прошлая версия использовала прокси-оценку ~78%, взятую у предшественника (Gemini 3 Flash Preview, замену которого 3.6 Flash собой представляет): по правилу «оценка другого продукта не переносится» она в ранжирование не пошла — в «Качество/цена» теперь идёт независимое число с vals.ai. GitHub Copilot отключает старый slug (Gemini 3 Flash, вместе с Gemini 2.5 Pro) 2026-07-31 — подтверждено по changelog GitHub. |
   Provenance: raw=79.6; metric=SWE-bench Verified; unit=%; variant=google/gemini-3.6-flash; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Google; configuration=n/a
@@ -98,7 +98,7 @@
   Provenance: raw=75; metric=SWE-bench Verified; unit=%; variant=minimax/MiniMax-M3; identity=variant_mismatch; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=MiniMax; configuration=n/a
 | qwen/qwen3.7-plus | qwen/qwen3.7-plus | $0.32 ($0.96 от 256K+) | $1.28 ($3.84 от 256K+) | 1M | n/a | n/a (no SWE-bench Verified score) | _нужен обзор_ | _нужен обзор_ | _нужен обзор_ |
   Provenance: raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
-| GLM-5.2 | z-ai/glm-5.2 | $0.76 | $2.42 | 1M | 82.8% [variant_mismatch] | n/a (variant mismatch) | Z.ai / Zhipu AI (D−) | **да, MIT** | Официальная документация Z.AI SWE-bench Verified не публикует — там только SWE-bench Pro 62.1% и Terminal-Bench 2.1 81.0% (другие метрики). Независимая оценка SWE-bench Verified есть на vals.ai (82.8%). Модель по-прежнему сильна в агентных задачах. |
+| GLM-5.2 | z-ai/glm-5.2 | $0.50 | $3.15 | 1M | 82.8% [variant_mismatch] | n/a (variant mismatch) | Z.ai / Zhipu AI (D−) | **да, MIT** | Официальная документация Z.AI SWE-bench Verified не публикует — там только SWE-bench Pro 62.1% и Terminal-Bench 2.1 81.0% (другие метрики). Независимая оценка SWE-bench Verified есть на vals.ai (82.8%). Модель по-прежнему сильна в агентных задачах. |
   Provenance: raw=82.8; metric=SWE-bench Verified; unit=%; variant=zai/glm-5.2; identity=variant_mismatch; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Zhipu AI; configuration=n/a
 | Meta Muse Spark 1.1 | meta/muse-spark-1.1 | $1.25 | $4.25 | 1M | 82.0% [variant_mismatch] | n/a (variant mismatch) | Meta (D+) | нет | Флагман Meta вместо бренда Llama; 77.4% — заявка самой Meta, независимого подтверждения нет. Цифру SWE-bench Verified Hard 42.9% **не удалось проверить на 2026-07-30** (исходный PDF не читается, часть обзоров её вообще не упоминает) — оставлена с прошлой версии; сторонние обзоры дают только SWE-bench Pro 52.4–61.5% и Terminal-Bench. |
   Provenance: raw=82; metric=SWE-bench Verified; unit=%; variant=meta/muse_spark_1_1; identity=variant_mismatch; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Meta; configuration=n/a
@@ -119,8 +119,8 @@
 |---|---|---|---|---|---|---|---|---|---|
 | Xiaomi MiMo-V2.5 | xiaomi/mimo-v2.5 | $0.14 | $0.28 | 1.1M | 71.0% | 406 | Xiaomi (n/a) | **да, MIT** | Базовая версия MiMo (311B — отдельная модель, не «дешёвый режим» 1T-варианта Pro). Оценки по SWE-bench Verified по-прежнему нет; есть SWE-bench Pro 56.1% (другая метрика). Цена: типовая $0.14/$0.28 — прошлая версия показывала $0.112/$0.224, это маршрут GMICloud (скидка 20%). |
   Provenance: raw=71; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
-| Xiaomi MiMo-V2.5-Pro | xiaomi/mimo-v2.5-pro | $0.44 | $0.87 | 1.1M | 78.9% | 145 | Xiaomi (n/a) | **да, MIT** | **Метрика заменена в этом обновлении**: появилась оценка именно по SWE-bench Verified — 78.9%, и именно для варианта "MiMo-V2.5-Pro". Но источник — PR «community evaluation results», влитый в HF-репозиторий самой модели: это вендор-хостинг чужого прогона, а не чистый сторонний лидерборд, **достоверность низкая** — ранжирование этой строки принимайте с осторожностью. Прежняя цифра SWE-bench Pro 57.2% никуда не делась и остаётся в силе как дополнительная точка (другая метрика, в ранжирование не идёт). Цена: типовая $0.435/$0.87 — прошлая версия показывала $0.348/$0.696, это маршрут GMICloud (скидка 20%). По данным на 2026-07-28 — #1 модель по доле трафика в категории "coding" на OpenRouter (18%). |
-  Provenance: raw=78.9; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5-pro; identity=exact_product; checked=2026-08-08; source=https://huggingface.co/XiaomiMiMo; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
+| Xiaomi MiMo-V2.5-Pro | xiaomi/mimo-v2.5-pro | $0.44 | $0.87 | 1.1M | 74.0% | 136 | Xiaomi (n/a) | **да, MIT** | **Метрика заменена в этом обновлении**: появилась оценка именно по SWE-bench Verified — 78.9%, и именно для варианта "MiMo-V2.5-Pro". Но источник — PR «community evaluation results», влитый в HF-репозиторий самой модели: это вендор-хостинг чужого прогона, а не чистый сторонний лидерборд, **достоверность низкая** — ранжирование этой строки принимайте с осторожностью. Прежняя цифра SWE-bench Pro 57.2% никуда не делась и остаётся в силе как дополнительная точка (другая метрика, в ранжирование не идёт). Цена: типовая $0.435/$0.87 — прошлая версия показывала $0.348/$0.696, это маршрут GMICloud (скидка 20%). По данным на 2026-07-28 — #1 модель по доле трафика в категории "coding" на OpenRouter (18%). |
+  Provenance: raw=74; metric=SWE-bench Verified; unit=%; variant=xiaomi/mimo-v2.5-pro; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Xiaomi; configuration=n/a
 | Mistral Large 3 | mistralai/mistral-large-2512 | $0.50 | $1.50 | 262K | 41.4% | 55.2 | Mistral AI (F) | **да, Apache 2.0** | Универсальный флагман Mistral; преемника (Large 4) на дату проверки не существует, анонсов нет. Независимая оценка SWE-bench Verified есть на vals.ai (41.4%). |
   Provenance: raw=41.4; metric=SWE-bench Verified; unit=%; variant=mistralai/mistral-large-2512; identity=exact_product; checked=2026-08-08; source=https://www.vals.ai/benchmarks/swebench; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=Mistral AI; configuration=n/a
 | nvidia/nemotron-3-ultra-550b-a55b | nvidia/nemotron-3-ultra-550b-a55b | $0.60 | $3.60 | 512K | 69.0% | 51.1 | _нужен обзор_ | _нужен обзор_ | _нужен обзор_ |
@@ -185,13 +185,13 @@
 
 | Модель | Чисто вход (M на $10) | Чисто выход (M на $10) | Смешанный (M на $10) |
 |---|---|---|---|
-| DeepSeek V4 Pro | 15.4 | 7.68 | 12.3 |
+| DeepSeek V4 Pro | 8.56 | 4.28 | 6.85 |
 | Gemini 3.6 Flash | 6.67 | 1.33 | 3.33 |
 | Gemini 3.1 Pro Preview | 5.00 | 0.83 | 2.22 |
 | qwen/qwen3.7-flash | 333 | 76.9 | 182 |
 | MiniMax M3 | 33.3 | 8.33 | 19.0 |
 | qwen/qwen3.7-plus | 31.2 | 7.81 | 17.9 |
-| GLM-5.2 | 13.2 | 4.13 | 8.51 |
+| GLM-5.2 | 20.0 | 3.17 | 8.60 |
 | Meta Muse Spark 1.1 | 8.00 | 2.35 | 5.00 |
 | Qwen3.7 Max | 6.78 | 2.26 | 4.52 |
 | Mistral Medium 3.5 | 6.67 | 1.33 | 3.33 |
