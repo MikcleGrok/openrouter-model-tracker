@@ -49,6 +49,9 @@ func TestLoad(t *testing.T) {
 	if got.Cache.EffectiveDir() != DefaultCacheDir || got.Table.Limit != 0 || got.TUI.Limit != 0 {
 		t.Errorf("operational defaults = cache %q, table limit %d, tui limit %d", got.Cache.EffectiveDir(), got.Table.Limit, got.TUI.Limit)
 	}
+	if got.Table.EffectiveNameWidth() != DefaultNameWidth {
+		t.Fatalf("default name width = %d, want %d", got.Table.EffectiveNameWidth(), DefaultNameWidth)
+	}
 	ttl, _ := got.Cache.EffectiveTTL()
 	timeout, _ := got.Cache.EffectiveRequestTimeout()
 	interval, _ := got.TUI.EffectiveRefreshInterval()
@@ -69,6 +72,37 @@ func TestLoadIconsUsesDefaultsAndCustomOverrides(t *testing.T) {
 	}
 	if got.Icons.Icon(" OpenAI Labs ") != "🧩" || got.Icons.Icon("Anthropic") != "🔶" || got.Icons.Icon("Unknown") != "❔" {
 		t.Fatalf("icons = %+v", got.Icons)
+	}
+}
+
+func TestLoadIconsAllowsCustomMetaIcon(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("icons:\n  manufacturers:\n    meta: '🧪'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || got.Icons.Icon("Meta AI") != "🧪" {
+		t.Fatalf("custom Meta icon = %q, err %v", got.Icons.Icon("Meta AI"), err)
+	}
+}
+
+func TestNameWidthUsesConfiguredValueAndFallsBackSafely(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("table:\n  name_width: 72\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || got.Table.EffectiveNameWidth() != 72 {
+		t.Fatalf("configured name width = %d, err %v", got.Table.EffectiveNameWidth(), err)
+	}
+	for _, value := range []string{"0", "-4", "121", "not-a-number"} {
+		if err := os.WriteFile(path, []byte("table:\n  name_width: "+value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load(path)
+		if err != nil || got.Table.EffectiveNameWidth() != DefaultNameWidth {
+			t.Fatalf("fallback for %q = %d, err %v", value, got.Table.EffectiveNameWidth(), err)
+		}
 	}
 }
 
@@ -123,7 +157,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "openai: '🌀'") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }

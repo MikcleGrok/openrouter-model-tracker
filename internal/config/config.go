@@ -46,7 +46,7 @@ type IconConfig struct {
 }
 
 var defaultManufacturerIcons = map[string]string{
-	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "♾️",
+	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "Ⓜ️",
 	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀",
 }
 
@@ -190,11 +190,37 @@ type CacheConfig struct {
 }
 
 type TableConfig struct {
-	Sort        string `yaml:"sort"`
-	Ranking     string `yaml:"ranking"`
-	ScoreSource string `yaml:"score_source"`
-	Limit       int    `yaml:"limit"`
-	TaskFit     string `yaml:"task_fit"`
+	Sort        string    `yaml:"sort"`
+	Ranking     string    `yaml:"ranking"`
+	ScoreSource string    `yaml:"score_source"`
+	Limit       int       `yaml:"limit"`
+	TaskFit     string    `yaml:"task_fit"`
+	NameWidth   NameWidth `yaml:"name_width"`
+}
+
+// NameWidth is the preferred display width of the first table/TUI column.
+type NameWidth int
+
+const (
+	DefaultNameWidth = 40
+	MaxNameWidth     = 120
+)
+
+func (w *NameWidth) UnmarshalYAML(value *yaml.Node) error {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value.Value))
+	if err != nil || parsed <= 0 || parsed > MaxNameWidth {
+		*w = DefaultNameWidth
+		return nil
+	}
+	*w = NameWidth(parsed)
+	return nil
+}
+
+func (c TableConfig) EffectiveNameWidth() int {
+	if c.NameWidth <= 0 || c.NameWidth > MaxNameWidth {
+		return DefaultNameWidth
+	}
+	return int(c.NameWidth)
 }
 
 type TUIConfig struct {
@@ -314,7 +340,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75,has-q/p,availability:paid\n" +
 	"icons:\n" +
-	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: '♾️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀'}\n" +
+	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: 'Ⓜ️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀'}\n" +
 	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
@@ -334,6 +360,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  score_source: swebench\n" +
 	"  limit: 0\n" +
 	"  task_fit: short\n" +
+	"  name_width: 40\n" +
 	"tui:\n" +
 	"  refresh_interval: 5m\n" +
 	"  sort: q/p\n" +

@@ -127,6 +127,7 @@ type tuiRefreshMsg struct {
 	filter                string
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
+	nameWidth             int
 	filterFormExplicit    bool
 	filterDefaulted       bool
 	layout                string
@@ -201,6 +202,7 @@ type tuiModel struct {
 	rankingConfigSet      bool
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
+	nameWidth             int
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
@@ -208,7 +210,7 @@ type tuiModel struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -258,6 +260,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		}
 		m.filterSteps = cfg.TUISteps
 		m.keymap = cfg.TUIKeymap
+		m.nameWidth = cfg.Table.EffectiveNameWidth()
 		m.icons = cfg.Icons
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
 		m.filterFormExplicit = true
@@ -416,6 +419,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		filter, filterFormExplicit, filterDefaulted := m.filter, m.filterFormExplicit, m.filterDefaulted
 		filterSteps := m.filterSteps
 		keymap := m.keymap
+		nameWidth := m.nameWidth
 		layout, topN := m.layout, m.topN
 		if m.configPath != "" {
 			cfg, err := config.Load(m.configPath)
@@ -424,6 +428,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			}
 			filterSteps = cfg.TUISteps
 			keymap = cfg.TUIKeymap
+			nameWidth = cfg.Table.EffectiveNameWidth()
 			if cfg.TUI.Layout != "" {
 				layout = cfg.TUI.Layout
 			}
@@ -446,7 +451,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -525,6 +530,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.priceHistory = history
 		m.filterSteps = msg.filterSteps
+		if msg.nameWidth > 0 {
+			m.nameWidth = msg.nameWidth
+		}
 		if msg.keymap != nil {
 			m.keymap = msg.keymap
 		}
@@ -1607,7 +1615,14 @@ func (m tuiModel) renderColumns() []tuiColumn {
 }
 
 func (m tuiModel) tuiColumnsWidth(columns []tuiColumn) int {
-	return tableDisplayWidth("  ") + len(columns) + 3*(len(columns)-1)
+	if m.width > 0 && m.width < 40 {
+		return tableDisplayWidth("  ") + len(columns) + 3*(len(columns)-1)
+	}
+	width := tableDisplayWidth("  ") + 3*(len(columns)-1)
+	for _, column := range columns {
+		width += tuiColumnMinimumWidth(column, m.scoreSource)
+	}
+	return width
 }
 
 func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected bool) string {
@@ -1621,7 +1636,7 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 		}
 	}
 	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	widths := tuiCellWidths(columns, available)
+	widths := tuiCellWidths(columns, available, m.nameWidth, m.scoreSource)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
 		value := tuiColumnLabel(col, m.scoreSource)
@@ -1638,7 +1653,7 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
 }
 
-func tuiCellWidths(columns []tuiColumn, available int) []int {
+func tuiCellWidths(columns []tuiColumn, available, nameWidth int, scoreSource string) []int {
 	widths := make([]int, len(columns))
 	if len(columns) == 0 {
 		return widths
@@ -1649,28 +1664,57 @@ func tuiCellWidths(columns []tuiColumn, available int) []int {
 		}
 		return widths
 	}
-	weights := 0
-	for _, column := range columns {
-		if column == colName {
-			weights += 2
-			continue
+	if nameWidth <= 0 {
+		nameWidth = config.DefaultNameWidth
+	}
+	minimums := make([]int, len(columns))
+	minimumWidth := 0
+	for i, column := range columns {
+		minimums[i] = tuiColumnMinimumWidth(column, scoreSource)
+		minimumWidth += minimums[i]
+	}
+	if minimumWidth > available {
+		for i := range widths {
+			widths[i] = 1
 		}
-		weights++
+		return widths
+	}
+	nameIndex := -1
+	for i, column := range columns {
+		if column == colName {
+			nameIndex = i
+			break
+		}
 	}
 	remaining := available
-	for i, column := range columns {
-		weight := 1
-		if column == colName {
-			weight = 2
+	if nameIndex >= 0 {
+		otherMinimum := minimumWidth - minimums[nameIndex]
+		widths[nameIndex] = min(max(minimums[nameIndex], nameWidth), max(minimums[nameIndex], available-otherMinimum))
+		remaining -= widths[nameIndex]
+	}
+	for i := range columns {
+		if i == nameIndex {
+			continue
 		}
-		widths[i] = max(1, available*weight/weights)
+		widths[i] = minimums[i]
 		remaining -= widths[i]
 	}
 	for i := 0; remaining > 0; i++ {
-		widths[i%len(widths)]++
+		index := i % len(widths)
+		if index == nameIndex && len(widths) > 1 {
+			continue
+		}
+		widths[index]++
 		remaining--
 	}
 	return widths
+}
+
+func tuiColumnMinimumWidth(column tuiColumn, scoreSource string) int {
+	if scoreSource == "" {
+		scoreSource = scoreSourceDefault
+	}
+	return max(1, tableDisplayWidth(tuiColumnLabel(column, scoreSource)))
 }
 
 func tuiNumericColumn(column tuiColumn) bool {

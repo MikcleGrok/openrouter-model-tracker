@@ -40,7 +40,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	for _, test := range []struct{ name, badge string }{
 		{" OpenAI  Labs ", "🌀"}, {"ANTHROPIC", "🔶"}, {"Google DeepMind", "🌐"},
-		{"Meta AI", "♾️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
+		{"Meta AI", "Ⓜ️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
 		{"xAI", "🚀"}, {"  ", "❔"}, {"Unknown vendor", "❔"},
 	} {
 		if got := manufacturerBadge(test.name); got != test.badge {
@@ -113,6 +113,23 @@ func TestManufacturerBadgeUsesConfiguredMapping(t *testing.T) {
 	}
 	if got := manufacturerBadgeWithIcons("Unknown Vendor", icons); got != "❓" {
 		t.Fatalf("configured unknown icon = %q", got)
+	}
+}
+
+func TestRenderTableUsesConfiguredNameWidth(t *testing.T) {
+	row := model.Model{DisplayName: "A deliberately long model name", Owner: "OpenAI"}
+	output := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 120, false, "short", scoreSourceDefault, config.DefaultIconConfig(), 24)
+	if got := firstTableColumnWidth(output); got != 24 {
+		t.Fatalf("configured Name column width = %d, want 24:\n%s", got, output)
+	}
+}
+
+func TestRenderTableConfiguredNameWidthIsBoundedByViewport(t *testing.T) {
+	output := renderTableModeWithIconsAndNameWidth([]model.Model{{DisplayName: "model"}}, 40, false, "short", scoreSourceDefault, config.DefaultIconConfig(), 100)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if got := tableDisplayWidth(line); got > 42 {
+			t.Fatalf("configured Name column exceeded the table border budget: %d: %q", got, line)
+		}
 	}
 }
 

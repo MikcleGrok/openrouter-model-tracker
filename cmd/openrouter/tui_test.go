@@ -56,6 +56,21 @@ func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
 	}
 }
 
+func TestTUIUsesConfiguredNameWidthAndClipsToViewport(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{DisplayName: "A long model name", Owner: "OpenAI"}})
+	m.nameWidth = 28
+	m.width = 100
+	line := m.renderTUILine([]tuiColumn{colName, colStatus}, []string{"Ⓜ️ Meta A long model name", "90%"}, false)
+	if !strings.Contains(line, "90%") || tableDisplayWidth(line) > 100 {
+		t.Fatalf("configured TUI name width rendered unsafely: %q", line)
+	}
+	m.width = 12
+	line = m.renderTUILine([]tuiColumn{colName, colStatus}, []string{"Ⓜ️ Meta A long model name", "90%"}, false)
+	if tableDisplayWidth(line) > 12 {
+		t.Fatalf("narrow TUI line exceeds viewport: %d: %q", tableDisplayWidth(line), line)
+	}
+}
+
 func TestTUIUsesConfiguredKeymapAndRendersItInHelp(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.keymap = config.DefaultTUIKeymap()
@@ -1851,6 +1866,35 @@ func TestTUIViewBoundaryWidthHidesColumnsBeforeRendering(t *testing.T) {
 	for _, line := range tableLines[1:] {
 		if got := tuiSeparatorDisplayOffsets(line); !reflect.DeepEqual(got, headerOffsets) {
 			t.Fatalf("boundary table geometry differs: header=%v row=%v: %q", headerOffsets, got, line)
+		}
+	}
+}
+
+func TestTUIViewportPreservesDisplayedSourceAwareHeaders(t *testing.T) {
+	for _, test := range []struct {
+		width  int
+		source string
+		want   string
+	}{
+		{80, scoreSourceSWEBench, "SWE %"},
+		{96, scoreSourceArena, "Arena Elo"},
+		{120, scoreSourceSWEBench, "Q/P score/$M"},
+	} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+		m.width, m.scoreSource = test.width, test.source
+		columns := m.renderColumns()
+		header := m.renderTUILine(columns, nil, false)
+		if lipgloss.Width(header) > test.width {
+			t.Fatalf("width %d produced a %d-column header: %q", test.width, lipgloss.Width(header), header)
+		}
+		if !strings.Contains(header, test.want) {
+			t.Fatalf("width %d source %s lost displayed header %q: columns=%v header=%q", test.width, test.source, test.want, columns, header)
+		}
+		for _, column := range columns {
+			label := tuiColumnLabel(column, test.source)
+			if !strings.Contains(header, label) {
+				t.Fatalf("width %d source %s truncated displayed header %q: columns=%v header=%q", test.width, test.source, label, columns, header)
+			}
 		}
 	}
 }

@@ -668,7 +668,7 @@ func tableIsClusterContinuation(r rune) bool {
 }
 
 func tableIsEmojiCapableBase(r rune) bool {
-	return r == 0x00a9 || r == 0x00ae || r == 0x203c || r == 0x2049 || r == 0x2122 || r == 0x2139 || (r >= 0x2194 && r <= 0x21ff) || (r >= 0x2300 && r <= 0x23ff) || (r >= 0x2600 && r <= 0x27bf) || (r >= 0x2b00 && r <= 0x2bff) || (r >= 0x1f000 && r <= 0x1faff)
+	return r == 0x00a9 || r == 0x00ae || r == 0x203c || r == 0x2049 || r == 0x2122 || r == 0x2139 || (r >= 0x2194 && r <= 0x21ff) || (r >= 0x2300 && r <= 0x24ff) || (r >= 0x2600 && r <= 0x27bf) || (r >= 0x2b00 && r <= 0x2bff) || (r >= 0x1f000 && r <= 0x1faff)
 }
 
 func tableRuneWidth(r rune) int {
@@ -822,6 +822,10 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 }
 
 func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig) string {
+	return renderTableModeWithIconsAndNameWidth(models, width, showSlug, columnMode, scoreSource, icons, config.DefaultNameWidth)
+}
+
+func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth int) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -854,8 +858,9 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		maxClaudeWidth = max(maxClaudeWidth, tableDisplayWidth(values[1]))
 		maxNoteWidth = max(maxNoteWidth, tableDisplayWidth(values[7]))
 	}
-	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
-	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	nameWidth = max(1, min(nameWidth, config.MaxNameWidth))
+	preferred := []int{nameWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	minimum := []int{min(30, nameWidth), max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
 	// Claude keeps its full width; structural columns and the selected last column use compact fallback.
 	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
 	widths := append([]int(nil), preferred...)
@@ -889,7 +894,7 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		b.WriteString("|")
 		for i, value := range values {
 			if i == 0 {
-				value = truncateTable(value, min(widths[i], maxTableIdentityWidth))
+				value = truncateTable(value, widths[i])
 			} else {
 				value = truncateTable(value, widths[i])
 			}
