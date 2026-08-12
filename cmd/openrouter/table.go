@@ -646,17 +646,22 @@ func tableCluster(value string, start int) (int, int) {
 		}
 	}
 	cluster := value[start:index]
-	width := runewidth.StringWidth(cluster)
-	if strings.ContainsRune(cluster, '\ufe0f') && !tableIsEmojiCapableBase(base) {
-		width = runewidth.StringWidth(strings.ReplaceAll(cluster, "\ufe0f", ""))
-	}
+	width := tableClusterDisplayWidth(cluster, base)
 	if clusterWidth > width {
 		width = clusterWidth
 	}
-	if tableIsEmojiCapableBase(base) && strings.ContainsRune(cluster, '\ufe0f') && width < 2 {
-		width = 2
-	}
 	return index, width
+}
+
+func tableClusterDisplayWidth(cluster string, base rune) int {
+	width := runewidth.StringWidth(cluster)
+	if !strings.ContainsRune(cluster, '\ufe0f') {
+		return width
+	}
+	if !tableIsEmojiCapableBase(base) {
+		return runewidth.StringWidth(strings.ReplaceAll(cluster, "\ufe0f", ""))
+	}
+	return max(2, width)
 }
 
 func tableIsRegionalIndicator(r rune) bool {
@@ -776,6 +781,10 @@ func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string
 	return manufacturerBadgeWithIcons(name, icons) + " " + name
 }
 
+func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {
+	return manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
+}
+
 func plainTableText(value string) string {
 	for _, marker := range []string{"**", "__", "`"} {
 		value = strings.ReplaceAll(value, marker, "")
@@ -847,7 +856,7 @@ func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showS
 		if showSlug {
 			identity = m.Slug
 		} else {
-			identity = manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
+			identity = modelIdentityWithIcons(m, icons)
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}

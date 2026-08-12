@@ -76,6 +76,44 @@ func TestManufacturerBadgeIconsUseTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestModelIdentityKeepsOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T) {
+	for _, test := range []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
+			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
+			wantManufacturer := test.icon + " " + test.name
+			wantIdentity := wantManufacturer + " " + row.DisplayName
+			if got := manufacturerDisplayWithIcons(row, icons); got != wantManufacturer {
+				t.Fatalf("manufacturer formatter = %q, want %q", got, wantManufacturer)
+			}
+			if got := modelIdentityWithIcons(row, icons); got != wantIdentity {
+				t.Fatalf("identity formatter = %q, want %q", got, wantIdentity)
+			}
+			if got := tableDisplayWidth(test.icon); got != 2 {
+				t.Fatalf("icon display width = %d, want 2 for %q", got, test.icon)
+			}
+			if got := tableDisplayWidth(wantManufacturer); got != 2+1+len(test.name) {
+				t.Fatalf("manufacturer display width = %d, want %d", got, 2+1+len(test.name))
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons); got != wantIdentity {
+				t.Fatalf("TUI identity = %q, want %q", got, wantIdentity)
+			}
+			if got := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 120, false, "short", scoreSourceDefault, icons, 40); !strings.Contains(got, wantIdentity) {
+				t.Fatalf("CLI identity missing %q:\n%s", wantIdentity, got)
+			}
+			for _, line := range strings.Split(strings.TrimSuffix(renderTableModeWithIconsAndNameWidth([]model.Model{row}, 40, false, "short", scoreSourceDefault, icons, 40), "\n"), "\n") {
+				if got := tableDisplayWidth(line); got > 42 {
+					t.Fatalf("narrow CLI line width = %d, want <= 42: %q", got, line)
+				}
+			}
+		})
+	}
+}
+
 func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
 	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
 	if got := manufacturerDisplay(row); got != "🌀 OpenAI" {

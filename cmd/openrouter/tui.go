@@ -2820,7 +2820,7 @@ func tuiCellWithIcons(m model.Model, col tuiColumn, note bool, scoreSource strin
 	var value string
 	switch col {
 	case colName:
-		value = manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
+		value = modelIdentityWithIcons(m, icons)
 	case colSlug:
 		value = m.Slug
 	case colClaude:
