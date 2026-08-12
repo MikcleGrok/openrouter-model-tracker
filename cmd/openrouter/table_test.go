@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -40,7 +43,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	for _, test := range []struct{ name, badge string }{
 		{" OpenAI  Labs ", "🌀"}, {"ANTHROPIC", "🔶"}, {"Google DeepMind", "🌐"},
-		{"Meta AI", "♾️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
+		{"Meta AI", "Ⓜ️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
 		{"xAI", "🚀"}, {"  ", "❔"}, {"Unknown vendor", "❔"},
 	} {
 		if got := manufacturerBadge(test.name); got != test.badge {
@@ -67,8 +70,9 @@ func TestManufacturerBadgeIconsAreDistinct(t *testing.T) {
 func TestManufacturerBadgeIconsUseTerminalWidth(t *testing.T) {
 	for _, name := range []string{"OpenAI", "Anthropic", "Google", "Meta", "DeepSeek", "Qwen", "Mistral", "xAI", "Unknown"} {
 		icon := manufacturerBadge(name)
-		if got := tableDisplayWidth(icon); got != 2 {
-			t.Errorf("manufacturerBadge(%q) = %q has terminal width %d, want 2", name, icon, got)
+		want := testIconContract(manufacturerBadge(name)).displayWidth
+		if got := tableDisplayWidth(icon); got != want {
+			t.Errorf("manufacturerBadge(%q) = %q has terminal width %d, want %d", name, icon, got, want)
 		}
 	}
 	if got := truncateTable("🌀 OpenAI", 2); got != "🌀" {
@@ -76,8 +80,431 @@ func TestManufacturerBadgeIconsUseTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestTableDisplayWidthMatchesTerminalIconContract(t *testing.T) {
+	for _, test := range []struct {
+		icon string
+		want int
+	}{
+		{"Ⓜ️", 1}, {"🌪️", 1}, {"🌀", 2}, {"🌸", 2}, {"🌐", 2}, {"🐋", 2}, {"❔", 2}, {"🚀", 2},
+	} {
+		if got := tableDisplayWidth(test.icon); got != test.want {
+			t.Errorf("tableDisplayWidth(%q) = %d, want independent terminal width %d", test.icon, got, test.want)
+		}
+	}
+}
+
+func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T) {
+	for _, test := range []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
+			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
+			gap := 1
+			wantManufacturer := testIconContract(test.icon).slot + strings.Repeat(" ", gap) + test.name
+			wantIdentity := wantManufacturer + " " + row.DisplayName
+			if got := manufacturerDisplayWithIcons(row, icons); got != wantManufacturer {
+				t.Fatalf("manufacturer formatter = %q, want %q", got, wantManufacturer)
+			}
+			if got := modelIdentityWithIcons(row, icons); got != wantIdentity {
+				t.Fatalf("identity formatter = %q, want %q", got, wantIdentity)
+			}
+			if got := tableDisplayWidth(test.icon); got != testIconContract(test.icon).displayWidth {
+				t.Fatalf("icon display width = %d, want %d for %q", got, testIconContract(test.icon).displayWidth, test.icon)
+			}
+			if got := tableDisplayWidth(wantManufacturer); got != testIconContract(test.icon).slotWidth+gap+len(test.name) {
+				t.Fatalf("manufacturer display width = %d, want %d", got, testIconContract(test.icon).slotWidth+gap+len(test.name))
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons); got != wantIdentity {
+				t.Fatalf("TUI identity = %q, want %q", got, wantIdentity)
+			}
+			if got := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40); !strings.Contains(got, wantIdentity) {
+				t.Fatalf("CLI identity missing %q:\n%s", wantIdentity, got)
+			}
+			for _, line := range strings.Split(strings.TrimSuffix(renderTableModeWithIconsAndNameWidth([]model.Model{row}, 40, false, "short", scoreSourceDefault, icons, 40), "\n"), "\n") {
+				if got := tableDisplayWidth(line); got > 42 {
+					t.Fatalf("narrow CLI line width = %d, want <= 42: %q", got, line)
+				}
+			}
+		})
+	}
+}
+
+func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
+	for _, test := range []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
+			row := model.Model{DisplayName: test.name + " Muse Spark 1.1", Owner: test.name}
+			gap := 1
+			want := testIconContract(test.icon).slot + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
+			got := modelIdentityWithIcons(row, icons)
+			t.Logf("rendered identity: %q bytes=% x width=%d", got, []byte(got), tableDisplayWidth(got))
+			if got != want {
+				t.Fatalf("identity bytes = % x, want % x", []byte(got), []byte(want))
+			}
+			byteGap := strings.Index(got, " ")
+			if byteGap < 0 || tableDisplayWidth(got[:byteGap]) != tableDisplayWidth(test.icon) || got[byteGap:byteGap+1] != " " {
+				t.Fatalf("identity icon gap at byte %d, display position %d: %q", byteGap, tableDisplayWidth(got[:byteGap]), got)
+			}
+			line := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40)
+			if !strings.Contains(line, want) {
+				t.Fatalf("CLI render missing %q: %q", want, line)
+			}
+			tui := tuiModel{width: 120, nameWidth: 40}
+			rendered := tui.renderTUILine([]tuiColumn{colName}, []string{tuiCellWithIcons(row, colName, false, scoreSourceDefault, icons)}, false)
+			t.Logf("rendered CLI=%q TUI=%q", line, rendered)
+			marker := testIconContract(test.icon).slot + strings.Repeat(" ", gap) + test.name
+			index := strings.Index(rendered, marker)
+			if index < 0 || tableDisplayWidth(rendered[:index+len(testIconContract(test.icon).slot)]) != testIconContract(test.icon).slotWidth+2 {
+				t.Fatalf("TUI gap display position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(testIconContract(test.icon).slot)]), testIconContract(test.icon).slotWidth+2, rendered)
+			}
+			if tableDisplayWidth(rendered[:index+len(marker)]) != 4+gap+tableDisplayWidth(test.name) {
+				t.Fatalf("TUI manufacturer position = %d, want %d: %q", tableDisplayWidth(rendered[:index+len(marker)]), 4+gap+tableDisplayWidth(test.name), rendered)
+			}
+		})
+	}
+}
+
+func TestTableRenderersKeepGraphemeAwareColumnBoundaries(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{
+		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸",
+		"google": "🌐", "unknown": "❔", "xai": "🚀", "deepseek": "🐋",
+	}, Unknown: "❔"}
+	rows := []model.Model{
+		{DisplayName: "Meta Model", Owner: "Meta"}, {DisplayName: "Mistral Model", Owner: "Mistral"},
+		{DisplayName: "OpenAI Model", Owner: "OpenAI"}, {DisplayName: "Qwen Model", Owner: "Qwen"},
+		{DisplayName: "Google Model", Owner: "Google"}, {DisplayName: "Unknown Model", Owner: "Unknown"},
+		{DisplayName: "xAI Model", Owner: "xAI"}, {DisplayName: "DeepSeek Model", Owner: "DeepSeek"},
+	}
+	for _, gap := range []int{0, 1, 3} {
+		for _, width := range []int{120, 40} {
+			t.Run(fmt.Sprintf("cli/gap-%d/width-%d", gap, width), func(t *testing.T) {
+				output := renderTableModeWithIconsAndNameWidthAndGap(rows, width, false, "notes", scoreSourceDefault, icons, 40, gap)
+				lines := nonEmptyTableLines(output)
+				if len(lines) != len(rows)+4 {
+					t.Fatalf("CLI lines = %d, want header, %d rows, and 3 separators:\n%s", len(lines), len(rows), output)
+				}
+				wantColumns := testCLISeparatorColumns(width)
+				for _, line := range lines {
+					columns := tablePipeColumns(line)
+					if len(columns) != 9 {
+						t.Fatalf("CLI separator count = %d, want 9: %q", len(columns), line)
+					}
+					if !reflect.DeepEqual(columns, wantColumns) {
+						t.Fatalf("CLI separator columns drifted: got %v, want %v: %q", columns, wantColumns, line)
+					}
+					if columns[0] != 0 || columns[len(columns)-1] != width-1 {
+						t.Fatalf("CLI separator bounds = %v, want first 0 and last %d: %q", columns, width-1, line)
+					}
+					if tableDisplayWidth(ansi.Strip(line)) > width {
+						t.Fatalf("CLI line exceeds configured width %d: %d: %q", width, tableDisplayWidth(ansi.Strip(line)), line)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestManufacturerIconSlotHasOneConfiguredGapAndStableNameStart(t *testing.T) {
+	manufacturers := []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
+		{"Google", "🌐"}, {"Unknown", "❔"}, {"xAI", "🚀"}, {"DeepSeek", "🐋"}, {"Xiaomi", "ⓧ"}, {"NVIDIA", "Ⓝ"},
+	}
+	icons := config.IconConfig{Manufacturers: map[string]string{}, Unknown: "❔"}
+	for _, manufacturer := range manufacturers {
+		icons.Manufacturers[strings.ToLower(manufacturer.name)] = manufacturer.icon
+	}
+	for _, gap := range []int{0, 1, 3} {
+		for _, manufacturer := range manufacturers {
+			t.Run(fmt.Sprintf("%s/gap-%d", manufacturer.name, gap), func(t *testing.T) {
+				row := model.Model{DisplayName: manufacturer.name + " Model", Owner: manufacturer.name}
+				identity := modelIdentityWithIconsAndGap(row, icons, gap)
+				nameStart := strings.Index(identity, manufacturer.name)
+				if nameStart < 0 {
+					t.Fatalf("manufacturer name missing from identity %q", identity)
+				}
+				if got := tableDisplayWidth(identity[:nameStart]); got != testIconContract(manufacturer.icon).slotWidth+gap {
+					t.Fatalf("manufacturer start column = %d, want %d: %q", got, testIconContract(manufacturer.icon).slotWidth+gap, identity)
+				}
+				wantPrefix := testIconContract(manufacturer.icon).slot + strings.Repeat(" ", gap)
+				if !strings.HasPrefix(identity, wantPrefix) {
+					t.Fatalf("identity prefix = %q, want %q: %q", identity[:nameStart], wantPrefix, identity)
+				}
+			})
+		}
+	}
+}
+
+func TestManufacturerStartsAlignForSuppliedIcons(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{
+		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸", "google": "🌐",
+	}, Unknown: "❔"}
+	wantStart := -1
+	for _, test := range []struct {
+		name string
+		icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
+	} {
+		row := model.Model{DisplayName: test.name + " Model", Owner: test.name}
+		identity := modelIdentityWithIconsAndGap(row, icons, 1)
+		nameStart := strings.Index(identity, test.name)
+		if nameStart < 0 {
+			t.Fatalf("manufacturer %q missing from %q", test.name, identity)
+		}
+		gotStart := tableDisplayWidth(identity[:nameStart])
+		if wantStart < 0 {
+			wantStart = gotStart
+		}
+		if gotStart != wantStart {
+			t.Fatalf("%s starts at column %d, want %d; icon %q width=%d bytes=% x", test.name, gotStart, wantStart, test.icon, tableDisplayWidth(test.icon), []byte(identity))
+		}
+		if gotStart != 3 {
+			t.Fatalf("%s starts at column %d, want fixed slot 2 plus gap 1", test.name, gotStart)
+		}
+	}
+}
+
+func TestTUIFormatterMatchesCLIIdentityAndKeepsColumnBoundaries(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{
+		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸",
+		"google": "🌐", "unknown": "❔", "xai": "🚀", "deepseek": "🐋",
+	}, Unknown: "❔"}
+	columns := []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colNote}
+	row := model.Model{DisplayName: "Meta Model", Owner: "Meta", ScoreLabel: "90%"}
+	for _, gap := range []int{0, 1, 3} {
+		for _, width := range []int{120, 40} {
+			t.Run(fmt.Sprintf("gap-%d/width-%d", gap, width), func(t *testing.T) {
+				m := tuiModel{width: width, nameWidth: 40, iconGap: gap, icons: icons, scoreSource: scoreSourceDefault}
+				values := make([]string, len(columns))
+				for i, column := range columns {
+					values[i] = tuiCellWithIconsAndGap(row, column, false, scoreSourceDefault, icons, gap)
+				}
+				header := m.renderTUILine(columns, nil, false)
+				line := m.renderTUILine(columns, values, false)
+				wantColumns := testTUISeparatorColumns(width, len(columns))
+				if got := tablePipeColumns(header); !reflect.DeepEqual(got, wantColumns) {
+					t.Fatalf("TUI header separator columns = %v, want %v: %q", got, wantColumns, header)
+				}
+				if got := tablePipeColumns(line); !reflect.DeepEqual(got, wantColumns) {
+					t.Fatalf("TUI row separator columns = %v, want %v: %q", got, wantColumns, line)
+				}
+				if tableDisplayWidth(ansi.Strip(header)) > width || tableDisplayWidth(ansi.Strip(line)) > width {
+					t.Fatalf("TUI line exceeds configured width %d: header=%d row=%d", width, tableDisplayWidth(ansi.Strip(header)), tableDisplayWidth(ansi.Strip(line)))
+				}
+				wantIdentity := modelIdentityWithIconsAndGap(row, icons, gap)
+				if values[0] != wantIdentity || values[0] != strings.TrimSpace(cliIdentityCell(rowsForIdentity(row), icons, gap)) {
+					t.Fatalf("CLI/TUI identity mismatch: CLI=%q TUI=%q want=%q", cliIdentityCell(rowsForIdentity(row), icons, gap), values[0], wantIdentity)
+				}
+			})
+		}
+	}
+}
+
+func rowsForIdentity(row model.Model) []model.Model {
+	return []model.Model{row}
+}
+
+func cliIdentityCell(rows []model.Model, icons config.IconConfig, gap int) string {
+	output := renderTableModeWithIconsAndNameWidthAndGap(rows, 120, false, "notes", scoreSourceDefault, icons, 40, gap)
+	for _, line := range nonEmptyTableLines(output) {
+		if strings.HasPrefix(line, "| ") && !strings.Contains(line, "| Name ") {
+			return strings.TrimSpace(strings.Split(line, "|")[1])
+		}
+	}
+	return ""
+}
+
+type testIconLayout struct {
+	slot         string
+	bytes        []byte
+	slotWidth    int
+	displayWidth int
+}
+
+var testIconLayouts = map[string]testIconLayout{
+	"Ⓜ️": {slot: "Ⓜ️ ", bytes: []byte{0xE2, 0x93, 0x82, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"🌪️": {slot: "🌪️ ", bytes: []byte{0xF0, 0x9F, 0x8C, 0xAA, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"🌀":  {slot: "🌀", bytes: []byte{0xF0, 0x9F, 0x8C, 0x80}, slotWidth: 2, displayWidth: 2},
+	"🌸":  {slot: "🌸", bytes: []byte{0xF0, 0x9F, 0x8C, 0xB8}, slotWidth: 2, displayWidth: 2},
+	"🐋":  {slot: "🐋", bytes: []byte{0xF0, 0x9F, 0x90, 0x8B}, slotWidth: 2, displayWidth: 2},
+	"❔":  {slot: "❔", bytes: []byte{0xE2, 0x9D, 0x94}, slotWidth: 2, displayWidth: 2},
+	"🔶":  {slot: "🔶", bytes: []byte{0xF0, 0x9F, 0x94, 0xB6}, slotWidth: 2, displayWidth: 2},
+	"🌐":  {slot: "🌐", bytes: []byte{0xF0, 0x9F, 0x8C, 0x90}, slotWidth: 2, displayWidth: 2},
+	"🚀":  {slot: "🚀", bytes: []byte{0xF0, 0x9F, 0x9A, 0x80}, slotWidth: 2, displayWidth: 2},
+	"🛠️": {slot: "🛠️ ", bytes: []byte{0xF0, 0x9F, 0x9B, 0xA0, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"ⓧ":  {slot: "ⓧ ", bytes: []byte{0xE2, 0x93, 0xA7, ' '}, slotWidth: 2, displayWidth: 1},
+	"Ⓝ":  {slot: "Ⓝ ", bytes: []byte{0xE2, 0x93, 0x83, ' '}, slotWidth: 2, displayWidth: 1},
+	"x":  {slot: "x ", bytes: []byte{'x', ' '}, slotWidth: 2, displayWidth: 1},
+}
+
+func testIconContract(icon string) testIconLayout {
+	contract, ok := testIconLayouts[icon]
+	if !ok {
+		panic("missing independent icon contract for " + icon)
+	}
+	return contract
+}
+
+func testCLISeparatorColumns(width int) []int {
+	want, ok := map[int][]int{
+		120: {0, 38, 47, 58, 73, 87, 99, 112, 119},
+		40:  {0, 7, 13, 17, 23, 27, 31, 35, 39},
+	}[width]
+	if !ok {
+		panic(fmt.Sprintf("missing independent CLI geometry contract for width %d", width))
+	}
+	return want
+}
+
+func nonEmptyTableLines(output string) []string {
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+func tablePipeColumns(line string) []int {
+	line = ansi.Strip(line)
+	columns := []int{}
+	for index, r := range line {
+		if r == '|' || r == '+' {
+			columns = append(columns, tableDisplayWidth(line[:index]))
+		}
+	}
+	return columns
+}
+
+func TestConfiguredIconGapIsSharedByCLIAndTUI(t *testing.T) {
+	for _, gap := range []int{1, 3} {
+		for _, test := range []struct {
+			name, icon string
+		}{
+			{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
+		} {
+			t.Run(fmt.Sprintf("%s/gap-%d", test.name, gap), func(t *testing.T) {
+				icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
+				row := model.Model{DisplayName: test.name + " Model", Owner: test.name}
+				want := testIconContract(test.icon).slot + strings.Repeat(" ", gap) + test.name + " " + row.DisplayName
+				if got := modelIdentityWithIconsAndGap(row, icons, gap); got != want {
+					t.Fatalf("identity = %q, want %q", got, want)
+				}
+				if got := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, icons, gap); got != want {
+					t.Fatalf("TUI identity = %q, want %q", got, want)
+				}
+				cli := renderTableModeWithIconsAndNameWidthAndGap([]model.Model{row}, 180, false, "short", scoreSourceDefault, icons, 40, gap)
+				if !strings.Contains(cli, want) {
+					t.Fatalf("CLI output missing %q:\n%s", want, cli)
+				}
+				narrow := renderTableModeWithIconsAndNameWidthAndGap([]model.Model{row}, 40, false, "short", scoreSourceDefault, icons, 40, gap)
+				for _, line := range strings.Split(strings.TrimSuffix(narrow, "\n"), "\n") {
+					if tableDisplayWidth(line) > 42 {
+						t.Fatalf("narrow CLI line width = %d: %q", tableDisplayWidth(line), line)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
+	icons := config.DefaultIconConfig()
+	rows := []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Google", "🌐"},
+	}
+	for _, rowData := range rows {
+		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+		gap := config.TableConfig{IconGap: config.DefaultIconGap}.EffectiveIconGapFor(rowData.name)
+		want := testIconContract(rowData.icon).slot + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
+		if got := modelIdentityWithIcons(row, icons); got != want {
+			t.Errorf("%s bytes = % x, want % x", rowData.name, []byte(got), []byte(want))
+		}
+		if got := tableDisplayWidth(strings.Split(want, rowData.name)[0]); got != 2+gap {
+			t.Errorf("%s boundary width = %d, want %d", rowData.name, got, 2+gap)
+		}
+	}
+	custom := config.IconGaps{"meta": 0, "mistral": 3}.WithDefaults()
+	for _, rowData := range rows[:2] {
+		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+		wantGap := 0
+		if rowData.name == "Mistral" {
+			wantGap = 3
+		}
+		want := testIconContract(rowData.icon).slot + strings.Repeat(" ", wantGap) + rowData.name + " " + row.DisplayName
+		if got := modelIdentityWithIconsAndGaps(row, icons, custom, 1); got != want {
+			t.Errorf("custom %s = %q, want %q", rowData.name, got, want)
+		}
+	}
+}
+
+func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
+	rows := []struct {
+		name, icon string
+	}{
+		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
+	}
+	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸", "google": "🌐", "custom": "x"}, Unknown: "❔"}
+	for _, gap := range []int{0, 3} {
+		positions := make(map[string]int, len(rows))
+		for _, rowData := range rows {
+			row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
+			got := modelIdentityWithIconsAndGap(row, icons, gap)
+			want := testIconContract(rowData.icon).slot + strings.Repeat(" ", gap) + rowData.name + " " + row.DisplayName
+			if got != want {
+				t.Fatalf("gap=%d %s bytes = % x, want %x", gap, rowData.name, []byte(got), []byte(want))
+			}
+			nameStart := strings.Index(got, rowData.name)
+			positions[rowData.name] = tableDisplayWidth(got[:nameStart])
+			if positions[rowData.name] != testIconContract(rowData.icon).slotWidth+gap {
+				t.Fatalf("gap=%d %s name starts at column %d, want %d", gap, rowData.name, positions[rowData.name], testIconContract(rowData.icon).slotWidth+gap)
+			}
+			if tui := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, icons, gap); tui != got {
+				t.Fatalf("gap=%d %s TUI bytes = % x, want %x", gap, rowData.name, []byte(tui), []byte(got))
+			}
+			if detail := tuiDetailLinesWithHistoryAndIconsAndGap(row, scoreSourceDefault, 80, time.Unix(0, 0), nil, icons, gap); !strings.Contains(strings.Join(detail, "\n"), "Производитель: "+got[:strings.Index(got, " "+row.DisplayName)]) {
+				t.Fatalf("gap=%d %s detail does not contain %q", gap, rowData.name, got)
+			}
+		}
+		custom := model.Model{DisplayName: "Custom Model", Owner: "Custom"}
+		got := modelIdentityWithIconsAndGap(custom, icons, gap)
+		want := testIconContract("x").slot + strings.Repeat(" ", gap) + "Custom Custom Model"
+		if got != want || tableDisplayWidth(got[:strings.Index(got, "Custom")]) != testIconContract("x").slotWidth+gap {
+			t.Fatalf("gap=%d custom bytes/position = % x/%d, want %x/%d", gap, []byte(got), tableDisplayWidth(got[:strings.Index(got, "Custom")]), []byte(want), testIconContract("x").slotWidth+gap)
+		}
+	}
+}
+
+func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
+	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
+	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
+	want := "Ⓜ️  Meta Meta Muse Spark 1.1"
+	if got := modelIdentityWithIcons(row, icons); got != want {
+		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
+	}
+	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️  Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️  Meta")
+	}
+	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 1); got != "Ⓜ️ Meta" {
+		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️ Meta")
+	}
+}
+
 func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
-	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	row := model.Model{DisplayName: "Demo", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
 	if got := manufacturerDisplay(row); got != "🌀 OpenAI" {
 		t.Fatalf("manufacturerDisplay = %q, want Arena organization with badge", got)
 	}
@@ -88,14 +515,72 @@ func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testi
 	}
 }
 
+func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *testing.T) {
+	for _, test := range []struct{ slug, want string }{
+		{"qwen/qwen3.7-flash", "🌸 Qwen"},
+		{"nvidia/nemotron-3-nano-30b-a3b", "Ⓝ  NVIDIA"},
+		{"poolside/laguna-xs-2.1", "❔ Poolside"},
+		{"google/gemma-4-31b-it", "🌐 Google"},
+		{"openai/gpt-5-mini", "🌀 OpenAI"},
+	} {
+		t.Run(test.slug, func(t *testing.T) {
+			row := model.Model{Slug: test.slug, DisplayName: "Model", Owner: notes.NeedsReview}
+			if got := manufacturerDisplay(row); got != test.want {
+				t.Fatalf("manufacturerDisplay = %q, want %q", got, test.want)
+			}
+			identity := modelIdentityWithIcons(row, config.DefaultIconConfig())
+			if strings.Contains(identity, notes.NeedsReview) || !strings.Contains(identity, test.want) {
+				t.Fatalf("model identity = %q, want provider and no placeholder", identity)
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != identity {
+				t.Fatalf("TUI identity = %q, want CLI identity %q", got, identity)
+			}
+		})
+	}
+}
+
+func TestManufacturerDisplayPrefersCatalogProviderAndFiltersPlaceholders(t *testing.T) {
+	row := model.Model{Slug: "catalog/model", DisplayName: "Model", Provider: "Catalog Provider", Owner: notes.NeedsReview, ArenaScore: &model.ScoreInfo{Provider: "Conflicting Arena Provider", IdentityStatus: model.IdentityExact}}
+	want := "❔ Catalog Provider"
+	if got := manufacturerDisplay(row); got != want {
+		t.Fatalf("manufacturerDisplay = %q, want catalog provider before Arena", got)
+	}
+	if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != want+" Model" {
+		t.Fatalf("TUI identity = %q, want CLI identity %q", got, want+" Model")
+	}
+
+	for _, placeholder := range []string{
+		"_нужен обзор_", "_нужен обзор_ (нет данных)", "_нужен обзор_(нет данных)",
+		"n/a", "n/a (нет данных)", "n/a(нет данных)", "n/d", "n/d (нет данных)",
+		"н/д", "н/д (нет данных)", "н/д(нет данных)", "(n/a)", "(н/д (нет данных))",
+	} {
+		t.Run(placeholder, func(t *testing.T) {
+			row := model.Model{Slug: "openai/model", DisplayName: "Model", Provider: placeholder, Owner: placeholder, ArenaScore: &model.ScoreInfo{Provider: placeholder, IdentityStatus: model.IdentityExact}}
+			want := "🌀 OpenAI Model"
+			if got := manufacturerDisplay(row); got != "🌀 OpenAI" {
+				t.Fatalf("manufacturerDisplay = %q, want namespace fallback %q", got, want)
+			}
+			if got := tuiCellWithIcons(row, colName, false, scoreSourceDefault, config.DefaultIconConfig()); got != want {
+				t.Fatalf("TUI identity = %q, want CLI identity %q", got, want)
+			}
+		})
+	}
+
+	row = model.Model{Slug: "openai/model", DisplayName: "Model", Owner: "n/a", ArenaScore: &model.ScoreInfo{Provider: "Arena Provider", IdentityStatus: model.IdentityExact}}
+	if got := manufacturerDisplay(row); got != "❔ Arena Provider" {
+		t.Fatalf("manufacturerDisplay = %q, want valid Arena fallback", got)
+	}
+}
+
 func TestManufacturerDisplayRejectsUnverifiedArenaOrganization(t *testing.T) {
 	for _, status := range []string{model.IdentityVariantMismatch, model.IdentityMissing, model.IdentityLegacyUnknown, model.IdentityObservationOnly, ""} {
 		t.Run(status, func(t *testing.T) {
-			row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: "Wrong Arena Organization", IdentityStatus: status}}
+			row := model.Model{DisplayName: "Demo", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: "Wrong Arena Organization", IdentityStatus: status}}
 			if got := manufacturerDisplay(row); got != "❔ Owner" {
 				t.Fatalf("manufacturerDisplay with Arena status %q = %q, want Owner fallback", status, got)
 			}
 			row.Owner = ""
+			row.Provider = "Provider"
 			if got := manufacturerDisplay(row); got != "❔ Provider" {
 				t.Fatalf("manufacturerDisplay with Arena status %q and empty Owner = %q, want catalogue Provider fallback", status, got)
 			}
@@ -116,9 +601,26 @@ func TestManufacturerBadgeUsesConfiguredMapping(t *testing.T) {
 	}
 }
 
+func TestRenderTableUsesConfiguredNameWidth(t *testing.T) {
+	row := model.Model{DisplayName: "A deliberately long model name", Owner: "OpenAI"}
+	output := renderTableModeWithIconsAndNameWidth([]model.Model{row}, 120, false, "short", scoreSourceDefault, config.DefaultIconConfig(), 24)
+	if got := firstTableColumnWidth(output); got != 24 {
+		t.Fatalf("configured Name column width = %d, want 24:\n%s", got, output)
+	}
+}
+
+func TestRenderTableConfiguredNameWidthIsBoundedByViewport(t *testing.T) {
+	output := renderTableModeWithIconsAndNameWidth([]model.Model{{DisplayName: "model"}}, 40, false, "short", scoreSourceDefault, config.DefaultIconConfig(), 100)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if got := tableDisplayWidth(line); got > 42 {
+			t.Fatalf("configured Name column exceeded the table border budget: %d: %q", got, line)
+		}
+	}
+}
+
 func TestConfiguredIconsPreserveRenderingWidthAndArenaFallback(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"openai": "🧩"}, Unknown: "❔"}
-	row := model.Model{DisplayName: "GPT", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	row := model.Model{DisplayName: "GPT", Owner: "Owner", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
 	if got := manufacturerDisplayWithIcons(row, icons); got != "🧩 OpenAI" {
 		t.Fatalf("Arena manufacturer display = %q", got)
 	}
@@ -524,16 +1026,21 @@ func TestTableDisplayWidthHandlesEmojiSequences(t *testing.T) {
 	}
 }
 
-func TestTableDisplayWidthOnlyPromotesEmojiCapableBasesForVS16(t *testing.T) {
+func TestTableDisplayWidthUsesRunewidthForVS16Icons(t *testing.T) {
 	for _, value := range []string{"A\ufe0f", "1\ufe0f"} {
 		if got := tableDisplayWidth(value); got != 1 {
 			t.Errorf("tableDisplayWidth(%q) = %d, want 1", value, got)
 		}
 	}
-	for _, name := range []string{"OpenAI", "Anthropic", "Google", "Meta", "DeepSeek", "Qwen", "Mistral", "xAI", "Unknown"} {
-		icon := manufacturerBadge(name)
-		if got := tableDisplayWidth(icon); got != 2 {
-			t.Errorf("manufacturerBadge(%q) = %q has terminal width %d, want 2", name, icon, got)
+	for _, test := range []struct {
+		name string
+		want int
+	}{
+		{"OpenAI", 2}, {"Anthropic", 2}, {"Google", 2}, {"Meta", 1}, {"DeepSeek", 2}, {"Qwen", 2}, {"Mistral", 1}, {"xAI", 2}, {"Unknown", 2},
+	} {
+		icon := manufacturerBadge(test.name)
+		if got := tableDisplayWidth(icon); got != test.want {
+			t.Errorf("manufacturerBadge(%q) = %q has terminal width %d, want %d", test.name, icon, got, test.want)
 		}
 	}
 }

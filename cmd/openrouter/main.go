@@ -396,7 +396,7 @@ func newRootCmd() *cobra.Command {
 			if tableNotes {
 				mode = "notes"
 			}
-			output := renderTableModeWithIcons(models, width, tableShowSlug, mode, tableScoreSource, cfg.Icons)
+			output := renderTableModeWithIconsAndNameWidthAndGaps(models, width, tableShowSlug, mode, tableScoreSource, cfg.Icons, cfg.Table.EffectiveNameWidth(), cfg.Table.EffectiveIconGap(), cfg.Table.IconGaps)
 			output += "\nSort: " + tableSort
 			if tableRanking != rankingLegacy {
 				output += "\nRanking: " + rankingLabel(tableRanking)

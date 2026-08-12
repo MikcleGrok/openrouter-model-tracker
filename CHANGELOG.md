@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
+- Add contract coverage for manufacturer icon rendering and alignment.
+
+## [1.14.11]
+
+- Use terminal-compatible display widths for variation-selector manufacturer icons while preserving a two-column icon slot.
+- Add CLI and TUI alignment contract coverage across terminal widths and configured icon variants.
+
+## [1.14.10]
+
+- Align manufacturer icons and model table columns consistently in the CLI and TUI.
+- Add contract coverage for display-width alignment across table and configuration paths.
+
+## [1.14.4]
+
+- Normalize manufacturer icon spacing and display width for consistent table alignment.
+
+## [1.14.3]
+
+- Add a Meta manufacturer icon for clearer provider identity.
+- Add configurable `table.name_width` support for CLI and TUI model tables.
 
 ## [1.14.0]
 

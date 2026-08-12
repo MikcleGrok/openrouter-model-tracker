@@ -56,6 +56,21 @@ func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
 	}
 }
 
+func TestTUIUsesConfiguredNameWidthAndClipsToViewport(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{DisplayName: "A long model name", Owner: "OpenAI"}})
+	m.nameWidth = 28
+	m.width = 100
+	line := m.renderTUILine([]tuiColumn{colName, colStatus}, []string{"Ⓜ️ Meta A long model name", "90%"}, false)
+	if !strings.Contains(line, "90%") || tableDisplayWidth(line) > 100 {
+		t.Fatalf("configured TUI name width rendered unsafely: %q", line)
+	}
+	m.width = 12
+	line = m.renderTUILine([]tuiColumn{colName, colStatus}, []string{"Ⓜ️ Meta A long model name", "90%"}, false)
+	if tableDisplayWidth(line) > 12 {
+		t.Fatalf("narrow TUI line exceeds viewport: %d: %q", tableDisplayWidth(line), line)
+	}
+}
+
 func TestTUIUsesConfiguredKeymapAndRendersItInHelp(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.keymap = config.DefaultTUIKeymap()
@@ -1428,6 +1443,13 @@ func TestTUISettingsLayoutTogglePersistsAndReloads(t *testing.T) {
 	}
 }
 
+func TestNewTUIModelUsesDefaultIconGap(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	if m.iconGap != int(config.DefaultIconGap) {
+		t.Fatalf("default TUI icon gap = %d, want %d", m.iconGap, config.DefaultIconGap)
+	}
+}
+
 func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("tui:\n  layout: top-paid-free\n  top_n: 7\n"), 0o644); err != nil {
@@ -1444,6 +1466,44 @@ func TestTUIRefreshMessageAppliesReloadedLayoutAndTopN(t *testing.T) {
 	got := next.(tuiModel)
 	if got.layout != "top-paid-free" || got.topN != 7 {
 		t.Fatalf("refresh did not apply config: layout=%q topN=%d", got.layout, got.topN)
+	}
+}
+
+func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 1\n  icon_gaps: {Meta: 0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	row := model.Model{DisplayName: "OpenAI Model", Owner: "OpenAI"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.configPath, m.generation, m.iconGap = path, 1, 1
+	m.iconGaps = config.IconGaps{"meta": 0}
+	if got := tuiCellWithIconsAndGaps(row, colName, false, scoreSourceDefault, m.icons, m.iconGap, m.iconGaps); !strings.Contains(got, "🌀 OpenAI") {
+		t.Fatalf("initial list identity = %q, want one gap", got)
+	}
+	if err := os.WriteFile(path, []byte("table:\n  icon_gap: 3\n  icon_gaps: {Meta: 3}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	message, ok := m.refreshCmd()().(tuiRefreshMsg)
+	if !ok || !message.iconGapSet || message.iconGap != 3 {
+		t.Fatalf("refresh message icon gap = %#v, want effective gap 3", message)
+	}
+	message.err = nil
+	next, _ := m.Update(message)
+	got := next.(tuiModel)
+	if got.iconGap != 3 {
+		t.Fatalf("refreshed icon gap = %d, want 3", got.iconGap)
+	}
+	if list := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, got.icons, got.iconGap); !strings.Contains(list, "🌀   OpenAI") {
+		t.Fatalf("refreshed list identity = %q, want three gaps", list)
+	}
+	meta := model.Model{DisplayName: "Meta Model", Owner: "Meta"}
+	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️    Meta Meta Model" {
+		t.Fatalf("refreshed vendor override = %q, want fixed-slot padding plus three gaps", list)
+	}
+	detail := tuiDetailLinesWithHistoryAndIconsAndGaps(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)
+	if !strings.Contains(strings.Join(detail, "\n"), "Производитель: 🌀   OpenAI") {
+		t.Fatalf("refreshed detail does not use gap 3: %v", detail)
 	}
 }
 
@@ -1737,12 +1797,13 @@ func TestTUIViewNarrowAndSanitized(t *testing.T) {
 func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 	m := tuiModel{width: 34}
 	columns := []tuiColumn{colName, colContext, colInput}
+	wantOffsets := []int{12, 26}
 	header := m.renderTUILine(columns, nil, false)
 	for _, values := range [][]string{{"Long model", "7", "1.5"}, {"Long model", "12345", "0.125"}} {
 		row := m.renderTUILine(columns, values, false)
 		selected := m.renderTUILine(columns, values, true)
-		if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(row)) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(selected)) {
-			t.Fatalf("separator display positions differ: header=%q row=%q selected=%q", header, row, selected)
+		if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), wantOffsets) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), wantOffsets) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(selected), wantOffsets) {
+			t.Fatalf("separator display positions = header=%v row=%v selected=%v, want %v", tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(selected), wantOffsets)
 		}
 		if lipgloss.Width(header) > m.width || lipgloss.Width(row) > m.width || lipgloss.Width(selected) > m.width {
 			t.Fatalf("rendered line exceeds width: header=%q row=%q selected=%q", header, row, selected)
@@ -1796,7 +1857,7 @@ func TestTUIRenderTUILineUsesDisplayWidthAndStripsANSI(t *testing.T) {
 	if lipgloss.Width(row) > m.width {
 		t.Fatalf("Unicode row exceeds width: %q", row)
 	}
-	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false))) {
+	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), []int{9}) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false)), []int{9}) {
 		t.Fatalf("Unicode separator display position changed with numeric width: %q", row)
 	}
 }
@@ -1855,6 +1916,35 @@ func TestTUIViewBoundaryWidthHidesColumnsBeforeRendering(t *testing.T) {
 	}
 }
 
+func TestTUIViewportPreservesDisplayedSourceAwareHeaders(t *testing.T) {
+	for _, test := range []struct {
+		width  int
+		source string
+		want   string
+	}{
+		{80, scoreSourceSWEBench, "SWE %"},
+		{96, scoreSourceArena, "Arena Elo"},
+		{120, scoreSourceSWEBench, "Q/P score/$M"},
+	} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+		m.width, m.scoreSource = test.width, test.source
+		columns := m.renderColumns()
+		header := m.renderTUILine(columns, nil, false)
+		if lipgloss.Width(header) > test.width {
+			t.Fatalf("width %d produced a %d-column header: %q", test.width, lipgloss.Width(header), header)
+		}
+		if !strings.Contains(header, test.want) {
+			t.Fatalf("width %d source %s lost displayed header %q: columns=%v header=%q", test.width, test.source, test.want, columns, header)
+		}
+		for _, column := range columns {
+			label := tuiColumnLabel(column, test.source)
+			if !strings.Contains(header, label) {
+				t.Fatalf("width %d source %s truncated displayed header %q: columns=%v header=%q", test.width, test.source, label, columns, header)
+			}
+		}
+	}
+}
+
 func TestTUIRenderTUILineFitsNarrowWidths(t *testing.T) {
 	columns := []tuiColumn{colName, colContext, colOutput}
 	for width := 1; width <= 12; width++ {
@@ -1880,6 +1970,20 @@ func tuiSeparatorDisplayOffsets(line string) []int {
 		index = separator + len(" | ")
 	}
 	return offsets
+}
+
+func testTUISeparatorColumns(width, columnCount int) []int {
+	if columnCount != 8 {
+		panic(fmt.Sprintf("missing independent TUI geometry contract for %d columns", columnCount))
+	}
+	want, ok := map[int][]int{
+		120: {43, 53, 62, 78, 93, 103, 114},
+		40:  {4, 8, 12, 16, 20, 24, 28},
+	}[width]
+	if !ok {
+		panic(fmt.Sprintf("missing independent TUI geometry contract for width %d", width))
+	}
+	return want
 }
 
 func tuiNumericCellDisplayEnd(line string, column int) int {

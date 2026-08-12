@@ -613,8 +613,6 @@ func tableDisplayWidth(value string) int {
 func tableCluster(value string, start int) (int, int) {
 	index := start
 	r, size := utf8.DecodeRuneInString(value[index:])
-	base := r
-	clusterWidth := tableRuneWidth(r)
 	index += size
 	if tableIsRegionalIndicator(r) && index < len(value) {
 		next, nextSize := utf8.DecodeRuneInString(value[index:])
@@ -646,17 +644,18 @@ func tableCluster(value string, start int) (int, int) {
 		}
 	}
 	cluster := value[start:index]
+	return index, tableClusterDisplayWidth(cluster)
+}
+
+func tableClusterDisplayWidth(cluster string) int {
 	width := runewidth.StringWidth(cluster)
-	if strings.ContainsRune(cluster, '\ufe0f') && !tableIsEmojiCapableBase(base) {
-		width = runewidth.StringWidth(strings.ReplaceAll(cluster, "\ufe0f", ""))
+	r, _ := utf8.DecodeRuneInString(cluster)
+	if tableIsRegionalIndicator(r) {
+		// runewidth v0.0.16 reports regional-indicator graphemes as one cell,
+		// while terminal flag rendering uses the two-cell flag glyph width.
+		return max(2, width)
 	}
-	if clusterWidth > width {
-		width = clusterWidth
-	}
-	if tableIsEmojiCapableBase(base) && strings.ContainsRune(cluster, '\ufe0f') && width < 2 {
-		width = 2
-	}
-	return index, width
+	return width
 }
 
 func tableIsRegionalIndicator(r rune) bool {
@@ -665,23 +664,6 @@ func tableIsRegionalIndicator(r rune) bool {
 
 func tableIsClusterContinuation(r rune) bool {
 	return r == '\ufe0e' || r == '\ufe0f' || (r >= 0x1f3fb && r <= 0x1f3ff) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
-}
-
-func tableIsEmojiCapableBase(r rune) bool {
-	return r == 0x00a9 || r == 0x00ae || r == 0x203c || r == 0x2049 || r == 0x2122 || r == 0x2139 || (r >= 0x2194 && r <= 0x21ff) || (r >= 0x2300 && r <= 0x23ff) || (r >= 0x2600 && r <= 0x27bf) || (r >= 0x2b00 && r <= 0x2bff) || (r >= 0x1f000 && r <= 0x1faff)
-}
-
-func tableRuneWidth(r rune) int {
-	if tableIsClusterContinuation(r) || r == '\u200d' {
-		return 0
-	}
-	if tableIsRegionalIndicator(r) {
-		return 2
-	}
-	if r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a || (r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) || (r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe10 && r <= 0xfe19) || (r >= 0xfe30 && r <= 0xfe6f) || (r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) || (r >= 0x1f300 && r <= 0x1faff)) {
-		return 2
-	}
-	return 1
 }
 
 func tablePrefix(value string, width int) string {
@@ -747,13 +729,18 @@ func tableNote(m model.Model) string {
 }
 
 func manufacturerName(m model.Model) string {
+	if provider := strings.TrimSpace(m.Provider); provider != "" && !model.IsPlaceholder(provider) {
+		return provider
+	}
 	if m.ArenaScore != nil && m.ArenaScore.IdentityStatus == model.IdentityExact && strings.TrimSpace(m.ArenaScore.Provider) != "" {
-		return strings.TrimSpace(m.ArenaScore.Provider)
+		if provider := strings.TrimSpace(m.ArenaScore.Provider); !model.IsPlaceholder(provider) {
+			return provider
+		}
 	}
-	if strings.TrimSpace(m.Owner) != "" {
-		return strings.TrimSpace(m.Owner)
+	if owner := strings.TrimSpace(m.Owner); owner != "" && !model.IsPlaceholder(owner) {
+		return owner
 	}
-	return strings.TrimSpace(m.Provider)
+	return model.ProviderLabel(m.Slug, m.Provider)
 }
 
 func manufacturerBadge(name string) string {
@@ -768,12 +755,42 @@ func manufacturerBadgeWithIcons(name string, icons config.IconConfig) string {
 	return icons.Icon(name)
 }
 
+const manufacturerIconSlotWidth = 2
+
+func manufacturerIconSlot(icon string) string {
+	return icon + strings.Repeat(" ", max(0, manufacturerIconSlotWidth-tableDisplayWidth(icon)))
+}
+
 func manufacturerDisplayWithIcons(m model.Model, icons config.IconConfig) string {
+	return manufacturerDisplayWithIconsAndGaps(m, icons, config.DefaultIconGaps(), int(config.DefaultIconGap))
+}
+
+func manufacturerDisplayWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
+	return manufacturerDisplayWithIconsAndGaps(m, icons, nil, iconGap)
+}
+
+func manufacturerDisplayWithIconsAndGaps(m model.Model, icons config.IconConfig, iconGaps config.IconGaps, globalGap int) string {
 	name := manufacturerName(m)
 	if name == "" {
 		return manufacturerBadgeWithIcons("", icons)
 	}
-	return manufacturerBadgeWithIcons(name, icons) + " " + name
+	return manufacturerIconSlot(manufacturerBadgeWithIcons(name, icons)) + strings.Repeat(" ", iconGaps.EffectiveGap(name, globalGap)) + strings.TrimSpace(name)
+}
+
+func modelIdentityWithIcons(m model.Model, icons config.IconConfig) string {
+	return modelIdentityWithIconsAndGaps(m, icons, config.DefaultIconGaps(), int(config.DefaultIconGap))
+}
+
+func modelIdentityWithIconsAndGap(m model.Model, icons config.IconConfig, iconGap int) string {
+	return modelIdentityWithIconsAndGaps(m, icons, nil, iconGap)
+}
+
+func modelIdentityWithIconsAndGaps(m model.Model, icons config.IconConfig, iconGaps config.IconGaps, globalGap int) string {
+	return joinTerminalWords(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, globalGap), m.DisplayName, 1)
+}
+
+func joinTerminalWords(left, right string, gap int) string {
+	return strings.TrimRightFunc(left, unicode.IsSpace) + strings.Repeat(" ", max(0, gap)) + strings.TrimLeftFunc(right, unicode.IsSpace)
 }
 
 func plainTableText(value string) string {
@@ -822,6 +839,18 @@ func renderTableMode(models []model.Model, width int, showSlug bool, columnMode 
 }
 
 func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig) string {
+	return renderTableModeWithIconsAndNameWidth(models, width, showSlug, columnMode, scoreSource, icons, config.DefaultNameWidth)
+}
+
+func renderTableModeWithIconsAndNameWidth(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth int) string {
+	return renderTableModeWithIconsAndNameWidthAndGaps(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, int(config.DefaultIconGap), config.DefaultIconGaps())
+}
+
+func renderTableModeWithIconsAndNameWidthAndGap(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth, iconGap int) string {
+	return renderTableModeWithIconsAndNameWidthAndGaps(models, width, showSlug, columnMode, scoreSource, icons, nameWidth, iconGap, nil)
+}
+
+func renderTableModeWithIconsAndNameWidthAndGaps(models []model.Model, width int, showSlug bool, columnMode string, scoreSource string, icons config.IconConfig, nameWidth, iconGap int, iconGaps config.IconGaps) string {
 	identityHeader := "Name"
 	if showSlug {
 		identityHeader = "Slug"
@@ -843,7 +872,7 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		if showSlug {
 			identity = m.Slug
 		} else {
-			identity = manufacturerDisplayWithIcons(m, icons) + " " + m.DisplayName
+			identity = modelIdentityWithIconsAndGaps(m, icons, iconGaps, iconGap)
 		}
 		last := tableTaskFit(m, columnMode)
 		values := []string{identity, tableClaudeForSource(m, scoreSource), tableStatus(m), m.QualityPriceLabel, pricing.FormatContext(m.Context), pricing.FormatPrice(m.InPerM), pricing.FormatPrice(m.OutPerM), last}
@@ -854,8 +883,9 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		maxClaudeWidth = max(maxClaudeWidth, tableDisplayWidth(values[1]))
 		maxNoteWidth = max(maxNoteWidth, tableDisplayWidth(values[7]))
 	}
-	preferred := []int{maxTableIdentityWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
-	minimum := []int{30, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	nameWidth = max(1, min(nameWidth, config.MaxNameWidth))
+	preferred := []int{nameWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	minimum := []int{min(30, nameWidth), max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
 	// Claude keeps its full width; structural columns and the selected last column use compact fallback.
 	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
 	widths := append([]int(nil), preferred...)
@@ -889,7 +919,7 @@ func renderTableModeWithIcons(models []model.Model, width int, showSlug bool, co
 		b.WriteString("|")
 		for i, value := range values {
 			if i == 0 {
-				value = truncateTable(value, min(widths[i], maxTableIdentityWidth))
+				value = truncateTable(value, widths[i])
 			} else {
 				value = truncateTable(value, widths[i])
 			}

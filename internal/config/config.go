@@ -46,8 +46,8 @@ type IconConfig struct {
 }
 
 var defaultManufacturerIcons = map[string]string{
-	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "♾️",
-	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀",
+	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "Ⓜ️",
+	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀", "xiaomi": "ⓧ", "nvidia": "Ⓝ",
 }
 
 const defaultUnknownIcon = "❔"
@@ -190,11 +190,132 @@ type CacheConfig struct {
 }
 
 type TableConfig struct {
-	Sort        string `yaml:"sort"`
-	Ranking     string `yaml:"ranking"`
-	ScoreSource string `yaml:"score_source"`
-	Limit       int    `yaml:"limit"`
-	TaskFit     string `yaml:"task_fit"`
+	Sort        string    `yaml:"sort"`
+	Ranking     string    `yaml:"ranking"`
+	ScoreSource string    `yaml:"score_source"`
+	Limit       int       `yaml:"limit"`
+	TaskFit     string    `yaml:"task_fit"`
+	NameWidth   NameWidth `yaml:"name_width"`
+	IconGap     IconGap   `yaml:"icon_gap"`
+	IconGaps    IconGaps  `yaml:"icon_gaps"`
+}
+
+// IconGap is the number of spaces after the fixed manufacturer icon slot.
+type IconGap int
+
+const (
+	DefaultIconGap IconGap = 1
+	MaxIconGap     IconGap = 8
+)
+
+// IconGaps overrides the gap after the fixed icon slot for matching manufacturers.
+type IconGaps map[string]IconGap
+
+var defaultIconGaps = map[string]IconGap{}
+
+func DefaultIconGaps() IconGaps {
+	result := make(IconGaps, len(defaultIconGaps))
+	for name, gap := range defaultIconGaps {
+		result[name] = gap
+	}
+	return result
+}
+
+func (g *IconGaps) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		*g = IconGaps{}
+		return nil
+	}
+	result := make(IconGaps, len(value.Content)/2)
+	for i := 0; i < len(value.Content); i += 2 {
+		name := normalizeIconName(value.Content[i].Value)
+		if name == "" {
+			continue
+		}
+		parsed, err := strconv.Atoi(strings.TrimSpace(value.Content[i+1].Value))
+		if err != nil {
+			result[name] = -1
+			continue
+		}
+		result[name] = IconGap(parsed)
+	}
+	*g = result
+	return nil
+}
+
+func (g IconGaps) WithDefaults() IconGaps {
+	result := DefaultIconGaps()
+	for rawName, gap := range g {
+		name := normalizeIconName(rawName)
+		if name == "" {
+			continue
+		}
+		if gap < 0 || gap > MaxIconGap {
+			delete(result, name)
+			continue
+		}
+		result[name] = gap
+	}
+	return result
+}
+
+func (g IconGaps) EffectiveGap(name string, global int) int {
+	normalized := normalizeIconName(name)
+	match := ""
+	gap := global
+	for candidate, candidateGap := range g {
+		if !strings.Contains(normalized, candidate) || candidateGap < 0 || candidateGap > MaxIconGap || len(candidate) < len(match) || (len(candidate) == len(match) && candidate >= match) {
+			continue
+		}
+		match, gap = candidate, int(candidateGap)
+	}
+	return gap
+}
+
+func (g *IconGap) UnmarshalYAML(value *yaml.Node) error {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value.Value))
+	if err != nil || parsed < 0 || parsed > int(MaxIconGap) {
+		*g = DefaultIconGap
+		return nil
+	}
+	*g = IconGap(parsed)
+	return nil
+}
+
+// NameWidth is the preferred display width of the first table/TUI column.
+type NameWidth int
+
+const (
+	DefaultNameWidth = 40
+	MaxNameWidth     = 120
+)
+
+func (w *NameWidth) UnmarshalYAML(value *yaml.Node) error {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value.Value))
+	if err != nil || parsed <= 0 || parsed > MaxNameWidth {
+		*w = DefaultNameWidth
+		return nil
+	}
+	*w = NameWidth(parsed)
+	return nil
+}
+
+func (c TableConfig) EffectiveNameWidth() int {
+	if c.NameWidth <= 0 || c.NameWidth > MaxNameWidth {
+		return DefaultNameWidth
+	}
+	return int(c.NameWidth)
+}
+
+func (c TableConfig) EffectiveIconGap() int {
+	if c.IconGap < 0 || c.IconGap > MaxIconGap {
+		return int(DefaultIconGap)
+	}
+	return int(c.IconGap)
+}
+
+func (c TableConfig) EffectiveIconGapFor(name string) int {
+	return c.IconGaps.EffectiveGap(name, c.EffectiveIconGap())
 }
 
 type TUIConfig struct {
@@ -314,7 +435,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75,has-q/p,availability:paid\n" +
 	"icons:\n" +
-	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: '♾️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀'}\n" +
+	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: 'Ⓜ️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀', xiaomi: 'ⓧ', nvidia: 'Ⓝ'}\n" +
 	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
@@ -334,6 +455,8 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  score_source: swebench\n" +
 	"  limit: 0\n" +
 	"  task_fit: short\n" +
+	"  name_width: 40\n" +
+	"  icon_gap: 1\n" +
 	"tui:\n" +
 	"  refresh_interval: 5m\n" +
 	"  sort: q/p\n" +
@@ -479,7 +602,7 @@ func configTemplate(dataDir string) (string, error) {
 func Load(path string) (Config, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{DefaultFilter: DefaultFilter, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap(), Icons: DefaultIconConfig()}, nil
+		return Config{DefaultFilter: DefaultFilter, Table: TableConfig{IconGap: DefaultIconGap, IconGaps: DefaultIconGaps()}, TUISteps: DefaultTUISteps(), TUIKeymap: DefaultTUIKeymap(), Icons: DefaultIconConfig()}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -516,6 +639,10 @@ func Load(path string) (Config, error) {
 	}
 	c.TUISteps = c.TUISteps.WithDefaults()
 	c.Icons = c.Icons.WithDefaults()
+	c.Table.IconGaps = c.Table.IconGaps.WithDefaults()
+	if !yamlNestedMappingHasKey(document, "table", "icon_gap") {
+		c.Table.IconGap = DefaultIconGap
+	}
 	if err := validateTUIKeymap(path, c.TUIKeymap); err != nil {
 		return Config{}, err
 	}
