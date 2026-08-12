@@ -38,9 +38,9 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 
 func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	for _, test := range []struct{ name, badge string }{
-		{" OpenAI  Labs ", "[OAI]"}, {"ANTHROPIC", "[ANT]"}, {"Google DeepMind", "[GOOG]"},
-		{"Meta AI", "[META]"}, {"DeepSeek", "[DS]"}, {"Qwen", "[QWEN]"}, {"Mistral AI", "[MSTR]"},
-		{"xAI", "[XAI]"}, {"  ", "[?]"}, {"Unknown vendor", "[?]"},
+		{" OpenAI  Labs ", "O"}, {"ANTHROPIC", "A"}, {"Google DeepMind", "G"},
+		{"Meta AI", "M"}, {"DeepSeek", "D"}, {"Qwen", "Q"}, {"Mistral AI", "S"},
+		{"xAI", "X"}, {"  ", "?"}, {"Unknown vendor", "?"},
 	} {
 		if got := manufacturerBadge(test.name); got != test.badge {
 			t.Errorf("manufacturerBadge(%q) = %q, want %q", test.name, got, test.badge)
@@ -48,21 +48,51 @@ func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	}
 }
 
+func TestManufacturerBadgeIconsAreDistinct(t *testing.T) {
+	seen := map[string]string{}
+	for _, name := range []string{"OpenAI", "Anthropic", "Google", "Meta", "DeepSeek", "Qwen", "Mistral", "xAI"} {
+		icon := manufacturerBadge(name)
+		if previous, ok := seen[icon]; ok {
+			t.Fatalf("manufacturer icon %q is shared by %s and %s", icon, previous, name)
+		}
+		seen[icon] = name
+	}
+	got := manufacturerBadge("Unknown vendor")
+	if owner, ok := seen[got]; ok {
+		t.Fatalf("generic manufacturer icon %q is also used by %s", got, owner)
+	}
+}
+
 func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testing.T) {
-	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI "}}
-	if got := manufacturerDisplay(row); got != "[OAI] OpenAI" {
+	row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: " OpenAI ", IdentityStatus: model.IdentityExact}}
+	if got := manufacturerDisplay(row); got != "O OpenAI" {
 		t.Fatalf("manufacturerDisplay = %q, want Arena organization with badge", got)
 	}
 	row.ArenaScore.Provider = ""
 	row.Owner = "Mystery Vendor"
-	if got := manufacturerDisplay(row); got != "[?] Mystery Vendor" {
+	if got := manufacturerDisplay(row); got != "? Mystery Vendor" {
 		t.Fatalf("unknown manufacturer display = %q, want badge and original text", got)
+	}
+}
+
+func TestManufacturerDisplayRejectsUnverifiedArenaOrganization(t *testing.T) {
+	for _, status := range []string{model.IdentityVariantMismatch, model.IdentityMissing, model.IdentityLegacyUnknown, model.IdentityObservationOnly, ""} {
+		t.Run(status, func(t *testing.T) {
+			row := model.Model{DisplayName: "Demo", Owner: "Owner", Provider: "Provider", ArenaScore: &model.ScoreInfo{Provider: "Wrong Arena Organization", IdentityStatus: status}}
+			if got := manufacturerDisplay(row); got != "? Owner" {
+				t.Fatalf("manufacturerDisplay with Arena status %q = %q, want Owner fallback", status, got)
+			}
+			row.Owner = ""
+			if got := manufacturerDisplay(row); got != "? Provider" {
+				t.Fatalf("manufacturerDisplay with Arena status %q and empty Owner = %q, want catalogue Provider fallback", status, got)
+			}
+		})
 	}
 }
 
 func TestTUITableCellShowsManufacturerBadgeWithoutLosingModelName(t *testing.T) {
 	got := tuiCell(model.Model{DisplayName: "GPT", Owner: "OpenAI"}, colName, true, scoreSourceDefault)
-	if got != "[OAI] OpenAI GPT" {
+	if got != "O OpenAI GPT" {
 		t.Fatalf("TUI identity = %q, want badge and model name", got)
 	}
 }
@@ -70,7 +100,7 @@ func TestTUITableCellShowsManufacturerBadgeWithoutLosingModelName(t *testing.T) 
 func TestRenderTableModeShowsManufacturerBadgeAndStaysWithinWidth(t *testing.T) {
 	row := model.Model{DisplayName: "GPT-5.6 Luna", Owner: "OpenAI", ScoreLabel: "93.0%", QualityPriceLabel: "82.7"}
 	wide := renderTableMode([]model.Model{row}, 120, false, "short", scoreSourceDefault)
-	if !strings.Contains(wide, "[OAI] OpenAI GPT-5.6 Luna") {
+	if !strings.Contains(wide, "O OpenAI GPT-5.6 Luna") {
 		t.Fatalf("CLI table lost manufacturer badge or model name:\n%s", wide)
 	}
 	narrow := renderTableMode([]model.Model{row}, 40, false, "short", scoreSourceDefault)
@@ -78,6 +108,13 @@ func TestRenderTableModeShowsManufacturerBadgeAndStaysWithinWidth(t *testing.T) 
 		if tableDisplayWidth(line) > 42 {
 			t.Fatalf("narrow CLI table line exceeds the existing border budget: %d > 42: %q", tableDisplayWidth(line), line)
 		}
+	}
+	if got := tableDisplayWidth(manufacturerDisplay(row)); got != len(manufacturerDisplay(row)) {
+		t.Fatalf("manufacturer display width = %d, want ASCII byte width %d", got, len(manufacturerDisplay(row)))
+	}
+	tuiRow := tuiCell(row, colName, true, scoreSourceDefault)
+	if tableDisplayWidth(truncateTable(tuiRow, 12)) > 12 {
+		t.Fatalf("narrow TUI identity exceeds width: %d: %q", tableDisplayWidth(truncateTable(tuiRow, 12)), tuiRow)
 	}
 }
 

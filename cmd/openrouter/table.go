@@ -731,7 +731,7 @@ func tableNote(m model.Model) string {
 }
 
 func manufacturerName(m model.Model) string {
-	if m.ArenaScore != nil && strings.TrimSpace(m.ArenaScore.Provider) != "" {
+	if m.ArenaScore != nil && m.ArenaScore.IdentityStatus == model.IdentityExact && strings.TrimSpace(m.ArenaScore.Provider) != "" {
 		return strings.TrimSpace(m.ArenaScore.Provider)
 	}
 	if strings.TrimSpace(m.Owner) != "" {
@@ -743,14 +743,14 @@ func manufacturerName(m model.Model) string {
 func manufacturerBadge(name string) string {
 	normalized := strings.ToLower(strings.Join(strings.Fields(name), " "))
 	for _, entry := range []struct{ match, badge string }{
-		{"openai", "[OAI]"}, {"anthropic", "[ANT]"}, {"google", "[GOOG]"}, {"meta", "[META]"},
-		{"deepseek", "[DS]"}, {"qwen", "[QWEN]"}, {"mistral", "[MSTR]"}, {"xai", "[XAI]"},
+		{"openai", "O"}, {"anthropic", "A"}, {"google", "G"}, {"meta", "M"},
+		{"deepseek", "D"}, {"qwen", "Q"}, {"mistral", "S"}, {"xai", "X"},
 	} {
 		if strings.Contains(normalized, entry.match) {
 			return entry.badge
 		}
 	}
-	return "[?]"
+	return "?"
 }
 
 func manufacturerDisplay(m model.Model) string {
