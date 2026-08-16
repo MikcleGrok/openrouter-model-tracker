@@ -797,6 +797,24 @@ func TestTUISettingsAvailabilityRowCyclesAvailabilityInPlace(t *testing.T) {
 	}
 }
 
+func TestTUISettingsAvailabilityRowRightArrowCyclesAvailability(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.settingsCursor, m.filter = "settings", 3, ""
+	m, _ = m.settingsKey("right", "right")
+	if got := tuiAvailabilityFromFilter(m.filter); got != "free" {
+		t.Fatalf("availability after Right on settings cursor 3 = %q, want free", got)
+	}
+}
+
+func TestTUISettingsAvailabilityRowLeftArrowCyclesBackwardFromPaid(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.settingsCursor, m.filter = "settings", 3, "availability:paid"
+	m, _ = m.settingsKey("left", "left")
+	if got := tuiAvailabilityFromFilter(m.filter); got != "free" {
+		t.Fatalf("availability after Left on settings cursor 3 starting from paid = %q, want free", got)
+	}
+}
+
 func TestTUISettingsColumnsRowOpensColumnsOverlay(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.overlay, m.settingsCursor, m.topN = "settings", 5, 3
