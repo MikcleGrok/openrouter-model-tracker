@@ -631,9 +631,6 @@ func TestTUIHelpSearchCounterZeroAndCurrentStyle(t *testing.T) {
 
 func TestTUIMainSpaceSwitchesSourceThroughUpdate(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +641,7 @@ func TestTUIMainSpaceSwitchesSourceThroughUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), snapshot, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), snapshot, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := newTUIModel(context.Background(), root, refresh.Options{}, 0, []model.Model{{Slug: "demo/model"}})
@@ -762,9 +759,6 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 
 func TestTUIScoreSourceSwitchThroughUpdateShowsPendingSuccessAndError(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -775,7 +769,7 @@ func TestTUIScoreSourceSwitchThroughUpdateShowsPendingSuccessAndError(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), snapshot, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), snapshot, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := newTUIModel(context.Background(), root, refresh.Options{}, 0, []model.Model{{Slug: "demo/model"}})
@@ -3420,9 +3414,6 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 // NewSnapshot, or the PriceInfo rebuild in loadLocalModelsForSource.
 func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -3441,7 +3432,7 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	compiled, err := ranking.Compile(ranking.DefaultConfig())
@@ -3783,9 +3774,6 @@ func TestTUIRussianLayoutShortcutsMatchLatin(t *testing.T) {
 func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 	tuiForceColorProfile(t)
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\ndemo/closed\ttier=opus\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -3809,7 +3797,7 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	compiled, err := ranking.Compile(ranking.DefaultConfig())

@@ -25,5 +25,5 @@ func (b *DataDirBuilder) Write(t *testing.T, root string) {
 			t.Fatal(err)
 		}
 	}
-	NewSnapshot().Write(t, filepath.Join(root, "cache", "last-run-snapshot.json"))
+	NewSnapshot().Write(t, filepath.Join(root, "model-snapshot.json"))
 }

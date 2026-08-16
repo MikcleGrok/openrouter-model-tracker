@@ -51,6 +51,19 @@ type Snapshot struct {
 	CatalogSlugs []string                 `json:"catalog_slugs,omitempty"`
 }
 
+// SnapshotFileName is the tracked, versioned snapshot's file name. It is
+// always resolved relative to DataDir — the same root that holds
+// model-map.tsv and notes.yaml — never under the gitignored cache/
+// directory, which holds only ephemeral raw fetches from external sources.
+const SnapshotFileName = "model-snapshot.json"
+
+// SnapshotPath returns the tracked snapshot's path for a given data
+// directory. Every reader/writer of the snapshot goes through this helper so
+// the on-disk location has one definition.
+func SnapshotPath(dataDir string) string {
+	return filepath.Join(dataDir, SnapshotFileName)
+}
+
 // LoadSnapshot reads the snapshot at path. A missing file yields an empty
 // snapshot and no error: the very first run has nothing to fall back to.
 func LoadSnapshot(path string) (*Snapshot, error) {

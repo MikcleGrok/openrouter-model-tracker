@@ -23,7 +23,7 @@ if [[ "${1:-}" == "install" ]]; then
 fi
 
 cutoff_day=$($DATE -v-6H +%F)
-snapshot="$DATA_DIR/cache/last-run-snapshot.json"
+snapshot="$DATA_DIR/model-snapshot.json"
 updated_day=""
 if [[ -f "$snapshot" ]]; then
   updated_at=$(awk -F'"' '/"updated_at"/ {print $4; exit}' "$snapshot")

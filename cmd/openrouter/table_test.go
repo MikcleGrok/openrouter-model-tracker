@@ -1979,9 +1979,6 @@ func TestTableCommandFailsWithoutSnapshot(t *testing.T) {
 
 func copyTableFixture(t *testing.T, root string) error {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		return err
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/high\ttier=sonnet\ndemo/low\ttier=haiku\ndemo/missing\ttier=free\n"), 0o644); err != nil {
 		return err
 	}
@@ -1997,18 +1994,15 @@ func copyTableFixture(t *testing.T, root string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
+	return os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644)
 }
 
 func removeTableSnapshot(root string) error {
-	return os.Remove(filepath.Join(root, "cache", "last-run-snapshot.json"))
+	return os.Remove(filepath.Join(root, "model-snapshot.json"))
 }
 
 func copyScoreSourceFixture(t *testing.T, root string) error {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		return err
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/swe\ttier=sonnet\tvals=demo/swe\ndemo/arena\ttier=sonnet\tarena=demo-arena\ndemo/both\ttier=sonnet\tvals=demo/both\tarena=demo-both\n"), 0o644); err != nil {
 		return err
 	}
@@ -2024,7 +2018,7 @@ func copyScoreSourceFixture(t *testing.T, root string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
+	return os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644)
 }
 
 func TestTableScoreSourceSwitchesTheWholeView(t *testing.T) {
@@ -2099,9 +2093,6 @@ func TestTableScoreSourceRanksByTheActiveSource(t *testing.T) {
 // any) may run.
 func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		return err
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/haiku-swe\ttier=haiku\tvals=demo/haiku-swe\ndemo/haiku-arena\ttier=haiku\tarena=demo-haiku-arena\n"), 0o644); err != nil {
 		return err
 	}
@@ -2116,7 +2107,7 @@ func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644)
+	return os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644)
 }
 
 // TestLoadLocalModelsForSourceRestoresCatalogueMetadata closes the loop
@@ -2125,9 +2116,6 @@ func copyScoreSourceClaudeFixture(t *testing.T, root string) error {
 // but is not rebuilt here reaches the detail screen as a permanent н/д.
 func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/dated\ttier=sonnet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2144,7 +2132,7 @@ func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

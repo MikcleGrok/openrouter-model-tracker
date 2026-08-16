@@ -130,7 +130,7 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 		}
 	}
 
-	snap, err := LoadSnapshot(filepath.Join(dir, "cache", "last-run-snapshot.json"))
+	snap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
 	if err != nil {
 		t.Fatalf("LoadSnapshot: %v", err)
 	}
@@ -149,18 +149,24 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestRunUsesCustomCacheDirForSnapshot(t *testing.T) {
+func TestRunSnapshotPathIsIndependentOfCacheDir(t *testing.T) {
 	dir := newDataDir(t)
 	custom := filepath.Join(t.TempDir(), "custom-cache")
 	out := filepath.Join(t.TempDir(), "report.md")
 	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out, CacheDir: custom}, okDeps()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if _, err := LoadSnapshot(filepath.Join(custom, "last-run-snapshot.json")); err != nil {
-		t.Fatalf("custom snapshot: %v", err)
+	// The snapshot is durable, versioned data — it always lands at the data
+	// directory root, regardless of where CacheDir points the ephemeral
+	// HTTP cache.
+	if _, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json")); err != nil {
+		t.Fatalf("snapshot at the tracked data-dir path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(custom, "last-run-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("snapshot unexpectedly written under the custom cache dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cache", "last-run-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("default snapshot unexpectedly exists: %v", err)
+		t.Fatalf("snapshot unexpectedly written under the default cache dir: %v", err)
 	}
 }
 
@@ -174,7 +180,7 @@ func TestRunDryRunWritesNothing(t *testing.T) {
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("--dry-run wrote %s, want it untouched", out)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "cache", "last-run-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, "model-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Error("--dry-run overwrote the snapshot, want it untouched")
 	}
 	if _, err := os.Stat(pricehistory.Path(dir)); !errors.Is(err, os.ErrNotExist) {
@@ -184,7 +190,7 @@ func TestRunDryRunWritesNothing(t *testing.T) {
 
 func TestRunDryRunReportsCatalogDeltaWithoutChangingBaseline(t *testing.T) {
 	dir := newDataDir(t)
-	snapshotPath := filepath.Join(dir, "cache", "last-run-snapshot.json")
+	snapshotPath := filepath.Join(dir, "model-snapshot.json")
 	seed := &Snapshot{
 		FetchedAt:    "2026-08-03",
 		CatalogSlugs: []string{"minimax/minimax-m3", "openai/gpt-5.6-luna"},
@@ -252,7 +258,7 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 			"minimax/minimax-m3": {InPerM: 0.3, OutPerM: 1.2, Context: 1000000},
 		},
 	}
-	if err := seed.Save(filepath.Join(dir, "cache", "last-run-snapshot.json")); err != nil {
+	if err := seed.Save(filepath.Join(dir, "model-snapshot.json")); err != nil {
 		t.Fatalf("seed snapshot: %v", err)
 	}
 
@@ -303,7 +309,7 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	// Created/Description are not rendered into the markdown document — they
 	// only surface on the TUI detail screen — so their fallback survival is
 	// checked in the written snapshot, the other artifact this run produces.
-	newSnap, err := LoadSnapshot(filepath.Join(dir, "cache", "last-run-snapshot.json"))
+	newSnap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
 	if err != nil {
 		t.Fatalf("reload the written snapshot: %v", err)
 	}
@@ -375,7 +381,7 @@ func TestRunHistoryFailureDoesNotAdvanceDocumentOrSnapshot(t *testing.T) {
 	if err := os.WriteFile(out, []byte(oldDoc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	snapshotPath := filepath.Join(dir, "cache", "last-run-snapshot.json")
+	snapshotPath := filepath.Join(dir, "model-snapshot.json")
 	seed := &Snapshot{FetchedAt: "2026-08-03", Models: map[string]SnapshotEntry{"openai/gpt-5.6-luna": {InPerM: 0.4, OutPerM: 2, Context: 900000}}}
 	if err := seed.Save(snapshotPath); err != nil {
 		t.Fatal(err)
@@ -404,7 +410,7 @@ func TestRunPublishFailureRollsBackAllFiles(t *testing.T) {
 		t.Run(target, func(t *testing.T) {
 			dir := newDataDir(t)
 			out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
-			snapshotPath := filepath.Join(dir, "cache", "last-run-snapshot.json")
+			snapshotPath := filepath.Join(dir, "model-snapshot.json")
 			historyPath := pricehistory.Path(dir)
 			oldDoc := "old document\n"
 			if err := os.WriteFile(out, []byte(oldDoc), 0o644); err != nil {
@@ -1001,7 +1007,7 @@ func TestRunSplitsArenaRowsFromSWEBenchRows(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	snap, err := LoadSnapshot(filepath.Join(dir, "cache", "last-run-snapshot.json"))
+	snap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
 	if err != nil {
 		t.Fatalf("LoadSnapshot: %v", err)
 	}

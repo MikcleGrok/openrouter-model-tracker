@@ -32,10 +32,7 @@ func DataDir(t *testing.T, marker string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -65,10 +62,7 @@ func ScoreSourceDataDir(t *testing.T, marker string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "cache"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "cache", "last-run-snapshot.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
