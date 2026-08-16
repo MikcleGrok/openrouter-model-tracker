@@ -1,5 +1,14 @@
 # What's New
 
+## [1.14.17]
+
+- Add Z.ai, MiniMax, Moonshot, and Tencent manufacturer icons for clearer provider identity.
+- Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
+- Add contract coverage for manufacturer icon rendering and alignment.
+- Make `x` close child TUI windows and exit the application from the main window.
+- Add regression coverage for `x` handling across child TUI windows and the main window.
+- Fix Settings overlay Availability row opening the Columns editor instead of cycling availability.
+
 ## [1.14.16]
 
 - Stop Left arrow from quitting the TUI's bare main view; it shared the close-overlay-or-quit keymap entry with Esc/h.
@@ -14,14 +23,6 @@
 
 - Make `x` exit the main TUI and close child or modal windows.
 - Add regression coverage for `x` handling, including the Cyrillic `ч` key.
-
-## [Unreleased]
-
-- Add Z.ai, MiniMax, Moonshot, and Tencent manufacturer icons for clearer provider identity.
-- Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
-- Add contract coverage for manufacturer icon rendering and alignment.
-- Make `x` close child TUI windows and exit the application from the main window.
-- Add regression coverage for `x` handling across child TUI windows and the main window.
 
 ## [1.14.11]
 
