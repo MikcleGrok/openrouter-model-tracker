@@ -302,7 +302,7 @@ func tuiKey(m tuiModel, key string) tuiModel {
 }
 
 func TestTUIMainCloseBindingsQuitThroughKeyEvents(t *testing.T) {
-	for _, key := range []string{"esc", "left", "h"} {
+	for _, key := range []string{"esc", "h"} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 		if key == "esc" {
@@ -317,6 +317,34 @@ func TestTUIMainCloseBindingsQuitThroughKeyEvents(t *testing.T) {
 	m.keymap["main"]["close"] = config.TUIBindings{"z"}
 	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")}); cmd == nil {
 		t.Fatal("custom main.close binding did not return a quit command")
+	}
+}
+
+// TestTUILeftArrowDoesNotQuitTheBareMainView is a regression test: Left arrow
+// used to share the "esc"/"h" close-overlay-or-quit binding in the main
+// context, so pressing it with no overlay open quit the whole TUI instead of
+// doing nothing. Only "esc" and "h" should still quit from the bare main
+// view; Left arrow must be a no-op there.
+func TestTUILeftArrowDoesNotQuitTheBareMainView(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}, {Slug: "b"}})
+	cursorBefore, overlayBefore := m.cursor, m.overlay
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if cmd != nil {
+		t.Fatal("Left arrow in the bare main view returned a command (expected a no-op)")
+	}
+	got := next.(tuiModel)
+	if got.overlay != overlayBefore {
+		t.Fatalf("Left arrow in the bare main view changed overlay: %q -> %q", overlayBefore, got.overlay)
+	}
+	if got.cursor != cursorBefore {
+		t.Fatalf("Left arrow in the bare main view moved the cursor: %d -> %d", cursorBefore, got.cursor)
+	}
+
+	// A custom main.close binding may still opt Left back in explicitly.
+	m = newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.keymap["main"]["close"] = config.TUIBindings{"left"}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyLeft}); cmd == nil {
+		t.Fatal("custom main.close binding on left did not return a quit command")
 	}
 }
 
