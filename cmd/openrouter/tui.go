@@ -1009,7 +1009,8 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 		case 2:
 			m.openFilterEditor()
 		case 3:
-			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
+			m.cycleAvailability()
+			m.rebuild()
 		case 4:
 			if m.layout == "top-paid-free" {
 				m.layout = "all"
@@ -1019,12 +1020,10 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			m.persistLayout()
 			m.rebuild()
 		case 5:
-			m.topN = max(1, m.topN+1)
-			m.persistLayout()
-			m.rebuild()
+			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
 		}
 	case "left", "right":
-		if m.settingsCursor == 5 {
+		if m.settingsCursor == 4 {
 			m.topN = max(1, m.topN+map[string]int{"left": -1, "right": 1}[key])
 			m.persistLayout()
 			m.rebuild()
