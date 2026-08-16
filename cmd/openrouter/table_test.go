@@ -217,6 +217,7 @@ func TestManufacturerIconSlotHasOneConfiguredGapAndStableNameStart(t *testing.T)
 	}{
 		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
 		{"Google", "🌐"}, {"Unknown", "❔"}, {"xAI", "🚀"}, {"DeepSeek", "🐋"}, {"Xiaomi", "ⓧ"}, {"NVIDIA", "Ⓝ"},
+		{"Z.ai", "Ⓩ"}, {"MiniMax", "♟️"}, {"Moonshot AI", "🌙"}, {"Tencent", "🐧"},
 	}
 	icons := config.IconConfig{Manufacturers: map[string]string{}, Unknown: "❔"}
 	for _, manufacturer := range manufacturers {
@@ -343,6 +344,10 @@ var testIconLayouts = map[string]testIconLayout{
 	"🛠️": {slot: "🛠️ ", bytes: []byte{0xF0, 0x9F, 0x9B, 0xA0, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
 	"ⓧ":  {slot: "ⓧ ", bytes: []byte{0xE2, 0x93, 0xA7, ' '}, slotWidth: 2, displayWidth: 1},
 	"Ⓝ":  {slot: "Ⓝ ", bytes: []byte{0xE2, 0x93, 0x83, ' '}, slotWidth: 2, displayWidth: 1},
+	"Ⓩ":  {slot: "Ⓩ ", bytes: []byte{0xE2, 0x93, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"♟️": {slot: "♟️ ", bytes: []byte{0xE2, 0x99, 0x9F, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"🌙":  {slot: "🌙", bytes: []byte{0xF0, 0x9F, 0x8C, 0x99}, slotWidth: 2, displayWidth: 2},
+	"🐧":  {slot: "🐧", bytes: []byte{0xF0, 0x9F, 0x90, 0xA7}, slotWidth: 2, displayWidth: 2},
 	"x":  {slot: "x ", bytes: []byte{'x', ' '}, slotWidth: 2, displayWidth: 1},
 }
 
@@ -522,6 +527,10 @@ func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *tes
 		{"poolside/laguna-xs-2.1", "❔ Poolside"},
 		{"google/gemma-4-31b-it", "🌐 Google"},
 		{"openai/gpt-5-mini", "🌀 OpenAI"},
+		{"z-ai/glm-5.2", "Ⓩ  Z.ai"},
+		{"minimax/minimax-m3", "♟️  MiniMax"},
+		{"moonshotai/kimi-k3", "🌙 Moonshot AI"},
+		{"tencent/hy3", "🐧 Tencent"},
 	} {
 		t.Run(test.slug, func(t *testing.T) {
 			row := model.Model{Slug: test.slug, DisplayName: "Model", Owner: notes.NeedsReview}

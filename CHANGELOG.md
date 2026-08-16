@@ -17,6 +17,7 @@
 
 ## [Unreleased]
 
+- Add Z.ai, MiniMax, Moonshot, and Tencent manufacturer icons for clearer provider identity.
 - Add Xiaomi and NVIDIA manufacturer icons for clearer provider identity.
 - Add contract coverage for manufacturer icon rendering and alignment.
 - Make `x` close child TUI windows and exit the application from the main window.

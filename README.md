@@ -339,6 +339,10 @@ icons:
     xai: '🚀'
     xiaomi: 'ⓧ'
     nvidia: 'Ⓝ'
+    z.ai: 'Ⓩ'
+    minimax: '♟️'
+    moonshot: '🌙'
+    tencent: '🐧'
   unknown: '❔'
 ```
 
