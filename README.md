@@ -79,16 +79,40 @@ SWE-bench и не подменяет его.
 rankable exact-product benchmark observation.
 
 Перед публикацией score проходит source-family-aware structured identity gate.
-Для SWE-bench/vals measured identity проверяется против identity каталога: например,
-DeepSeek 0731 против каталожного 0423 получает `variant_mismatch`, а не exact.
+Для SWE-bench/vals: если строка нашлась по ключу, сопоставленному в `model-map.tsv`
+(`vals=`/`swebench=`), это сопоставление и есть утверждение об идентичности — по
+умолчанию оно доверяется, даже если ключ текстово не совпадает со slug'ом
+OpenRouter (разные пространства имён и написание на двух сайтах — обычное дело,
+а не признак другого продукта). Для vals.ai доверие дополнительно перепроверяется:
+строка сама эхом возвращает ключ, по которому её нашли (`measured variant`), и
+несовпадение с сопоставленным ключом — это не разница в написании, а подделанная
+или устаревшая строка, которая остаётся `variant_mismatch`. У swebench.com такого
+поля для проверки нет (там `measured variant` — имя скаффолда сабмишена, а не эхо
+ключа), поэтому его сопоставление доверяется напрямую, без встречной проверки.
+Если сопоставленная строка на самом деле измеряет другой чекпоинт/вариант, а не
+тот же продукт, — человек обязан явно пометить это маркером `!variant` на имени
+источника в `model-map.tsv`, например `vals!variant=deepseek/deepseek-v4-flash-0731`:
+deepseek/deepseek-v4-flash сопоставлена с vals.ai-ключом чекпоинта `0731`, а
+каталожный canonical_slug модели содержит дату `20260423`, так что без маркера
+это был бы тихий `exact_product` на самом деле другого чекпоинта. Помеченная
+строка остаётся `variant_mismatch` и не ранжируется, несмотря на найденное
+совпадение по ключу; ловит такое расхождение только человек, редактирующий файл —
+код это не проверяет автоматически ни для vals, ни тем более для swebench.com.
+Строка без сопоставления в `model-map.tsv` для этого источника по-прежнему
+проверяется буквально против исходных идентификаторов OpenRouter
+(slug/canonical_slug) — без каких-либо cross-namespace догадок.
 Для Arena `modelKey` и configured `arena=` из `model-map.tsv` принадлежат отдельному
 namespace и не сравниваются с OpenRouter slug/canonical_slug: exact возможен только
 при непустом и совпадающем configured/source Arena key. Несовпадение доступного
 provider, release/model variant, reasoning или configuration также блокирует score;
 отсутствующая, неоднозначная или неполная Arena identity получает `missing_identity`
-или `legacy_unknown` и не допускается в ranking. Никаких cross-namespace догадок
-нет. Старое snapshot без статуса получает `legacy_unknown`; `exact_product` никогда
-не принимается только из входного status и всегда пересчитывается.
+или `legacy_unknown` и не допускается в ranking. Cross-namespace догадок нигде нет
+сами по себе — единственное место, где имя с одного сайта принимается за имя с
+другого, это явное, курируемое человеком сопоставление `vals=`/`swebench=` в
+`model-map.tsv`, описанное выше; Arena identity и любая несопоставленная строка
+по-прежнему сверяются буквально. Старое snapshot без статуса получает
+`legacy_unknown`; `exact_product` никогда не принимается только из входного status
+и всегда пересчитывается.
 
 Каждое наблюдение сохраняет raw value, metric, unit, source URL, measured
 variant, checked date, identity status, uncertainty/error bar, sample size,
