@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.18]
+
+- Let Left/Right cycle the Settings overlay's Availability row (Right = forward any -> free -> paid, Left = backward), matching the same directional idiom the Layout row already uses one case below it.
+
 ## [1.14.17]
 
 - Add Z.ai, MiniMax, Moonshot, and Tencent manufacturer icons for clearer provider identity.
