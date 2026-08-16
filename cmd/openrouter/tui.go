@@ -900,6 +900,12 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 }
 
 func (m *tuiModel) cycleAvailability() {
+	m.cycleAvailabilityDir(1)
+}
+
+// cycleAvailabilityDir cycles the availability filter through any/free/paid.
+// dir > 0 moves forward (any -> free -> paid -> any); dir < 0 moves backward.
+func (m *tuiModel) cycleAvailabilityDir(dir int) {
 	parts := make([]string, 0, len(splitFilter(m.filter)))
 	current := "any"
 	for _, raw := range splitFilter(m.filter) {
@@ -910,7 +916,12 @@ func (m *tuiModel) cycleAvailability() {
 		}
 		parts = append(parts, trimmed)
 	}
-	next := map[string]string{"any": "free", "free": "paid", "paid": "any"}[current]
+	forward := map[string]string{"any": "free", "free": "paid", "paid": "any"}
+	backward := map[string]string{"any": "paid", "paid": "free", "free": "any"}
+	next := forward[current]
+	if dir < 0 {
+		next = backward[current]
+	}
 	if next != "any" {
 		parts = append(parts, "availability:"+next)
 	}
@@ -1023,7 +1034,11 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			m.overlay, m.pendingColumns, m.columnCursor = "columns", append([]tuiColumn(nil), m.columns...), 0
 		}
 	case "left", "right":
-		if m.settingsCursor == 4 {
+		switch m.settingsCursor {
+		case 3:
+			m.cycleAvailabilityDir(map[string]int{"left": -1, "right": 1}[key])
+			m.rebuild()
+		case 4:
 			m.topN = max(1, m.topN+map[string]int{"left": -1, "right": 1}[key])
 			m.persistLayout()
 			m.rebuild()
