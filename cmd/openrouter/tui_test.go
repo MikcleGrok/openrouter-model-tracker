@@ -785,6 +785,30 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	}
 }
 
+func TestTUISettingsAvailabilityRowCyclesAvailabilityInPlace(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.settingsCursor, m.filter = "settings", 3, ""
+	m, _ = m.settingsKey(" ", " ")
+	if m.overlay == "columns" {
+		t.Fatalf("settings cursor 3 (Availability row) opened the columns overlay instead of cycling availability")
+	}
+	if got := tuiAvailabilityFromFilter(m.filter); got != "free" {
+		t.Fatalf("availability after Space on settings cursor 3 = %q, want free", got)
+	}
+}
+
+func TestTUISettingsColumnsRowOpensColumnsOverlay(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.settingsCursor, m.topN = "settings", 5, 3
+	m, _ = m.settingsKey(" ", " ")
+	if m.overlay != "columns" {
+		t.Fatalf("settings cursor 5 (Columns row) overlay = %q, want columns", m.overlay)
+	}
+	if m.topN != 3 {
+		t.Fatalf("settings cursor 5 (Columns row) changed topN to %d, want unchanged 3", m.topN)
+	}
+}
+
 func TestTUIScoreSourceSwitchThroughUpdateShowsPendingSuccessAndError(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/model\ttier=sonnet\n"), 0o644); err != nil {
