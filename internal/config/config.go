@@ -128,7 +128,7 @@ func (b *TUIBindings) UnmarshalYAML(value *yaml.Node) error {
 type TUIKeymap map[string]map[string]TUIBindings
 
 var defaultTUIKeymap = TUIKeymap{
-	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "left", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
+	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
 	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
 	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
