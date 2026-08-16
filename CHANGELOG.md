@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.16]
+
+- Stop Left arrow from quitting the TUI's bare main view; it shared the close-overlay-or-quit keymap entry with Esc/h.
+
 ## [1.14.15]
 
 - Trust `model-map.tsv`'s vals.ai/swebench.com mapping for identity classification instead of requiring an exact slug match, so cross-namespace mappings (Kimi, GLM, Grok, and similar) are no longer silently excluded from ranking.
