@@ -226,7 +226,7 @@ func ProviderLabel(slug, provider string) string {
 	}
 	if label, ok := map[string]string{
 		"anthropic": "Anthropic", "cohere": "Cohere", "deepseek": "DeepSeek", "google": "Google",
-		"inclusionai": "InclusionAI", "meta": "Meta", "meta-llama": "Meta", "mistral": "Mistral",
+		"inclusionai": "InclusionAI", "meta": "Meta", "meta-llama": "Meta", "minimax": "MiniMax", "mistral": "Mistral",
 		"mistralai": "Mistral AI", "moonshotai": "Moonshot AI", "nvidia": "NVIDIA", "openai": "OpenAI",
 		"poolside": "Poolside", "qwen": "Qwen", "tencent": "Tencent", "xiaomi": "Xiaomi",
 		"x-ai": "xAI", "z-ai": "Z.ai",
