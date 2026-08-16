@@ -1105,6 +1105,22 @@ func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
 	}
 }
 
+func TestTUIFilterAvailabilityRightArrowCyclesForward(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 9, filterDraft: tuiFilterDraft{availability: "paid"}}
+	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	if m.filterDraft.availability != "" {
+		t.Fatalf("availability after Right from paid = %q, want \"\" (wraps around)", m.filterDraft.availability)
+	}
+}
+
+func TestTUIFilterAvailabilityLeftArrowCyclesBackward(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 9, filterDraft: tuiFilterDraft{availability: "paid"}}
+	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+	if m.filterDraft.availability != "free" {
+		t.Fatalf("availability after Left from paid = %q, want free", m.filterDraft.availability)
+	}
+}
+
 func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
 	m := tuiModel{overlay: "filter", filterCursor: 4}
 	for _, test := range []struct {

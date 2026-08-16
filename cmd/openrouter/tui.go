@@ -1082,12 +1082,16 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "left":
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
+		} else if m.filterCursor == 9 {
+			m.filterDraft.availability = tuiPreviousAvailability(m.filterDraft.availability)
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, -1, m.filterSteps)
 		}
 	case "right":
 		if m.filterCursor == 3 {
 			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
+		} else if m.filterCursor == 9 {
+			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, 1, m.filterSteps)
 		}
@@ -1255,6 +1259,18 @@ func tuiNextAvailability(current string) string {
 	for i, value := range values {
 		if value == current {
 			return values[(i+1)%len(values)]
+		}
+	}
+	return values[0]
+}
+
+// tuiPreviousAvailability cycles the Filter overlay's Availability field
+// backward through "", "any", "free", "paid" — the reverse of tuiNextAvailability.
+func tuiPreviousAvailability(current string) string {
+	values := []string{"", "any", "free", "paid"}
+	for i, value := range values {
+		if value == current {
+			return values[(i-1+len(values))%len(values)]
 		}
 	}
 	return values[0]
