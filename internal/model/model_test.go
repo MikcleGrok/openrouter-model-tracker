@@ -220,6 +220,250 @@ func TestBenchmarkIdentityGate(t *testing.T) {
 	}
 }
 
+// TestMappedIdentityTrustsModelMapOverTextualEquality is the regression test
+// for the identity-gate bug: a human-curated model-map.tsv mapping IS the
+// identity assertion, and must be trusted even when the mapped key differs
+// textually from the OpenRouter slug (namespace/spelling differences between
+// the two sites are the normal case, not the exception).
+func TestMappedIdentityTrustsModelMapOverTextualEquality(t *testing.T) {
+	// moonshotai/kimi-k3 is a real production row: vals.ai lists the same
+	// product under "kimi/kimi-k3", a different namespace than the
+	// OpenRouter slug.
+	entries := []modelmap.Entry{{Slug: "moonshotai/kimi-k3", Tier: "sonnet", Names: map[string]string{"vals": "kimi/kimi-k3"}}}
+	prices := map[string]sources.PriceInfo{"moonshotai/kimi-k3": {Slug: "moonshotai/kimi-k3", InPerM: 1, OutPerM: 3, Found: true}}
+	scores := []sources.ScoreRow{{
+		Slug: "moonshotai/kimi-k3", SourceFamily: "vals", ConfiguredIdentity: "kimi/kimi-k3",
+		Metric: sources.MetricSWEBenchVerified, Value: 71.4, Unit: "%", VariantMeasured: "kimi/kimi-k3",
+		SourceURL: "https://www.vals.ai/benchmarks/swebench",
+	}}
+	kimi := Merge(entries, prices, scores, testNotes(t))[0]
+	if kimi.Score == nil || kimi.Score.IdentityStatus != IdentityExact || !kimi.Rankable {
+		t.Fatalf("kimi identity = %+v rankable=%v, want exact_product/rankable — model-map.tsv already maps kimi/kimi-k3 to this slug", kimi.Score, kimi.Rankable)
+	}
+}
+
+// TestMappedIdentityCanBeFlaggedAsAGenuineVariant covers the human override:
+// a mapped key that matched exactly can still be excluded when model-map.tsv
+// marks it with "!variant" — the mapped vals.ai entry measured a real
+// different checkpoint, not just a different spelling of the same product.
+func TestMappedIdentityCanBeFlaggedAsAGenuineVariant(t *testing.T) {
+	entries := []modelmap.Entry{{
+		Slug:     "moonshotai/kimi-k3",
+		Tier:     "sonnet",
+		Names:    map[string]string{"vals": "kimi/kimi-k3"},
+		Variants: map[string]bool{"vals": true},
+	}}
+	prices := map[string]sources.PriceInfo{"moonshotai/kimi-k3": {Slug: "moonshotai/kimi-k3", InPerM: 1, OutPerM: 3, Found: true}}
+	scores := []sources.ScoreRow{{
+		Slug: "moonshotai/kimi-k3", SourceFamily: "vals", ConfiguredIdentity: "kimi/kimi-k3",
+		Metric: sources.MetricSWEBenchVerified, Value: 71.4, Unit: "%", VariantMeasured: "kimi/kimi-k3",
+		SourceURL: "https://www.vals.ai/benchmarks/swebench",
+	}}
+	kimi := Merge(entries, prices, scores, testNotes(t))[0]
+	if kimi.Score == nil || kimi.Score.IdentityStatus != IdentityVariantMismatch || kimi.Rankable {
+		t.Fatalf("kimi identity = %+v rankable=%v, want variant_mismatch/non-rankable — the !variant marker must override the mapped trust", kimi.Score, kimi.Rankable)
+	}
+}
+
+// TestUnmappedTextuallyDifferentKeyStillFails pins down the fallback path:
+// with no model-map.tsv entry for this source at all, there is no mapping to
+// trust, so a row whose key differs from the OpenRouter identifiers still
+// fails the way it always has.
+func TestUnmappedTextuallyDifferentKeyStillFails(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/model", Tier: "sonnet"}}
+	prices := map[string]sources.PriceInfo{"a/model": {Slug: "a/model", InPerM: 1, OutPerM: 3, Found: true}}
+	scores := []sources.ScoreRow{{Slug: "a/model", Metric: sources.MetricSWEBenchVerified, Value: 80, Unit: "%", VariantMeasured: "some/other-key"}}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityVariantMismatch || got.Rankable {
+		t.Fatalf("unmapped identity = %+v rankable=%v, want variant_mismatch/non-rankable", got.Score, got.Rankable)
+	}
+}
+
+// TestSWEBenchMappedRowIsRankableDespiteScaffoldVariantName is the swebench.com
+// half of the mapped-identity trust. A swebench.com row's VariantMeasured names
+// the leaderboard submission (a scaffold, or the median wording), which can
+// never equal the configured "Model: " tag — so a rule that demands that
+// equality rejects every correctly mapped row from that source. Six production
+// entries (deepseek/deepseek-v3.2, qwen/qwen3-coder, moonshotai/kimi-k2.5, the
+// two llama-4 rows, openai/gpt-5-mini) have a swebench= mapping and no vals=
+// fallback, so this is the difference between them ranking and not existing.
+func TestSWEBenchMappedRowIsRankableDespiteScaffoldVariantName(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "deepseek/deepseek-v3.2", Tier: "haiku", Names: map[string]string{"swebench": "Model: deepseek-v3.2"}}}
+	prices := map[string]sources.PriceInfo{"deepseek/deepseek-v3.2": {Slug: "deepseek/deepseek-v3.2", InPerM: 0.3, OutPerM: 1.2, Found: true}}
+	scores := []sources.ScoreRow{{
+		Slug: "deepseek/deepseek-v3.2", SourceFamily: "swebench", ConfiguredIdentity: "Model: deepseek-v3.2",
+		Metric: sources.MetricSWEBenchVerified, Value: 62.4, Unit: "%",
+		VariantMeasured: "OpenHands + DeepSeek V3.2", SourceURL: "https://www.swebench.com/",
+		Scaffold: "single scaffold (OpenHands + DeepSeek V3.2)",
+	}}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityExact || !got.Rankable {
+		t.Fatalf("swebench identity = %+v rankable=%v, want exact_product/rankable — the swebench= mapping is the identity assertion, and its VariantMeasured is a scaffold name by construction", got.Score, got.Rankable)
+	}
+	if got.QualityPrice == 0 {
+		t.Errorf("QualityPrice = 0, want a ranked quality/price — a rankable row must reach the ranking, not just the label")
+	}
+}
+
+// TestSWEBenchMappedRowStillHonoursTheVariantMarker keeps the swebench.com
+// relaxation from swallowing the one override that must survive it.
+func TestSWEBenchMappedRowStillHonoursTheVariantMarker(t *testing.T) {
+	entries := []modelmap.Entry{{
+		Slug: "deepseek/deepseek-v3.2", Tier: "haiku",
+		Names:    map[string]string{"swebench": "Model: deepseek-v3.2"},
+		Variants: map[string]bool{"swebench": true},
+	}}
+	prices := map[string]sources.PriceInfo{"deepseek/deepseek-v3.2": {Slug: "deepseek/deepseek-v3.2", InPerM: 0.3, OutPerM: 1.2, Found: true}}
+	scores := []sources.ScoreRow{{
+		Slug: "deepseek/deepseek-v3.2", SourceFamily: "swebench", ConfiguredIdentity: "Model: deepseek-v3.2",
+		Metric: sources.MetricSWEBenchVerified, Value: 62.4, Unit: "%",
+		VariantMeasured: "OpenHands + DeepSeek V3.2", SourceURL: "https://www.swebench.com/",
+	}}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityVariantMismatch || got.Rankable {
+		t.Fatalf("flagged swebench identity = %+v rankable=%v, want variant_mismatch/non-rankable", got.Score, got.Rankable)
+	}
+}
+
+// TestValsRowStillRequiresItsOwnKeyEcho pins the other side of the per-source
+// split: vals.ai does echo the key it matched into VariantMeasured, so an
+// inequality there is not a naming difference but a forged or stale row, and
+// it must stay a mismatch even though the mapping exists.
+func TestValsRowStillRequiresItsOwnKeyEcho(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "moonshotai/kimi-k3", Tier: "sonnet", Names: map[string]string{"vals": "kimi/kimi-k3"}}}
+	prices := map[string]sources.PriceInfo{"moonshotai/kimi-k3": {Slug: "moonshotai/kimi-k3", InPerM: 1, OutPerM: 3, Found: true}}
+	scores := []sources.ScoreRow{{
+		Slug: "moonshotai/kimi-k3", SourceFamily: "vals", ConfiguredIdentity: "kimi/kimi-k3",
+		Metric: sources.MetricSWEBenchVerified, Value: 71.4, Unit: "%", VariantMeasured: "kimi/kimi-k3-0219-preview",
+		SourceURL: "https://www.vals.ai/benchmarks/swebench",
+	}}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityVariantMismatch || got.Rankable {
+		t.Fatalf("vals identity = %+v rankable=%v, want variant_mismatch/non-rankable — a vals.ai row that measured a key other than the configured one is not the configured product", got.Score, got.Rankable)
+	}
+}
+
+// TestFlaggedTopSourceFallsThroughToTheNextSource is the row-selection fix:
+// model-map.tsv describes swebench.com as vals.ai's fallback, so a vals.ai row
+// the human flagged "!variant" must not occupy the slot and leave the model
+// unranked — the next source's usable row takes it.
+func TestFlaggedTopSourceFallsThroughToTheNextSource(t *testing.T) {
+	entries := []modelmap.Entry{{
+		Slug: "moonshotai/kimi-k3", Tier: "sonnet",
+		Names:    map[string]string{"vals": "kimi/kimi-k3-0219-preview", "swebench": "Model: kimi-k3"},
+		Variants: map[string]bool{"vals": true},
+	}}
+	prices := map[string]sources.PriceInfo{"moonshotai/kimi-k3": {Slug: "moonshotai/kimi-k3", InPerM: 1, OutPerM: 3, Found: true}}
+	// Concatenated in run()'s real priority order: vals.ai first.
+	scores := []sources.ScoreRow{
+		{
+			Slug: "moonshotai/kimi-k3", SourceFamily: "vals", ConfiguredIdentity: "kimi/kimi-k3-0219-preview",
+			Metric: sources.MetricSWEBenchVerified, Value: 71.4, Unit: "%", VariantMeasured: "kimi/kimi-k3-0219-preview",
+			SourceURL: "https://www.vals.ai/benchmarks/swebench",
+		},
+		{
+			Slug: "moonshotai/kimi-k3", SourceFamily: "swebench", ConfiguredIdentity: "Model: kimi-k3",
+			Metric: sources.MetricSWEBenchVerified, Value: 68.2, Unit: "%", VariantMeasured: "OpenHands + Kimi K3",
+			SourceURL: "https://www.swebench.com/",
+		},
+	}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityExact || !got.Rankable {
+		t.Fatalf("selected identity = %+v rankable=%v, want the swebench.com row, exact_product and rankable", got.Score, got.Rankable)
+	}
+	if got.Score.Value != 68.2 || got.Score.SourceURL != "https://www.swebench.com/" {
+		t.Fatalf("selected row = %v from %q, want 68.2 from swebench.com — the flagged vals.ai row must not hold the slot", got.Score.Value, got.Score.SourceURL)
+	}
+}
+
+// TestUnusableRowIsKeptWhenNoSourcePasses guards the other half of that
+// selection rule: falling through is for finding a usable row, not for hiding
+// the reason a model does not rank. With every source failing, the
+// highest-priority row still shows, mismatch label and all.
+func TestUnusableRowIsKeptWhenNoSourcePasses(t *testing.T) {
+	entries := []modelmap.Entry{{
+		Slug: "moonshotai/kimi-k3", Tier: "sonnet",
+		Names:    map[string]string{"vals": "kimi/kimi-k3", "swebench": "Model: kimi-k3"},
+		Variants: map[string]bool{"vals": true, "swebench": true},
+	}}
+	prices := map[string]sources.PriceInfo{"moonshotai/kimi-k3": {Slug: "moonshotai/kimi-k3", InPerM: 1, OutPerM: 3, Found: true}}
+	scores := []sources.ScoreRow{
+		{
+			Slug: "moonshotai/kimi-k3", SourceFamily: "vals", ConfiguredIdentity: "kimi/kimi-k3",
+			Metric: sources.MetricSWEBenchVerified, Value: 71.4, Unit: "%", VariantMeasured: "kimi/kimi-k3",
+			SourceURL: "https://www.vals.ai/benchmarks/swebench",
+		},
+		{
+			Slug: "moonshotai/kimi-k3", SourceFamily: "swebench", ConfiguredIdentity: "Model: kimi-k3",
+			Metric: sources.MetricSWEBenchVerified, Value: 68.2, Unit: "%", VariantMeasured: "OpenHands + Kimi K3",
+			SourceURL: "https://www.swebench.com/",
+		},
+	}
+	got := Merge(entries, prices, scores, testNotes(t))[0]
+	if got.Rankable || got.Score == nil || got.Score.Value != 71.4 {
+		t.Fatalf("selected row = %+v rankable=%v, want the first (vals.ai) row kept and non-rankable", got.Score, got.Rankable)
+	}
+	if got.QualityPriceLabel != "n/a (variant mismatch)" {
+		t.Errorf("QualityPriceLabel = %q, want %q — the reason must stay visible", got.QualityPriceLabel, "n/a (variant mismatch)")
+	}
+}
+
+// TestProductionDeepSeekV4FlashRowStaysExcluded is the regression test for the
+// verification-pass finding: the identity-gate fix built the "!variant" escape
+// hatch but the one production row that actually needs it,
+// deepseek/deepseek-v4-flash, was left unmarked — silently promoting vals.ai's
+// 0731-checkpoint measurement into the ranking as the catalogue's
+// 20260423 product. It loads the real model-map.tsv (not a hand-built
+// fixture), confirms the row carries the marker, and then proves the marker
+// still bites even against a vals.ai row that echoes the mapped key exactly —
+// the one shape that would otherwise pass every other check and classify
+// exact_product.
+func TestProductionDeepSeekV4FlashRowStaysExcluded(t *testing.T) {
+	entries, err := modelmap.Load(filepath.Join("..", "..", "model-map.tsv"))
+	if err != nil {
+		t.Fatalf("production model-map.tsv: %v", err)
+	}
+	var entry modelmap.Entry
+	found := false
+	for _, e := range entries {
+		if e.Slug == "deepseek/deepseek-v4-flash" {
+			entry, found = e, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("production model-map.tsv has no deepseek/deepseek-v4-flash row")
+	}
+	mappedKey, hasVals := entry.Names["vals"]
+	if !hasVals {
+		t.Fatal("deepseek/deepseek-v4-flash has no vals= mapping in production model-map.tsv")
+	}
+	if !entry.Variants["vals"] {
+		t.Fatalf("deepseek/deepseek-v4-flash vals mapping %q is not flagged !variant in production model-map.tsv — the 0731-vs-20260423 checkpoint mismatch would silently rank", mappedKey)
+	}
+
+	prices := map[string]sources.PriceInfo{
+		"deepseek/deepseek-v4-flash": {
+			Slug: "deepseek/deepseek-v4-flash", InPerM: 0.06, OutPerM: 0.12, Found: true,
+			CanonicalSlug: "deepseek/deepseek-v4-flash-20260423",
+		},
+	}
+	// Mirrors exactly what FetchValsSWEBench emits for a matched row: the
+	// looked-up key echoed back as both ConfiguredIdentity and
+	// VariantMeasured. Absent the !variant marker this shape passes every
+	// other check and classifies exact_product — the marker is the only
+	// thing standing between this row and a wrongly-ranked score.
+	scores := []sources.ScoreRow{{
+		Slug: "deepseek/deepseek-v4-flash", SourceFamily: "vals", ConfiguredIdentity: mappedKey,
+		Metric: sources.MetricSWEBenchVerified, Value: 88.8, Unit: "%", VariantMeasured: mappedKey,
+		SourceURL: "https://www.vals.ai/benchmarks/swebench",
+	}}
+	got := Merge([]modelmap.Entry{entry}, prices, scores, testNotes(t))[0]
+	if got.Score == nil || got.Score.IdentityStatus != IdentityVariantMismatch || got.Rankable {
+		t.Fatalf("deepseek/deepseek-v4-flash identity = %+v rankable=%v, want variant_mismatch/non-rankable with the production model-map.tsv row", got.Score, got.Rankable)
+	}
+}
+
 func TestLegacyScoreIsNotPromotedByMissingProvenance(t *testing.T) {
 	entries := []modelmap.Entry{{Slug: "openai/gpt-5.6-luna", Tier: "opus"}}
 	prices := map[string]sources.PriceInfo{"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", InPerM: 1, OutPerM: 1, Found: true}}
@@ -414,15 +658,24 @@ func TestMergeCarriesTheCatalogueLinkIdentifiers(t *testing.T) {
 	}
 }
 
+// TestMergeTakesTheFirstSourceForASlug pins the priority rule when both
+// candidate rows are usable: the first in slice order wins outright and the
+// two numbers are never averaged. (Fall-through to a later source happens only
+// when the earlier row fails identity classification — see
+// TestFlaggedTopSourceFallsThroughToTheNextSource.) Both rows here name the
+// OpenRouter slug itself, so identity is not what decides the outcome.
 func TestMergeTakesTheFirstSourceForASlug(t *testing.T) {
 	scores := []sources.ScoreRow{
-		{Slug: "openai/gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 79.2, VariantMeasured: "OpenHands", SourceURL: "https://www.swebench.com/"},
-		{Slug: "openai/gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 93.0, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench"},
+		{Slug: "openai/gpt-5.6-luna", SourceFamily: "swebench", ConfiguredIdentity: "Model: gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 79.2, VariantMeasured: "OpenHands + GPT-5.6 Luna", SourceURL: "https://www.swebench.com/"},
+		{Slug: "openai/gpt-5.6-luna", SourceFamily: "vals", ConfiguredIdentity: "openai/gpt-5.6-luna", Metric: "SWE-bench Verified", Value: 93.0, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench"},
 	}
 	m := byslug(Merge(testEntries(), testPrices(), scores, testNotes(t)))
 	luna := m["openai/gpt-5.6-luna"]
 	if luna.Score == nil || luna.Score.Value != 79.2 {
 		t.Fatalf("luna.Score = %+v, want 79.2 — the first row in slice order wins, never an average", luna.Score)
+	}
+	if !luna.Rankable {
+		t.Fatalf("luna.Rankable = false, want true — both candidate rows are correctly mapped, so priority alone decides")
 	}
 }
 

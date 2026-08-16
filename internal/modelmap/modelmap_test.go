@@ -75,6 +75,83 @@ func TestTaskFitMetadataUsesProductionLoaderForBothForms(t *testing.T) {
 	}
 }
 
+// TestLoadParsesVariantMarker covers the "<source>!variant=<name>" token
+// form: the marker must be stripped from the key before it lands in
+// Names (so the value is still the exact name the source's fetcher looks
+// up), while flagging that source id in Variants. A row with no marker at
+// all must leave Variants empty — the default stays backward compatible.
+func TestLoadParsesVariantMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model-map.tsv")
+	content := "a/flagged\ttier=sonnet\tvals!variant=a/flagged-vals-key\n" +
+		"a/plain\ttier=sonnet\tvals=a/plain-vals-key\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+
+	flagged := entries[0]
+	if flagged.Names["vals"] != "a/flagged-vals-key" {
+		t.Errorf("flagged.Names[vals] = %q, want the marker stripped and the value unchanged", flagged.Names["vals"])
+	}
+	if !flagged.Variants["vals"] {
+		t.Errorf("flagged.Variants[vals] = false, want true — the !variant marker must set it")
+	}
+
+	plain := entries[1]
+	if plain.Names["vals"] != "a/plain-vals-key" {
+		t.Errorf("plain.Names[vals] = %q, want %q", plain.Names["vals"], "a/plain-vals-key")
+	}
+	if plain.Variants["vals"] {
+		t.Error("plain.Variants[vals] = true, want false — a row with no marker must default to unflagged")
+	}
+	if len(plain.Variants) != 0 {
+		t.Errorf("plain.Variants = %v, want empty", plain.Variants)
+	}
+}
+
+func TestLoadRejectsTierWithVariantMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model-map.tsv")
+	if err := os.WriteFile(path, []byte("a/model\ttier!variant=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "!variant") {
+		t.Fatalf("Load error = %v, want an error naming the !variant marker on tier=", err)
+	}
+}
+
+// TestLoadRejectsVariantMarkerWithoutSourceID covers the other malformed form
+// of the marker: with the source id missing there is nothing to fetch and
+// nothing to flag, and accepting it would quietly file the value under the
+// empty source id, where no fetcher would ever look for it — a mapping the
+// human believes exists but that has no effect at all.
+func TestLoadRejectsVariantMarkerWithoutSourceID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model-map.tsv")
+	if err := os.WriteFile(path, []byte("a/model\ttier=sonnet\t!variant=a/other-checkpoint\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "!variant") {
+		t.Fatalf("Load error = %v, want an error naming the !variant marker with no source id", err)
+	}
+}
+
+// TestLoadRejectsEmptyKeyToken is the same guard one step more general: a
+// token whose key is empty maps nothing, marker or not.
+func TestLoadRejectsEmptyKeyToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model-map.tsv")
+	if err := os.WriteFile(path, []byte("a/model\ttier=sonnet\t=a/orphan-value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "empty key") {
+		t.Fatalf("Load error = %v, want an error naming the empty key", err)
+	}
+}
+
 func TestLoadRejectsRowWithoutTier(t *testing.T) {
 	_, err := Load(filepath.Join("testdata", "no-tier.tsv"))
 	if err == nil {

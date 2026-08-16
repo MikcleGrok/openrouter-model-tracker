@@ -78,12 +78,25 @@ func liveDeps(opts Options) deps {
 		// family with a row for a slug wins, and two numbers are never
 		// averaged. Sources of different families feed different views and
 		// never compete at all — see model.SourceFamily.
+		//
+		// Within the SWE-bench family, vals.ai goes first and swebench.com
+		// second — not alphabetically, deliberately: vals.ai runs every
+		// model through one fixed, independent harness, while swebench.com
+		// is a self-submitted scaffold leaderboard (anyone can post a run,
+		// and FetchSWEBenchVerified aggregates every submission for a model
+		// by median). Preferring the independently-measured number over the
+		// self-reported one is this project's own stated philosophy; putting
+		// vals.ai first is how that philosophy actually takes effect, since
+		// MergeWithArena's selectRow picks the first row in this
+		// concatenation whose identity classifies as exact_product, falling
+		// through to a later source only when an earlier one fails that
+		// check (e.g. a vals.ai row flagged "!variant" in model-map.tsv).
 		sources: []scoreSource{
-			{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
-				return sources.FetchSWEBenchVerified(ctx, c, names)
-			}},
 			{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
 				return sources.FetchValsSWEBench(ctx, c, names)
+			}},
+			{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+				return sources.FetchSWEBenchVerified(ctx, c, names)
 			}},
 			{id: "arena", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
 				return sources.FetchArenaElo(ctx, c, names)
@@ -196,9 +209,11 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 	wg.Wait()
 
-	// Rows are split by family, never concatenated into one slice: Merge takes
-	// the first row per slug, so a single shared slice would let an Arena Elo
-	// silently win the SWE-bench column of a model that has no SWE-bench row.
+	// Rows are split by family, never concatenated into one slice: Merge's
+	// selectRow picks among a slug's rows within one family (identity-gated,
+	// falling through a failed row to the next), so a single shared slice would
+	// let an Arena Elo silently win the SWE-bench column of a model that has no
+	// SWE-bench row.
 	// The switch is exhaustive and explicit on purpose: an id with no
 	// model.SourceFamily entry — a typo, or a new source registered in
 	// liveDeps before its family is wired up — must never fall through to

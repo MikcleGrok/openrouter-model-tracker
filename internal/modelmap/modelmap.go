@@ -19,6 +19,16 @@ type Entry struct {
 	Slug  string
 	Tier  string
 	Names map[string]string
+
+	// Variants marks a source id (a key that also appears in Names) whose
+	// mapped identity has been explicitly confirmed, by a human editing this
+	// file, to measure a genuine variant or checkpoint different from the
+	// OpenRouter product — not the same model under a different spelling.
+	// It is set by the "<source>!variant=<name>" token form (e.g.
+	// "vals!variant=some/other-checkpoint"): the mapping still names the
+	// exact key to fetch, but classifyIdentity must not trust it as
+	// exact_product the way an unflagged mapping is trusted by default.
+	Variants map[string]bool
 }
 
 // Load reads and validates the tab-separated map at path.
@@ -55,7 +65,25 @@ func Load(path string) ([]Entry, error) {
 				return nil, fmt.Errorf("modelmap: %s:%d: token %q is not key=value", path, lineNo, tok)
 			}
 			key = strings.TrimSpace(key)
+			variant := false
+			if stripped, hasMarker := strings.CutSuffix(key, "!variant"); hasMarker {
+				key, variant = stripped, true
+			}
+			// The marker qualifies a source id; on its own it names nothing to
+			// fetch and nothing to flag, and storing it under the empty key
+			// would silently add a source no fetcher ever asks for — the same
+			// class of quiet mis-mapping a "tier!variant=" token is already
+			// rejected for.
+			if key == "" {
+				if variant {
+					return nil, fmt.Errorf("modelmap: %s:%d: token %q carries a !variant marker with no source id (want <source>!variant=<name>)", path, lineNo, tok)
+				}
+				return nil, fmt.Errorf("modelmap: %s:%d: token %q has an empty key", path, lineNo, tok)
+			}
 			if key == "tier" {
+				if variant {
+					return nil, fmt.Errorf("modelmap: %s:%d: tier= cannot carry a !variant marker", path, lineNo)
+				}
 				if !tier.IsValid(value) {
 					return nil, fmt.Errorf("modelmap: %s:%d: unknown tier %q (want %s)", path, lineNo, value, tier.ValuesString())
 				}
@@ -63,6 +91,12 @@ func Load(path string) ([]Entry, error) {
 				continue
 			}
 			e.Names[key] = value
+			if variant {
+				if e.Variants == nil {
+					e.Variants = map[string]bool{}
+				}
+				e.Variants[key] = true
+			}
 		}
 		if e.Tier == "" {
 			return nil, fmt.Errorf("modelmap: %s:%d: %s has no tier= token", path, lineNo, e.Slug)

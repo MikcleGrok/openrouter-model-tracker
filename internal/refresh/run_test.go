@@ -970,6 +970,84 @@ func TestLiveDepsSourcesAllHaveASourceFamily(t *testing.T) {
 	}
 }
 
+// TestLiveDepsPrefersValsOverSWEBench pins down the ordering half of the
+// source-priority fix: vals.ai (independent, one fixed harness) must be
+// queried before swebench.com (self-submitted, median across scaffolds) so
+// that model.MergeWithArena's selectRow, which walks a slug's rows in this
+// order and takes the first one whose identity classifies as exact_product,
+// prefers the vals.ai number whenever both sources have a usable row for the
+// same model.
+func TestLiveDepsPrefersValsOverSWEBench(t *testing.T) {
+	d := liveDeps(Options{DataDir: t.TempDir()})
+	valsIdx, sweIdx := -1, -1
+	for i, s := range d.sources {
+		switch s.id {
+		case "vals":
+			valsIdx = i
+		case "swebench":
+			sweIdx = i
+		}
+	}
+	if valsIdx == -1 || sweIdx == -1 {
+		t.Fatalf("liveDeps sources = %+v, want both vals and swebench registered", d.sources)
+	}
+	if valsIdx >= sweIdx {
+		t.Errorf("vals is at index %d and swebench at index %d, want vals before swebench — the independently-measured source must win the shared-slug merge, not the self-submitted one", valsIdx, sweIdx)
+	}
+}
+
+// TestRunPrefersValsOverSWEBenchForSharedSlug is the end-to-end companion to
+// TestLiveDepsPrefersValsOverSWEBench: with sources wired in the real
+// (vals-then-swebench) priority order and both returning a row for the same
+// slug, the published snapshot must carry the vals.ai number.
+func TestRunPrefersValsOverSWEBenchForSharedSlug(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+
+	d := okDeps()
+	d.sources = []scoreSource{
+		// Both rows are made identity-valid on purpose (SourceFamily +
+		// ConfiguredIdentity set so each independently classifies as
+		// exact_product): the point of this test is that vals.ai wins by
+		// *priority order*, not merely because it is the only usable
+		// candidate — see TestFlaggedTopSourceFallsThroughToTheNextSource in
+		// the model package for the "only one is valid" fallback case.
+		{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+			return []sources.ScoreRow{{
+				Slug: "openai/gpt-5.6-luna", SourceFamily: "vals", ConfiguredIdentity: "openai/gpt-5.6-luna",
+				Metric: "SWE-bench Verified", Value: 93,
+				VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench",
+			}}, nil
+		}},
+		{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+			return []sources.ScoreRow{{
+				Slug: "openai/gpt-5.6-luna", SourceFamily: "swebench", ConfiguredIdentity: "Model: gpt-5.6-luna",
+				Metric: "SWE-bench Verified", Value: 79.2,
+				VariantMeasured: "OpenHands + GPT-5.6 Luna", SourceURL: "https://www.swebench.com/",
+			}}, nil
+		}},
+	}
+
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	snap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry, ok := snap.Models["openai/gpt-5.6-luna"]
+	if !ok || entry.Score == nil {
+		t.Fatalf("snapshot entry for openai/gpt-5.6-luna = %+v, want a score", entry)
+	}
+	if entry.Score.Value != 93 {
+		t.Errorf("Score.Value = %v, want 93 (vals.ai) — swebench.com must lose the shared-slug merge, not win it", entry.Score.Value)
+	}
+	if entry.Score.SourceURL != "https://www.vals.ai/benchmarks/swebench" {
+		t.Errorf("Score.SourceURL = %q, want the vals.ai URL", entry.Score.SourceURL)
+	}
+}
+
 // TestRunSplitsArenaRowsFromSWEBenchRows is a run-level test, exercising the
 // family split with all three real source ids wired through a full run(),
 // not just model.MergeWithArena directly (that invariant is already covered

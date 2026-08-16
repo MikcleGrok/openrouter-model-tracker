@@ -10,11 +10,41 @@
 #   arena=<modelKey на arena.ai/leaderboard/text, например hy3-tencent-cloud-text;
 #          часть ключей — анонимные кодовые имена, сверяй по modelDisplayName>
 # swebench и vals — одно семейство: это две альтернативы для одного и того же числа
-# SWE-bench Verified, побеждает первый источник, у которого строка нашлась.
+# SWE-bench Verified. Побеждает vals (независимый прогон на одном фиксированном
+# харнессе) — swebench.com используется как запасной источник, если vals не дал
+# строки ИЛИ если его строка не прошла проверку идентичности (например, помечена
+# маркером !variant): это self-submitted лидерборд (кто угодно может прислать
+# прогон, берётся медиана по всем сабмишенам одной модели — по одному голосу на
+# скаффолд, повторные сабмиты того же скаффолда схлопываются), а не независимое
+# измерение.
 # arena — отдельное семейство и отдельное представление таблицы (--score-source=arena);
 # с SWE-bench оно не смешивается никогда.
 # Источник не указан → у модели нет автоматически собираемой оценки;
 # число можно задать вручную блоком score: в notes.yaml.
+#
+# Сопоставленный source= — это и есть утверждение об идентичности: если
+# vals/swebench нашли строку по указанному ключу, она считается exact_product
+# и участвует в ранжировании, даже если ключ текстово не совпадает со slug'ом
+# OpenRouter (разные пространства имён/написание на двух сайтах — обычное
+# дело). Если конкретная сопоставленная строка на самом деле измеряет другой
+# вариант/чекпоинт, а не тот же продукт — пометь её маркером !variant на имени
+# источника, например: vals!variant=some/other-checkpoint. Такая строка
+# остаётся variant_mismatch (не ранжируется), несмотря на найденное
+# совпадение по ключу; если у модели есть второй источник семейства, число
+# возьмётся из него. Маркер обязан стоять на имени источника: голый
+# !variant=... (без source перед ним) — ошибка, Load её не пропустит.
+#
+# ВАЖНО, постоянная обязанность редактора файла: для swebench/vals сопоставлённый
+# ключ — единственная защита от показа результата чужого чекпоинта под видом
+# нужного продукта. В отличие от Arena, здесь нет отдельного CanonicalID/provider/
+# variant поля, которое код сверял бы автоматически, — сверка ограничивается тем,
+# что для vals.ai сама строка обязана эхом вернуть тот же ключ (иначе mismatch), а
+# для swebench.com даже этой проверки нет: measured variant там — имя скаффолда, а
+# не эхо ключа. Значит, верность ЛЮБОЙ vals=/swebench= строки конкретному продукту
+# OpenRouter — ручная, постоянная обязанность человека, а не что-то, что поймает
+# код. При добавлении или правке такой строки сверяйте сопоставленный ключ с
+# canonical_slug модели (каталог/model-snapshot.json) и ставьте !variant при любом
+# расхождении чекпоинта/варианта — ошибка здесь пройдёт в ranking молча.
 
 # ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
 openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna	arena=gpt-5.6-luna-xhigh-text
@@ -40,7 +70,7 @@ z-ai/glm-5.2	tier=sonnet	vals=zai/glm-5.2
 google/gemini-3.6-flash	tier=sonnet	vals=google/gemini-3.6-flash	arena=gemini-3.6-flash
 
 # ── <≈ Haiku 4.5 ─────────────────────────────────────────────────────────────
-deepseek/deepseek-v4-flash	tier=haiku	vals=deepseek/deepseek-v4-flash-0731	arena=deepseek-v4-ch3-text
+deepseek/deepseek-v4-flash	tier=haiku	vals!variant=deepseek/deepseek-v4-flash-0731	arena=deepseek-v4-ch3-text
 tencent/hy3	tier=haiku	arena=hy3-tencent-cloud-text
 qwen/qwen3-coder-next	tier=haiku
 deepseek/deepseek-v3.2	tier=haiku	swebench=Model: deepseek-v3.2	arena=deepseek-v3.2
@@ -77,6 +107,6 @@ openai/gpt-oss-20b:free	tier=free	arena=gpt-oss-20b
 google/gemma-4-31b-it:free	tier=free	arena=pteronura-text
 google/gemma-4-26b-a4b-it:free	tier=free	arena=significant-otter-text
 nvidia/nemotron-nano-9b-v2:free	tier=free
-inclusionai/ling-3.0-flash:free	tier=free	vals=ant/ling-3.0-flash-2607
+inclusionai/ling-3.0-flash:free	tier=free	vals!variant=ant/ling-3.0-flash-2607
 nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free	tier=free
 nvidia/nemotron-nano-12b-v2-vl:free	tier=free

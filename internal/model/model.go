@@ -61,15 +61,27 @@ const (
 	ScoreSourceArena    = "arena"
 )
 
+// sourceIDVals, sourceIDSWEBench and sourceIDArena are the model-map.tsv
+// source ids, as stamped into ScoreRow.SourceFamily by each fetcher. They are
+// deliberately kept separate from the ScoreSource* family names above even
+// where the two strings coincide: classifyIdentity treats the two SWE-bench
+// ids differently, so "which site produced this row" is a question the family
+// name cannot answer.
+const (
+	sourceIDVals     = "vals"
+	sourceIDSWEBench = "swebench"
+	sourceIDArena    = "arena"
+)
+
 // SourceFamily maps a model-map.tsv source id onto the score source it
 // feeds. Two ids of one family (swebench.com and vals.ai) are
 // priority-ordered alternatives for the same number; two families never
 // merge into one column. An unknown id maps to the empty string and feeds
 // neither view, which is the safe default for a typo in the map.
 var SourceFamily = map[string]string{
-	"swebench": ScoreSourceSWEBench,
-	"vals":     ScoreSourceSWEBench,
-	"arena":    ScoreSourceArena,
+	sourceIDSWEBench: ScoreSourceSWEBench,
+	sourceIDVals:     ScoreSourceSWEBench,
+	sourceIDArena:    ScoreSourceArena,
 }
 
 // arenaNoScoreLabel fills the quality/price cell of a row the Arena view has
@@ -264,21 +276,17 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 // into two separate sets of fields. A slug with no live price entry, or one
 // the catalogue does not know, is dropped: report.go tells the human about it.
 func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow, nt *notes.Notes) []Model {
-	// First row for a slug wins, per source. The caller controls priority
-	// inside one source by the order it concatenates that source's results.
-	// The two sources have their own maps and never fall through to one
-	// another: an Elo is not a SWE-bench percentage.
-	firstRow := map[string]sources.ScoreRow{}
+	// Every row a slug has, in the caller's order — which inside one family
+	// is that family's source priority. selectRow picks one of them per
+	// slug. The two families keep their own maps and never fall through to
+	// one another: an Elo is not a SWE-bench percentage.
+	rowsBySlug := map[string][]sources.ScoreRow{}
 	for _, r := range scores {
-		if _, seen := firstRow[r.Slug]; !seen {
-			firstRow[r.Slug] = r
-		}
+		rowsBySlug[r.Slug] = append(rowsBySlug[r.Slug], r)
 	}
-	firstArena := map[string]sources.ScoreRow{}
+	arenaBySlug := map[string][]sources.ScoreRow{}
 	for _, r := range arena {
-		if _, seen := firstArena[r.Slug]; !seen {
-			firstArena[r.Slug] = r
-		}
+		arenaBySlug[r.Slug] = append(arenaBySlug[r.Slug], r)
 	}
 
 	out := make([]Model, 0, len(entries))
@@ -320,8 +328,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			m.LongContextOutLabel = fmt.Sprintf("%s от %s+", pricing.FormatDollar(price.OverrideOutPerM), threshold)
 		}
 
-		if row, has := firstRow[e.Slug]; has {
-			identity := identityForRow(row, e.Slug, price)
+		if row, identity, has := selectRow(rowsBySlug[e.Slug], e, price); has {
 			m.Score = &ScoreInfo{
 				Metric:             row.Metric,
 				Value:              row.Value,
@@ -372,8 +379,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		// The Arena column has no notes.yaml fallback: manual overrides in
 		// notes.yaml describe SWE-bench Verified, and reusing them here would
 		// put a percentage on an Elo scale.
-		if row, has := firstArena[e.Slug]; has {
-			identity := identityForRow(row, e.Slug, price)
+		if row, identity, has := selectRow(arenaBySlug[e.Slug], e, price); has {
 			if IsPlaceholder(m.Provider) && strings.TrimSpace(row.Provider) != "" {
 				m.Provider = ProviderLabel(e.Slug, row.Provider)
 			}
@@ -443,9 +449,12 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 	return out
 }
 
-// classifyIdentity accepts only the catalogue id or its explicit canonical id.
-// A dated release or source alias remains visible evidence, not product quality.
-func classifyIdentity(row sources.ScoreRow, slug string, price sources.PriceInfo) string {
+// classifyIdentity accepts the catalogue id, its explicit canonical id, or —
+// for the SWE-bench family (swebench.com, vals.ai) — the exact key
+// model-map.tsv already maps this OpenRouter model to on that source. A
+// dated release or source alias remains visible evidence, not product
+// quality.
+func classifyIdentity(row sources.ScoreRow, entry modelmap.Entry, price sources.PriceInfo) string {
 	if sourceFamilyForRow(row) == ScoreSourceArena {
 		if row.IdentityAmbiguous || row.ConfiguredIdentity == "" || row.CanonicalID == "" {
 			return IdentityMissing
@@ -466,10 +475,42 @@ func classifyIdentity(row sources.ScoreRow, slug string, price sources.PriceInfo
 	if row.CanonicalID == "" && row.VariantMeasured == "" && row.ReleaseVariant == "" && row.ModelVariant == "" {
 		return IdentityMissing
 	}
-	if row.CanonicalID != "" && row.CanonicalID != slug && row.CanonicalID != price.CanonicalSlug {
+	if namesAnotherProduct(row.CanonicalID, entry, price) {
 		return IdentityVariantMismatch
 	}
-	if row.VariantMeasured != "" && row.VariantMeasured != slug && row.VariantMeasured != price.CanonicalSlug {
+	switch {
+	case row.ConfiguredIdentity != "":
+		// model-map.tsv already asserts that entry.Slug IS the product behind
+		// row.ConfiguredIdentity on this source: the human who wrote that
+		// mapping line is the identity check for this row, not a second
+		// guess against OpenRouter's own naming. Both FetchValsSWEBench and
+		// FetchSWEBenchVerified only ever emit a row for a slug when the
+		// exact configured key matched something on the source, so trust it
+		// as exact_product — unless this specific mapping was explicitly
+		// flagged as a genuine variant/checkpoint with the "!variant" marker.
+		if entry.Variants[row.SourceFamily] {
+			return IdentityVariantMismatch
+		}
+		// The one extra sanity check on top of that trust is per-source,
+		// because only one of the two SWE-bench sources can carry it.
+		// FetchValsSWEBench sets VariantMeasured to the very key it looked
+		// up, so on a vals.ai row an inequality here cannot be a naming
+		// difference — it can only be a forged or stale row, and it stays a
+		// mismatch. FetchSWEBenchVerified has no equivalent field: its
+		// VariantMeasured describes the leaderboard submission (a scaffold
+		// name, or the median wording when several were aggregated), which
+		// by construction never equals the configured "Model: " tag.
+		// Demanding equality there would reject every correctly mapped
+		// swebench.com row, which is the opposite of what the mapping means.
+		// Any other source id — including the empty one a pre-SourceFamily
+		// snapshot carries — keeps the strict check, as the safe default.
+		if row.SourceFamily != sourceIDSWEBench && row.VariantMeasured != "" && row.VariantMeasured != row.ConfiguredIdentity {
+			return IdentityVariantMismatch
+		}
+	case namesAnotherProduct(row.VariantMeasured, entry, price):
+		// No model-map.tsv entry at all for this source (ConfiguredIdentity
+		// empty): nothing to trust, so fall back to the original check
+		// against the OpenRouter identifiers themselves.
 		return IdentityVariantMismatch
 	}
 	if row.Provider != "" && price.Provider != "" && row.Provider != price.Provider {
@@ -481,6 +522,39 @@ func classifyIdentity(row sources.ScoreRow, slug string, price sources.PriceInfo
 		}
 	}
 	return IdentityExact
+}
+
+// namesAnotherProduct reports whether a non-empty identifier carried by a
+// score row names something other than the OpenRouter product this entry is
+// about. Both identifiers a row can be judged by — its explicit canonical id
+// and, absent any model-map.tsv mapping, the variant it measured — are held
+// to exactly this test, so it lives in one place.
+func namesAnotherProduct(name string, entry modelmap.Entry, price sources.PriceInfo) bool {
+	return name != "" && name != entry.Slug && name != price.CanonicalSlug
+}
+
+// selectRow picks which of a slug's rows becomes the rendered one. Order is
+// the caller's priority order, but a higher-priority row that fails identity
+// classification must not shadow a lower-priority source that passes it:
+// model-map.tsv documents swebench.com as exactly this kind of fallback
+// behind vals.ai, and a vals.ai mapping flagged "!variant" is the case where
+// the fallback has to actually happen. When no row passes, the
+// highest-priority one is kept anyway, so the reason it does not rank stays
+// visible in the table instead of the model silently losing its number.
+func selectRow(rows []sources.ScoreRow, entry modelmap.Entry, price sources.PriceInfo) (sources.ScoreRow, string, bool) {
+	if len(rows) == 0 {
+		return sources.ScoreRow{}, "", false
+	}
+	first := identityForRow(rows[0], entry, price)
+	if first == IdentityExact {
+		return rows[0], first, true
+	}
+	for _, row := range rows[1:] {
+		if identity := identityForRow(row, entry, price); identity == IdentityExact {
+			return row, identity, true
+		}
+	}
+	return rows[0], first, true
 }
 
 func sourceFamilyForRow(row sources.ScoreRow) string {
@@ -497,11 +571,11 @@ func sourceFamilyForRow(row sources.ScoreRow) string {
 	}
 }
 
-func identityForRow(row sources.ScoreRow, slug string, price sources.PriceInfo) string {
+func identityForRow(row sources.ScoreRow, entry modelmap.Entry, price sources.PriceInfo) string {
 	if row.IdentityStatus == IdentityLegacyUnknown || row.IdentityStatus == IdentityObservationOnly {
 		return row.IdentityStatus
 	}
-	return classifyIdentity(row, slug, price)
+	return classifyIdentity(row, entry, price)
 }
 
 // fillArenaDerived rescales every row's raw Elo onto 0–100 over the current
