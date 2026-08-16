@@ -1,5 +1,11 @@
 # What's New
 
+## [1.14.15]
+
+- Trust `model-map.tsv`'s vals.ai/swebench.com mapping for identity classification instead of requiring an exact slug match, so cross-namespace mappings (Kimi, GLM, Grok, and similar) are no longer silently excluded from ranking.
+- Prefer the independent vals.ai measurement over the self-submitted swebench.com leaderboard, which now takes the median across scaffold submissions instead of the max.
+- Fall through to the next-priority source when the top-priority source's row fails identity classification.
+
 ## [1.14.14]
 
 - Make `x` exit the main TUI and close child or modal windows.
