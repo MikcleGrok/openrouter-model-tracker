@@ -119,14 +119,10 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	cacheDir := opts.CacheDir
-	if cacheDir == "" {
-		cacheDir = "cache"
-	}
-	if !filepath.IsAbs(cacheDir) {
-		cacheDir = filepath.Join(opts.DataDir, cacheDir)
-	}
-	snapshotPath := filepath.Join(cacheDir, "last-run-snapshot.json")
+	// The snapshot is durable, versioned data — it lives at the data
+	// directory root (SnapshotPath), independent of CacheDir, which only
+	// ever holds ephemeral raw fetches (HTTP cache, price history).
+	snapshotPath := SnapshotPath(opts.DataDir)
 	snap, err := LoadSnapshot(snapshotPath)
 	if err != nil {
 		return Report{}, err

@@ -93,7 +93,7 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshotPath := filepath.Join(dataDir, "cache", "last-run-snapshot.json")
+	snapshotPath := refresh.SnapshotPath(dataDir)
 	if _, err := os.Stat(snapshotPath); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("table: local snapshot is missing: %s; run refresh first", snapshotPath)
 	} else if err != nil {
@@ -151,7 +151,7 @@ func scoreRowFromInfo(slug string, info *model.ScoreInfo, fallbackIdentity strin
 }
 
 func loadLocalUpdatedAt(dataDir string) string {
-	snapshot, err := refresh.LoadSnapshot(filepath.Join(dataDir, "cache", "last-run-snapshot.json"))
+	snapshot, err := refresh.LoadSnapshot(refresh.SnapshotPath(dataDir))
 	if err != nil {
 		return "unknown"
 	}

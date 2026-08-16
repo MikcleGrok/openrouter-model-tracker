@@ -249,7 +249,8 @@ digest входных файлов, metadata инструментов/базы �
 Подробный scope находится в `docs/security.md`.
 
 `openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный
-снимок из `cache/last-run-snapshot.json`. Они не обращаются к сети и завершаются с ошибкой,
+снимок из `model-snapshot.json` (версионированный файл в корне каталога данных, рядом с
+`model-map.tsv`). Они не обращаются к сети и завершаются с ошибкой,
 если локальный снимок отсутствует.
 
 Проверка distribution metadata делегирована в `../guide-tools/bin/guide-distribution-verify`
@@ -443,8 +444,9 @@ fallback `≈ Haiku 4.5` для `haiku` и `<≈ Haiku 4.5` для `free`. Не�
 она не сохраняется сверх максимума; `less -S` по-прежнему позволяет горизонтально прокручивать
 остальные колонки.
 
-`make refresh` явно изменяет данные checkout: обновляет `cache/` и генерируемый
-`docs/openrouter-model-comparison.md`. Для проверки гонок используется `make race`.
+`make refresh` явно изменяет данные checkout: обновляет `cache/`, версионированный
+`model-snapshot.json` и генерируемый `docs/openrouter-model-comparison.md`. Для проверки
+гонок используется `make race`.
 
 LaunchAgent управляется через Make без необходимости запоминать путь к скрипту:
 `make openrouter-launchd-refresh-install`, `make openrouter-launchd-refresh-uninstall`,
@@ -674,7 +676,8 @@ data directory и output совпадают с cron workflow: `bin/openrouter` �
 
 Сам `.md` — билд-артефакт. Правки в нём не переживут следующий прогон.
 
-`refresh` сохраняет в `cache/last-run-snapshot.json` полный набор slug'ов каталога как
+`refresh` сохраняет в `model-snapshot.json` (версионированный файл в корне каталога данных,
+не в `cache/`) полный набор slug'ов каталога как
 baseline. `check` сравнивает живой каталог с этим baseline, но не изменяет его, поэтому
 один и тот же delta остаётся видимым до следующего успешного `refresh`; повторный
 `refresh` фиксирует новый baseline и убирает уже обработанные сообщения. Старые snapshot-файлы
@@ -698,4 +701,6 @@ threshold/override input/output, включая изменения только 
 При этом HTTP cache может обновиться из-за сетевого чтения.
 
 Например: `openrouter history --model openai/gpt-5.6-luna --since 2026-08-01 --format tsv`.
-Кэшированные файлы из `cache/` не добавляются в Git.
+Кэшированные файлы из `cache/` (HTTP cache, `price-history.json`) не добавляются в Git.
+`model-snapshot.json` — версионированные вычисленные данные о моделях (цены, контекст, оценки,
+provenance) — трекается в Git и лежит в корне репозитория, рядом с `model-map.tsv`.

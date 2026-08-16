@@ -70,7 +70,7 @@ func TestE2E_Check(t *testing.T) {
 	dataDir := arrange.DataDir(t, marker)
 	config := arrange.Config(t, dataDir)
 	output := filepath.Join(dataDir, "output.md")
-	before := assert.Unchanged(t, filepath.Join(dataDir, "cache", "last-run-snapshot.json"))
+	before := assert.Unchanged(t, filepath.Join(dataDir, "model-snapshot.json"))
 	result := act.Run(t, binary(t), "check", "--config", config, "--output", output)
 	assert.Success(t, result)
 	assert.StillUnchanged(t, before)
