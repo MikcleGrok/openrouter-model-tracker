@@ -1910,40 +1910,39 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	keymap = keymap.WithDefaults()
 	result := append([]string(nil), lines...)
 	replacements := map[string]config.TUIBindings{
-		`\tUp\tnavigate\t`:                                            keymap["main"]["navigate_up"],
-		`\tDown\tnavigate\t`:                                          keymap["main"]["navigate_down"],
-		`\tj / k\tmove\t`:                                             append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
-		`\tEnter / Right / l\tdetail\t`:                               keymap["main"]["open_details"],
-		`\tEsc / Left / h\tclose\t`:                                   keymap["detail"]["close"],
-		`\tsettings\topen settings.`:                                  keymap["main"]["open_settings"],
-		`\tdetail\topen model details.`:                               keymap["main"]["open_details"],
-		`\thelp\topen shortcut help.`:                                 keymap["main"]["help"],
-		`\thelp\topen full help.`:                                     keymap["main"]["full_help"],
-		`\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
-		`\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
-		`\tSpace\tcolumns\t`:                                          keymap["columns"]["toggle"],
-		`\tSpace\ttier\t`:                                             keymap["filter"]["toggle"],
-		`\tEnter\tapply\t`:                                            keymap["filter"]["apply"],
-		`\tEsc\tcancel\t`:                                             keymap["filter"]["close"],
-		`\tEsc\tcolumns\t`:                                            keymap["columns"]["close"],
-		`\tEnter\tcolumns\t`:                                          keymap["columns"]["apply"],
-		`\tEnter\tcolumns apply\t`:                                    keymap["columns"]["apply"],
-		`\t?\thelp\tclose shortcut help.`:                             keymap["help"]["close"],
-		`\tEsc\tclose\tclose help.`:                                   keymap["help"]["close"],
-		`\tUp\tsettings navigate\t`:                                   keymap["settings"]["navigate_up"],
-		`\tDown\tsettings navigate\t`:                                 keymap["settings"]["navigate_down"],
-		`\tEsc\tsettings close\t`:                                     keymap["settings"]["close"],
-		`\tUp\tdetail navigate\t`:                                     keymap["detail"]["navigate_up"],
-		`\tDown\tdetail navigate\t`:                                   keymap["detail"]["navigate_down"],
-		`\tUp\thelp navigate\t`:                                       keymap["help"]["navigate_up"],
-		`\tDown\thelp navigate\t`:                                     keymap["help"]["navigate_down"],
-		`\tUp\tcolumns navigate\t`:                                    keymap["columns"]["navigate_up"],
-		`\tDown\tcolumns navigate\t`:                                  keymap["columns"]["navigate_down"],
-		`\tEsc\tcolumns close\t`:                                      keymap["columns"]["close"],
-		`\tUp\tfilter navigate\t`:                                     keymap["filter"]["navigate_up"],
-		`\tDown\tfilter navigate\t`:                                   keymap["filter"]["navigate_down"],
-		`\tEsc\tfilter close\t`:                                       keymap["filter"]["close"],
-		`\tEsc\tmain close\t`:                                         keymap["main"]["close"],
+		`\tUp\tnavigate\t`:                                                   keymap["main"]["navigate_up"],
+		`\tDown\tnavigate\t`:                                                 keymap["main"]["navigate_down"],
+		`\tj / k\tmove\t`:                                                    append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
+		`\tEnter / Right / l\tdetail\t`:                                      keymap["main"]["open_details"],
+		`\tEsc / Left / h\tclose\t`:                                          keymap["detail"]["close"],
+		`\to\tsettings\topen settings.`:                                      keymap["main"]["open_settings"],
+		`\t?\thelp\topen shortcut help.`:                                     keymap["main"]["help"],
+		`\tF1\thelp\topen full help.`:                                        keymap["main"]["full_help"],
+		`\tSpace\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
+		`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
+		`\tSpace\tcolumns\t`:                                                 keymap["columns"]["toggle"],
+		`\tSpace\ttier\t`:                                                    keymap["filter"]["toggle"],
+		`\tEnter\tapply\t`:                                                   keymap["filter"]["apply"],
+		`\tEsc\tcancel\t`:                                                    keymap["filter"]["close"],
+		`\tEsc\tcolumns\t`:                                                   keymap["columns"]["close"],
+		`\tEnter\tcolumns\t`:                                                 keymap["columns"]["apply"],
+		`\tEnter\tcolumns apply\t`:                                           keymap["columns"]["apply"],
+		`\t?\thelp\tclose shortcut help.`:                                    keymap["help"]["close"],
+		`\tEsc\tclose\tclose help.`:                                          keymap["help"]["close"],
+		`\tUp\tsettings navigate\t`:                                          keymap["settings"]["navigate_up"],
+		`\tDown\tsettings navigate\t`:                                        keymap["settings"]["navigate_down"],
+		`\tEsc\tsettings close\t`:                                            keymap["settings"]["close"],
+		`\tUp\tdetail navigate\t`:                                            keymap["detail"]["navigate_up"],
+		`\tDown\tdetail navigate\t`:                                          keymap["detail"]["navigate_down"],
+		`\tUp\thelp navigate\t`:                                              keymap["help"]["navigate_up"],
+		`\tDown\thelp navigate\t`:                                            keymap["help"]["navigate_down"],
+		`\tUp\tcolumns navigate\t`:                                           keymap["columns"]["navigate_up"],
+		`\tDown\tcolumns navigate\t`:                                         keymap["columns"]["navigate_down"],
+		`\tEsc\tcolumns close\t`:                                             keymap["columns"]["close"],
+		`\tUp\tfilter navigate\t`:                                            keymap["filter"]["navigate_up"],
+		`\tDown\tfilter navigate\t`:                                          keymap["filter"]["navigate_down"],
+		`\tEsc\tfilter close\t`:                                              keymap["filter"]["close"],
+		`\tEsc\tmain close\t`:                                                keymap["main"]["close"],
 	}
 	for i := range result {
 		for marker, bindings := range replacements {
@@ -2229,8 +2228,8 @@ Data/view
 \tm\tranking\ttoggle ranking mode.
 \to\tsettings\topen settings.
 \tDown\tnavigate\tmove to Score source in Settings.
-	\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
-	\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
+\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
+\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen column selection.
 \tn\tview\tswitch the last column between Task fit and Note.
@@ -2307,10 +2306,10 @@ Data/view
 \tm\tranking\ttoggle ranking mode: mixed-utility or tier-priority.
 \ts\tordering\tcycle sort key.
 \tS\tordering\treverse order.
-\to\tsettings\topen Settings.
+\to\tsettings\topen settings.
 \tDown\tnavigate\tmove to Score source in Settings.
-	\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
-	\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
+\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
+\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen selection.
 \tn\tview\tswitch the last column between Task fit and Note.
@@ -2341,7 +2340,7 @@ Columns, search, and filters
 \tEsc\tcolumns\tcancel the column selection.
 The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
-\t\tf\tfilter\tedits a structured filter and does not change the search.
+\tf\tfilter\tedits a structured filter and does not change the search.
 	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
 	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
