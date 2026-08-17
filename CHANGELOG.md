@@ -1,5 +1,12 @@
 # What's New
 
+## [1.14.20]
+
+- Add `model-map.tsv` mappings for `z-ai/glm-5.2:free` (vals.ai, arena.ai) and `nvidia/nemotron-3.5-lightning:free` (arena.ai).
+- Correct the free GLM-5.2 display name to disclose its smaller context window versus the paid tier: `GLM-5.2 (free, 128K context)` (paid tier is 1M).
+- Add bare tracking rows for two free models with no available benchmark coverage: `dots-studio/dots-3-note-preview:free`, `liquid/lfm-2.5-2.6b:free`.
+- Re-verify and update a stale `notes.yaml` caveat on `nvidia/nemotron-nano-12b-v2-vl:free`.
+
 ## [1.14.19]
 
 - Let Left/Right cycle the Filter overlay's Availability field too (previously only Space worked there), adding `tuiPreviousAvailability` alongside the existing `tuiNextAvailability` — closing the same gap the Settings overlay's Availability row already had fixed in v1.14.18, in the separate Filter-overlay code path.
