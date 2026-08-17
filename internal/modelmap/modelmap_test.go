@@ -215,7 +215,7 @@ func TestProductionTaskFitMetadataMatchesModelMap(t *testing.T) {
 		mapSlugs[entry.Slug] = true
 	}
 	for slug := range mapSlugs {
-		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" {
+		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" && slug != "dots-studio/dots-3-note-preview:free" && slug != "liquid/lfm-2.5-2.6b:free" {
 			t.Errorf("task_fit is missing model-map slug %q", slug)
 		}
 	}

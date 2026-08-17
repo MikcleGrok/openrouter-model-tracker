@@ -1,6 +1,6 @@
 {
   "fetched_at": "2026-08-17",
-  "updated_at": "2026-08-17T10:04:55Z",
+  "updated_at": "2026-08-17T10:48:02Z",
   "models": {
     "cohere/north-mini-code:free": {
       "in_per_m": 0,
@@ -202,6 +202,15 @@
         "harness": "LMArena text arena",
         "scaffold": "n/a"
       }
+    },
+    "dots-studio/dots-3-note-preview:free": {
+      "in_per_m": 0,
+      "out_per_m": 0,
+      "context": 512000,
+      "created": 1786680361,
+      "description": "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total. It is the lightest model in the Dots 3 family and is...",
+      "catalog_name": "Dots Studio: Dots3-Note Preview (free)",
+      "canonical_slug": "dots-studio/dots-3-note-preview-20260813"
     },
     "google/gemini-3.1-pro-preview": {
       "in_per_m": 2,
@@ -480,6 +489,16 @@
       "description": "KAT-Coder-Pro V2.5 is a flagship-level Agentic Coding model that can directly hand over an entire issue or an entire business workflow to it, allowing it to autonomously locate and make...",
       "catalog_name": "Kwaipilot: KAT-Coder-Pro V2.5",
       "canonical_slug": "kwaipilot/kat-coder-pro-v2.5-20260710"
+    },
+    "liquid/lfm-2.5-2.6b:free": {
+      "in_per_m": 0,
+      "out_per_m": 0,
+      "context": 128000,
+      "created": 1786470519,
+      "description": "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or...",
+      "catalog_name": "LiquidAI: LFM2.5-2.6B (free)",
+      "canonical_slug": "liquid/lfm-2.5-2.6b-20260811",
+      "hugging_face_id": "LiquidAI/LFM2.5-2.6B"
     },
     "meituan/longcat-2.0": {
       "in_per_m": 0.3,

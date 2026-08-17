@@ -799,8 +799,10 @@ models:
   # Новые строки, добавленные 2026-08-17: 4 забытых :free slug'а проверены
   # по vals.ai/swebench.com/arena.ai; реальное совпадение нашлось только
   # у этих двух (dots-studio/dots-3-note-preview:free и liquid/lfm-2.5-2.6b:free
-  # не отслеживаются ни одним из трёх источников — строк для них в
-  # model-map.tsv нет и не добавлено).
+  # не отслеживаются ни одним из трёх источников — для них в model-map.tsv
+  # добавлены голые строки без source=, только чтобы модель была видна
+  # в трекере; models:-записи в notes.yaml для них не заведены, только
+  # пустой task_fit: []).
   nvidia/nemotron-3.5-lightning:free:
     display: NVIDIA Nemotron 3.5 Lightning
     owner: NVIDIA
@@ -818,7 +820,7 @@ models:
       а прямое указание самого источника.
 
   z-ai/glm-5.2:free:
-    display: GLM-5.2 (free)
+    display: GLM-5.2 (free, 128K context)
     owner: Z.ai / Zhipu AI (D−)
     open_weights: "**да, MIT**"
     claude_ref: "≈ Sonnet 5 — тот же чекпоинт, что и платная z-ai/glm-5.2"
@@ -895,3 +897,5 @@ task_fit:
   "nvidia/nemotron-nano-12b-v2-vl:free": []
   "nvidia/nemotron-3.5-lightning:free": [implement, debug, refactor, test]
   "z-ai/glm-5.2:free": [implement, plan, research, debug, audit, refactor, test]
+  "dots-studio/dots-3-note-preview:free": []
+  "liquid/lfm-2.5-2.6b:free": []
