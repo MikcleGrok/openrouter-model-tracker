@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.25]
+
+- Retire the separate `?` shortcuts help document: `?` now opens the same sectioned F1 help overlay, landing directly on the Hotkeys section instead of a single-page document that had drifted out of sync with it. Once open, it is fully navigable exactly like F1-opened help (digit keys, Left/Right, section-scoped search); `?` and Esc both continue to close it from any section.
+
 ## [1.14.24]
 
 - Rename the F1 full-help overlay's 5 tab-bar section titles from Russian to English (Обзор → Overview, Источники оценки → Score Sources, Горячие клавиши → Hotkeys, Фильтры → Filters, Карточка модели → Model Detail), matching the English body prose every section already had.
