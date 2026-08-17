@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.21]
+
+- The F1 full-help overlay now opens with a short plain-language description of what the tool does, before the hotkey listing.
+- The `?` shortcut-help overlay now points to F1 at the top ("Press F1 for the full help, including what this tool does."), not only at the very end.
+
 ## [1.14.20]
 
 - Add `model-map.tsv` mappings for `z-ai/glm-5.2:free` (vals.ai, arena.ai) and `nvidia/nemotron-3.5-lightning:free` (arena.ai).
