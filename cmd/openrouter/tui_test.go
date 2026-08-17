@@ -551,6 +551,62 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	}
 }
 
+// tuiHelpDocumentLineIndex returns the index of the first line equal to
+// want in lines, or -1 if there is none. Used to locate structural
+// anchors (the title, the Hotkeys heading) without hard-coding positions.
+func tuiHelpDocumentLineIndex(lines []string, want string) int {
+	for i, line := range lines {
+		if line == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestTUIShortcutHelpMentionsF1AtTop(t *testing.T) {
+	lines := tuiShortcutHelpLines()
+	if len(lines) == 0 || lines[0] != "openrouter tui shortcuts" {
+		t.Fatalf("shortcut help title missing or changed: %q", lines)
+	}
+	hotkeysIndex := tuiHelpDocumentLineIndex(lines, "Hotkeys")
+	if hotkeysIndex < 0 {
+		t.Fatalf("shortcut help missing Hotkeys heading: %q", lines)
+	}
+	firstContentIndex := -1
+	for i := 1; i < hotkeysIndex; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			firstContentIndex = i
+			break
+		}
+	}
+	if firstContentIndex < 0 {
+		t.Fatalf("shortcut help has no pointer line between the title and Hotkeys: %q", lines)
+	}
+	if !strings.Contains(lines[firstContentIndex], "F1") {
+		t.Fatalf("first content line before Hotkeys does not point to F1: %q", lines[firstContentIndex])
+	}
+}
+
+func TestTUIFullHelpDescribesTheToolBeforeHotkeys(t *testing.T) {
+	lines := tuiHelpLines()
+	if len(lines) == 0 || lines[0] != "openrouter tui keys" {
+		t.Fatalf("full help title missing or changed: %q", lines)
+	}
+	hotkeysIndex := tuiHelpDocumentLineIndex(lines, "Hotkeys")
+	if hotkeysIndex < 0 {
+		t.Fatalf("full help missing Hotkeys heading: %q", lines)
+	}
+	description := strings.Join(lines[1:hotkeysIndex], " ")
+	if strings.TrimSpace(description) == "" {
+		t.Fatalf("full help has no description of the tool before Hotkeys: %q", lines)
+	}
+	for _, want := range []string{"OpenRouter", "quality", "price"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("full help description before Hotkeys is missing %q: %q", want, description)
+		}
+	}
+}
+
 func TestTUIHelpSearchNextPreviousWrapsAndDoesNotCaptureInput(t *testing.T) {
 	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 10, helpSearch: "search"}
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
@@ -4105,7 +4161,14 @@ func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
 // пустой экран или запаниковать.
 func TestTUIHelpOverlayFitsSmallHeightsWhileTyping(t *testing.T) {
 	for _, height := range []int{1, 2, 3, 4, 5, 6, 7} {
-		for _, offset := range []int{0, 5, 999} {
+		// 0 is the very start, 999 clamps to the document's end; 9 is a
+		// representative small non-zero offset that must land on a real
+		// hotkey row (not a blank section separator) so the height==1 case
+		// below can assert the screen is never blank. It was 5 before the
+		// full-help document grew a leading description block that pushed
+		// "Hotkeys" and the first Navigation row later; index 9 is the
+		// document's new first hotkey row ("Up settings navigate ...").
+		for _, offset := range []int{0, 9, 999} {
 			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 			m.overlay, m.width, m.height = "help", 40, height
 			m.inputMode, m.input, m.helpOffset = "help-search", "refresh", offset

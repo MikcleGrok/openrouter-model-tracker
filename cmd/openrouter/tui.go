@@ -2193,6 +2193,8 @@ func tuiStyleDetailLine(line string) string {
 
 const tuiShortcutHelpDocument = `openrouter tui shortcuts
 
+Press F1 for the full help, including what this tool does.
+
 Hotkeys
 
 Navigation
@@ -2267,6 +2269,10 @@ General/help
 \tEsc\tclose\tclose help.`
 
 const tuiHelpDocument = `openrouter tui keys
+
+openrouter tracks AI models available on OpenRouter and ranks them by quality and price.
+Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter catalogue.
+Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is easy to judge.
 
 Hotkeys
 
