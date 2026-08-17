@@ -681,7 +681,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			// Digit jump and Left/Right step are full-help-only: the
 			// shortcuts overlay (?) stays the single, unsectioned page it
 			// always was, so both are no-ops there instead of reaching
-			// into state ("[1 Обзор] ...") that overlay never renders.
+			// into state ("[1 Overview] ...") that overlay never renders.
 			if m.helpMode != "shortcuts" {
 				m.setHelpSection(int(key[0] - '1'))
 			}
@@ -1945,14 +1945,14 @@ func tuiHelpSectionLines(mode string, section int) []string {
 // matching every other cursor-style movement in this file — m.cursor,
 // columnCursor, settingsCursor and filterCursor all clamp at their ends
 // instead of wrapping round. Left/Right (setHelpSection) rely on this to
-// stop at "Обзор" and "Карточка модели" instead of cycling past them.
+// stop at "Overview" and "Model Detail" instead of cycling past them.
 func tuiClampHelpSection(section int) int {
 	return max(0, min(len(tuiHelpSections)-1, section))
 }
 
 // tuiHelpTabBarLine renders the section indicator shown above the F1
-// overlay's content, e.g. "[1 Обзор] 2 Источники оценки 3 Горячие клавиши
-// 4 Фильтры 5 Карточка модели" with the active section bracketed. The
+// overlay's content, e.g. "[1 Overview] 2 Score Sources 3 Hotkeys
+// 4 Filters 5 Model Detail" with the active section bracketed. The
 // bracket is the plain-text signal of which section is active; tuiHelpView
 // additionally colours that bracketed span with tuiSelectedStyle, the same
 // style the main table uses for its selected row, so the active tab reads
@@ -2420,14 +2420,14 @@ const tuiHelpTabBarAbsoluteIndex = 2
 // read, while the overlay itself (tuiHelpSectionLines) renders exactly one
 // Body at a time, framed by the title and the tab bar.
 var tuiHelpSections = []tuiHelpSection{
-	{Title: "Обзор", Body: tuiHelpSectionOverviewBody},
-	{Title: "Источники оценки", Body: tuiHelpSectionScoreSourcesBody},
-	{Title: "Горячие клавиши", Body: tuiHelpSectionHotkeysBody},
-	{Title: "Фильтры", Body: tuiHelpSectionFiltersBody},
-	{Title: "Карточка модели", Body: tuiHelpSectionDetailBody},
+	{Title: "Overview", Body: tuiHelpSectionOverviewBody},
+	{Title: "Score Sources", Body: tuiHelpSectionScoreSourcesBody},
+	{Title: "Hotkeys", Body: tuiHelpSectionHotkeysBody},
+	{Title: "Filters", Body: tuiHelpSectionFiltersBody},
+	{Title: "Model Detail", Body: tuiHelpSectionDetailBody},
 }
 
-// tuiHelpSectionOverviewBody is the "Обзор" section: what the tool does,
+// tuiHelpSectionOverviewBody is the "Overview" section: what the tool does,
 // the three independent kinds of data behind every row (price, quality,
 // tier), the identity-gate philosophy that matches a leaderboard row to an
 // OpenRouter slug, and the ranking formula (relocated verbatim from the
@@ -2464,7 +2464,7 @@ mixed-utility: rankable first, then paid utility from the configured safe YAML f
 Use o, then Down to Score source, then Space to switch between SWE-bench and Arena.
 The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.`
 
-// tuiHelpSectionScoreSourcesBody is the "Источники оценки" section: the
+// tuiHelpSectionScoreSourcesBody is the "Score Sources" section: the
 // original short "Score sources" block (relocated verbatim), expanded with
 // what actually distinguishes the three measurements — vals.ai's
 // independent single-harness runs versus swebench.com's self-submitted,
@@ -2505,7 +2505,7 @@ number on the newly active source shows n/a even if it had one on the other. Tru
 starts with knowing which of these three measurements produced the number on screen; this section, and
 the source column in the model detail view, are how to check.`
 
-// tuiHelpSectionHotkeysBody is the "Горячие клавиши" section: every
+// tuiHelpSectionHotkeysBody is the "Hotkeys" section: every
 // keybinding table from the pre-sectioning document (Navigation, Data/view,
 // Filters/settings, Task-fit codes, Refresh and finish, Help search,
 // General/help), relocated verbatim and in their original relative order.
@@ -2592,7 +2592,7 @@ General/help
 \t?\thelp\tclose help.
 \tF1\thelp\topen full help.`
 
-// tuiHelpSectionFiltersBody is the "Фильтры" section: the structured
+// tuiHelpSectionFiltersBody is the "Filters" section: the structured
 // filter syntax block, relocated verbatim out of what used to be the
 // single Hotkeys section (its original heading, "Columns, search, and
 // filters", stays as this section's own first line).
@@ -2614,7 +2614,7 @@ The last column stays selected.
 	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
 	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.`
 
-// tuiHelpSectionDetailBody is the "Карточка модели" section: the model
+// tuiHelpSectionDetailBody is the "Model Detail" section: the model
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
@@ -2632,8 +2632,10 @@ Field labels, block headings, links and missing values are colour-coded; the col
 // stored in a section body, which is exactly what keeps this constant (and
 // tuiShortcutHelpDocument) entirely English: the content/structural tests
 // that scan tuiHelpDocument for stray Cyrillic are checking reference
-// prose, not the Russian tab-bar labels the sectioned overlay renders
-// alongside it. It exists for those tests — "does the full help still
+// prose, not the tab-bar labels the sectioned overlay renders alongside
+// it (the tab-bar labels are themselves English titles, see
+// tuiHelpSections, but this constant never includes them either way). It
+// exists for those tests — "does the full help still
 // document X", the tab-column audits, the English-only checks — that were
 // written against one flat document and do not need to change just because
 // the F1 overlay now shows its content one section at a time; see
