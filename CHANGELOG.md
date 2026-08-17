@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.24]
+
+- Rename the F1 full-help overlay's 5 tab-bar section titles from Russian to English (Обзор → Overview, Источники оценки → Score Sources, Горячие клавиши → Hotkeys, Фильтры → Filters, Карточка модели → Model Detail), matching the English body prose every section already had.
+
 ## [1.14.23]
 
 - Restructure the F1 full-help overlay from one long scrollable page into 5 navigable sections — Обзор, Источники оценки, Горячие клавиши, Фильтры, Карточка модели — jumped to with digit keys `1`-`5` or stepped with Left/Right (clamped, no wraparound), shown via a tab bar highlighting the active section with the same style the main table uses for its selected row.
