@@ -1,5 +1,11 @@
 # What's New
 
+## [1.14.23]
+
+- Restructure the F1 full-help overlay from one long scrollable page into 5 navigable sections — Обзор, Источники оценки, Горячие клавиши, Фильтры, Карточка модели — jumped to with digit keys `1`-`5` or stepped with Left/Right (clamped, no wraparound), shown via a tab bar highlighting the active section with the same style the main table uses for its selected row.
+- Expand the Обзор and Источники оценки sections with real explanatory content: the identity-gate/`model-map.tsv` matching philosophy, and the distinction between vals.ai (independent single-harness SWE-bench Verified), swebench.com (self-submitted, median-of-scaffolds SWE-bench Verified), and LMArena Elo (a separate, non-comparable scale) — grounded in `model-map.tsv`'s own header comment and the `internal/sources` package docs.
+- Scope help search (`/`) to the active section instead of the whole document; scroll offset resets to 0 on section switch. The `?` shortcut-help overlay is unchanged — still a single page.
+
 ## [1.14.22]
 
 - Fix the Score-source "switch" rows in both help screens rendering as raw, unformatted text (a stray extra leading tab was defeating the help table's column parser).
