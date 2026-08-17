@@ -1,5 +1,11 @@
 # What's New
 
+## [1.14.22]
+
+- Fix the Score-source "switch" rows in both help screens rendering as raw, unformatted text (a stray extra leading tab was defeating the help table's column parser).
+- Fix several help rows silently duplicating the bound key across both the Key and Action columns instead of showing the real key next to its action label (`open settings.`, `open shortcut help.`, `open full help.`, and — nondeterministically — `open model details.`).
+- Fix a doubled tab in the full-help "edit a structured filter" row and a capitalization mismatch in the full-help "open settings." row that silently broke its keymap substitution.
+
 ## [1.14.21]
 
 - The F1 full-help overlay now opens with a short plain-language description of what the tool does, before the hotkey listing.
