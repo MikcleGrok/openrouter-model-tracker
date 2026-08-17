@@ -481,18 +481,22 @@ func TestTUIKeyState(t *testing.T) {
 		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(tuiModel)
 	}
-	if m.helpOffset != tuiHelpMaxOffset(m.height) {
-		t.Fatalf("help offset exceeded lower bound: got %d, max %d", m.helpOffset, tuiHelpMaxOffset(m.height))
+	if m.helpOffset != m.helpMaxOffset() {
+		t.Fatalf("help offset exceeded lower bound: got %d, max %d", m.helpOffset, m.helpMaxOffset())
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
 	m = next.(tuiModel)
 	if m.helpOffset != 0 {
 		t.Fatalf("help home offset = %d, want 0", m.helpOffset)
 	}
+	// "quality" rather than "refresh": search is now section-scoped (see
+	// TestTUIHelpSearchIsScopedToTheCurrentSection), and this point in the
+	// test is still on section 0 ("Обзор") — "refresh" only occurs in the
+	// Hotkeys section, but "quality" occurs several times right here.
 	m = tuiKey(m, "/")
-	m.input = "refresh"
+	m.input = "quality"
 	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.inputMode != "" || len(m.helpMatches) == 0 || !strings.Contains(m.View(), "refresh") {
+	if m.inputMode != "" || len(m.helpMatches) == 0 || !strings.Contains(m.View(), "quality") {
 		t.Fatalf("help search state = %+v", m)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
@@ -539,11 +543,19 @@ func TestTUIShortcutHelpAndFullHelp(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF1})
 	m = next.(tuiModel)
 	m.height = len(tuiHelpLines()) + 2
-	if m.helpMode != "full" || !strings.Contains(m.View(), "Model detail view") {
-		t.Fatalf("F1 did not open full help: mode=%q view=%q", m.helpMode, m.View())
+	if m.helpMode != "full" || m.helpSection != 0 {
+		t.Fatalf("F1 did not open full help at the Обзор section: mode=%q section=%d", m.helpMode, m.helpSection)
 	}
 	if !strings.Contains(m.View(), "version "+version) {
 		t.Fatalf("full help does not show runtime version %q: %q", version, m.View())
+	}
+	// "Model detail view" now lives in its own section ("Карточка модели",
+	// index 4) rather than on the same page — jump there with the digit key
+	// before checking for it.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	m = next.(tuiModel)
+	if m.helpSection != 4 || !strings.Contains(m.View(), "Model detail view") {
+		t.Fatalf("digit 5 did not switch to the model-detail section: section=%d view=%q", m.helpSection, m.View())
 	}
 	m.helpMode = "shortcuts"
 	if !strings.Contains(strings.Join(m.helpLines(), "\n"), "version "+version) {
@@ -608,7 +620,11 @@ func TestTUIFullHelpDescribesTheToolBeforeHotkeys(t *testing.T) {
 }
 
 func TestTUIHelpSearchNextPreviousWrapsAndDoesNotCaptureInput(t *testing.T) {
-	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 10, helpSearch: "search"}
+	// helpSection 2 (Горячие клавиши) is where "search" occurs repeatedly
+	// ("search Name/Slug", the "Help search" table, ...); search is
+	// section-scoped, and the default section 0 ("Обзор") does not contain
+	// the word at all.
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 100, height: 10, helpSearch: "search"}
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
 	m.helpMatch = 0
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -645,7 +661,11 @@ func TestTUIHelpSearchNextPreviousWrapsAndDoesNotCaptureInput(t *testing.T) {
 }
 
 func TestTUIHelpSearchInputDoesNotNavigateWithUpDown(t *testing.T) {
-	m := tuiModel{overlay: "help", helpMode: "full", inputMode: "help-search", input: "search", helpSearch: "search", helpMatches: []int{1, 2}, helpMatch: 0}
+	// helpSection 2 (Горячие клавиши) actually contains "search" — Enter's
+	// handler recomputes helpMatches against the current section, and an
+	// empty result (e.g. from the default section 0) would leave helpMatch
+	// at -1 instead of the 0 this test expects.
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, inputMode: "help-search", input: "search", helpSearch: "search", helpMatches: []int{1, 2}, helpMatch: 0}
 	for _, key := range []tea.KeyMsg{{Type: tea.KeyUp}, {Type: tea.KeyDown}} {
 		next, _ := m.Update(key)
 		m = next.(tuiModel)
@@ -695,7 +715,9 @@ func tuiHelpFooterLine(lines []string) string {
 
 func TestTUIHelpSearchCounterZeroAndCurrentStyle(t *testing.T) {
 	tuiForceColorProfile(t)
-	m := tuiModel{overlay: "help", helpMode: "full", width: 200, height: len(tuiHelpLines()) + 2, helpSearch: "column"}
+	// helpSection 2 (Горячие клавиши) has several "column" occurrences —
+	// search is section-scoped, and the default section 0 has none.
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 200, height: len(tuiHelpLines()) + 2, helpSearch: "column"}
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
 	m.helpMatch = 0
 	view := tuiHelpView(m)
@@ -778,6 +800,11 @@ func TestTUIHelpRendersConfiguredBindingsByActionGroup(t *testing.T) {
 	}
 	for _, mode := range []string{"shortcuts", "full"} {
 		m.helpMode = mode
+		// Every binding checked below lives in the Горячие клавиши section
+		// (index 2) of the sectioned full-help document; helpSection is
+		// irrelevant to (and ignored by) shortcuts mode, which stays a
+		// single unsectioned page.
+		m.helpSection = 2
 		view := strings.Join(m.helpLines(), "\n")
 		wants := []string{
 			"custom-main-navigate_up", "custom-main-navigate_down", "custom-main-open_details", "custom-main-close",
@@ -2285,13 +2312,22 @@ func TestTUIHelpUsesFullViewport(t *testing.T) {
 }
 
 func TestTUIHelpSearchMaxOffsetIncludesInputRow(t *testing.T) {
-	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 5, inputMode: "help-search"}
-	if got, want := m.helpMaxOffset(), len(tuiHelpLines())-4; got != want {
+	// m.helpLines() is what is actually scrolled — not the legacy
+	// whole-document tuiHelpLines() — now that the F1 overlay renders one
+	// section at a time. Section 2 (Горячие клавиши) is used because its
+	// last line is a short \t-row (tuiFormatHelpLine leaves it exactly as
+	// rendered); "Обзор"'s own last line is long, plain prose that
+	// tuiFullscreenText's width-based truncation would cut but
+	// tuiFormatHelpLine (having no \t to format) would not — a mismatch
+	// this test does not exist to exercise.
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 100, height: 5, inputMode: "help-search"}
+	helpLines := m.helpLines()
+	if got, want := m.helpMaxOffset(), len(helpLines)-4; got != want {
 		t.Fatalf("help search max offset = %d, want %d", got, want)
 	}
 	m.helpOffset = m.helpMaxOffset()
 	lines := strings.Split(tuiHelpView(m), "\n")
-	if got, want := ansi.Strip(lines[3]), tuiFormatHelpLine(tuiHelpLines()[len(tuiHelpLines())-1], m.width); got != want {
+	if got, want := ansi.Strip(lines[3]), tuiFormatHelpLine(helpLines[len(helpLines)-1], m.width); got != want {
 		t.Fatalf("last visible help line = %q, want %q", got, want)
 	}
 }
@@ -2577,23 +2613,209 @@ func TestTUIHelpModeSwitchRebuildsSearchMatches(t *testing.T) {
 		t.Fatalf("shortcut help kept full-help search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantShortcuts)
 	}
 	m = tuiKey(m, "f1")
-	wantFull := tuiHelpSearchInLines(m.helpSearch, tuiHelpLines())
+	// setHelpMode("full") resets helpSection to 0 ("Обзор"); matches must be
+	// rebuilt against that one section, not the legacy whole-document view.
+	if m.helpSection != 0 {
+		t.Fatalf("f1 did not reset to the Обзор section: section=%d", m.helpSection)
+	}
+	wantFull := tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines("full", 0))
 	if !reflect.DeepEqual(m.helpMatches, wantFull) || m.helpMatch != -1 {
 		t.Fatalf("full help kept shortcut-help search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantFull)
 	}
 }
 
+// TestTUIHelpDigitKeysJumpToSection covers the F1 overlay's five-section
+// navigation: digit keys 1-5 jump straight to the matching tuiHelpSections
+// index, reset the scroll offset, and rebuild search matches against the
+// newly active section — mirroring what setHelpMode already does when
+// switching between "shortcuts" and "full".
+func TestTUIHelpDigitKeysJumpToSection(t *testing.T) {
+	for digit, wantSection := range map[string]int{"1": 0, "2": 1, "3": 2, "4": 3, "5": 4} {
+		m := tuiModel{overlay: "help", helpMode: "full", helpSection: 0, helpOffset: 7, width: 100, height: 10, helpSearch: "search"}
+		m.helpMatches = tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines("full", 0))
+		m.helpMatch = 0
+		m = tuiKey(m, digit)
+		if m.helpSection != wantSection {
+			t.Fatalf("digit %s: section = %d, want %d", digit, m.helpSection, wantSection)
+		}
+		if m.helpOffset != 0 {
+			t.Fatalf("digit %s: offset = %d, want 0 (section switch resets scroll)", digit, m.helpOffset)
+		}
+		wantMatches := tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines("full", wantSection))
+		if !reflect.DeepEqual(m.helpMatches, wantMatches) || m.helpMatch != -1 {
+			t.Fatalf("digit %s: matches = %v (match %d), want %v rebuilt against the new section (match -1)", digit, m.helpMatches, m.helpMatch, wantMatches)
+		}
+	}
+}
+
+// TestTUIHelpDigitKeysDoNothingInShortcutsMode is the "? is unaffected by
+// any of this" half of the confirmed design: the shortcuts overlay stays
+// the single page it always was, so a digit key there must not create
+// section state that mode never renders.
+func TestTUIHelpDigitKeysDoNothingInShortcutsMode(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "shortcuts", width: 100, height: 10}
+	before := m.View()
+	for _, key := range []string{"1", "2", "3", "4", "5", "left", "right"} {
+		m = tuiKey(m, key)
+		if m.helpSection != 0 {
+			t.Fatalf("%s changed helpSection to %d in shortcuts mode", key, m.helpSection)
+		}
+	}
+	if m.helpMode != "shortcuts" || m.View() != before {
+		t.Fatalf("shortcuts overlay changed after digit/arrow keys: mode=%q view changed=%v", m.helpMode, m.View() != before)
+	}
+}
+
+// TestTUIHelpLeftRightStepAndClampWithoutWrapping covers the other half of
+// the navigation design: Left/Right step to the adjacent section one at a
+// time and clamp at both ends rather than wrapping — the same choice every
+// other cursor-style movement in this file already makes (m.cursor,
+// columnCursor, settingsCursor, filterCursor: see tuiClampHelpSection).
+func TestTUIHelpLeftRightStepAndClampWithoutWrapping(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 10}
+	if m.helpSection != 0 {
+		t.Fatalf("test setup: helpSection = %d, want 0", m.helpSection)
+	}
+	m = tuiKey(m, "left")
+	if m.helpSection != 0 {
+		t.Fatalf("left at the first section = %d, want clamped at 0 (no wraparound)", m.helpSection)
+	}
+	for want := 1; want <= 4; want++ {
+		m = tuiKey(m, "right")
+		if m.helpSection != want {
+			t.Fatalf("right step %d: section = %d, want %d", want, m.helpSection, want)
+		}
+	}
+	m = tuiKey(m, "right")
+	if m.helpSection != 4 {
+		t.Fatalf("right past the last section = %d, want clamped at 4 (no wraparound)", m.helpSection)
+	}
+	for want := 3; want >= 0; want-- {
+		m = tuiKey(m, "left")
+		if m.helpSection != want {
+			t.Fatalf("left step to %d: section = %d, want %d", want, m.helpSection, want)
+		}
+	}
+}
+
+// TestTUIHelpUpDownScrollsWithinSectionOnly guards against Up/Down (or
+// j/k) accidentally being reinterpreted as section navigation: they must
+// keep doing exactly what they did before sectioning existed — move
+// helpOffset within the current section — and never change helpSection.
+func TestTUIHelpUpDownScrollsWithinSectionOnly(t *testing.T) {
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 100, height: 5}
+	m = tuiKey(m, "down")
+	if m.helpSection != 2 || m.helpOffset != 1 {
+		t.Fatalf("down changed section=%d offset=%d, want section=2 offset=1", m.helpSection, m.helpOffset)
+	}
+	m = tuiKey(m, "j")
+	if m.helpSection != 2 || m.helpOffset != 2 {
+		t.Fatalf("j changed section=%d offset=%d, want section=2 offset=2", m.helpSection, m.helpOffset)
+	}
+	m = tuiKey(m, "up")
+	if m.helpSection != 2 || m.helpOffset != 1 {
+		t.Fatalf("up changed section=%d offset=%d, want section=2 offset=1", m.helpSection, m.helpOffset)
+	}
+}
+
+// TestTUIHelpSearchIsScopedToTheCurrentSection is the direct behavioural
+// check for "search scopes to the current section only": a needle that
+// exists in one section (Горячие клавиши, via the Task-fit codes table)
+// must not be reported as a match while a different section (Обзор) is
+// active, even though both sections are part of the same helpSearch state.
+func TestTUIHelpSearchIsScopedToTheCurrentSection(t *testing.T) {
+	needle := "task-fit code"
+	if strings.Contains(tuiHelpSectionOverviewBody, needle) {
+		t.Fatalf("test invalid: %q unexpectedly occurs in Обзор", needle)
+	}
+	if !strings.Contains(tuiHelpSectionHotkeysBody, needle) {
+		t.Fatalf("test invalid: %q does not occur in Горячие клавиши", needle)
+	}
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 0, width: 100, height: 10, helpSearch: needle}
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	if len(m.helpMatches) != 0 {
+		t.Fatalf("Обзор reported %d matches for a needle that only occurs in Горячие клавиши: %v", len(m.helpMatches), m.helpMatches)
+	}
+	m.helpSection = 2
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	if len(m.helpMatches) == 0 {
+		t.Fatal("Горячие клавиши reported no matches for a needle it does contain")
+	}
+}
+
+// TestTUIHelpTabBarShowsAllFiveSectionsWithActiveHighlighted is the direct
+// check for the confirmed tab-bar format: "[1 Обзор] 2 Источники оценки
+// 3 Горячие клавиши 4 Фильтры 5 Карточка модели", the bracketed entry
+// matching the active section, and that entry (and only that entry) styled
+// distinctly (tuiSelectedStyle, the same style the main table's selected
+// row uses).
+func TestTUIHelpTabBarShowsAllFiveSectionsWithActiveHighlighted(t *testing.T) {
+	if len(tuiHelpSections) != 5 {
+		t.Fatalf("tuiHelpSections has %d entries, want 5", len(tuiHelpSections))
+	}
+	wantTitles := []string{"Обзор", "Источники оценки", "Горячие клавиши", "Фильтры", "Карточка модели"}
+	for i, want := range wantTitles {
+		if tuiHelpSections[i].Title != want {
+			t.Fatalf("tuiHelpSections[%d].Title = %q, want %q", i, tuiHelpSections[i].Title, want)
+		}
+	}
+	for active := range tuiHelpSections {
+		plain := tuiHelpTabBarLine(active)
+		for i, section := range tuiHelpSections {
+			label := fmt.Sprintf("%d %s", i+1, section.Title)
+			if i == active {
+				label = "[" + label + "]"
+			}
+			if !strings.Contains(plain, label) {
+				t.Fatalf("active=%d: tab bar %q is missing label %q", active, plain, label)
+			}
+		}
+		tuiForceColorProfile(t)
+		m := tuiModel{overlay: "help", helpMode: "full", helpSection: active, width: 200, height: 10}
+		view := tuiHelpView(m)
+		wantStyled := tuiSelectedStyle.Render("[" + fmt.Sprintf("%d %s", active+1, tuiHelpSections[active].Title) + "]")
+		if !strings.Contains(view, wantStyled) {
+			t.Fatalf("active=%d: rendered help does not style the active tab with tuiSelectedStyle:\n%s", active, view)
+		}
+		for i, section := range tuiHelpSections {
+			if i == active {
+				continue
+			}
+			styledOther := tuiSelectedStyle.Render(fmt.Sprintf("%d %s", i+1, section.Title))
+			if strings.Contains(view, styledOther) {
+				t.Fatalf("active=%d: inactive tab %d (%s) is also styled with tuiSelectedStyle", active, i, section.Title)
+			}
+		}
+	}
+}
+
+// tuiHelpSectionLineIndexContaining returns the index of the first line in
+// section's full rendered lines (title/tab-bar/body, exactly what
+// tuiHelpView renders for it — see tuiHelpSectionLines) containing needle,
+// or -1. The sectioned-help counterpart of tuiHelpLineIndexContaining,
+// which searches the legacy, unsectioned whole-document view instead.
+func tuiHelpSectionLineIndexContaining(section int, needle string) int {
+	for i, line := range tuiHelpSectionLines("full", section) {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
 	tuiForceColorProfile(t)
-	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "column"}
+	// helpSection 2 (Горячие клавиши) is where both "column"/"columns" and
+	// "match"/"matches" occur — search is section-scoped now.
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 200, height: 60, helpSearch: "column"}
 	view := tuiHelpView(m)
 	lines := strings.Split(view, "\n")
-	columnLine := tuiHelpLineIndexContaining(`\tSpace\tcolumns\ttoggle a column.`)
+	columnLine := tuiHelpSectionLineIndexContaining(2, `\tSpace\tcolumns\ttoggle a column.`)
 	if columnLine < 0 || lines[columnLine] == ansi.Strip(lines[columnLine]) {
 		t.Fatalf("matching line was not styled: %q", lines[columnLine])
 	}
-	if got := ansi.Strip(lines[columnLine]); got != tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width) {
-		t.Fatalf("matching line changed: got %q, want %q", got, tuiFormatHelpLine(tuiHelpLines()[columnLine], m.width))
+	if got := ansi.Strip(lines[columnLine]); got != tuiFormatHelpLine(tuiHelpSectionLines("full", 2)[columnLine], m.width) {
+		t.Fatalf("matching line changed: got %q, want %q", got, tuiFormatHelpLine(tuiHelpSectionLines("full", 2)[columnLine], m.width))
 	}
 	if got := strings.Count(lines[columnLine], tuiMatchStyle.Render("column")); got != 2 {
 		t.Fatalf("matching line has %d styled occurrences, want 2: %q", got, lines[columnLine])
@@ -2623,18 +2845,28 @@ func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
 		t.Fatalf("footer was not kept plain: %q", footer)
 	}
 
+	// "Help search" is a Hotkeys-section heading (still section 2); "Columns,
+	// search, and filters" is the Filters section's own heading (index 3) —
+	// the two used to share one page and one render, but now live in
+	// different sections and need their own render each.
 	m.helpSearch = "search"
 	lines = strings.Split(tuiHelpView(m), "\n")
-	for _, heading := range []string{"Columns, search, and filters", "Help search"} {
-		index := tuiHelpLineIndexContaining(heading)
-		if want := tuiHeaderStyle.Render(tuiHelpLines()[index]); lines[index] != want {
-			t.Fatalf("heading line %d = %q, want %q", index, lines[index], want)
-		}
+	if index := tuiHelpSectionLineIndexContaining(2, "Help search"); index < 0 {
+		t.Fatal("Горячие клавиши section is missing the Help search heading")
+	} else if want := tuiHeaderStyle.Render(tuiHelpSectionLines("full", 2)[index]); lines[index] != want {
+		t.Fatalf("heading line %d = %q, want %q", index, lines[index], want)
 	}
-	for _, index := range []int{tuiHelpLineIndexContaining(`/\tsearch`)} {
-		if lines[index] == ansi.Strip(lines[index]) {
-			t.Fatalf("content line %d was not highlighted: %q", index, lines[index])
-		}
+	if index := tuiHelpSectionLineIndexContaining(2, `/\tsearch`); index < 0 || lines[index] == ansi.Strip(lines[index]) {
+		t.Fatalf("content line %d was not highlighted: %q", index, lines)
+	}
+
+	m.helpSection = 3
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines("full", 3))
+	lines = strings.Split(tuiHelpView(m), "\n")
+	if index := tuiHelpSectionLineIndexContaining(3, "Columns, search, and filters"); index < 0 {
+		t.Fatal("Фильтры section is missing the Columns, search, and filters heading")
+	} else if want := tuiHeaderStyle.Render(tuiHelpSectionLines("full", 3)[index]); lines[index] != want {
+		t.Fatalf("heading line %d = %q, want %q", index, lines[index], want)
 	}
 
 	m.helpSearch, m.inputMode, m.input = "search", "help-search", "search"
@@ -2655,14 +2887,15 @@ func TestTUIHelpSearchHighlightsMatchesWithoutChangingLayout(t *testing.T) {
 
 func TestTUIHelpSearchPreservesDisplayCaseAndNormalizesNeedle(t *testing.T) {
 	tuiForceColorProfile(t)
-	m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: "task-fit"}
+	// "Task-fit codes" lives in the Горячие клавиши section (index 2).
+	m := tuiModel{overlay: "help", helpMode: "full", helpSection: 2, width: 200, height: 60, helpSearch: "task-fit"}
 	lines := strings.Split(tuiHelpView(m), "\n")
-	codeLine := tuiHelpLineIndexContaining("Task-fit codes")
-	rowLine := tuiHelpLineIndexContaining(`\tI\ttask-fit code`)
+	codeLine := tuiHelpSectionLineIndexContaining(2, "Task-fit codes")
+	rowLine := tuiHelpSectionLineIndexContaining(2, `\tI\ttask-fit code`)
 	if !strings.Contains(lines[rowLine], tuiMatchStyle.Render("task-fit")) {
 		t.Fatalf("display case was not preserved: code=%q, row=%q", lines[codeLine+1], lines[rowLine])
 	}
-	headingLine := tuiHelpLineIndexContaining("Task-fit")
+	headingLine := tuiHelpSectionLineIndexContaining(2, "Task-fit")
 	if want := tuiHeaderStyle.Render("Task-fit codes"); lines[headingLine] != want {
 		t.Fatalf("heading was not kept intact: got %q, want %q", lines[headingLine], want)
 	}
@@ -2679,9 +2912,13 @@ func TestTUIHelpSearchWithEmptyNeedleDoesNotHighlightContent(t *testing.T) {
 		m := tuiModel{overlay: "help", width: 200, height: 60, helpSearch: needle}
 		view := tuiHelpView(m)
 		assertTUIViewFits(t, view, m.width, m.height, "help without search")
+		// The tab bar (e.g. "[1 Обзор] 2 Источники оценки ...") is always
+		// styled too — tuiSelectedStyle marks the active section — the same
+		// way the title line always is, regardless of the search needle.
+		tabBar := tuiHelpTabBarLine(m.helpSection)
 		for index, line := range strings.Split(view, "\n") {
 			plain := ansi.Strip(line)
-			isHeader := strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
+			isHeader := strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == tabBar
 			if !isHeader && line != plain {
 				t.Fatalf("empty needle styled content line %d for %q: %q", index, needle, line)
 			}
@@ -3702,7 +3939,9 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 		}
 	}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
-	m.overlay, m.width, m.height = "help", 120, len(tuiHelpLines())+2
+	// "Model detail view" lives in its own section now ("Карточка модели",
+	// index 4) rather than sharing the page with everything else.
+	m.overlay, m.helpSection, m.width, m.height = "help", 4, 120, len(tuiHelpLines())+2
 	if !strings.Contains(m.View(), "Model detail view") {
 		t.Errorf("the rendered help does not show the detail-screen section:\n%s", m.View())
 	}
@@ -4283,13 +4522,16 @@ func TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore(t *testing.T) {
 // в точности первыми height-1 контентными строками второго, а последней
 // строкой экрана обязана быть строка ввода. Ни потерянной строки
 // документа, ни лишней пустой. Высоты подобраны так, чтобы на каждой из
-// них строка ввода реально была видна: документ справки — 58 строк, и
-// футер на высотах ниже 59 не виден ни во время набора, ни без него, что
-// эта проверка намеренно не трогает.
+// них строка ввода реально была видна — это требует раздела длиннее любой
+// проверяемой высоты (59), иначе контент не заполняет экран и после него
+// остаётся пустой хвост, а не строка ввода последней. Раздел "Горячие
+// клавиши" (helpSection 2) — 86 строк с заголовком, заведомо длиннее;
+// "Обзор" (34 строки), напротив, короче большинства проверяемых высот и
+// для этой проверки не годится.
 func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
 	for _, height := range []int{2, 3, 5, 10, 24, 40, 59} {
 		idle := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
-		idle.overlay, idle.width, idle.height = "help", 200, height
+		idle.overlay, idle.helpSection, idle.width, idle.height = "help", 2, 200, height
 		idleLines := strings.Split(idle.View(), "\n")
 
 		typing := idle

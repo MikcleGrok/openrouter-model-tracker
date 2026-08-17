@@ -184,6 +184,7 @@ type tuiModel struct {
 	overlay               string
 	helpOffset            int
 	helpMode              string
+	helpSection           int
 	detailOffset          int
 	helpSearch            string
 	helpMatches           []int
@@ -676,6 +677,22 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.helpNextMatch(1)
 		case "N":
 			m.helpNextMatch(-1)
+		case "1", "2", "3", "4", "5":
+			// Digit jump and Left/Right step are full-help-only: the
+			// shortcuts overlay (?) stays the single, unsectioned page it
+			// always was, so both are no-ops there instead of reaching
+			// into state ("[1 Обзор] ...") that overlay never renders.
+			if m.helpMode != "shortcuts" {
+				m.setHelpSection(int(key[0] - '1'))
+			}
+		case "left":
+			if m.helpMode != "shortcuts" {
+				m.setHelpSection(m.helpSection - 1)
+			}
+		case "right":
+			if m.helpMode != "shortcuts" {
+				m.setHelpSection(m.helpSection + 1)
+			}
 		}
 		return m, nil
 	}
@@ -1895,12 +1912,63 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // what actually prevents that false match; nothing about how the line
 // ends does.
 func (m tuiModel) helpLines() []string {
-	lines := tuiHelpLines()
-	if m.helpMode == "shortcuts" {
-		lines = tuiShortcutHelpLines()
-	}
+	lines := tuiHelpSectionLines(m.helpMode, m.helpSection)
 	lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
 	return tuiConfiguredHelpLines(lines, m.keymap)
+}
+
+// tuiHelpSectionLines builds the lines the F1 overlay actually renders for
+// the given mode/section: the shortcuts overlay stays exactly what
+// tuiShortcutHelpLines has always returned (one page, unsectioned, per the
+// confirmed design — "?" is unaffected by any of this), while every other
+// mode ("full", and the zero value, which has always meant full) renders
+// one section at a time, framed by a page title and the tab bar
+// (tuiHelpTabBarLine) that names all five and highlights the active one.
+// This is deliberately a different function from the package-level
+// tuiHelpLines(), which keeps returning strings.Split(tuiHelpDocument,
+// "\n") — the flat concatenation of all five section bodies behind one
+// English-only title line. That legacy view exists purely for content and
+// structural tests ("does the full help still document X", tab-column
+// audits, the Cyrillic-free checks) that were written against one document
+// and do not need to change just because the overlay now shows it one
+// section at a time; this function is what actually reaches the screen.
+func tuiHelpSectionLines(mode string, section int) []string {
+	if mode == "shortcuts" {
+		return tuiShortcutHelpLines()
+	}
+	section = tuiClampHelpSection(section)
+	lines := []string{tuiHelpTitleLine, "", tuiHelpTabBarLine(section), ""}
+	return append(lines, strings.Split(tuiHelpSections[section].Body, "\n")...)
+}
+
+// tuiClampHelpSection keeps a section index in range without wrapping,
+// matching every other cursor-style movement in this file — m.cursor,
+// columnCursor, settingsCursor and filterCursor all clamp at their ends
+// instead of wrapping round. Left/Right (setHelpSection) rely on this to
+// stop at "Обзор" and "Карточка модели" instead of cycling past them.
+func tuiClampHelpSection(section int) int {
+	return max(0, min(len(tuiHelpSections)-1, section))
+}
+
+// tuiHelpTabBarLine renders the section indicator shown above the F1
+// overlay's content, e.g. "[1 Обзор] 2 Источники оценки 3 Горячие клавиши
+// 4 Фильтры 5 Карточка модели" with the active section bracketed. The
+// bracket is the plain-text signal of which section is active; tuiHelpView
+// additionally colours that bracketed span with tuiSelectedStyle, the same
+// style the main table uses for its selected row, so the active tab reads
+// the same way the app already marks "the highlighted one" everywhere
+// else.
+func tuiHelpTabBarLine(active int) string {
+	active = tuiClampHelpSection(active)
+	parts := make([]string, len(tuiHelpSections))
+	for i, section := range tuiHelpSections {
+		label := fmt.Sprintf("%d %s", i+1, section.Title)
+		if i == active {
+			label = "[" + label + "]"
+		}
+		parts[i] = label
+	}
+	return strings.Join(parts, " ")
 }
 
 func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
@@ -1966,7 +2034,24 @@ func (m tuiModel) helpViewportHeight() int {
 func (m tuiModel) helpMaxOffset() int { return max(0, len(m.helpLines())-m.helpViewportHeight()) }
 
 func (m *tuiModel) setHelpMode(mode string) {
-	m.helpMode, m.helpOffset = mode, 0
+	m.helpMode, m.helpOffset, m.helpSection = mode, 0, 0
+	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
+	m.helpMatch = -1
+}
+
+// setHelpSection switches the active F1 section (digit keys 1-5, Left/Right
+// — see the overlay == "help" key handling above). It resets helpOffset to
+// 0 rather than remembering a per-section scroll position: helpOffset is
+// one int shared with the shortcuts overlay, and every section starts back
+// at its own top on arrival, the same way opening full help or switching
+// help modes already resets it (setHelpMode above) — simplest correct
+// behaviour, and no section here is long enough for "resume where I left
+// off" to earn a second int per section. Search matches are rebuilt
+// against the new section's own lines because search is section-scoped: a
+// helpMatches slice computed against the previous section would index into
+// the wrong document once the section changes.
+func (m *tuiModel) setHelpSection(section int) {
+	m.helpSection, m.helpOffset = tuiClampHelpSection(section), 0
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
 	m.helpMatch = -1
 }
@@ -1976,6 +2061,20 @@ func tuiHelpView(m tuiModel) string {
 	inputActive := m.inputMode == "help-search"
 	body := m.helpViewportHeight()
 	offset := max(0, min(m.helpOffset, max(0, len(lines)-body)))
+	// The tab bar sits at a fixed absolute line (tuiHelpTabBarAbsoluteIndex,
+	// see tuiHelpSectionLines) only in full mode — the shortcuts overlay has
+	// no tab bar, and its own line at that same absolute index is ordinary
+	// content ("Press F1 for the full help..."), not something to style as
+	// one. tabBarLineIndex is computed against the same slice this function
+	// hands to tuiFullscreenText below, exactly like inputLineIndex and
+	// footerLineIndex are, so it still points at the right physical line
+	// once styledLines is split back out of the finished view.
+	tabBarLineIndex := -1
+	if m.helpMode != "shortcuts" {
+		if idx := tuiHelpTabBarAbsoluteIndex - offset; idx >= 0 && idx < len(lines)-offset {
+			tabBarLineIndex = idx
+		}
+	}
 	lines = lines[offset:min(len(lines), offset+body)]
 	for i := range lines {
 		lines[i] = tuiFormatHelpLine(lines[i], m.width)
@@ -2014,6 +2113,10 @@ func tuiHelpView(m tuiModel) string {
 		if i == inputLineIndex || i == footerLineIndex {
 			continue
 		}
+		if i == tabBarLineIndex {
+			styledLines[i] = tuiStyleHelpTabBar(line, m.helpSection)
+			continue
+		}
 		plain := ansi.Strip(line)
 		if strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
 			styledLines[i] = tuiHeaderStyle.Render(line)
@@ -2044,6 +2147,26 @@ func tuiFormatHelpLine(line string, width int) string {
 	actionWidth := min(16, max(7, available/4))
 	descriptionWidth := max(1, available-keyWidth-actionWidth-4)
 	return tuiPadCell(truncateTable(parts[0], keyWidth), keyWidth, false) + "  " + tuiPadCell(truncateTable(parts[1], actionWidth), actionWidth, false) + "  " + truncateTable(parts[2], descriptionWidth)
+}
+
+// tuiStyleHelpTabBar colours the active section's bracketed label within an
+// already-rendered (and possibly width-truncated) tab-bar line, reusing
+// tuiSelectedStyle — the same bold-on-blue the main table applies to its
+// selected row — rather than inventing a new style for "the current one",
+// per the confirmed design. It looks the target label up by exact text
+// rather than by position, so a line truncated by a narrow terminal simply
+// renders unstyled (the label it would colour is not there to find)
+// instead of colouring the wrong span.
+func tuiStyleHelpTabBar(line string, active int) string {
+	if active < 0 || active >= len(tuiHelpSections) {
+		return line
+	}
+	target := "[" + fmt.Sprintf("%d %s", active+1, tuiHelpSections[active].Title) + "]"
+	index := strings.Index(line, target)
+	if index < 0 {
+		return line
+	}
+	return line[:index] + tuiSelectedStyle.Render(target) + line[index+len(target):]
 }
 
 func tuiHighlightHelpMatches(line, needle string, current bool) string {
@@ -2267,13 +2390,126 @@ General/help
 \tN\tmatch\tgo to previous match.
 \tEsc\tclose\tclose help.`
 
-const tuiHelpDocument = `openrouter tui keys
+// tuiHelpSection is one F1 full-help section: a Russian tab-bar label (the
+// one piece of this document that is UI chrome, not reference prose — see
+// tuiHelpTabBarLine) and an English body, exactly like the rest of this
+// document has always been. See tuiHelpSections for the full list and
+// tuiHelpDocument for why the bodies are also kept concatenated.
+type tuiHelpSection struct {
+	Title string
+	Body  string
+}
 
-openrouter tracks AI models available on OpenRouter and ranks them by quality and price.
+// tuiHelpTitleLine is the literal top line of the sectioned F1 overlay,
+// shared by every section (see tuiHelpSectionLines) and by the legacy
+// concatenated tuiHelpDocument below, so a structural test locating "the
+// title line" finds the same text either way.
+const tuiHelpTitleLine = "openrouter tui keys"
+
+// tuiHelpTabBarAbsoluteIndex is the tab bar's fixed line position in every
+// full-mode tuiHelpSectionLines result: 0 title, 1 blank, 2 tab bar, 3
+// blank, 4+ the active section's body. tuiHelpView uses it to find the tab
+// bar again after slicing to the viewport (see tabBarLineIndex there).
+const tuiHelpTabBarAbsoluteIndex = 2
+
+// tuiHelpSections is the ordered list of F1 full-help sections. Section
+// index order is both the tab-bar order and what digit keys 1-5 and
+// Left/Right (setHelpSection) navigate — index+1 is the digit that jumps to
+// it. tuiHelpDocument below concatenates every Body, in this order, behind
+// one shared title: that flat view is what content/structural tests still
+// read, while the overlay itself (tuiHelpSectionLines) renders exactly one
+// Body at a time, framed by the title and the tab bar.
+var tuiHelpSections = []tuiHelpSection{
+	{Title: "Обзор", Body: tuiHelpSectionOverviewBody},
+	{Title: "Источники оценки", Body: tuiHelpSectionScoreSourcesBody},
+	{Title: "Горячие клавиши", Body: tuiHelpSectionHotkeysBody},
+	{Title: "Фильтры", Body: tuiHelpSectionFiltersBody},
+	{Title: "Карточка модели", Body: tuiHelpSectionDetailBody},
+}
+
+// tuiHelpSectionOverviewBody is the "Обзор" section: what the tool does,
+// the three independent kinds of data behind every row (price, quality,
+// tier), the identity-gate philosophy that matches a leaderboard row to an
+// OpenRouter slug, and the ranking formula (relocated verbatim from the
+// pre-sectioning document's own "Ranking modes" block — see git history for
+// the original single-page tuiHelpDocument this was split out of).
+const tuiHelpSectionOverviewBody = `openrouter tracks AI models available on OpenRouter and ranks them by quality and price.
 Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter catalogue.
 Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is easy to judge.
 
-Hotkeys
+Three kinds of data feed every row, and none of them is derived from another. Price and context come
+live from the OpenRouter catalogue. Quality is an independent benchmark score, SWE-bench Verified
+(from vals.ai or swebench.com) or LMArena Elo, never both at once; see the Score sources section for
+how the two differ and why they are never mixed. Tier is a hand-assigned, Claude-relative capability estimate
+from model-map.tsv, not something computed from the score. It exists so an unrelated model family
+becomes comparable on one familiar scale, "about Sonnet-class" or "about Haiku-class", even when that
+family has no benchmark number at all. Quality and quality>= always mean a rankable, exact-product
+benchmark observation, never a vendor claim and never the tier.
+
+Matching a leaderboard row to an OpenRouter model is never done by fuzzy name matching. A
+hand-maintained map, model-map.tsv, is the only path from one site's row to the other site's slug.
+No entry in the map means no automatically collected score for that model, on purpose: a
+plausible-looking name match across two independently run sites is exactly how a wrong number ends up
+attached to the wrong model. The mapped source= key is itself the identity claim. If the source
+returns a row for that key, the row is trusted (exact_product) even when the key's spelling differs
+from the OpenRouter slug, which is normal between two sites with different naming conventions. When a
+mapped row actually measures a different checkpoint or variant of the same family, the map entry is
+marked !variant (for example vals!variant=some/other-checkpoint), and the row stays out of the ranking
+(variant_mismatch) despite the key match. A human, editing the map, is the only thing that can make
+that call; nothing in the code catches it automatically.
+
+Ranking modes
+tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
+mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
+Use o, then Down to Score source, then Space to switch between SWE-bench and Arena.
+The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.`
+
+// tuiHelpSectionScoreSourcesBody is the "Источники оценки" section: the
+// original short "Score sources" block (relocated verbatim), expanded with
+// what actually distinguishes the three measurements — vals.ai's
+// independent single-harness runs versus swebench.com's self-submitted,
+// median-of-scaffolds leaderboard, and LMArena Elo's incomparable crowd
+// preference scale — grounded in model-map.tsv's own header comment and the
+// internal/sources package docs (valsai.go, swebench.go, arena.go).
+const tuiHelpSectionScoreSourcesBody = `Score sources
+swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
+arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
+The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
+
+SWE-bench Verified: two sources, not two alternatives
+SWE-bench Verified itself has two possible sources, and they are fallbacks for each other, not
+interchangeable measurements. vals.ai runs every submitted model itself, on one fixed, independent
+harness, and its own leaderboard row echoes back the exact model key it was found by; that echo is
+what lets this project trust the row's identity by default (see the Overview section for the
+identity-gate mechanics). swebench.com is different: it is a self-submitted leaderboard where anyone can submit a
+run with their own agentic scaffold, so the same model can appear under several different scaffolds
+with different scores. To blunt the incentive to game the leaderboard with one aggressive scaffold,
+this project takes the median across every distinct scaffold submitted for a model (one vote per
+scaffold; a resubmission of the same scaffold replaces it rather than adding a second vote) instead of
+the single best run, and the row's own text says "median of N scaffolds" when that happened. vals.ai
+wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as a
+fallback, when vals.ai has no row at all or its row fails the identity check.
+
+LMArena Elo: a different scale, not a third alternative
+LMArena Elo is not a third way to arrive at the same number. It is a crowd preference rating
+(Bradley-Terry, roughly 950-1550) built from head-to-head human votes on model output, not a score on
+a fixed set of real pull requests the way SWE-bench Verified is. It is rescaled to 0-100 before it
+enters the ranking formula, but rescaling does not make it comparable to a SWE-bench percentage: two
+models scoring 60 on each are not "equally good" by the same yardstick; they were measured by two
+different experiments. That is why the app never shows both at once for the same model and never lets
+a filter mix them.
+
+Switching sources: Space, in the main view or in Settings, changes which single yardstick is active
+everywhere at once. Status, ranking, and quality>= filters all move together, and a model with no
+number on the newly active source shows n/a even if it had one on the other. Trusting the ranking
+starts with knowing which of these three measurements produced the number on screen; this section, and
+the source column in the model detail view, are how to check.`
+
+// tuiHelpSectionHotkeysBody is the "Горячие клавиши" section: every
+// keybinding table from the pre-sectioning document (Navigation, Data/view,
+// Filters/settings, Task-fit codes, Refresh and finish, Help search,
+// General/help), relocated verbatim and in their original relative order.
+const tuiHelpSectionHotkeysBody = `Hotkeys
 
 Navigation
 \tUp\tsettings navigate\tprevious Settings field.
@@ -2333,33 +2569,6 @@ Task-fit codes
 \tT\ttask-fit code\ttest: add or improve automated verification.
 No task-fit classification is shown as n/a.
 
-Columns, search, and filters
-\tc\tcolumns\topen selection.
-\tSpace\tcolumns\ttoggle a column.
-\tEnter\tcolumns\tapply the column selection.
-\tEsc\tcolumns\tcancel the column selection.
-The last column stays selected.
-\t/\tsearch\tsearches Name/Slug as plain substring text.
-\tf\tfilter\tedits a structured filter and does not change the search.
-	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
-	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
-	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
-	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
-	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
-	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
-	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
-	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
-	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.
-
-Model detail view
-\tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.
-\tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
-\tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
-It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
-The vendor description is wrapped to the terminal width instead of being cut like a table cell.
-The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
-Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.
-
 Refresh and finish
 \tR\trefresh\trefresh local data now. Auto-refresh uses --refresh-interval; 0 disables it.
 \tx / Ctrl-C\texit\texit the TUI.
@@ -2367,17 +2576,6 @@ Refresh and finish
 \tEsc\tback\treturn to the list from the current overlay.
 \t?\thelp\tclose shortcut help.
 \tF1\thelp\topen full help.
-
-Ranking modes
-tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
-mixed-utility: rankable first, then paid utility from the configured safe YAML formula. Without formula, compatibility is score + price_weight*tier_factor*ln(1+quality_price), with price mix 3:1, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and weight 10. Formula vars, operations, depth and node limits are documented in README. Task-fit is never a multiplier.
-Use o, then Down to Score source, then Space to switch between SWE-bench and Arena.
-The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-utility; without it, mixed-utility sorting is used.
-
-Score sources
-swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
-arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
-The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
 
 Help search
 \t/\tsearch\tstart a search in this document; type text and press Enter.
@@ -2393,6 +2591,59 @@ General/help
 \t?\thelp\topen shortcut help.
 \t?\thelp\tclose help.
 \tF1\thelp\topen full help.`
+
+// tuiHelpSectionFiltersBody is the "Фильтры" section: the structured
+// filter syntax block, relocated verbatim out of what used to be the
+// single Hotkeys section (its original heading, "Columns, search, and
+// filters", stays as this section's own first line).
+const tuiHelpSectionFiltersBody = `Columns, search, and filters
+\tc\tcolumns\topen selection.
+\tSpace\tcolumns\ttoggle a column.
+\tEnter\tcolumns\tapply the column selection.
+\tEsc\tcolumns\tcancel the column selection.
+The last column stays selected.
+\t/\tsearch\tsearches Name/Slug as plain substring text.
+\tf\tfilter\tedits a structured filter and does not change the search.
+	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
+	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
+	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
+	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
+	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
+	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
+	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
+	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.`
+
+// tuiHelpSectionDetailBody is the "Карточка модели" section: the model
+// detail screen's own block, relocated verbatim out of what used to be the
+// single Hotkeys section.
+const tuiHelpSectionDetailBody = `Model detail view
+\tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.
+\tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
+\tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
+It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
+The vendor description is wrapped to the terminal width instead of being cut like a table cell.
+The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
+Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.`
+
+// tuiHelpDocument concatenates every section body behind the shared title,
+// in tab-bar order, with no tab bar of its own — the tab bar is UI chrome
+// synthesized at render time (tuiHelpSectionLines/tuiHelpTabBarLine), never
+// stored in a section body, which is exactly what keeps this constant (and
+// tuiShortcutHelpDocument) entirely English: the content/structural tests
+// that scan tuiHelpDocument for stray Cyrillic are checking reference
+// prose, not the Russian tab-bar labels the sectioned overlay renders
+// alongside it. It exists for those tests — "does the full help still
+// document X", the tab-column audits, the English-only checks — that were
+// written against one flat document and do not need to change just because
+// the F1 overlay now shows its content one section at a time; see
+// tuiHelpSectionLines for what the overlay actually renders.
+const tuiHelpDocument = tuiHelpTitleLine + "\n\n" +
+	tuiHelpSectionOverviewBody + "\n\n" +
+	tuiHelpSectionScoreSourcesBody + "\n\n" +
+	tuiHelpSectionHotkeysBody + "\n\n" +
+	tuiHelpSectionFiltersBody + "\n\n" +
+	tuiHelpSectionDetailBody
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
 
