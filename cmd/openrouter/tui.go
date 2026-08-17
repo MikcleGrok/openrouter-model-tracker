@@ -183,7 +183,6 @@ type tuiModel struct {
 	selectedSlug          string
 	overlay               string
 	helpOffset            int
-	helpMode              string
 	helpSection           int
 	detailOffset          int
 	helpSearch            string
@@ -647,7 +646,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	}
 	if m.overlay == "help" {
 		if m.keyMatches("help", "full_help", originalKey) {
-			m.setHelpMode("full")
+			m.setHelpSection(0)
 			return m, nil
 		}
 		switch key {
@@ -678,21 +677,14 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		case "N":
 			m.helpNextMatch(-1)
 		case "1", "2", "3", "4", "5":
-			// Digit jump and Left/Right step are full-help-only: the
-			// shortcuts overlay (?) stays the single, unsectioned page it
-			// always was, so both are no-ops there instead of reaching
-			// into state ("[1 Overview] ...") that overlay never renders.
-			if m.helpMode != "shortcuts" {
-				m.setHelpSection(int(key[0] - '1'))
-			}
+			// Digit jump and Left/Right step navigate sections of the one
+			// sectioned help document; both F1 and ? open the same overlay
+			// now, so there is no separate unsectioned mode to guard against.
+			m.setHelpSection(int(key[0] - '1'))
 		case "left":
-			if m.helpMode != "shortcuts" {
-				m.setHelpSection(m.helpSection - 1)
-			}
+			m.setHelpSection(m.helpSection - 1)
 		case "right":
-			if m.helpMode != "shortcuts" {
-				m.setHelpSection(m.helpSection + 1)
-			}
+			m.setHelpSection(m.helpSection + 1)
 		}
 		return m, nil
 	}
@@ -809,14 +801,19 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if !m.keyMatches("main", "help", originalKey) {
 			break
 		}
+		// ? is a faster entry point into the same sectioned full help F1
+		// opens, landing directly on Hotkeys (index 2) instead of Overview.
+		// It is otherwise identical: fully navigable, and closes the same
+		// way (Esc, or ? again — handled by the overlay == "help" case
+		// above, keyed off help.close, which already includes "?").
 		m.overlay = "help"
-		m.setHelpMode("shortcuts")
+		m.setHelpSection(2)
 	case "f1":
 		if !m.keyMatches("main", "full_help", originalKey) {
 			break
 		}
 		m.overlay = "help"
-		m.setHelpMode("full")
+		m.setHelpSection(0)
 	case "enter", "right", "l":
 		if !m.keyMatches("main", "open_details", originalKey) {
 			break
@@ -1912,30 +1909,26 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // what actually prevents that false match; nothing about how the line
 // ends does.
 func (m tuiModel) helpLines() []string {
-	lines := tuiHelpSectionLines(m.helpMode, m.helpSection)
+	lines := tuiHelpSectionLines(m.helpSection)
 	lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
 	return tuiConfiguredHelpLines(lines, m.keymap)
 }
 
 // tuiHelpSectionLines builds the lines the F1 overlay actually renders for
-// the given mode/section: the shortcuts overlay stays exactly what
-// tuiShortcutHelpLines has always returned (one page, unsectioned, per the
-// confirmed design — "?" is unaffected by any of this), while every other
-// mode ("full", and the zero value, which has always meant full) renders
-// one section at a time, framed by a page title and the tab bar
-// (tuiHelpTabBarLine) that names all five and highlights the active one.
-// This is deliberately a different function from the package-level
-// tuiHelpLines(), which keeps returning strings.Split(tuiHelpDocument,
-// "\n") — the flat concatenation of all five section bodies behind one
-// English-only title line. That legacy view exists purely for content and
-// structural tests ("does the full help still document X", tab-column
-// audits, the Cyrillic-free checks) that were written against one document
-// and do not need to change just because the overlay now shows it one
-// section at a time; this function is what actually reaches the screen.
-func tuiHelpSectionLines(mode string, section int) []string {
-	if mode == "shortcuts" {
-		return tuiShortcutHelpLines()
-	}
+// the given section: one section at a time, framed by a page title and the
+// tab bar (tuiHelpTabBarLine) that names all five and highlights the active
+// one. F1 and ? both open this same overlay — F1 lands on section 0
+// (Overview), ? on section 2 (Hotkeys) — there is no separate unsectioned
+// mode anymore. This is deliberately a different function from the
+// package-level tuiHelpLines(), which keeps returning
+// strings.Split(tuiHelpDocument, "\n") — the flat concatenation of all five
+// section bodies behind one English-only title line. That legacy view
+// exists purely for content and structural tests ("does the full help still
+// document X", tab-column audits, the Cyrillic-free checks) that were
+// written against one document and do not need to change just because the
+// overlay now shows it one section at a time; this function is what
+// actually reaches the screen.
+func tuiHelpSectionLines(section int) []string {
 	section = tuiClampHelpSection(section)
 	lines := []string{tuiHelpTitleLine, "", tuiHelpTabBarLine(section), ""}
 	return append(lines, strings.Split(tuiHelpSections[section].Body, "\n")...)
@@ -1984,7 +1977,7 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		`\tEnter / Right / l\tdetail\t`:                                      keymap["main"]["open_details"],
 		`\tEsc / Left / h\tclose\t`:                                          keymap["detail"]["close"],
 		`\to\tsettings\topen settings.`:                                      keymap["main"]["open_settings"],
-		`\t?\thelp\topen shortcut help.`:                                     keymap["main"]["help"],
+		`\t?\thelp\topen help at Hotkeys.`:                                   keymap["main"]["help"],
 		`\tF1\thelp\topen full help.`:                                        keymap["main"]["full_help"],
 		`\tSpace\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
 		`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
@@ -1995,7 +1988,7 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		`\tEsc\tcolumns\t`:                                                   keymap["columns"]["close"],
 		`\tEnter\tcolumns\t`:                                                 keymap["columns"]["apply"],
 		`\tEnter\tcolumns apply\t`:                                           keymap["columns"]["apply"],
-		`\t?\thelp\tclose shortcut help.`:                                    keymap["help"]["close"],
+		`\t?\thelp\tclose help.`:                                             keymap["help"]["close"],
 		`\tEsc\tclose\tclose help.`:                                          keymap["help"]["close"],
 		`\tUp\tsettings navigate\t`:                                          keymap["settings"]["navigate_up"],
 		`\tDown\tsettings navigate\t`:                                        keymap["settings"]["navigate_down"],
@@ -2033,18 +2026,12 @@ func (m tuiModel) helpViewportHeight() int {
 
 func (m tuiModel) helpMaxOffset() int { return max(0, len(m.helpLines())-m.helpViewportHeight()) }
 
-func (m *tuiModel) setHelpMode(mode string) {
-	m.helpMode, m.helpOffset, m.helpSection = mode, 0, 0
-	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
-	m.helpMatch = -1
-}
-
-// setHelpSection switches the active F1 section (digit keys 1-5, Left/Right
-// — see the overlay == "help" key handling above). It resets helpOffset to
-// 0 rather than remembering a per-section scroll position: helpOffset is
-// one int shared with the shortcuts overlay, and every section starts back
-// at its own top on arrival, the same way opening full help or switching
-// help modes already resets it (setHelpMode above) — simplest correct
+// setHelpSection switches the active help section — on open (F1 lands on
+// section 0/Overview, ? lands on section 2/Hotkeys) and while already open
+// (digit keys 1-5, Left/Right, and F1 pressed again to jump back to
+// Overview — see the overlay == "help" key handling above). It resets
+// helpOffset to 0 rather than remembering a per-section scroll position:
+// every section starts back at its own top on arrival — simplest correct
 // behaviour, and no section here is long enough for "resume where I left
 // off" to earn a second int per section. Search matches are rebuilt
 // against the new section's own lines because search is section-scoped: a
@@ -2062,18 +2049,15 @@ func tuiHelpView(m tuiModel) string {
 	body := m.helpViewportHeight()
 	offset := max(0, min(m.helpOffset, max(0, len(lines)-body)))
 	// The tab bar sits at a fixed absolute line (tuiHelpTabBarAbsoluteIndex,
-	// see tuiHelpSectionLines) only in full mode — the shortcuts overlay has
-	// no tab bar, and its own line at that same absolute index is ordinary
-	// content ("Press F1 for the full help..."), not something to style as
-	// one. tabBarLineIndex is computed against the same slice this function
-	// hands to tuiFullscreenText below, exactly like inputLineIndex and
+	// see tuiHelpSectionLines) in every help view — there is only one
+	// sectioned overlay now, however it was opened. tabBarLineIndex is
+	// computed against the same slice this function hands to
+	// tuiFullscreenText below, exactly like inputLineIndex and
 	// footerLineIndex are, so it still points at the right physical line
 	// once styledLines is split back out of the finished view.
 	tabBarLineIndex := -1
-	if m.helpMode != "shortcuts" {
-		if idx := tuiHelpTabBarAbsoluteIndex - offset; idx >= 0 && idx < len(lines)-offset {
-			tabBarLineIndex = idx
-		}
+	if idx := tuiHelpTabBarAbsoluteIndex - offset; idx >= 0 && idx < len(lines)-offset {
+		tabBarLineIndex = idx
 	}
 	lines = lines[offset:min(len(lines), offset+body)]
 	for i := range lines {
@@ -2313,83 +2297,6 @@ func tuiStyleDetailLine(line string) string {
 	}
 }
 
-const tuiShortcutHelpDocument = `openrouter tui shortcuts
-
-Press F1 for the full help, including what this tool does.
-
-Hotkeys
-
-Navigation
-\tUp\tsettings navigate\tprevious Settings field.
-\tDown\tsettings navigate\tnext Settings field.
-\tEsc\tsettings close\tclose Settings.
-\tUp\tdetail navigate\tprevious detail field.
-\tDown\tdetail navigate\tnext detail field.
-\tUp\thelp navigate\tscroll help up.
-\tDown\thelp navigate\tscroll help down.
-\tUp\tcolumns navigate\tprevious column.
-\tDown\tcolumns navigate\tnext column.
-\tEsc\tcolumns close\tcancel column selection.
-\tUp\tfilter navigate\tprevious filter field.
-\tDown\tfilter navigate\tnext filter field.
-\tEsc\tfilter close\tcancel filter editing.
-\tUp\tmove\tprevious model.
-\tDown\tmove\tnext model.
-\tj / k\tmove\tnext / previous model.
-\tHome / g\tjump\tfirst model.
-\tEnd / G\tjump\tlast model.
-\tPgUp / PgDown\tscroll\tpage through models.
-\tEnter / Right / l\tdetail\topen model details.
-\tEsc / Left / h\tclose\treturn from model details.
-
-Data/view
-\tq\tsort\tquality.
-\tp\tsort\tprice.
-\tr\tsort\tquality/price ratio.
-\ts\tordering\tcycle sort key.
-\tS\tordering\treverse order.
-\tm\tranking\ttoggle ranking mode.
-\to\tsettings\topen settings.
-\tDown\tnavigate\tmove to Score source in Settings.
-\tSpace\tswitch\t(main) switch between SWE-bench and Arena.
-\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.
-\tR\trefresh\trefresh local data.
-\tc\tcolumns\topen column selection.
-\tn\tview\tswitch the last column between Task fit and Note.
-\tv\tview\ttoggle all/top-paid-free.
-
-Filters/settings
-\tf\tfilter\tedit structured filter.
-\t/\tsearch\tsearch Name/Slug.
-\tSpace\tcolumns\ttoggle a column.
-\tEnter\tcolumns apply\tapply the column selection.
-\tSpace\ttier\tcycle Tier.
-\tEnter\tapply\tapply the current editor.
-\tEsc\tcancel\tcancel the current editor.
-
-Task-fit codes
-\tI\ttask-fit code\timplement.
-\tP\ttask-fit code\tplan.
-\tR\ttask-fit code\tresearch.
-\tD\ttask-fit code\tdebug.
-\tA\ttask-fit code\taudit.
-\tF\ttask-fit code\trefactor.
-\tT\ttask-fit code\ttest.
-
-General/help
-\tEsc\tmain close\tclose the main view.
-\tx / Ctrl-C\texit\texit the TUI.
-\t?\thelp\topen shortcut help.
-\t?\thelp\tclose shortcut help.
-\tF1\thelp\topen full help.
-\tUp / Down / j / k\tscroll\tscroll help.
-\tHome / End / g / G\tjump\tjump in help.
-\tPgUp / PgDown\tscroll\tpage through help.
-\t/\tsearch\tsearch this help.
-\tn\tmatch\tgo to next match.
-\tN\tmatch\tgo to previous match.
-\tEsc\tclose\tclose help.`
-
 // tuiHelpSection is one F1 full-help section: a Russian tab-bar label (the
 // one piece of this document that is UI chrome, not reference prose — see
 // tuiHelpTabBarLine) and an English body, exactly like the rest of this
@@ -2574,7 +2481,7 @@ Refresh and finish
 \tx / Ctrl-C\texit\texit the TUI.
 \tEsc\tclose\tclose help.
 \tEsc\tback\treturn to the list from the current overlay.
-\t?\thelp\tclose shortcut help.
+\t?\thelp\tclose help.
 \tF1\thelp\topen full help.
 
 Help search
@@ -2588,7 +2495,7 @@ Help search
 General/help
 \tEsc\tmain close\tclose the main view.
 \tx / Ctrl-C\texit\texit the TUI.
-\t?\thelp\topen shortcut help.
+\t?\thelp\topen help at Hotkeys.
 \t?\thelp\tclose help.
 \tF1\thelp\topen full help.`
 
@@ -2626,20 +2533,16 @@ The vendor description is wrapped to the terminal width instead of being cut lik
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
 Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.`
 
-// tuiHelpDocument concatenates every section body behind the shared title,
-// in tab-bar order, with no tab bar of its own — the tab bar is UI chrome
-// synthesized at render time (tuiHelpSectionLines/tuiHelpTabBarLine), never
-// stored in a section body, which is exactly what keeps this constant (and
-// tuiShortcutHelpDocument) entirely English: the content/structural tests
-// that scan tuiHelpDocument for stray Cyrillic are checking reference
-// prose, not the tab-bar labels the sectioned overlay renders alongside
-// it (the tab-bar labels are themselves English titles, see
-// tuiHelpSections, but this constant never includes them either way). It
-// exists for those tests — "does the full help still
-// document X", the tab-column audits, the English-only checks — that were
-// written against one flat document and do not need to change just because
-// the F1 overlay now shows its content one section at a time; see
-// tuiHelpSectionLines for what the overlay actually renders.
+// stored in a section body, which is exactly what keeps this constant
+// entirely English: the content/structural tests that scan tuiHelpDocument
+// for stray Cyrillic are checking reference prose, not the tab-bar labels
+// the sectioned overlay renders alongside it (the tab-bar labels are
+// themselves English titles, see tuiHelpSections, but this constant never
+// includes them either way). It exists for those tests — "does the full
+// help still document X", the tab-column audits, the English-only checks —
+// that were written against one flat document and do not need to change
+// just because the F1 overlay now shows its content one section at a time;
+// see tuiHelpSectionLines for what the overlay actually renders.
 const tuiHelpDocument = tuiHelpTitleLine + "\n\n" +
 	tuiHelpSectionOverviewBody + "\n\n" +
 	tuiHelpSectionScoreSourcesBody + "\n\n" +
@@ -2648,8 +2551,6 @@ const tuiHelpDocument = tuiHelpTitleLine + "\n\n" +
 	tuiHelpSectionDetailBody
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
-
-func tuiShortcutHelpLines() []string { return strings.Split(tuiShortcutHelpDocument, "\n") }
 
 func tuiHelpSearch(needle string) []int {
 	return tuiHelpSearchInLines(needle, tuiHelpLines())
