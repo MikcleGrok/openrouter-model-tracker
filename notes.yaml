@@ -197,6 +197,12 @@ favorite_reasons:
       (78.0%, только вендор, достоверность низкая); уже заметно используется в проде —
       #2 по объёму трафика и #1 по числу tool-calls в категории "coding" на OpenRouter.
   free:
+    z-ai/glm-5.2:free: >-
+      Новый лидер бесплатного тира по этому обновлению: 82.8% SWE-bench Verified —
+      независимая оценка vals.ai (не вендорская), заметно выше прежнего лидера
+      (69-70.9%). Тот же чекпоинт, что и платная z-ai/glm-5.2 (canonical_slug
+      совпадает буквально), лимиты бесплатного тира одинаковы для всех
+      `:free`-моделей, так что цена не отличает её от остальных кандидатов.
     poolside/laguna-xs-2.1:free: >-
       Впереди по сырой оценке (70.9% против 70.4% у Nemotron 3 Ultra), но это одиночная
       точка по данным самого вендора (Poolside прямо пишет в карточке, что публикует
@@ -782,8 +788,53 @@ models:
     claude_ref: "не применимо — не кодинг-модель"
     no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
     note: >-
-      Не для сравнения по кодингу — иная специализация. На 2026-07-30 строка
-      **не перепроверялась** (не хватило бюджета проверки) — данные с прошлой версии.
+      Не для сравнения по кодингу — иная специализация (мультимодальность
+      text+image+video→text подтверждена в каталоге OpenRouter). **Перепроверено
+      на 2026-08-17** (прошлая версия оставалась непроверенной — не хватило
+      бюджета проверки): SWE-bench Verified по-прежнему не публиковали — модель
+      оценивают на vision/document-бенчмарках (OCRBench v2, MMMU, MathVista,
+      AI2D, ChartQA, DocVQA, Video-MME; см. arXiv:2511.03929, HuggingFace
+      nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16), не на агентном кодинге.
+
+  # Новые строки, добавленные 2026-08-17: 4 забытых :free slug'а проверены
+  # по vals.ai/swebench.com/arena.ai; реальное совпадение нашлось только
+  # у этих двух (dots-studio/dots-3-note-preview:free и liquid/lfm-2.5-2.6b:free
+  # не отслеживаются ни одним из трёх источников — для них в model-map.tsv
+  # добавлены голые строки без source=, только чтобы модель была видна
+  # в трекере; models:-записи в notes.yaml для них не заведены, только
+  # пустой task_fit: []).
+  nvidia/nemotron-3.5-lightning:free:
+    display: NVIDIA Nemotron 3.5 Lightning
+    owner: NVIDIA
+    open_weights: "да, OpenMDW-1.1"
+    claude_ref: "<≈ Haiku 4.5 — небольшая agentic-MoE (3B активных из 30B); по SWE-bench Verified не измерена"
+    no_score_reason: "н/д (нет оценки по SWE-bench Verified)"
+    note: >-
+      Независимой оценки SWE-bench Verified нет ни на vals.ai, ни на
+      swebench.com (проверено 2026-08-17 — ни один из двух источников модель
+      не упоминает). Оценка LMArena (отдельная метрика, Elo) нашлась под
+      анонимным кодовым именем august26-chatbot1-fmme: modelDisplayName на
+      странице арены ("nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4") и modelUrl
+      (официальный блог NVIDIA именно про эту модель, releaseType "co_release")
+      независимо раскрывают личность модели — это не догадка по значению Elo,
+      а прямое указание самого источника.
+
+  z-ai/glm-5.2:free:
+    display: GLM-5.2 (free, 128K context)
+    owner: Z.ai / Zhipu AI (D−)
+    open_weights: "**да, MIT**"
+    claude_ref: "≈ Sonnet 5 — тот же чекпоинт, что и платная z-ai/glm-5.2"
+    note: >-
+      Бесплатный маршрут того же продукта, что и платная z-ai/glm-5.2:
+      canonical_slug в каталоге OpenRouter совпадает буквально
+      (z-ai/glm-5.2-20260616) — независимая оценка SWE-bench Verified
+      с vals.ai (82.8%), уже подтверждённая для платной модели, переносится
+      без изменений. На arena.ai найдена под ключом glm-5.2-text
+      (modelDisplayName "glm-5.2-max", modelUrl huggingface.co/zai-org/GLM-5.2 —
+      совпадает с hugging_face_id каталога): "max" — это уровень
+      reasoning_effort, который сама Z.ai называет дефолтным для GLM-5.2
+      (см. её собственное заявление о двух уровнях, High и Max), а не другой
+      чекпоинт.
 
 # Qualitative fit for coding workflow tasks; this is not a score.
 task_fit:
@@ -844,3 +895,7 @@ task_fit:
   "inclusionai/ling-3.0-flash:free": []
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": []
   "nvidia/nemotron-nano-12b-v2-vl:free": []
+  "nvidia/nemotron-3.5-lightning:free": [implement, debug, refactor, test]
+  "z-ai/glm-5.2:free": [implement, plan, research, debug, audit, refactor, test]
+  "dots-studio/dots-3-note-preview:free": []
+  "liquid/lfm-2.5-2.6b:free": []

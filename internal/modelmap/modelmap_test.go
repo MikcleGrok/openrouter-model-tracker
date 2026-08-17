@@ -215,7 +215,7 @@ func TestProductionTaskFitMetadataMatchesModelMap(t *testing.T) {
 		mapSlugs[entry.Slug] = true
 	}
 	for slug := range mapSlugs {
-		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" {
+		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" && slug != "dots-studio/dots-3-note-preview:free" && slug != "liquid/lfm-2.5-2.6b:free" {
 			t.Errorf("task_fit is missing model-map slug %q", slug)
 		}
 	}
@@ -256,6 +256,7 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"nvidia/nemotron-3-ultra-550b-a55b":      "nvidia/nemotron-3-ultra-550b-a55b",
 		"nvidia/nemotron-3-ultra-550b-a55b:free": "nvidia/nemotron-3-ultra-550b-a55b",
 		"inclusionai/ling-3.0-flash:free":        "ant/ling-3.0-flash-2607",
+		"z-ai/glm-5.2:free":                      "zai/glm-5.2",
 	}
 	wantSWE := map[string]string{
 		"deepseek/deepseek-v3.2":      "Model: deepseek-v3.2",
@@ -305,6 +306,8 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"google/gemma-4-26b-a4b-it:free":         "significant-otter-text",
 		"nvidia/nemotron-3-super-120b-a12b:free": "march26-chatbot1",
 		"nvidia/nemotron-3-nano-30b-a3b:free":    "nvidia-nemotron-3-nano-30b-a3b-bf16",
+		"nvidia/nemotron-3.5-lightning:free":     "august26-chatbot1-fmme",
+		"z-ai/glm-5.2:free":                      "glm-5.2-text",
 	}
 	if got := NamesFor(entries, "arena"); !reflect.DeepEqual(got, wantArena) {
 		t.Errorf("NamesFor(arena) =\n  %v\nwant\n  %v", got, wantArena)
