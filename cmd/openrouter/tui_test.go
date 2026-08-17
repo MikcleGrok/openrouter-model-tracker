@@ -2403,6 +2403,166 @@ func TestTUIHelpRowsRemainSingleColumnWhenNarrow(t *testing.T) {
 	}
 }
 
+// tuiHelpRowColumns splits a help-document content line the same way
+// tuiFormatHelpLine does, and reports whether it parsed as a clean
+// \tKey\tAction\tDescription row. It exists so the tests below can assert on
+// the exact Key/Action/Description tuiFormatHelpLine would render, without
+// duplicating its width-formatting logic.
+func tuiHelpRowColumns(line string) (key, action, description string, ok bool) {
+	if !strings.Contains(line, `\t`) {
+		return "", "", "", false
+	}
+	parts := strings.Split(line, `\t`)
+	if len(parts) == 4 && parts[0] == "" {
+		parts = parts[1:]
+	}
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+// TestTUIHelpDocumentTemplatedRowsHaveCleanTabColumns audits every templated
+// row (any line containing a literal `\t`) in both help documents for the
+// tab-column shape tuiFormatHelpLine actually requires to render a row as
+// aligned columns: the line must start with a literal `\t` and contain
+// exactly three of them (\tKey\tAction\tDescription). A stray extra leading
+// tab character, or an extra literal `\t` anywhere else, defeats
+// tuiFormatHelpLine's `len(parts) != 3` guard, and the raw, unsplit line
+// (literal backslash-t sequences and all) is rendered verbatim instead of
+// being formatted into columns.
+func TestTUIHelpDocumentTemplatedRowsHaveCleanTabColumns(t *testing.T) {
+	for _, document := range []struct {
+		name string
+		text string
+	}{
+		{"tuiShortcutHelpDocument", tuiShortcutHelpDocument},
+		{"tuiHelpDocument", tuiHelpDocument},
+	} {
+		for i, line := range strings.Split(document.text, "\n") {
+			if !strings.Contains(line, `\t`) {
+				continue // blank line, heading, or plain prose: not a table row.
+			}
+			if !strings.HasPrefix(line, `\t`) {
+				t.Errorf("%s line %d does not start with a templated column marker (stray leading character before the first \\t): %q", document.name, i, line)
+			}
+			if count := strings.Count(line, `\t`); count != 3 {
+				t.Errorf("%s line %d has %d tab-column markers, want 3 (\\tKey\\tAction\\tDescription): %q", document.name, i, count, line)
+			}
+			if _, _, _, ok := tuiHelpRowColumns(line); !ok {
+				t.Errorf("%s line %d does not parse into exactly 3 columns via tuiFormatHelpLine's own rule: %q", document.name, i, line)
+			}
+		}
+	}
+}
+
+// tuiConfiguredRowColumns finds the raw document line uniquely identified by
+// descriptionSubstring, runs it through tuiConfiguredHelpLines with the
+// given keymap (in isolation, as its own single-line document), and returns
+// the resulting Key/Action/Description columns.
+func tuiConfiguredRowColumns(t *testing.T, rawLines []string, descriptionSubstring string, keymap config.TUIKeymap) (key, action, description string) {
+	t.Helper()
+	var raw []string
+	for _, line := range rawLines {
+		if strings.Contains(line, descriptionSubstring) {
+			raw = append(raw, line)
+		}
+	}
+	if len(raw) == 0 {
+		t.Fatalf("expected at least one raw line containing %q, found none", descriptionSubstring)
+	}
+	// A document may legitimately document the same row twice (e.g. the full
+	// help repeats "open full help." in both "Refresh and finish" and
+	// "General/help"). Every occurrence must be the exact same text and must
+	// substitute identically, so checking the first is representative.
+	for _, line := range raw[1:] {
+		if line != raw[0] {
+			t.Fatalf("raw lines containing %q are not identical: %q vs %q", descriptionSubstring, raw[0], line)
+		}
+	}
+	configured := tuiConfiguredHelpLines([]string{raw[0]}, keymap)
+	key, action, description, ok := tuiHelpRowColumns(configured[0])
+	if !ok {
+		t.Fatalf("configured line for %q did not parse into 3 columns: %q", descriptionSubstring, configured[0])
+	}
+	return key, action, description
+}
+
+// TestTUIConfiguredHelpLinesKeepKeyColumnSeparateFromAction guards against a
+// second, related defect the tab-column audit above cannot see: several
+// keymap-substitution markers in tuiConfiguredHelpLines matched starting
+// from the Action column instead of the Key column (e.g. `\tswitch\t...`
+// instead of `\tSpace\tswitch\t...`). Even on a syntactically clean
+// \tKey\tAction\tDescription row, that shape overwrites the Action column
+// with the real bound key and leaves the Key column as a static, unbound
+// placeholder — rendering as a duplicated-looking row (e.g. "o" / "o", "?" /
+// "?") that also silently stops reflecting a customised keybinding. Every
+// row here must end up with the real configured key in the Key column and
+// the documented static action label untouched in the Action column.
+func TestTUIConfiguredHelpLinesKeepKeyColumnSeparateFromAction(t *testing.T) {
+	keymap := config.DefaultTUIKeymap()
+	for _, document := range []struct {
+		name  string
+		lines []string
+	}{
+		{"tuiShortcutHelpDocument", tuiShortcutHelpLines()},
+		{"tuiHelpDocument", tuiHelpLines()},
+	} {
+		cases := []struct {
+			description string
+			wantKey     string
+			wantAction  string
+		}{
+			{"(main) switch between SWE-bench and Arena.", "space", "switch"},
+			{"(in Settings) switch between SWE-bench and Arena.", "space / enter", "switch"},
+			{"open settings.", "o", "settings"},
+			{"open shortcut help.", "?", "help"},
+			{"open full help.", "f1", "help"},
+		}
+		for _, tc := range cases {
+			key, action, _ := tuiConfiguredRowColumns(t, document.lines, tc.description, keymap)
+			if key != tc.wantKey || action != tc.wantAction {
+				t.Errorf("%s row %q: key=%q action=%q, want key=%q action=%q", document.name, tc.description, key, action, tc.wantKey, tc.wantAction)
+			}
+		}
+	}
+}
+
+// TestTUIConfiguredHelpLinesDoNotDoubleSubstituteOpenDetails guards against
+// a related hazard: tuiShortcutHelpDocument's "open model details." row
+// used to be matched by two different replacements-map markers at once —
+// `\tEnter / Right / l\tdetail\t` (correct: replaces only the Key column)
+// and `\tdetail\topen model details.` (the same Action-column-first shape
+// as the switch_source/settings/help markers above). Because Go randomises
+// map iteration order, whichever marker happened to run first determined
+// whether the row rendered correctly or with the real key duplicated into
+// both the Key and Action columns. Running the full document (so both
+// markers are actually candidates for the same line, as in production)
+// pins the outcome deterministically.
+func TestTUIConfiguredHelpLinesDoNotDoubleSubstituteOpenDetails(t *testing.T) {
+	keymap := config.DefaultTUIKeymap()
+	for i := 0; i < 20; i++ { // map iteration order is randomised per run; repeat to catch either order.
+		configured := tuiConfiguredHelpLines(tuiShortcutHelpLines(), keymap)
+		var raw string
+		for _, line := range configured {
+			if strings.Contains(line, "open model details.") {
+				raw = line
+				break
+			}
+		}
+		key, action, _, ok := tuiHelpRowColumns(raw)
+		if !ok {
+			t.Fatalf("configured 'open model details.' line did not parse into 3 columns: %q", raw)
+		}
+		if wantKey := "enter / right / l"; key != wantKey {
+			t.Fatalf("configured 'open model details.' key = %q, want %q (line: %q)", key, wantKey, raw)
+		}
+		if action != "detail" {
+			t.Fatalf("configured 'open model details.' action = %q, want \"detail\" (real key must not leak into the Action column): line %q", action, raw)
+		}
+	}
+}
+
 func TestTUIHelpModeSwitchRebuildsSearchMatches(t *testing.T) {
 	m := tuiModel{overlay: "help", helpMode: "full", width: 100, height: 24, helpSearch: "source"}
 	m.helpMatches = tuiHelpSearchInLines(m.helpSearch, m.helpLines())
