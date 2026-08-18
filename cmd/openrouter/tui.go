@@ -593,20 +593,44 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// closeOverlay is the single close path for every overlay: it clears the
+// overlay itself plus every piece of transient overlay-scoped state (the
+// detail scroll offset; any in-progress text-input draft), the same way each
+// overlay's own dedicated close key already did before x delegated to it.
+// Resetting detailOffset/inputMode/input unconditionally is harmless even
+// when the closing overlay never touched them — they are zero already.
+func (m *tuiModel) closeOverlay() {
+	m.overlay, m.detailOffset = "", 0
+	m.inputMode, m.input = "", ""
+}
+
 func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	if msg.String() == "x" {
-		if m.overlay != "" {
-			m.overlay = ""
-			m.inputMode, m.input = "", ""
-			return m, nil
-		}
-		return m, tea.Quit
-	}
+	// The universal exit key must never win a race against active text
+	// input: m.inputMode != "" (typing a search or a help search) always
+	// routes to inputKey first, so a literal "x" (or its Cyrillic "ч" alias,
+	// via tuiCommandKey) is inserted into the draft like any other letter —
+	// e.g. searching for the real model-map.tsv slug "x-ai/grok-4.5" no
+	// longer quits the app the moment "x" is typed. Esc remains the only way
+	// to cancel out of an active text input.
 	if m.inputMode != "" {
 		return m.inputKey(msg)
 	}
 	key := tuiCommandKey(msg)
 	originalKey := key
+	// x is a hardcoded, always-on universal exit — not part of the
+	// customizable keymap — so it is checked here before any of the
+	// keymap-driven routing below. tuiCommandKey (not raw msg.String())
+	// makes it Cyrillic-aware: "ч" sits at the physical position of Latin
+	// "x" on a ЙЦУКЕН layout and must close/quit exactly like "x" does,
+	// while still being blocked above whenever text input is active, and
+	// still excluded for Alt/paste (tuiCommandKey never aliases those).
+	if key == "x" {
+		if m.overlay != "" {
+			m.closeOverlay()
+			return m, nil
+		}
+		return m, tea.Quit
+	}
 	if m.overlay == "" && m.keyMatches("main", "open_settings", key) {
 		key = "o"
 	}
@@ -652,11 +676,11 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		switch key {
 		case "esc":
 			if m.keyMatches("help", "close", originalKey) {
-				m.overlay = ""
+				m.closeOverlay()
 			}
 		case "?":
 			if m.keyMatches("help", "close", originalKey) {
-				m.overlay = ""
+				m.closeOverlay()
 			}
 		case "/":
 			m.inputMode, m.input = "help-search", m.helpSearch
@@ -691,7 +715,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	if m.overlay == "detail" {
 		row, ok := m.detailRow()
 		if !ok {
-			m.overlay, m.detailOffset = "", 0
+			m.closeOverlay()
 			return m, nil
 		}
 		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)
@@ -700,7 +724,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			if !m.keyMatches("detail", "close", originalKey) {
 				break
 			}
-			m.overlay, m.detailOffset = "", 0
+			m.closeOverlay()
 		case "up", "k":
 			m.detailOffset = max(0, m.detailOffset-1)
 		case "down", "j":
@@ -726,7 +750,11 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m.filterKey(key, msg)
 	}
 	switch key {
-	case "x", "ctrl+c":
+	case "ctrl+c":
+		// "x" is handled unconditionally above (translated through
+		// tuiCommandKey, so this covers its Cyrillic "ч" alias too) — it
+		// never reaches this switch, since m.overlay == "" and m.inputMode
+		// == "" are both already guaranteed by the time control gets here.
 		return m, tea.Quit
 	case "esc", "left", "h":
 		if !m.keyMatches("main", "close", originalKey) {
@@ -986,7 +1014,7 @@ func (m *tuiModel) replaceColumn(from, to tuiColumn) {
 func (m tuiModel) columnKey(key, originalKey string) (tuiModel, tea.Cmd) {
 	switch key {
 	case "esc":
-		m.overlay = ""
+		m.closeOverlay()
 	case "up", "k":
 		m.columnCursor = max(0, m.columnCursor-1)
 	case "down", "j":
@@ -1011,7 +1039,7 @@ func (m tuiModel) settingsKey(key, originalKey string) (tuiModel, tea.Cmd) {
 	const settingsItems = 6
 	switch key {
 	case "esc", "o":
-		m.overlay = ""
+		m.closeOverlay()
 	case "up", "k":
 		m.settingsCursor = max(0, m.settingsCursor-1)
 	case "down", "j":
@@ -1086,7 +1114,7 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	const filterFields = 10
 	switch key {
 	case "esc":
-		m.overlay = ""
+		m.closeOverlay()
 	case "up":
 		m.filterCursor = max(0, m.filterCursor-1)
 	case "k":

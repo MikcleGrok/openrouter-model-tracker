@@ -1,5 +1,11 @@
 # What's New
 
+## [1.14.27]
+
+- Fix `x` intercepting active text input: typing `x` (or its Cyrillic `ч` alias) while in the search box or the F1 help search no longer quits/closes the surrounding overlay — it inserts the literal character, matching every other letter. Searching for a real `model-map.tsv` slug like `x-ai/grok-4.5` used to quit the whole TUI the moment `x` was typed; it now works. Esc remains the only way to cancel out of active text input.
+- Fix the Cyrillic `ч` alias not closing any TUI overlay (Settings, Filter, Columns, Detail, Help) — it only ever quit the bare main view, because the universal `x`-exit check compared the raw keypress instead of the same alias-translated key every other hotkey uses. `ч` now closes overlays exactly like `x` does, for Russian-layout (ЙЦУКЕН) users.
+- Fix `x` leaving the Detail overlay's scroll offset stale when it closed it — it now resets the same way Detail's own dedicated close key already did. All overlay close paths now share one `closeOverlay` method, so `x` can no longer drift from an overlay's own close semantics.
+
 ## [1.14.26]
 
 - Break the F1 help overlay's dense Overview and Score Sources prose paragraphs into `- ` bulleted, labelled points for scannability — every original sentence kept verbatim (the `model-map.tsv` identity-gate mechanics, the `exact_product`/`variant_mismatch`/`!variant` vocabulary, swebench.com's median-of-scaffolds/one-vote-per-scaffold rule, and LMArena Elo's Bradley-Terry caveat are all unchanged). The Model Detail section was checked and left alone — it was already scannable.
