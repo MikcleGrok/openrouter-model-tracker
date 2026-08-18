@@ -1339,20 +1339,11 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
-func filterStatusValue(filter string) string {
-	if strings.TrimSpace(filter) == "" {
-		return "none (cleared)"
-	}
-	return filter
-}
-
-// filterStatusValue is a method too, alongside the package-level function
-// above: applyFilterDraft is the only caller that needs the language-aware
-// "cleared" text, and every other shape of this small helper — a bare
-// package-level function with no tuiModel to read m.lang from — would have
-// meant either a new parameter breaking a function with no test coverage
-// to protect anyway, or a duplicate top-level function purely to carry one
-// extra string. A method keeps it to one small addition instead.
+// filterStatusValue is a method, not a bare package-level function, so it
+// can read m.lang for the language-aware "cleared" text: applyFilterDraft
+// (its only caller) needs that, and nothing outside this file calls it at
+// a fixed English-only signature the way tuiColumnLabel or the
+// tuiDetailLines* wrapper family are called.
 func (m tuiModel) filterStatusValue(filter string) string {
 	if strings.TrimSpace(filter) == "" {
 		return m.t("none (cleared)")
@@ -1946,79 +1937,16 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
 }
 
-func tuiCellWidths(columns []tuiColumn, available, nameWidth int, scoreSource string) []int {
-	widths := make([]int, len(columns))
-	if len(columns) == 0 {
-		return widths
-	}
-	if available < len(columns) {
-		for i := range widths {
-			widths[i] = 1
-		}
-		return widths
-	}
-	if nameWidth <= 0 {
-		nameWidth = config.DefaultNameWidth
-	}
-	minimums := make([]int, len(columns))
-	minimumWidth := 0
-	for i, column := range columns {
-		minimums[i] = tuiColumnMinimumWidth(column, scoreSource)
-		minimumWidth += minimums[i]
-	}
-	if minimumWidth > available {
-		for i := range widths {
-			widths[i] = 1
-		}
-		return widths
-	}
-	nameIndex := -1
-	for i, column := range columns {
-		if column == colName {
-			nameIndex = i
-			break
-		}
-	}
-	remaining := available
-	if nameIndex >= 0 {
-		otherMinimum := minimumWidth - minimums[nameIndex]
-		widths[nameIndex] = min(max(minimums[nameIndex], nameWidth), max(minimums[nameIndex], available-otherMinimum))
-		remaining -= widths[nameIndex]
-	}
-	for i := range columns {
-		if i == nameIndex {
-			continue
-		}
-		widths[i] = minimums[i]
-		remaining -= widths[i]
-	}
-	for i := 0; remaining > 0; i++ {
-		index := i % len(widths)
-		if index == nameIndex && len(widths) > 1 {
-			continue
-		}
-		widths[index]++
-		remaining--
-	}
-	return widths
-}
-
-func tuiColumnMinimumWidth(column tuiColumn, scoreSource string) int {
-	if scoreSource == "" {
-		scoreSource = scoreSourceDefault
-	}
-	return max(1, tableDisplayWidth(tuiColumnLabel(column, scoreSource)))
-}
-
-// tuiCellWidthsForLang is tuiCellWidths with a language-aware minimum
-// width: a Russian header can be longer or shorter than its English
-// counterpart, and the column has to be at least as wide as whichever
-// label is actually on screen or it would get truncated. See the
-// *ForLang naming convention on the detail screen for why this is a
-// sibling rather than a change to tuiCellWidths itself — nothing calls
-// tuiCellWidths directly outside this file, but keeping the naming
-// convention uniform beats special-casing the one function nothing
-// external depends on.
+// tuiCellWidthsForLang computes each column's rendered width, sized for
+// whichever language's header text is actually on screen: a Russian
+// header can be longer or shorter than its English counterpart, and the
+// column has to be at least as wide as whichever label is currently
+// displayed or it would get truncated. There is no English-only sibling
+// here — unlike tuiColumnLabel (which the detail/table tests call
+// directly at its exact 2-argument signature) or the tuiDetailLines*
+// wrapper family, nothing outside this file ever called a lang-unaware
+// version of this specific function, so adding one here would only be
+// dead code.
 func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSource, lang string) []int {
 	widths := make([]int, len(columns))
 	if len(columns) == 0 {
@@ -2076,8 +2004,10 @@ func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSo
 	return widths
 }
 
-// tuiColumnMinimumWidthForLang is tuiColumnMinimumWidth with a
-// language-aware label.
+// tuiColumnMinimumWidthForLang computes a column's minimum width from
+// whichever language's header label (tuiColumnLabelForLang) is actually
+// on screen — see tuiCellWidthsForLang for why there is no English-only
+// sibling to name this "ForLang" relative to.
 func tuiColumnMinimumWidthForLang(column tuiColumn, scoreSource, lang string) int {
 	if scoreSource == "" {
 		scoreSource = scoreSourceDefault
