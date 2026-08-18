@@ -2177,7 +2177,12 @@ func (m tuiModel) helpLines() []string {
 	} else {
 		lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
 	}
-	return tuiConfiguredHelpLinesForLang(lines, m.keymap, m.lang)
+	lines = tuiConfiguredHelpLinesForLang(lines, m.keymap, m.lang)
+	// Only the active section's body (see tuiHelpBodyStartIndex) is prose
+	// eligible for justification; the title and tab-bar frame above it are
+	// UI chrome and stay untouched.
+	frame := append([]string(nil), lines[:tuiHelpBodyStartIndex]...)
+	return append(frame, tuiJustifyHelpLines(lines[tuiHelpBodyStartIndex:], m.width)...)
 }
 
 // tuiHelpSectionLines builds the lines the F1 overlay actually renders for
@@ -2820,6 +2825,13 @@ const tuiHelpTitleLine = "omt tui keys"
 // bar again after slicing to the viewport (see tabBarLineIndex there).
 const tuiHelpTabBarAbsoluteIndex = 2
 
+// tuiHelpBodyStartIndex is the index of the first body line in the same
+// four-line frame tuiHelpTabBarAbsoluteIndex documents. helpLines() uses
+// it to justify only the active section's body — the title and tab-bar
+// lines are UI chrome, not a prose paragraph, and stay exactly as
+// tuiHelpSectionLinesForLang built them.
+const tuiHelpBodyStartIndex = tuiHelpTabBarAbsoluteIndex + 2
+
 // tuiHelpSections is the ordered list of F1 full-help sections. Section
 // index order is both the tab-bar order and what digit keys 1-6 and
 // Left/Right (setHelpSection) navigate — index+1 is the digit that jumps to
@@ -2848,38 +2860,23 @@ var tuiHelpSections = []tuiHelpSection{
 // scannability. The program self-reference in the opening line is "omt",
 // the repo's short CLI name, not "openrouter".
 const tuiHelpSectionOverviewBody = `omt tracks AI models available on OpenRouter and ranks them by quality and price.
-- Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter
-catalogue.
-- Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is
-easy to judge.
+- Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter catalogue.
+- Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is easy to judge.
 
 What feeds every row: three independent kinds of data
 Three kinds of data feed every row, and none of them is derived from another.
 - Price and context come live from the OpenRouter catalogue.
-- Quality is an independent benchmark score, SWE-bench Verified (from vals.ai or swebench.com) or
-LMArena Elo, never both at once; see the Score sources section for how the two differ and why they are
-never mixed.
-- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, not something
-computed from the score. It exists so an unrelated model family becomes comparable on one familiar
-scale, "about Sonnet-class" or "about Haiku-class", even when that family has no benchmark number at
-all.
-- Quality and quality>= always mean a rankable, exact-product benchmark observation, never a vendor
-claim and never the tier.
+- Quality is an independent benchmark score, SWE-bench Verified (from vals.ai or swebench.com) or LMArena Elo, never both at once; see the Score sources section for how the two differ and why they are never mixed.
+- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, not something computed from the score. It exists so an unrelated model family becomes comparable on one familiar scale, "about Sonnet-class" or "about Haiku-class", even when that family has no benchmark number at all.
+- Quality and quality>= always mean a rankable, exact-product benchmark observation, never a vendor claim and never the tier.
 
 Identity matching: never fuzzy name matching
 Matching a leaderboard row to an OpenRouter model is never done by fuzzy name matching.
 - A hand-maintained map, model-map.tsv, is the only path from one site's row to the other site's slug.
-- No entry in the map means no automatically collected score for that model, on purpose: a
-plausible-looking name match across two independently run sites is exactly how a wrong number ends up
-attached to the wrong model.
-- The mapped source= key is itself the identity claim. If the source returns a row for that key, the row
-is trusted (exact_product) even when the key's spelling differs from the OpenRouter slug, which is
-normal between two sites with different naming conventions.
-- When a mapped row actually measures a different checkpoint or variant of the same family, the map
-entry is marked !variant (for example vals!variant=some/other-checkpoint), and the row stays out of the
-ranking (variant_mismatch) despite the key match.
-- A human, editing the map, is the only thing that can make that call; nothing in the code catches it
-automatically.
+- No entry in the map means no automatically collected score for that model, on purpose: a plausible-looking name match across two independently run sites is exactly how a wrong number ends up attached to the wrong model.
+- The mapped source= key is itself the identity claim. If the source returns a row for that key, the row is trusted (exact_product) even when the key's spelling differs from the OpenRouter slug, which is normal between two sites with different naming conventions.
+- When a mapped row actually measures a different checkpoint or variant of the same family, the map entry is marked !variant (for example vals!variant=some/other-checkpoint), and the row stays out of the ranking (variant_mismatch) despite the key match.
+- A human, editing the map, is the only thing that can make that call; nothing in the code catches it automatically.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
@@ -2901,40 +2898,25 @@ The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-util
 const tuiHelpSectionScoreSourcesBody = `Score sources
 swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
 arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
-- The two are never mixed: in one view a model with no number on the active source shows n/a even when
-the other source has one.
-- Choose with --score-source or Settings; the switch reads the local snapshot, and the generated
-markdown document is always swebench.
+- The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one.
+- Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
 
 SWE-bench Verified: two sources, not two alternatives
 SWE-bench Verified itself has two possible sources, and they are fallbacks for each other, not interchangeable measurements.
-- vals.ai runs every submitted model itself, on one fixed, independent harness, and its own leaderboard
-row echoes back the exact model key it was found by; that echo is what lets this project trust the row's
-identity by default (see the Overview section for the identity-gate mechanics).
-- swebench.com is different: it is a self-submitted leaderboard where anyone can submit a run with their
-own agentic scaffold, so the same model can appear under several different scaffolds with different
-scores. To blunt the incentive to game the leaderboard with one aggressive scaffold, this project takes
-the median across every distinct scaffold submitted for a model (one vote per scaffold; a resubmission
-of the same scaffold replaces it rather than adding a second vote) instead of the single best run, and
-the row's own text says "median of N scaffolds" when that happened.
-- vals.ai wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as
-a fallback, when vals.ai has no row at all or its row fails the identity check.
+- vals.ai runs every submitted model itself, on one fixed, independent harness, and its own leaderboard row echoes back the exact model key it was found by; that echo is what lets this project trust the row's identity by default (see the Overview section for the identity-gate mechanics).
+- swebench.com is different: it is a self-submitted leaderboard where anyone can submit a run with their own agentic scaffold, so the same model can appear under several different scaffolds with different scores. To blunt the incentive to game the leaderboard with one aggressive scaffold, this project takes the median across every distinct scaffold submitted for a model (one vote per scaffold; a resubmission of the same scaffold replaces it rather than adding a second vote) instead of the single best run, and the row's own text says "median of N scaffolds" when that happened.
+- vals.ai wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as a fallback, when vals.ai has no row at all or its row fails the identity check.
 
 LMArena Elo: a different scale, not a third alternative
 LMArena Elo is not a third way to arrive at the same number.
-- It is a crowd preference rating (Bradley-Terry, roughly 950-1550) built from head-to-head human votes
-on model output, not a score on a fixed set of real pull requests the way SWE-bench Verified is.
-- It is rescaled to 0-100 before it enters the ranking formula, but rescaling does not make it
-comparable to a SWE-bench percentage: two models scoring 60 on each are not "equally good" by the same
-yardstick; they were measured by two different experiments.
+- It is a crowd preference rating (Bradley-Terry, roughly 950-1550) built from head-to-head human votes on model output, not a score on a fixed set of real pull requests the way SWE-bench Verified is.
+- It is rescaled to 0-100 before it enters the ranking formula, but rescaling does not make it comparable to a SWE-bench percentage: two models scoring 60 on each are not "equally good" by the same yardstick; they were measured by two different experiments.
 - That is why the app never shows both at once for the same model and never lets a filter mix them.
 
 Switching sources
 Space, in the main view or in Settings, changes which single yardstick is active everywhere at once.
-- Status, ranking, and quality>= filters all move together, and a model with no number on the newly
-active source shows n/a even if it had one on the other.
-- Trusting the ranking starts with knowing which of these three measurements produced the number on
-screen; this section, and the source column in the model detail view, are how to check.`
+- Status, ranking, and quality>= filters all move together, and a model with no number on the newly active source shows n/a even if it had one on the other.
+- Trusting the ranking starts with knowing which of these three measurements produced the number on screen; this section, and the source column in the model detail view, are how to check.`
 
 // tuiHelpSectionHotkeysBody is the "Hotkeys" section: every
 // keybinding table from the pre-sectioning document (Navigation, Data/view,
@@ -3073,52 +3055,33 @@ Field labels, block headings, links and missing values are colour-coded; the col
 // docs/methodology.md in the project repository; this is its
 // terminal-friendly cut, not a different text.
 const tuiHelpSectionMethodologyBody = `Methodology: how the table and ranking are built
-The longer version of this same story, meant for reading outside the terminal, lives in
-docs/methodology.md in the project repository. Nothing here is new: it draws together points the
-Overview and Score Sources sections already make, plus the ranking mechanics itself.
+The longer version of this same story, meant for reading outside the terminal, lives in docs/methodology.md in the project repository. Nothing here is new: it draws together points the Overview and Score Sources sections already make, plus the ranking mechanics itself.
 
 What feeds every row
 Three independent kinds of data feed every row, and none of them is derived from another.
 - Price and context come live from the OpenRouter catalogue.
-- Quality is an independent benchmark observation, SWE-bench Verified (from vals.ai or swebench.com)
-or LMArena Elo, never both at once.
-- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, set by a human,
-not computed from the score.
+- Quality is an independent benchmark observation, SWE-bench Verified (from vals.ai or swebench.com) or LMArena Elo, never both at once.
+- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, set by a human, not computed from the score.
 
 Identity gate: model-map.tsv is the only path to a score
-A benchmark row is attached to an OpenRouter model only through model-map.tsv, never by matching
-names that merely look alike.
-- No entry in the map for a source means no automatically collected score from that source, on
-purpose.
-- The mapped key is itself the identity claim: once the source returns a row for it, the row is
-trusted (exact_product) even when its spelling differs from the OpenRouter slug.
-- A mapped row that actually measures a different checkpoint or variant is marked !variant on the
-source name (for example vals!variant=some/other-checkpoint) and stays out of the ranking
-(variant_mismatch) despite the key match; only a human editing the file catches this, never the code.
+A benchmark row is attached to an OpenRouter model only through model-map.tsv, never by matching names that merely look alike.
+- No entry in the map for a source means no automatically collected score from that source, on purpose.
+- The mapped key is itself the identity claim: once the source returns a row for it, the row is trusted (exact_product) even when its spelling differs from the OpenRouter slug.
+- A mapped row that actually measures a different checkpoint or variant is marked !variant on the source name (for example vals!variant=some/other-checkpoint) and stays out of the ranking (variant_mismatch) despite the key match; only a human editing the file catches this, never the code.
 
 Three measurements, never mixed
-- vals.ai runs every model itself on one fixed, independent harness and echoes back the exact key it
-was found by; it wins whenever it has a usable, identity-checked row.
-- swebench.com is a self-submitted leaderboard: the median across every distinct scaffold submitted
-for a model (one vote per scaffold) is used instead of the single best run; it is only a fallback,
-used when vals.ai has no row at all or its row fails identity.
-- LMArena Elo is a crowd preference rating (Bradley-Terry, roughly 950-1550), rescaled to 0-100
-before entering the ranking formula; it is never shown alongside SWE-bench and never enters the same
-column.
+- vals.ai runs every model itself on one fixed, independent harness and echoes back the exact key it was found by; it wins whenever it has a usable, identity-checked row.
+- swebench.com is a self-submitted leaderboard: the median across every distinct scaffold submitted for a model (one vote per scaffold) is used instead of the single best run; it is only a fallback, used when vals.ai has no row at all or its row fails identity.
+- LMArena Elo is a crowd preference rating (Bradley-Terry, roughly 950-1550), rescaled to 0-100 before entering the ranking formula; it is never shown alongside SWE-bench and never enters the same column.
 
 How the ranking actually computes
 - tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
 - mixed-utility (default): rankable first, then paid utility from the configured safe YAML formula.
-Without a formula, utility is score + price_weight*tier_factor*ln(1+quality_price), with
-price_weight=10, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and price itself a 3:1 input:output
-blend: (3*input+output)/4 per $/M tokens. Task-fit is never a multiplier.
+Without a formula, utility is score + price_weight*tier_factor*ln(1+quality_price), with price_weight=10, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and price itself a 3:1 input:output blend: (3*input+output)/4 per $/M tokens. Task-fit is never a multiplier.
 - Free rankable models are compared by score alone; quality/price is undefined at $0.
 
 Why a row does not rank
-A row can carry a real number and still not rank: variant_mismatch, missing_identity, and
-legacy_unknown (an old snapshot saved before identity status existed) are all shown with their
-number but excluded, the same as a model with no score source at all, or a manual notes.yaml
-observation-only override, which is a vendor claim rather than an independent measurement.`
+A row can carry a real number and still not rank: variant_mismatch, missing_identity, and legacy_unknown (an old snapshot saved before identity status existed) are all shown with their number but excluded, the same as a model with no score source at all, or a manual notes.yaml observation-only override, which is a vendor claim rather than an independent measurement.`
 
 // tuiHelpTitleLineRU is tuiHelpTitleLine's Russian counterpart, used only
 // by the *ForLang rendering path when m.lang == "ru". "omt tui" (the CLI's
@@ -3139,45 +3102,28 @@ const tuiHelpTitleLineRU = "omt tui — хоткеи"
 // kept English the same way docs/methodology.md keeps them.
 const tuiHelpSectionOverviewBodyRU = `omt отслеживает AI-модели, доступные на OpenRouter, и ранжирует их по качеству и цене.
 - Качество берётся из оценок SWE-bench Verified или LMArena Elo; цена — из каталога OpenRouter.
-- Модели сгруппированы по тирам относительно Claude Opus, Sonnet и Haiku, чтобы относительное
-качество было легко оценить.
+- Модели сгруппированы по тирам относительно Claude Opus, Sonnet и Haiku, чтобы относительное качество было легко оценить.
 
 Что формирует каждую строку: три независимых вида данных
 Каждую строку формируют три вида данных, и ни один не выводится из другого.
 - Цена и контекст берутся живьём из каталога OpenRouter.
-- Качество — независимая бенчмарк-оценка: SWE-bench Verified (с vals.ai или swebench.com) либо
-LMArena Elo, никогда оба сразу; чем они отличаются и почему никогда не смешиваются — в разделе
-Score Sources.
-- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, а не то, что вычисляется из
-оценки. Он нужен, чтобы модель без единого бенчмарка тоже была сравнима на одной знакомой шкале —
-«примерно уровня Sonnet» или «примерно уровня Haiku» — даже если у семейства модели вообще нет
-бенчмарк-числа.
-- quality и quality>= всегда означают rankable exact-product бенчмарк-наблюдение — никогда
-вендорское заявление и никогда тир.
+- Качество — независимая бенчмарк-оценка: SWE-bench Verified (с vals.ai или swebench.com) либо LMArena Elo, никогда оба сразу; чем они отличаются и почему никогда не смешиваются — в разделе Score Sources.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, а не то, что вычисляется из оценки. Он нужен, чтобы модель без единого бенчмарка тоже была сравнима на одной знакомой шкале — «примерно уровня Sonnet» или «примерно уровня Haiku» — даже если у семейства модели вообще нет бенчмарк-числа.
+- quality и quality>= всегда означают rankable exact-product бенчмарк-наблюдение — никогда вендорское заявление и никогда тир.
 
 Identity matching: никогда по похожести имён
 Строка лидерборда никогда не привязывается к модели OpenRouter по похожести имён.
 - Единственный путь от строки одного сайта к slug'у другого сайта — ручная карта model-map.tsv.
-- Нет записи в карте — нет автоматически собранной оценки для этой модели, и это осознанное
-решение: правдоподобное совпадение имён на двух независимо администрируемых сайтах — ровно то, как
-число одной модели тихо приклеивается к другой.
-- Сопоставленный ключ source= сам по себе и есть утверждение об идентичности. Если источник вернул
-строку по этому ключу, она считается exact_product, даже если написание ключа отличается от slug'а
-OpenRouter, — это обычное дело между двумя сайтами с разными соглашениями об именовании.
-- Если сопоставленная строка на самом деле измеряет другой чекпоинт или вариант той же линейки,
-запись помечается маркером !variant (например, vals!variant=some/other-checkpoint), и строка остаётся
-вне ранжирования (variant_mismatch), несмотря на совпадение по ключу.
+- Нет записи в карте — нет автоматически собранной оценки для этой модели, и это осознанное решение: правдоподобное совпадение имён на двух независимо администрируемых сайтах — ровно то, как число одной модели тихо приклеивается к другой.
+- Сопоставленный ключ source= сам по себе и есть утверждение об идентичности. Если источник вернул строку по этому ключу, она считается exact_product, даже если написание ключа отличается от slug'а OpenRouter, — это обычное дело между двумя сайтами с разными соглашениями об именовании.
+- Если сопоставленная строка на самом деле измеряет другой чекпоинт или вариант той же линейки, запись помечается маркером !variant (например, vals!variant=some/other-checkpoint), и строка остаётся вне ранжирования (variant_mismatch), несмотря на совпадение по ключу.
 - Только человек, редактируя карту, может принять такое решение; код это автоматически не ловит.
 
 Режимы ранжирования
 tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
-mixed-utility: сначала rankable-модели, затем платные сравниваются по paid utility из настроенной
-безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*ln(1+quality_price),
-где смешение цены 3:1, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а weight=10. Переменные formula,
-операции, глубина и лимиты узлов описаны в README. Task fit никогда не входит множителем.
+mixed-utility: сначала rankable-модели, затем платные сравниваются по paid utility из настроенной безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*ln(1+quality_price), где смешение цены 3:1, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а weight=10. Переменные formula, операции, глубина и лимиты узлов описаны в README. Task fit никогда не входит множителем.
 o, затем стрелка вниз к Score source, затем Space переключает SWE-bench и Arena.
-Флаг CLI --ranking принимает legacy, tier, tier-priority, mixed или mixed-utility; без него
-используется сортировка mixed-utility.`
+Флаг CLI --ranking принимает legacy, tier, tier-priority, mixed или mixed-utility; без него используется сортировка mixed-utility.`
 
 // tuiHelpSectionScoreSourcesBodyRU is tuiHelpSectionScoreSourcesBody's
 // Russian translation. "n/a" in the English body (what the table shows for
@@ -3186,48 +3132,26 @@ o, затем стрелка вниз к Score source, затем Space пере
 // tuiDetailPlaceholderRU.
 const tuiHelpSectionScoreSourcesBodyRU = `Источники оценки
 swebench: Status и ranking используют SWE-bench Verified, в процентах. Это значение по умолчанию.
-arena: Status и ranking используют рейтинг LMArena Elo, показанный как есть и нормализованный в 0-100
-перед тем, как он войдёт в формулу ранжирования.
-- Эти два источника никогда не смешиваются: в одном представлении модель без числа на активном
-источнике показывает н/д, даже если у другого источника число есть.
-- Выбирается через --score-source или Settings; переключение читает локальный снапшот, а
-сгенерированный markdown-документ всегда использует swebench.
+arena: Status и ranking используют рейтинг LMArena Elo, показанный как есть и нормализованный в 0-100 перед тем, как он войдёт в формулу ранжирования.
+- Эти два источника никогда не смешиваются: в одном представлении модель без числа на активном источнике показывает н/д, даже если у другого источника число есть.
+- Выбирается через --score-source или Settings; переключение читает локальный снапшот, а сгенерированный markdown-документ всегда использует swebench.
 
 SWE-bench Verified: два источника, а не две альтернативы
-У самого SWE-bench Verified есть два возможных источника, и они друг другу fallback, а не
-взаимозаменяемые измерения.
-- vals.ai сам запускает каждую submitted-модель на одном фиксированном независимом харнессе, и его
-собственная строка лидерборда эхом возвращает точный ключ модели, по которому её нашли; именно этот
-эхо-ответ и позволяет проекту по умолчанию доверять идентичности строки (механику identity gate см. в
-разделе Overview).
-- swebench.com устроен иначе: это self-submitted лидерборд, где прислать прогон со своим агентским
-скаффолдом может кто угодно, поэтому одна и та же модель может появляться под несколькими разными
-скаффолдами с разными числами. Чтобы притупить стимул накручивать лидерборд одним агрессивным
-скаффолдом, проект берёт медиану по каждому отдельному сабмиченному скаффолду (один голос на
-скаффолд; повторный сабмит того же скаффолда заменяет прежний, а не добавляет второй голос) вместо
-единственного лучшего прогона, и текст самой строки говорит «median of N scaffolds», когда это
-применилось.
-- vals.ai побеждает всегда, когда у него есть пригодная, прошедшая identity-проверку строка для
-модели; swebench.com используется только как запасной источник — когда у vals.ai нет строки вовсе
-или её строка не прошла проверку идентичности.
+У самого SWE-bench Verified есть два возможных источника, и они друг другу fallback, а не взаимозаменяемые измерения.
+- vals.ai сам запускает каждую submitted-модель на одном фиксированном независимом харнессе, и его собственная строка лидерборда эхом возвращает точный ключ модели, по которому её нашли; именно этот эхо-ответ и позволяет проекту по умолчанию доверять идентичности строки (механику identity gate см. в разделе Overview).
+- swebench.com устроен иначе: это self-submitted лидерборд, где прислать прогон со своим агентским скаффолдом может кто угодно, поэтому одна и та же модель может появляться под несколькими разными скаффолдами с разными числами. Чтобы притупить стимул накручивать лидерборд одним агрессивным скаффолдом, проект берёт медиану по каждому отдельному сабмиченному скаффолду (один голос на скаффолд; повторный сабмит того же скаффолда заменяет прежний, а не добавляет второй голос) вместо единственного лучшего прогона, и текст самой строки говорит «median of N scaffolds», когда это применилось.
+- vals.ai побеждает всегда, когда у него есть пригодная, прошедшая identity-проверку строка для модели; swebench.com используется только как запасной источник — когда у vals.ai нет строки вовсе или её строка не прошла проверку идентичности.
 
 LMArena Elo: другая шкала, а не третья альтернатива
 LMArena Elo — не третий способ получить то же самое число.
-- Это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), построенный на голосованиях людей
-за вывод модели в парных сравнениях, а не оценка на фиксированном наборе реальных pull request'ов, как
-SWE-bench Verified.
-- Перед попаданием в формулу ранжирования он нормализуется в 0-100, но нормализация не делает его
-сравнимым с процентом SWE-bench: две модели с одинаковой оценкой 60 не «одинаково хороши» по одной и
-той же шкале — их измеряли два разных эксперимента.
-- Именно поэтому приложение никогда не показывает оба измерения одновременно для одной модели и
-никогда не позволяет фильтру их смешать.
+- Это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), построенный на голосованиях людей за вывод модели в парных сравнениях, а не оценка на фиксированном наборе реальных pull request'ов, как SWE-bench Verified.
+- Перед попаданием в формулу ранжирования он нормализуется в 0-100, но нормализация не делает его сравнимым с процентом SWE-bench: две модели с одинаковой оценкой 60 не «одинаково хороши» по одной и той же шкале — их измеряли два разных эксперимента.
+- Именно поэтому приложение никогда не показывает оба измерения одновременно для одной модели и никогда не позволяет фильтру их смешать.
 
 Переключение источников
 Space, в основном представлении или в Settings, меняет единственный активный критерий сразу и везде.
-- Status, ranking и фильтры quality>= двигаются вместе, и модель без числа на новом активном
-источнике показывает н/д, даже если оно было на другом.
-- Доверие к ранжированию начинается со знания, какое из этих трёх измерений дало число на экране;
-проверить это можно в этом разделе и по колонке источника в экране деталей модели.`
+- Status, ranking и фильтры quality>= двигаются вместе, и модель без числа на новом активном источнике показывает н/д, даже если оно было на другом.
+- Доверие к ранжированию начинается со знания, какое из этих трёх измерений дало число на экране; проверить это можно в этом разделе и по колонке источника в экране деталей модели.`
 
 // tuiHelpSectionHotkeysBodyRU is tuiHelpSectionHotkeysBody's Russian
 // translation. Every \tKey\tAction\tDescription row keeps its Key column
@@ -3362,56 +3286,32 @@ const tuiHelpSectionDetailBodyRU = `Экран деталей модели
 // should read as the same story told at two lengths, not two different
 // translations of the same English source.
 const tuiHelpSectionMethodologyBodyRU = `Методология: как строятся таблица и ранжирование
-Более подробная версия этой же истории, для чтения вне терминала, — в docs/methodology.md в
-репозитории проекта. Здесь нет ничего нового: раздел собирает воедино то, что уже сказано в Overview и
-Score Sources, плюс саму механику ранжирования.
+Более подробная версия этой же истории, для чтения вне терминала, — в docs/methodology.md в репозитории проекта. Здесь нет ничего нового: раздел собирает воедино то, что уже сказано в Overview и Score Sources, плюс саму механику ранжирования.
 
 Что формирует каждую строку
 Каждую строку формируют три независимых вида данных, и ни один не выводится из другого.
 - Цена и контекст берутся живьём из каталога OpenRouter.
-- Качество — независимое бенчмарк-наблюдение: SWE-bench Verified (с vals.ai или swebench.com) либо
-LMArena Elo, никогда оба сразу.
-- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, проставленная человеком, а не
-вычисленная из оценки.
+- Качество — независимое бенчмарк-наблюдение: SWE-bench Verified (с vals.ai или swebench.com) либо LMArena Elo, никогда оба сразу.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, проставленная человеком, а не вычисленная из оценки.
 
 Identity gate: model-map.tsv — единственный путь к оценке
-Строка бенчмарка привязывается к модели OpenRouter только через model-map.tsv, никогда —
-сопоставлением похожих имён.
-- Нет записи в карте для источника — нет автоматически собранной оценки из этого источника, и это
-осознанное решение.
-- Сопоставленный ключ сам по себе и есть утверждение об идентичности: как только источник вернул
-строку по этому ключу, она считается exact_product, даже если её написание отличается от slug'а
-OpenRouter.
-- Сопоставленная строка, которая на самом деле измеряет другой чекпоинт или вариант, помечается
-маркером !variant на имени источника (например, vals!variant=some/other-checkpoint) и остаётся вне
-ранжирования (variant_mismatch), несмотря на совпадение по ключу; поймать это может только человек,
-редактируя файл, — никогда код.
+Строка бенчмарка привязывается к модели OpenRouter только через model-map.tsv, никогда — сопоставлением похожих имён.
+- Нет записи в карте для источника — нет автоматически собранной оценки из этого источника, и это осознанное решение.
+- Сопоставленный ключ сам по себе и есть утверждение об идентичности: как только источник вернул строку по этому ключу, она считается exact_product, даже если её написание отличается от slug'а OpenRouter.
+- Сопоставленная строка, которая на самом деле измеряет другой чекпоинт или вариант, помечается маркером !variant на имени источника (например, vals!variant=some/other-checkpoint) и остаётся вне ранжирования (variant_mismatch), несмотря на совпадение по ключу; поймать это может только человек, редактируя файл, — никогда код.
 
 Три измерения, которые никогда не смешиваются
-- vals.ai сам запускает каждую модель на одном фиксированном независимом харнессе и эхом возвращает
-точный ключ, по которому её нашли; он побеждает всегда, когда у него есть пригодная, прошедшая
-identity-проверку строка.
-- swebench.com — self-submitted лидерборд: вместо единственного лучшего прогона берётся медиана по
-каждому отдельному сабмиченному скаффолду для модели (один голос на скаффолд); это только запасной
-источник — когда у vals.ai нет строки вовсе или её строка не прошла identity-проверку.
-- LMArena Elo — это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), нормализованный в
-0-100 перед попаданием в формулу ранжирования; он никогда не показывается рядом со SWE-bench и никогда
-не попадает в ту же колонку.
+- vals.ai сам запускает каждую модель на одном фиксированном независимом харнессе и эхом возвращает точный ключ, по которому её нашли; он побеждает всегда, когда у него есть пригодная, прошедшая identity-проверку строка.
+- swebench.com — self-submitted лидерборд: вместо единственного лучшего прогона берётся медиана по каждому отдельному сабмиченному скаффолду для модели (один голос на скаффолд); это только запасной источник — когда у vals.ai нет строки вовсе или её строка не прошла identity-проверку.
+- LMArena Elo — это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), нормализованный в 0-100 перед попаданием в формулу ранжирования; он никогда не показывается рядом со SWE-bench и никогда не попадает в ту же колонку.
 
 Как на самом деле считается ранжирование
 - tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
-- mixed-utility (по умолчанию): сначала rankable-модели, затем платные сравниваются по paid utility
-из настроенной безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*
-ln(1+quality_price), где price_weight=10, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а сама цена —
-смешение input:output 3:1: (3*input+output)/4 за $/M токенов. Task fit никогда не входит множителем.
+- mixed-utility (по умолчанию): сначала rankable-модели, затем платные сравниваются по paid utility из настроенной безопасной YAML formula. Без formula utility = score + price_weight*tier_factor* ln(1+quality_price), где price_weight=10, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а сама цена — смешение input:output 3:1: (3*input+output)/4 за $/M токенов. Task fit никогда не входит множителем.
 - Бесплатные rankable-модели сравниваются просто по оценке; quality/price не определено при $0.
 
 Почему строка не попадает в ранжирование
-Строка может нести настоящее число и всё равно не участвовать в ранжировании: variant_mismatch,
-missing_identity и legacy_unknown (старый снапшот, сохранённый до появления статуса identity) — все
-показываются со своим числом, но исключаются, как и модель вообще без источника оценки, или ручной
-observation-only override из notes.yaml, который является вендорским заявлением, а не независимым
-измерением.`
+Строка может нести настоящее число и всё равно не участвовать в ранжировании: variant_mismatch, missing_identity и legacy_unknown (старый снапшот, сохранённый до появления статуса identity) — все показываются со своим числом, но исключаются, как и модель вообще без источника оценки, или ручной observation-only override из notes.yaml, который является вендорским заявлением, а не независимым измерением.`
 
 // tuiHelpSectionsRU is tuiHelpSections' Russian counterpart — same order,
 // same six sections, RU titles and RU bodies. tuiHelpSectionLinesForLang
@@ -3570,6 +3470,115 @@ func tuiWrapWord(word string, width int) []string {
 		word = word[len(head):]
 	}
 	return chunks
+}
+
+// tuiJustifyLine pads a single already-wrapped line (its words joined by
+// exactly one space, as tuiWrapText always produces) to width display
+// columns by distributing extra inter-word spacing as evenly as possible —
+// the standard newspaper-column justify rule. A line with fewer than two
+// words has no gap to stretch and is returned unchanged, matching the
+// spec's explicit "don't crash, don't error" carve-out for a one-word
+// line; a line that already fills width (extra <= 0, including a line
+// wider than width, which tuiWrapAndJustify never actually produces) is
+// also returned unchanged. Any remainder from an uneven split goes to the
+// leftmost gaps first — deterministic and reproducible rather than
+// alternating or centred, and simplest to reason about.
+func tuiJustifyLine(line string, width int) string {
+	words := strings.Fields(line)
+	if len(words) < 2 {
+		return line
+	}
+	extra := width - tableDisplayWidth(line)
+	if extra <= 0 {
+		return line
+	}
+	gaps := len(words) - 1
+	base, remainder := extra/gaps, extra%gaps
+	var out strings.Builder
+	for i, word := range words {
+		if i > 0 {
+			spaces := 1 + base
+			if i-1 < remainder {
+				spaces++
+			}
+			out.WriteString(strings.Repeat(" ", spaces))
+		}
+		out.WriteString(word)
+	}
+	return out.String()
+}
+
+// tuiWrapAndJustify wraps a single logical paragraph exactly the way
+// tuiWrapText does, then fully justifies every resulting line except the
+// last: the standard convention that only a paragraph's final line (which
+// is usually short) stays ragged, everything above it flush against both
+// edges. value must not itself contain "\n" — this is a per-paragraph
+// primitive, not a multi-paragraph one, precisely so it never has to guess
+// where one paragraph ends and the next begins; see tuiJustifyHelpLines,
+// which feeds it one already-delimited F1 help paragraph/bullet at a time.
+func tuiWrapAndJustify(value string, width int) []string {
+	lines := tuiWrapText(value, width)
+	for i := 0; i < len(lines)-1; i++ {
+		lines[i] = tuiJustifyLine(lines[i], width)
+	}
+	return lines
+}
+
+// tuiJustifyHelpLinesTabByte is the real tab character (as opposed to the
+// literal two-character `\t` sequence tuiFormatHelpLine's key rows use)
+// that marks a line as a verbatim/example block in the F1 help source —
+// see tuiJustifyHelpLines.
+const tuiJustifyHelpLinesTabByte = "\t"
+
+// tuiJustifyHelpLines expands one F1 help section's structural lines (as
+// returned by tuiConfiguredHelpLinesForLang, still one source line per
+// slice entry) into their justified, width-wrapped rendered form. Only
+// prose is affected:
+//   - a blank line (paragraph separator) passes through unchanged;
+//   - a line containing the literal `\t` key-row delimiter passes through
+//     unchanged — tuiFormatHelpLine still lays those out into columns later;
+//   - a line opening with a real tab character passes through unchanged —
+//     the Filters section's CLI/TUI examples and its filter-editor
+//     reference block are literal text, not prose, per this feature's own
+//     scoping rule;
+//   - a "- "-prefixed bulleted line keeps its marker on the first wrapped
+//     line only; continuation lines get a plain two-column indent instead,
+//     so padding never lands inside the marker;
+//   - every other non-blank line (a paragraph, a one-line statement, or a
+//     short mini-heading — nothing here needs to tell those apart, since a
+//     heading is simply a paragraph that never wraps) is wrapped and
+//     justified as one paragraph via tuiWrapAndJustify.
+//
+// This is why every F1 help body constant (see tuiHelpSectionOverviewBody
+// and its siblings) stores one full logical paragraph or bullet per source
+// line rather than hand-wrapping it across several: tuiWrapAndJustify
+// needs the paragraph whole to know where it legitimately ends, and a
+// pre-broken source line would otherwise be justified as if it were the
+// whole paragraph.
+func tuiJustifyHelpLines(lines []string, width int) []string {
+	if width <= 0 {
+		return lines
+	}
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		switch {
+		case line == "", strings.Contains(line, `\t`), strings.HasPrefix(line, tuiJustifyHelpLinesTabByte):
+			result = append(result, line)
+		case strings.HasPrefix(line, "- "):
+			const marker, indent = "- ", "  "
+			contentWidth := max(1, width-tableDisplayWidth(marker))
+			for i, wrapped := range tuiWrapAndJustify(line[len(marker):], contentWidth) {
+				if i == 0 {
+					result = append(result, marker+wrapped)
+				} else {
+					result = append(result, indent+wrapped)
+				}
+			}
+		default:
+			result = append(result, tuiWrapAndJustify(line, width)...)
+		}
+	}
+	return result
 }
 
 const (
