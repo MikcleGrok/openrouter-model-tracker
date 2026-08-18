@@ -202,7 +202,11 @@ func TestAlignmentTUIViewRefreshResizeSortFilterSelectionContract(t *testing.T) 
 func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 	row := model.Model{Slug: "acme/model-with-a-deliberately-long-history-identity", DisplayName: "Model with a deliberately long name", Owner: "Acme", Description: strings.Repeat("long text ", 20), Note: "FINAL-NOTE"}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
-	m.overlay, m.width, m.height = "detail", 28, 8
+	// height 9, not 8: tuiDetailBodyHeight now reserves two trailing rows
+	// (a blank separator plus the position footer, not just the footer), so
+	// the first page needs one more row of viewport to still reach
+	// "Производитель: ?" without scrolling.
+	m.overlay, m.width, m.height = "detail", 28, 9
 	m.iconGap, m.iconGaps, m.icons = 1, config.IconGaps{"acme": 8}, config.IconConfig{Unknown: "?"}
 	configuredView := ansi.Strip(m.View())
 	if !strings.Contains(configuredView, "Производитель: ?") {

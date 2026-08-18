@@ -1555,12 +1555,16 @@ func (m tuiModel) View() string {
 			"Source uses the local snapshot; R refreshes data.",
 			"Select Filter to reuse the structured filter input.",
 		}
+		// The Status/Error line reports live state, not part of the settings
+		// list above it, and must not sit flush against the last static hint
+		// line — hence the blank separator ahead of it, added only when
+		// there is actually a status/error line to separate.
 		if m.scoreSourceLoading {
-			lines = append(lines, "Status: loading "+m.pendingScoreSource+" from local snapshot...")
+			lines = append(lines, "", "Status: loading "+m.pendingScoreSource+" from local snapshot...")
 		} else if m.err != "" {
-			lines = append(lines, "Error: "+m.err)
+			lines = append(lines, "", "Error: "+m.err)
 		} else if m.status != "" {
-			lines = append(lines, "Status: "+m.status)
+			lines = append(lines, "", "Status: "+m.status)
 		}
 		for i := 0; i < 6; i++ {
 			prefix := "  "
@@ -1630,10 +1634,23 @@ func (m tuiModel) View() string {
 		}
 	}
 	if m.height >= 6 {
-		lines = append(lines, statusLine, hintsLine)
+		// footer is the status/hints/input cluster reported at the bottom of
+		// the screen — state, not table content — and it must never sit
+		// flush against the last table row: a blank separator line goes in
+		// front of it whenever the budget has room for one. rowsBudget above
+		// already reserves exactly one spare row for this (it was previously
+		// unused, silently rendering as blank space below the footer instead
+		// of above it), so the common case always fits; the length check is
+		// only a floor for pathological cases where the visible list is
+		// shorter than rowsBudget and doesn't need the spare row at all.
+		footer := []string{statusLine, hintsLine}
 		if inputLine != "" {
-			lines = append(lines, inputLine)
+			footer = append(footer, inputLine)
 		}
+		if len(lines)+1+len(footer) <= m.height {
+			lines = append(lines, "")
+		}
+		lines = append(lines, footer...)
 		return strings.Join(lines, "\n")
 	}
 	return m.compactView(lines, statusLine, hintsLine, inputLine)
@@ -2045,11 +2062,21 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	return result
 }
 
+// helpViewportHeight reserves room for the trailing status cluster —  a
+// blank separator plus the position footer, and the search input line when
+// one is active — so tuiHelpView's footer (and, while searching, its input
+// line) is never silently clipped away by tuiFullscreenText the way it used
+// to be whenever a section's body filled or exceeded the viewport. tuiHelpView
+// still gates the blank separator itself on the exact remaining space
+// (see tuiHelpView), so a viewport too small to spare it still shows the
+// footer — and the input line, while searching — rather than losing them to
+// a cosmetic-only row.
 func (m tuiModel) helpViewportHeight() int {
+	reserved := 2 // blank separator + footer
 	if m.inputMode == "help-search" {
-		return max(1, m.height-1)
+		reserved = 3 // blank separator + input line + footer
 	}
-	return max(1, m.height)
+	return max(1, m.height-reserved)
 }
 
 func (m tuiModel) helpMaxOffset() int { return max(0, len(m.helpLines())-m.helpViewportHeight()) }
@@ -2094,6 +2121,29 @@ func tuiHelpView(m tuiModel) string {
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
+	// The trailing status cluster (an optional input line, then the position
+	// footer) reports state, not document content, and must not sit flush
+	// against the last content line. helpViewportHeight already reserves
+	// room for a blank separator ahead of it, so the common case always has
+	// space; this length check is only a floor for a viewport too small to
+	// spare the extra row, where showing the input line and footer at all
+	// matters more than separating them. It always appends its own blank
+	// line rather than checking whether the document's own last visible
+	// line already is one — a section body ending its viewport exactly on
+	// one of its own paragraph breaks occasionally doubles it up, which is
+	// harmless (still separated, just by two rows instead of one); skipping
+	// the append there would instead leave the line short of height, and
+	// tuiFullscreenText's own trailing pad would then land after the
+	// footer, displacing it from the screen's last line.
+	trailingRows := 1 // footer
+	if inputActive {
+		trailingRows++ // + input line
+	}
+	blankLineIndex := -1
+	if len(lines)+1+trailingRows <= m.height {
+		blankLineIndex = len(lines)
+		lines = append(lines, "")
+	}
 	inputLineIndex := -1
 	if inputActive {
 		inputLineIndex = len(lines)
@@ -2122,7 +2172,7 @@ func tuiHelpView(m tuiModel) string {
 	needle := strings.ToLower(strings.TrimSpace(m.helpSearch))
 	styledLines := strings.Split(view, "\n")
 	for i, line := range styledLines {
-		if i == inputLineIndex || i == footerLineIndex {
+		if i == inputLineIndex || i == footerLineIndex || i == blankLineIndex {
 			continue
 		}
 		if i == tabBarLineIndex {
@@ -2242,7 +2292,24 @@ func tuiDetailView(m tuiModel) string {
 	if len(visible) == 0 {
 		visible = []string{""}
 	}
-	visible = append(visible, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines)))
+	footer := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines))
+	// The footer is state (scroll position), not detail content, and must
+	// not sit flush against the last content line. tuiDetailBodyHeight
+	// already reserves two rows (blank + footer) for exactly this, so the
+	// blank fits whenever the body actually filled up; the length check is
+	// only a floor for a viewport too small to spare the extra row at all,
+	// where showing the footer itself matters more than separating it. It
+	// always appends its own blank line rather than checking whether the
+	// page's own last visible line already is one — occasionally doubling
+	// it up when a page ends exactly on one of the detail screen's own
+	// section-break blanks is harmless (still separated, just by two rows);
+	// skipping the append there would instead leave the page short of
+	// height, and tuiFullscreenText's own trailing pad would then land
+	// after the footer, displacing it from the screen's last line.
+	if len(visible)+2 <= m.height {
+		visible = append(visible, "")
+	}
+	visible = append(visible, footer)
 	view := tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
 	return tuiStyleDetail(view, offset == 0, len(visible)-1)
 }
@@ -3125,11 +3192,15 @@ func tuiDetailAlignRows(lines []string, width int) []string {
 	return result
 }
 
-// tuiDetailBodyHeight is how many content lines fit above the footer. The
-// help overlay appends its footer after already filling the viewport, so
-// tuiFullscreenText clips it; the detail screen reserves the line instead,
-// which also keeps tuiDetailMaxOffset and the rendered slice in agreement.
-func tuiDetailBodyHeight(height int) int { return max(1, height-1) }
+// tuiDetailBodyHeight is how many content lines fit above the footer
+// cluster — a blank separator line plus the position footer, two rows
+// always reserved rather than one, which also keeps tuiDetailMaxOffset and
+// the rendered slice in agreement. The help overlay used to append its
+// footer after already filling the viewport, relying on tuiFullscreenText
+// to clip it when there was no room; the detail screen has always reserved
+// its own line instead (now two), and the help overlay's own
+// helpViewportHeight follows the same reservation discipline.
+func tuiDetailBodyHeight(height int) int { return max(1, height-2) }
 
 // tuiDetailMaxOffset is the detail screen's answer to tuiHelpMaxOffset.
 // Unlike the help document, this content is not a constant: its length
