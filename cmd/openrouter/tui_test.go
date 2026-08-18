@@ -2914,7 +2914,11 @@ func TestTUIHelpSectionSwitchRebuildsSearchMatches(t *testing.T) {
 	if m.helpSection != 2 {
 		t.Fatalf("? did not land on the Hotkeys section: section=%d", m.helpSection)
 	}
-	wantHotkeys := tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines(2))
+	// The "want" side goes through the same helpLines() pipeline the model
+	// itself uses (tuiHelpSectionLines alone is the pre-wrap structural
+	// list, not what search actually matches against once F1's prose is
+	// wrapped and justified — see tuiJustifyHelpLines).
+	wantHotkeys := tuiHelpSearchInLines(m.helpSearch, tuiModel{helpSection: 2, width: m.width}.helpLines())
 	if !reflect.DeepEqual(m.helpMatches, wantHotkeys) || m.helpMatch != -1 {
 		t.Fatalf("?-opened help kept stale search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantHotkeys)
 	}
@@ -2924,7 +2928,7 @@ func TestTUIHelpSectionSwitchRebuildsSearchMatches(t *testing.T) {
 	if m.helpSection != 0 {
 		t.Fatalf("f1 did not reset to the Overview section: section=%d", m.helpSection)
 	}
-	wantOverview := tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines(0))
+	wantOverview := tuiHelpSearchInLines(m.helpSearch, tuiModel{helpSection: 0, width: m.width}.helpLines())
 	if !reflect.DeepEqual(m.helpMatches, wantOverview) || m.helpMatch != -1 {
 		t.Fatalf("f1 kept stale search state: matches=%v, match=%d, want=%v/-1", m.helpMatches, m.helpMatch, wantOverview)
 	}
@@ -3509,6 +3513,135 @@ func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
 	}
 	if got := tuiWrapText("one\n\ntwo", 40); !reflect.DeepEqual(got, []string{"one", "", "two"}) {
 		t.Fatalf("tuiWrapText = %q, want the blank line between paragraphs preserved", got)
+	}
+}
+
+// TestTUIJustifyLineDistributesExtraSpacesEvenly is the base case for F1
+// help's full-justification: a wrapped line shorter than the target width
+// gets extra inter-word spacing so its total display width becomes exactly
+// width, spread as evenly as the gap count allows.
+func TestTUIJustifyLineDistributesExtraSpacesEvenly(t *testing.T) {
+	if got, want := tuiJustifyLine("alpha beta gamma", 20), "alpha   beta   gamma"; got != want {
+		t.Fatalf("tuiJustifyLine = %q, want %q", got, want)
+	}
+	if w := tableDisplayWidth(tuiJustifyLine("alpha beta gamma", 20)); w != 20 {
+		t.Fatalf("justified line width = %d, want 20", w)
+	}
+}
+
+// TestTUIJustifyLineDistributesRemainderToLeftmostGaps covers the case
+// where the extra width does not divide evenly across the gaps between
+// words: the leftmost gaps absorb the one extra column each, deterministic
+// and reproducible rather than arbitrary.
+func TestTUIJustifyLineDistributesRemainderToLeftmostGaps(t *testing.T) {
+	if got, want := tuiJustifyLine("alpha beta gamma", 19), "alpha   beta  gamma"; got != want {
+		t.Fatalf("tuiJustifyLine = %q, want %q", got, want)
+	}
+	if w := tableDisplayWidth(tuiJustifyLine("alpha beta gamma", 19)); w != 19 {
+		t.Fatalf("justified line width = %d, want 19", w)
+	}
+}
+
+// TestTUIJustifyLineLeavesSingleWordUnchanged is the edge case the spec
+// calls out explicitly: a line with only one word has no gap to stretch,
+// so it is returned as-is rather than erroring or panicking.
+func TestTUIJustifyLineLeavesSingleWordUnchanged(t *testing.T) {
+	if got, want := tuiJustifyLine("alpha", 10), "alpha"; got != want {
+		t.Fatalf("tuiJustifyLine(single word) = %q, want %q unchanged", got, want)
+	}
+	if got, want := tuiJustifyLine("", 10), ""; got != want {
+		t.Fatalf("tuiJustifyLine(empty) = %q, want %q unchanged", got, want)
+	}
+}
+
+// TestTUIJustifyLineNoopWhenAlreadyAtWidth covers a line that already fills
+// its target width: no padding is inserted, and the single natural space
+// between words survives untouched.
+func TestTUIJustifyLineNoopWhenAlreadyAtWidth(t *testing.T) {
+	line := "alpha beta"
+	if got, want := tuiJustifyLine(line, tableDisplayWidth(line)), line; got != want {
+		t.Fatalf("tuiJustifyLine(already at width) = %q, want %q unchanged", got, want)
+	}
+}
+
+// TestTUIWrapAndJustifyLeavesTheLastLineRagged is the standard
+// typographic-justify rule this feature exists to implement: every wrapped
+// line of a paragraph is stretched flush to width except the last, which
+// stays exactly as tuiWrapText produced it (including a single-word line
+// that cannot be stretched at all, mid-paragraph or not).
+func TestTUIWrapAndJustifyLeavesTheLastLineRagged(t *testing.T) {
+	got := tuiWrapAndJustify("alpha beta gamma delta epsilon zeta", 11)
+	want := []string{"alpha  beta", "gamma delta", "epsilon", "zeta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuiWrapAndJustify = %q, want %q", got, want)
+	}
+	for i, line := range got[:len(got)-1] {
+		if w := tableDisplayWidth(line); w != 11 && strings.Contains(line, " ") {
+			t.Fatalf("non-last line %d = %q (width %d), want fully justified to 11 (or a single word left ragged)", i, line, w)
+		}
+	}
+	if w := tableDisplayWidth(got[len(got)-1]); w >= 11 {
+		t.Fatalf("last line %q was justified (width %d); the last line of a paragraph must stay ragged", got[len(got)-1], w)
+	}
+}
+
+// TestTUIWrapAndJustifyNaturallyFittingLineNeedsNoPadding covers a
+// paragraph that never wraps at all: its one and only line is also its
+// last line, so it is left exactly as-is, ragged, with no padding.
+func TestTUIWrapAndJustifyNaturallyFittingLineNeedsNoPadding(t *testing.T) {
+	got := tuiWrapAndJustify("short paragraph.", 80)
+	want := []string{"short paragraph."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuiWrapAndJustify = %q, want %q unchanged", got, want)
+	}
+}
+
+// TestTUIJustifyHelpLinesSkipsKeyRowsAndLiteralExamples is the scoping
+// guard: a \t-delimited key-binding row (tuiFormatHelpLine's own input
+// format) and a line that opens with a literal tab character (the Filters
+// section's CLI/TUI examples and filter-editor reference block) must
+// survive byte-for-byte, never wrapped or padded, so table alignment and
+// verbatim examples are never disturbed by justification.
+func TestTUIJustifyHelpLinesSkipsKeyRowsAndLiteralExamples(t *testing.T) {
+	keyRow := `\tKey\taction\tdescription that stays exactly as written.`
+	literalExample := "\tCLI example: literal, never touched."
+	shortLine := "short line."
+	got := tuiJustifyHelpLines([]string{keyRow, "", literalExample, shortLine}, 40)
+	want := []string{keyRow, "", literalExample, shortLine}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuiJustifyHelpLines = %q, want %q unchanged (key row, blank, literal example and a too-short-to-wrap line all pass through as-is)", got, want)
+	}
+}
+
+// TestTUIJustifyHelpLinesPreservesBulletMarkerAndIndent checks the
+// bulleted-item carve-out: wrapping a long "- " item keeps the marker only
+// on its first line, indents continuation lines to match instead of
+// re-using the marker, and justifies every line but the last without ever
+// padding into the marker/indent column itself.
+func TestTUIJustifyHelpLinesPreservesBulletMarkerAndIndent(t *testing.T) {
+	bullet := "- alpha beta gamma delta epsilon zeta eta"
+	got := tuiJustifyHelpLines([]string{bullet}, 20)
+	if len(got) < 2 {
+		t.Fatalf("expected the long bullet to wrap onto multiple lines, got %q", got)
+	}
+	if !strings.HasPrefix(got[0], "- ") {
+		t.Fatalf("first wrapped line lost its bullet marker: %q", got[0])
+	}
+	for _, line := range got[1:] {
+		if strings.HasPrefix(line, "- ") {
+			t.Fatalf("a continuation line re-used the bullet marker instead of a plain indent: %q", line)
+		}
+		if !strings.HasPrefix(line, "  ") {
+			t.Fatalf("continuation line %q is not indented under the bullet text", line)
+		}
+	}
+	for i, line := range got[:len(got)-1] {
+		if w := tableDisplayWidth(line); w != 20 {
+			t.Fatalf("line %d = %q (width %d), want fully justified to width 20", i, line, w)
+		}
+	}
+	if w := tableDisplayWidth(got[len(got)-1]); w >= 20 {
+		t.Fatalf("last wrapped line %q of the bullet was justified (width %d); it must stay ragged", got[len(got)-1], w)
 	}
 }
 
@@ -5287,7 +5420,10 @@ func TestTUIRussianMainViewRendersTranslatedText(t *testing.T) {
 func TestTUIRussianHelpOverviewRendersTranslatedText(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.overlay, m.helpSection, m.width, m.lang = "help", 0, 120, "ru"
-	m.height = len(strings.Split(tuiHelpSectionOverviewBodyRU, "\n")) + 8 // tall enough that nothing scrolls off
+	// Overview's prose now wraps at m.width (see tuiJustifyHelpLines), so
+	// the raw, pre-wrap body no longer says how many lines actually render
+	// — ask helpLines() itself, which is what View() paginates against.
+	m.height = len(m.helpLines()) + 8 // tall enough that nothing scrolls off
 	view := ansi.Strip(m.View())
 	for _, want := range []string{"[1 Обзор]", "2 Источники оценки", "3 Хоткеи", "качеству и цене", "model-map.tsv"} {
 		if !strings.Contains(view, want) {
