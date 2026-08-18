@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -472,7 +473,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			}
 		}
 		if opts.OutputPath == "" {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, layout: layout, topN: topN, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, layout: layout, topN: topN, err: errors.New(m.t("tui: live refresh requires --output or default_output"))}
 		}
 		_, err := refresh.Run(m.ctx, opts)
 		if err != nil {
@@ -503,9 +504,101 @@ func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
 	if m.scoreSource == scoreSourceArena {
 		source = scoreSourceSWEBench
 	}
-	m.status, m.err = "loading "+source+" from local snapshot...", ""
+	m.status, m.err = m.t("loading ")+source+m.t(" from local snapshot..."), ""
 	m.pendingScoreSource = source
 	return m, m.scoreSourceCmd(source)
+}
+
+// t translates a UI string from English to Russian when the Russian
+// display language is active (m.lang == "ru"), and returns it unchanged
+// otherwise — including for the zero-value tuiModel{}, which is what keeps
+// English the default. It looks a string up by its own English text
+// rather than by a separate key, so every call site stays readable in
+// whichever language its own source literal is already written in, and a
+// literal missing from tuiTranslationsRU degrades to English instead of
+// vanishing. This covers every inline UI string in the main list view and
+// the Settings/Filter/Columns overlays; the F1 help sections have their
+// own per-section EN/RU bodies (see tuiHelpSectionsRU) because their
+// content is too large and structural for a flat string table, and the
+// Model Detail overlay has its own *ForLang helper family, since almost
+// all of its labels were already unconditionally Russian before this
+// field existed (see tuiDetailLinesForLang).
+func (m tuiModel) t(en string) string {
+	if m.lang != "ru" {
+		return en
+	}
+	if ru, ok := tuiTranslationsRU[en]; ok {
+		return ru
+	}
+	return en
+}
+
+// tuiTranslationsRU is t's English-to-Russian lookup table. Key names,
+// proper nouns (OpenRouter, Claude, SWE-bench, Arena, LMArena), CLI/config
+// syntax (--filter, quality>=N, tui_filter), and ranking/layout/
+// score-source value tokens (mixed-utility, tier-priority, swebench,
+// arena, top-paid-free) are deliberately absent: they are never
+// translated, per the scoping rule that governed this whole feature (see
+// the F1 Overview/Score Sources/Methodology sections for the same rule
+// applied to prose).
+var tuiTranslationsRU = map[string]string{
+	"OpenRouter models": "Модели OpenRouter",
+	"ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s": "ранжирование:%s  источник:%s  сортировка:%s%s  вид:%s  топ-N:%d  фильтр:%q  поиск:%s  моделей:%d  данные:%s",
+	"status: ready":                   "статус: готово",
+	"status: refreshing...":           "статус: обновление...",
+	"error: ":                         "ошибка: ",
+	"refreshing":                      "обновление",
+	"refreshed":                       "обновлено",
+	"score source changed":            "источник оценки изменён",
+	"score source switch failed":      "переключение источника оценки не удалось",
+	"score source %s: %v":             "источник оценки %s: %v",
+	"price history reload failed: %v": "не удалось перезагрузить историю цен: %v",
+	"loading ":                        "загрузка ",
+	" from local snapshot...":         " из локального снапшота...",
+	"tui: live refresh requires --output or default_output": "tui: для живого обновления нужен --output или default_output",
+
+	"↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p": "↑↓ навигация · o настройки · R обновить · x выход · f фильтр · p доступность · q качество · r q/p",
+	" · / search · Enter empty search to clear":                                                     " · / поиск · Enter с пустым текстом — очистить поиск",
+	"search: none (cleared)": "поиск: нет (очищен)",
+	"filter: none (cleared)": "фильтр: нет (очищен)",
+	"none (cleared)":         "нет (очищен)",
+	"none":                   "нет",
+	"filter: ":               "фильтр: ",
+
+	"Columns (Space toggle, Enter apply, Esc cancel)": "Столбцы (Space переключить, Enter применить, Esc отмена)",
+
+	"Settings (Enter/Space change, Esc close)": "Настройки (Enter/Space изменить, Esc закрыть)",
+	"Ranking: ":                         "Ранжирование: ",
+	"Score source: ":                    "Источник оценки: ",
+	" (Space switches SWE-bench/Arena)": " (Space переключает SWE-bench/Arena)",
+	"Filter: ":                          "Фильтр: ",
+	"Availability: ":                    "Доступность: ",
+	"Layout: ":                          "Вид: ",
+	" (top N=":                          " (топ N=",
+	"Columns: ":                         "Столбцы: ",
+	"Move Down to Score source, then press Space to switch.": "Стрелка вниз — к источнику оценки, затем Space для переключения.",
+	"Source uses the local snapshot; R refreshes data.":      "Источник использует локальный снапшот; R обновляет данные.",
+	"Select Filter to reuse the structured filter input.":    "Выберите Фильтр, чтобы использовать структурированный ввод фильтра.",
+	"Status: ": "Статус: ",
+	"Error: ":  "Ошибка: ",
+
+	"Filter": "Фильтр",
+	"↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit": "↑/↓ перемещение · ←/→ изменение значений · Space переключает/циклит Tier · ввод текста для правки",
+	"Tier options: (any), ": "Варианты Tier: (любой), ",
+	"Free":                  "Бесплатные",
+	"Paid":                  "Платные",
+	"Scored":                "С оценкой",
+	"Tier":                  "Тир",
+	"Quality minimum":       "Качество (минимум)",
+	"Context minimum":       "Контекст (минимум)",
+	"Input max":             "Вход (максимум)",
+	"Output max":            "Выход (максимум)",
+	"Has Q/P":               "Есть Q/P",
+	"Availability":          "Доступность",
+	"(any)":                 "(любой)",
+	"Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0":   "Шаг: качество ±%d очков · контекст ±%d токенов · вход/выход ±%d/%d центов · цены с двумя знаками после запятой · значения >= 0",
+	"Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0": "Шаг (устаревший режим): качество ±%d очков · контекст/вход/выход ±%d%%/%d%%/%d%% · отображение округляется до целых · значения >= 0",
+	"Enter apply · Esc cancel · c clear · Tab/Shift+Tab move":                                                              "Enter применить · Esc отмена · c очистить · Tab/Shift+Tab перемещение",
 }
 
 func (m tuiModel) keyMatches(context, action, key string) bool {
@@ -552,10 +645,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err.Error()
 			return m, nil
 		}
-		m.models, m.err, m.status = msg.models, "", "refreshed"
+		m.models, m.err, m.status = msg.models, "", m.t("refreshed")
 		history, err := pricehistory.Load(pricehistory.Path(m.dataDir))
 		if err != nil {
-			m.err = fmt.Sprintf("price history reload failed: %v", err)
+			m.err = fmt.Sprintf(m.t("price history reload failed: %v"), err)
 			return m, nil
 		}
 		m.priceHistory = history
@@ -588,13 +681,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.scoreSourceLoading = false
 			m.pendingScoreSource = ""
-			m.err = fmt.Sprintf("score source %s: %v", msg.source, msg.err)
-			m.status = "score source switch failed"
+			m.err = fmt.Sprintf(m.t("score source %s: %v"), msg.source, msg.err)
+			m.status = m.t("score source switch failed")
 			return m, nil
 		}
 		m.scoreSourceLoading = false
 		m.pendingScoreSource = ""
-		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", "score source changed"
+		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", m.t("score source changed")
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 		m.clampDetailOffset()
@@ -886,7 +979,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if !m.refreshing {
 			m.generation++
 			m.refreshing = true
-			m.status = "refreshing"
+			m.status = m.t("refreshing")
 			return m, m.refreshCmd()
 		}
 	}
@@ -917,7 +1010,9 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.inputMode, m.search = "", strings.TrimSpace(candidate)
 			m.rebuild()
 			if m.search == "" {
-				m.status = "search: none (cleared)"
+				m.status = m.t("search: none (cleared)")
+			} else if m.lang == "ru" {
+				m.status = fmt.Sprintf("поиск: %q (%s)", m.search, tuiPlural(len(m.visible), "совпадение", "совпадения", "совпадений"))
 			} else {
 				m.status = fmt.Sprintf("search: %q (%d matches)", m.search, len(m.visible))
 			}
@@ -927,7 +1022,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if strings.TrimSpace(candidate) == "" {
 			m.filter, m.err = "", ""
 			if inputMode == "filter" {
-				m.status = "filter: none (cleared)"
+				m.status = m.t("filter: none (cleared)")
 			}
 			if inputMode == "filter" && m.configPath != "" {
 				if err := config.SaveTUIFilter(m.configPath, ""); err != nil {
@@ -944,7 +1039,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		m.filter, m.err = candidate, ""
 		if inputMode == "filter" {
-			m.status = "filter: " + candidate
+			m.status = m.t("filter: ") + candidate
 		}
 		if inputMode == "filter" && m.configPath != "" {
 			if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
@@ -1233,7 +1328,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	m.filter, m.err, m.overlay = candidate, "", ""
 	m.filterFormExplicit = true
 	m.filterDefaulted = false
-	m.status = "filter: " + filterStatusValue(candidate)
+	m.status = m.t("filter: ") + m.filterStatusValue(candidate)
 	if m.configPath != "" {
 		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
 			m.err = err.Error()
@@ -1246,6 +1341,20 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 func filterStatusValue(filter string) string {
 	if strings.TrimSpace(filter) == "" {
 		return "none (cleared)"
+	}
+	return filter
+}
+
+// filterStatusValue is a method too, alongside the package-level function
+// above: applyFilterDraft is the only caller that needs the language-aware
+// "cleared" text, and every other shape of this small helper — a bare
+// package-level function with no tuiModel to read m.lang from — would have
+// meant either a new parameter breaking a function with no test coverage
+// to protect anyway, or a duplicate top-level function purely to carry one
+// extra string. A method keeps it to one small addition instead.
+func (m tuiModel) filterStatusValue(filter string) string {
+	if strings.TrimSpace(filter) == "" {
+		return m.t("none (cleared)")
 	}
 	return filter
 }
@@ -1566,7 +1675,7 @@ func (m tuiModel) View() string {
 		return tuiDetailView(m)
 	}
 	if m.overlay == "columns" {
-		lines := []string{"Columns (Space toggle, Enter apply, Esc cancel)", ""}
+		lines := []string{m.t("Columns (Space toggle, Enter apply, Esc cancel)"), ""}
 		for i, col := range tuiColumns {
 			mark := "[ ]"
 			if containsColumn(m.pendingColumns, col) {
@@ -1593,29 +1702,29 @@ func (m tuiModel) View() string {
 			columns = append(columns, string(col))
 		}
 		lines := []string{
-			"Settings (Enter/Space change, Esc close)",
+			m.t("Settings (Enter/Space change, Esc close)"),
 			"",
-			"> Ranking: " + rankingName,
-			"  Score source: " + m.scoreSource + " (Space switches SWE-bench/Arena)",
-			"  Filter: " + tuiDetailValue(m.filter),
-			"  Availability: " + tuiAvailabilityFromFilter(m.filter),
-			"  Layout: " + m.layout + " (top N=" + strconv.Itoa(m.topN) + ")",
-			"  Columns: " + strings.Join(columns, ", "),
+			"> " + m.t("Ranking: ") + rankingName,
+			"  " + m.t("Score source: ") + m.scoreSource + m.t(" (Space switches SWE-bench/Arena)"),
+			"  " + m.t("Filter: ") + tuiDetailValueForLang(m.filter, m.lang),
+			"  " + m.t("Availability: ") + tuiAvailabilityFromFilter(m.filter),
+			"  " + m.t("Layout: ") + m.layout + m.t(" (top N=") + strconv.Itoa(m.topN) + ")",
+			"  " + m.t("Columns: ") + strings.Join(columns, ", "),
 			"",
-			"Move Down to Score source, then press Space to switch.",
-			"Source uses the local snapshot; R refreshes data.",
-			"Select Filter to reuse the structured filter input.",
+			m.t("Move Down to Score source, then press Space to switch."),
+			m.t("Source uses the local snapshot; R refreshes data."),
+			m.t("Select Filter to reuse the structured filter input."),
 		}
 		// The Status/Error line reports live state, not part of the settings
 		// list above it, and must not sit flush against the last static hint
 		// line — hence the blank separator ahead of it, added only when
 		// there is actually a status/error line to separate.
 		if m.scoreSourceLoading {
-			lines = append(lines, "", "Status: loading "+m.pendingScoreSource+" from local snapshot...")
+			lines = append(lines, "", m.t("Status: ")+m.t("loading ")+m.pendingScoreSource+m.t(" from local snapshot..."))
 		} else if m.err != "" {
-			lines = append(lines, "", "Error: "+m.err)
+			lines = append(lines, "", m.t("Error: ")+m.err)
 		} else if m.status != "" {
-			lines = append(lines, "", "Status: "+m.status)
+			lines = append(lines, "", m.t("Status: ")+m.status)
 		}
 		for i := 0; i < 6; i++ {
 			prefix := "  "
@@ -1626,32 +1735,36 @@ func (m tuiModel) View() string {
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
-	title := truncateTable("OpenRouter models", m.width)
-	searchContext := "none"
+	title := truncateTable(m.t("OpenRouter models"), m.width)
+	searchContext := m.t("none")
 	if m.search != "" {
-		searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
+		if m.lang == "ru" {
+			searchContext = fmt.Sprintf("%q (%s)", m.search, tuiPlural(len(m.visible), "совпадение", "совпадения", "совпадений"))
+		} else {
+			searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
+		}
 	}
-	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
 	status := m.status
 	if status == "" {
-		status = "status: ready"
+		status = m.t("status: ready")
 	}
 	if m.refreshing {
-		status = "status: refreshing..."
+		status = m.t("status: refreshing...")
 	}
 	if m.err != "" {
-		status = "error: " + m.err
+		status = m.t("error: ") + m.err
 	}
 	statusLine := tuiStatusStyle.Render(truncateTable(plainTableText(status), m.width))
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p"
+	hints := m.t("↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p")
 	if m.search != "" {
-		hints += " · / search · Enter empty search to clear"
+		hints += m.t(" · / search · Enter empty search to clear")
 	}
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
@@ -1710,7 +1823,12 @@ func (m tuiModel) View() string {
 func tuiFilterView(m tuiModel) string {
 	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability}
 	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability"}
-	lines := []string{"Filter", "", "↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit", "Tier options: (any), " + tier.ValuesString(), ""}
+	// tier.ValuesString() returns the literal tier predicate values
+	// (opus/sonnet/haiku/...), the same tokens the CLI's tier:VALUE filter
+	// syntax accepts — never translated, per this feature's scoping rule
+	// for CLI/filter syntax.
+	tierOptions := m.t("Tier options: (any), ") + tier.ValuesString()
+	lines := []string{m.t("Filter"), "", m.t("↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit"), tierOptions, ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -1721,16 +1839,16 @@ func tuiFilterView(m tuiModel) string {
 			value = tuiFilterDisplayValue(i, value)
 		}
 		if i >= 3 && value == "" {
-			value = "(any)"
+			value = m.t("(any)")
 		}
-		lines = append(lines, prefix+label+": "+value)
+		lines = append(lines, prefix+m.t(label)+": "+value)
 	}
 	steps := m.filterSteps.WithDefaults()
-	stepText := fmt.Sprintf("Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0", steps.QualityPoints, steps.ContextTokens, steps.InputCents, steps.OutputCents)
+	stepText := fmt.Sprintf(m.t("Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0"), steps.QualityPoints, steps.ContextTokens, steps.InputCents, steps.OutputCents)
 	if steps.Legacy {
-		stepText = fmt.Sprintf("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0", steps.Quality, steps.Context, steps.Input, steps.Output)
+		stepText = fmt.Sprintf(m.t("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0"), steps.Quality, steps.Context, steps.Input, steps.Output)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), stepText)
+	lines = append(lines, "", m.t("Enter apply · Esc cancel · c clear · Tab/Shift+Tab move"), tierOptions, stepText)
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
@@ -1794,7 +1912,7 @@ func (m tuiModel) tuiColumnsWidth(columns []tuiColumn) int {
 	}
 	width := tableDisplayWidth("  ") + 3*(len(columns)-1)
 	for _, column := range columns {
-		width += tuiColumnMinimumWidth(column, m.scoreSource)
+		width += tuiColumnMinimumWidthForLang(column, m.scoreSource, m.lang)
 	}
 	return width
 }
@@ -1810,10 +1928,10 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 		}
 	}
 	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	widths := tuiCellWidths(columns, available, m.nameWidth, m.scoreSource)
+	widths := tuiCellWidthsForLang(columns, available, m.nameWidth, m.scoreSource, m.lang)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
-		value := tuiColumnLabel(col, m.scoreSource)
+		value := tuiColumnLabelForLang(col, m.scoreSource, m.lang)
 		if values != nil {
 			if i < len(values) {
 				value = values[i]
@@ -1891,6 +2009,81 @@ func tuiColumnMinimumWidth(column tuiColumn, scoreSource string) int {
 	return max(1, tableDisplayWidth(tuiColumnLabel(column, scoreSource)))
 }
 
+// tuiCellWidthsForLang is tuiCellWidths with a language-aware minimum
+// width: a Russian header can be longer or shorter than its English
+// counterpart, and the column has to be at least as wide as whichever
+// label is actually on screen or it would get truncated. See the
+// *ForLang naming convention on the detail screen for why this is a
+// sibling rather than a change to tuiCellWidths itself — nothing calls
+// tuiCellWidths directly outside this file, but keeping the naming
+// convention uniform beats special-casing the one function nothing
+// external depends on.
+func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSource, lang string) []int {
+	widths := make([]int, len(columns))
+	if len(columns) == 0 {
+		return widths
+	}
+	if available < len(columns) {
+		for i := range widths {
+			widths[i] = 1
+		}
+		return widths
+	}
+	if nameWidth <= 0 {
+		nameWidth = config.DefaultNameWidth
+	}
+	minimums := make([]int, len(columns))
+	minimumWidth := 0
+	for i, column := range columns {
+		minimums[i] = tuiColumnMinimumWidthForLang(column, scoreSource, lang)
+		minimumWidth += minimums[i]
+	}
+	if minimumWidth > available {
+		for i := range widths {
+			widths[i] = 1
+		}
+		return widths
+	}
+	nameIndex := -1
+	for i, column := range columns {
+		if column == colName {
+			nameIndex = i
+			break
+		}
+	}
+	remaining := available
+	if nameIndex >= 0 {
+		otherMinimum := minimumWidth - minimums[nameIndex]
+		widths[nameIndex] = min(max(minimums[nameIndex], nameWidth), max(minimums[nameIndex], available-otherMinimum))
+		remaining -= widths[nameIndex]
+	}
+	for i := range columns {
+		if i == nameIndex {
+			continue
+		}
+		widths[i] = minimums[i]
+		remaining -= widths[i]
+	}
+	for i := 0; remaining > 0; i++ {
+		index := i % len(widths)
+		if index == nameIndex && len(widths) > 1 {
+			continue
+		}
+		widths[index]++
+		remaining--
+	}
+	return widths
+}
+
+// tuiColumnMinimumWidthForLang is tuiColumnMinimumWidth with a
+// language-aware label.
+func tuiColumnMinimumWidthForLang(column tuiColumn, scoreSource, lang string) int {
+	if scoreSource == "" {
+		scoreSource = scoreSourceDefault
+	}
+	return max(1, tableDisplayWidth(tuiColumnLabelForLang(column, scoreSource, lang)))
+}
+
 func tuiNumericColumn(column tuiColumn) bool {
 	switch column {
 	case colQuality, colContext, colInput, colOutput:
@@ -1925,6 +2118,48 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 		return "Task fit"
 	case colNote:
 		return "Note"
+	default:
+		return string(column)
+	}
+}
+
+// tuiColumnLabelForLang is tuiColumnLabel with a language-aware header.
+// tuiColumnLabel itself is left untouched — it has a direct test call
+// site pinned to its exact 2-argument signature — so this is a sibling,
+// not a change, matching the *ForLang convention used throughout the
+// detail screen. Slug, Claude, Arena Elo, SWE % and Task fit stay English
+// in both languages: Slug and Task fit are terms of art kept English even
+// in Russian prose elsewhere (see tuiDetailLinesForLang and
+// docs/methodology.md's own choice for "Task fit"), and Claude/Arena Elo/
+// SWE % are proper nouns and metric names, not translatable prose.
+func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
+	if lang != "ru" {
+		return tuiColumnLabel(column, scoreSource)
+	}
+	switch column {
+	case colName:
+		return "Название"
+	case colSlug:
+		return "Slug"
+	case colClaude:
+		return "Claude"
+	case colStatus:
+		if scoreSource == scoreSourceArena {
+			return "Arena Elo"
+		}
+		return "SWE %"
+	case colQuality:
+		return "Q/P очки/$M"
+	case colContext:
+		return "Контекст"
+	case colInput:
+		return "Вход $/M"
+	case colOutput:
+		return "Выход $/M"
+	case colTask:
+		return "Task fit"
+	case colNote:
+		return "Заметка"
 	default:
 		return string(column)
 	}
