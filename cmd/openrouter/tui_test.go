@@ -5261,17 +5261,24 @@ func TestTUIHelpTextRowReflectsEnterRightWithoutL(t *testing.T) {
 func TestTUIRussianMainViewRendersTranslatedText(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
 	m.width, m.height, m.lang = 120, 24, "ru"
+	m.reverse = true // also exercises reverseLabel's " (reverse)" -> " (обратный)" in the meta line
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Модели OpenRouter", "навигация", "настройки", "выход", "фильтр", "доступность", "качество"} {
+	for _, want := range []string{"Модели OpenRouter", "навигация", "настройки", "выход", "фильтр", "доступность", "качество", "(обратный)"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Russian main view is missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "(reverse)") {
+		t.Errorf("Russian main view still shows the untranslated \"(reverse)\" suffix:\n%s", view)
 	}
 	// English still renders unchanged for the same model with lang reset.
 	m.lang = ""
 	englishView := ansi.Strip(m.View())
 	if !strings.Contains(englishView, "OpenRouter models") || strings.Contains(englishView, "Модели OpenRouter") {
 		t.Errorf("resetting lang to \"\" did not restore the English view:\n%s", englishView)
+	}
+	if !strings.Contains(englishView, "(reverse)") {
+		t.Errorf("resetting lang to \"\" did not restore the English \"(reverse)\" suffix:\n%s", englishView)
 	}
 }
 

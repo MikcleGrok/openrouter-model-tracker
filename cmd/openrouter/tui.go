@@ -545,6 +545,7 @@ var tuiTranslationsRU = map[string]string{
 	"OpenRouter models": "Модели OpenRouter",
 	"ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s": "ранжирование:%s  источник:%s  сортировка:%s%s  вид:%s  топ-N:%d  фильтр:%q  поиск:%s  моделей:%d  данные:%s",
 	"status: ready":                   "статус: готово",
+	" (reverse)":                      " (обратный)",
 	"status: refreshing...":           "статус: обновление...",
 	"error: ":                         "ошибка: ",
 	"refreshing":                      "обновление",
@@ -1744,7 +1745,7 @@ func (m tuiModel) View() string {
 			searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
 		}
 	}
-	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, m.t(reverseLabel(m.reverse)), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
