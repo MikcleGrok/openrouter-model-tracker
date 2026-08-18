@@ -2240,9 +2240,13 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // what actually prevents that false match; nothing about how the line
 // ends does.
 func (m tuiModel) helpLines() []string {
-	lines := tuiHelpSectionLines(m.helpSection)
-	lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
-	return tuiConfiguredHelpLines(lines, m.keymap)
+	lines := tuiHelpSectionLinesForLang(m.helpSection, m.lang)
+	if m.lang == "ru" {
+		lines[0] = fmt.Sprintf("%s (версия %s)", lines[0], version)
+	} else {
+		lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
+	}
+	return tuiConfiguredHelpLinesForLang(lines, m.keymap, m.lang)
 }
 
 // tuiHelpSectionLines builds the lines the F1 overlay actually renders for
@@ -2263,6 +2267,22 @@ func tuiHelpSectionLines(section int) []string {
 	section = tuiClampHelpSection(section)
 	lines := []string{tuiHelpTitleLine, "", tuiHelpTabBarLine(section), ""}
 	return append(lines, strings.Split(tuiHelpSections[section].Body, "\n")...)
+}
+
+// tuiHelpSectionLinesForLang is tuiHelpSectionLines with a language
+// switch: English (lang != "ru") delegates to the untouched original,
+// byte-identical to today; Russian builds the same four-line frame (title,
+// blank, tab bar, blank) plus body from tuiHelpSectionsRU instead. tuiModel
+// never calls tuiHelpSectionLines directly any more — see m.helpLines() —
+// so every test that does call it directly keeps exercising the exact
+// same English-only path it always has.
+func tuiHelpSectionLinesForLang(section int, lang string) []string {
+	if lang != "ru" {
+		return tuiHelpSectionLines(section)
+	}
+	section = tuiClampHelpSection(section)
+	lines := []string{tuiHelpTitleLineRU, "", tuiHelpTabBarLineForLang(section, lang), ""}
+	return append(lines, strings.Split(tuiHelpSectionsRU[section].Body, "\n")...)
 }
 
 // tuiClampHelpSection keeps a section index in range without wrapping,
@@ -2295,6 +2315,27 @@ func tuiHelpTabBarLine(active int) string {
 	return strings.Join(parts, " ")
 }
 
+// tuiHelpTabBarLineForLang is tuiHelpTabBarLine with a language-aware
+// section list: the tab titles themselves are the one piece of this
+// feature's content judged prose-like enough to translate (see
+// tuiHelpSectionsRU) rather than fixed UI chrome, per this feature's own
+// scoping decision.
+func tuiHelpTabBarLineForLang(active int, lang string) string {
+	if lang != "ru" {
+		return tuiHelpTabBarLine(active)
+	}
+	active = tuiClampHelpSection(active)
+	parts := make([]string, len(tuiHelpSectionsRU))
+	for i, section := range tuiHelpSectionsRU {
+		label := fmt.Sprintf("%d %s", i+1, section.Title)
+		if i == active {
+			label = "[" + label + "]"
+		}
+		parts[i] = label
+	}
+	return strings.Join(parts, " ")
+}
+
 func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	if keymap == nil {
 		return lines
@@ -2302,39 +2343,40 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	keymap = keymap.WithDefaults()
 	result := append([]string(nil), lines...)
 	replacements := map[string]config.TUIBindings{
-		`\tUp\tnavigate\t`:                                                   keymap["main"]["navigate_up"],
-		`\tDown\tnavigate\t`:                                                 keymap["main"]["navigate_down"],
-		`\tj / k\tmove\t`:                                                    append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
-		`\tEnter / Right\tdetail\t`:                                          keymap["main"]["open_details"],
-		`\tEsc / Left / h\tclose\t`:                                          keymap["detail"]["close"],
-		`\to\tsettings\topen settings.`:                                      keymap["main"]["open_settings"],
-		`\t?\thelp\topen help at Hotkeys.`:                                   keymap["main"]["help"],
-		`\tF1\thelp\topen full help.`:                                        keymap["main"]["full_help"],
+		`\tUp\tnavigate\t`:                 keymap["main"]["navigate_up"],
+		`\tDown\tnavigate\t`:               keymap["main"]["navigate_down"],
+		`\tj / k\tmove\t`:                  append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
+		`\tEnter / Right\tdetail\t`:        keymap["main"]["open_details"],
+		`\tEsc / Left / h\tclose\t`:        keymap["detail"]["close"],
+		`\to\tsettings\topen settings.`:    keymap["main"]["open_settings"],
+		`\tl\tlanguage\t`:                  keymap["main"]["language_toggle"],
+		`\t?\thelp\topen help at Hotkeys.`: keymap["main"]["help"],
+		`\tF1\thelp\topen full help.`:      keymap["main"]["full_help"],
 		`\tSpace\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
 		`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
-		`\tSpace\tcolumns\t`:                                                 keymap["columns"]["toggle"],
-		`\tSpace\ttier\t`:                                                    keymap["filter"]["toggle"],
-		`\tEnter\tapply\t`:                                                   keymap["filter"]["apply"],
-		`\tEsc\tcancel\t`:                                                    keymap["filter"]["close"],
-		`\tEsc\tcolumns\t`:                                                   keymap["columns"]["close"],
-		`\tEnter\tcolumns\t`:                                                 keymap["columns"]["apply"],
-		`\tEnter\tcolumns apply\t`:                                           keymap["columns"]["apply"],
-		`\t?\thelp\tclose help.`:                                             keymap["help"]["close"],
-		`\tEsc\tclose\tclose help.`:                                          keymap["help"]["close"],
-		`\tUp\tsettings navigate\t`:                                          keymap["settings"]["navigate_up"],
-		`\tDown\tsettings navigate\t`:                                        keymap["settings"]["navigate_down"],
-		`\tEsc\tsettings close\t`:                                            keymap["settings"]["close"],
-		`\tUp\tdetail navigate\t`:                                            keymap["detail"]["navigate_up"],
-		`\tDown\tdetail navigate\t`:                                          keymap["detail"]["navigate_down"],
-		`\tUp\thelp navigate\t`:                                              keymap["help"]["navigate_up"],
-		`\tDown\thelp navigate\t`:                                            keymap["help"]["navigate_down"],
-		`\tUp\tcolumns navigate\t`:                                           keymap["columns"]["navigate_up"],
-		`\tDown\tcolumns navigate\t`:                                         keymap["columns"]["navigate_down"],
-		`\tEsc\tcolumns close\t`:                                             keymap["columns"]["close"],
-		`\tUp\tfilter navigate\t`:                                            keymap["filter"]["navigate_up"],
-		`\tDown\tfilter navigate\t`:                                          keymap["filter"]["navigate_down"],
-		`\tEsc\tfilter close\t`:                                              keymap["filter"]["close"],
-		`\tEsc\tmain close\t`:                                                keymap["main"]["close"],
+		`\tSpace\tcolumns\t`:          keymap["columns"]["toggle"],
+		`\tSpace\ttier\t`:             keymap["filter"]["toggle"],
+		`\tEnter\tapply\t`:            keymap["filter"]["apply"],
+		`\tEsc\tcancel\t`:             keymap["filter"]["close"],
+		`\tEsc\tcolumns\t`:            keymap["columns"]["close"],
+		`\tEnter\tcolumns\t`:          keymap["columns"]["apply"],
+		`\tEnter\tcolumns apply\t`:    keymap["columns"]["apply"],
+		`\t?\thelp\tclose help.`:      keymap["help"]["close"],
+		`\tEsc\tclose\tclose help.`:   keymap["help"]["close"],
+		`\tUp\tsettings navigate\t`:   keymap["settings"]["navigate_up"],
+		`\tDown\tsettings navigate\t`: keymap["settings"]["navigate_down"],
+		`\tEsc\tsettings close\t`:     keymap["settings"]["close"],
+		`\tUp\tdetail navigate\t`:     keymap["detail"]["navigate_up"],
+		`\tDown\tdetail navigate\t`:   keymap["detail"]["navigate_down"],
+		`\tUp\thelp navigate\t`:       keymap["help"]["navigate_up"],
+		`\tDown\thelp navigate\t`:     keymap["help"]["navigate_down"],
+		`\tUp\tcolumns navigate\t`:    keymap["columns"]["navigate_up"],
+		`\tDown\tcolumns navigate\t`:  keymap["columns"]["navigate_down"],
+		`\tEsc\tcolumns close\t`:      keymap["columns"]["close"],
+		`\tUp\tfilter navigate\t`:     keymap["filter"]["navigate_up"],
+		`\tDown\tfilter navigate\t`:   keymap["filter"]["navigate_down"],
+		`\tEsc\tfilter close\t`:       keymap["filter"]["close"],
+		`\tEsc\tmain close\t`:         keymap["main"]["close"],
 	}
 	for i := range result {
 		for marker, bindings := range replacements {
@@ -2346,6 +2388,78 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		}
 	}
 	return result
+}
+
+// tuiConfiguredHelpLinesRU is tuiConfiguredHelpLines for the Russian
+// Hotkeys/Filters bodies: same substitution mechanism, a separate
+// replacements map keyed against the RU Action-column wording chosen in
+// tuiHelpSectionHotkeysBodyRU/tuiHelpSectionFiltersBodyRU instead of the
+// English one. One EN marker — `\tj / k\tmove\t` — is not mirrored here: it
+// never actually matches anything in the English body either (the body's
+// own Action column reads "navigate", never "move", for every j/k row), so
+// it substitutes nothing today; carrying that same no-op into Russian
+// would only be one more thing to keep in sync for no behavioural gain.
+func tuiConfiguredHelpLinesRU(lines []string, keymap config.TUIKeymap) []string {
+	if keymap == nil {
+		return lines
+	}
+	keymap = keymap.WithDefaults()
+	result := append([]string(nil), lines...)
+	replacements := map[string]config.TUIBindings{
+		`\tUp\tнавигация\t`:                keymap["main"]["navigate_up"],
+		`\tDown\tнавигация\t`:              keymap["main"]["navigate_down"],
+		`\tEnter / Right\tдетали\t`:        keymap["main"]["open_details"],
+		`\tEsc / Left / h\tзакрытие\t`:     keymap["detail"]["close"],
+		`\to\tsettings\tоткрыть settings.`: keymap["main"]["open_settings"],
+		`\tl\tязык\t`:                      keymap["main"]["language_toggle"],
+		`\t?\thelp\tоткрыть справку на разделе Хоткеи.`:                                 keymap["main"]["help"],
+		`\tF1\thelp\tоткрыть полную справку.`:                                           keymap["main"]["full_help"],
+		`\tSpace\tпереключение\t(в основном виде) переключить между SWE-bench и Arena.`: keymap["main"]["switch_source"],
+		`\tSpace\tпереключение\t(в Settings) переключить между SWE-bench и Arena.`:      keymap["settings"]["switch_source"],
+		`\tSpace\tстолбцы\t`:               keymap["columns"]["toggle"],
+		`\tSpace\tтир\t`:                   keymap["filter"]["toggle"],
+		`\tEnter\tприменение\t`:            keymap["filter"]["apply"],
+		`\tEsc\tотмена\t`:                  keymap["filter"]["close"],
+		`\tEsc\tстолбцы\t`:                 keymap["columns"]["close"],
+		`\tEnter\tстолбцы\t`:               keymap["columns"]["apply"],
+		`\tEnter\tприменение columns\t`:    keymap["columns"]["apply"],
+		`\t?\thelp\tзакрыть help.`:         keymap["help"]["close"],
+		`\tEsc\tзакрытие\tзакрыть help.`:   keymap["help"]["close"],
+		`\tUp\tнавигация в settings\t`:     keymap["settings"]["navigate_up"],
+		`\tDown\tнавигация в settings\t`:   keymap["settings"]["navigate_down"],
+		`\tEsc\tзакрытие settings\t`:       keymap["settings"]["close"],
+		`\tUp\tнавигация в деталях\t`:      keymap["detail"]["navigate_up"],
+		`\tDown\tнавигация в деталях\t`:    keymap["detail"]["navigate_down"],
+		`\tUp\tнавигация в help\t`:         keymap["help"]["navigate_up"],
+		`\tDown\tнавигация в help\t`:       keymap["help"]["navigate_down"],
+		`\tUp\tнавигация в columns\t`:      keymap["columns"]["navigate_up"],
+		`\tDown\tнавигация в columns\t`:    keymap["columns"]["navigate_down"],
+		`\tEsc\tзакрытие columns\t`:        keymap["columns"]["close"],
+		`\tUp\tнавигация в filter\t`:       keymap["filter"]["navigate_up"],
+		`\tDown\tнавигация в filter\t`:     keymap["filter"]["navigate_down"],
+		`\tEsc\tзакрытие filter\t`:         keymap["filter"]["close"],
+		`\tEsc\tзакрытие основного вида\t`: keymap["main"]["close"],
+	}
+	for i := range result {
+		for marker, bindings := range replacements {
+			if strings.Contains(result[i], marker) {
+				parts := strings.Split(marker, `\t`)
+				replacement := `\t` + strings.Join(bindings, " / ") + `\t` + strings.Join(parts[2:], `\t`)
+				result[i] = strings.Replace(result[i], marker, replacement, 1)
+			}
+		}
+	}
+	return result
+}
+
+// tuiConfiguredHelpLinesForLang dispatches tuiConfiguredHelpLines vs.
+// tuiConfiguredHelpLinesRU by language, the same switch every other
+// *ForLang function in this file makes.
+func tuiConfiguredHelpLinesForLang(lines []string, keymap config.TUIKeymap, lang string) []string {
+	if lang == "ru" {
+		return tuiConfiguredHelpLinesRU(lines, keymap)
+	}
+	return tuiConfiguredHelpLines(lines, keymap)
 }
 
 // helpViewportHeight reserves room for the trailing status cluster —  a
@@ -2435,19 +2549,39 @@ func tuiHelpView(m tuiModel) string {
 		inputLineIndex = len(lines)
 		lines = append(lines, plainTableText("/ "+m.input+"_"))
 	}
+	ru := m.lang == "ru"
 	matchStatus := "0 matches"
+	if ru {
+		matchStatus = "0 совпадений"
+	}
 	if len(m.helpMatches) > 0 {
 		position := 0
 		if m.helpMatch >= 0 && m.helpMatch < len(m.helpMatches) {
 			position = m.helpMatch + 1
 		}
-		matchStatus = fmt.Sprintf("%d/%d matches", position, len(m.helpMatches))
+		if ru {
+			matchStatus = fmt.Sprintf("%d/%d совпадений", position, len(m.helpMatches))
+		} else {
+			matchStatus = fmt.Sprintf("%d/%d matches", position, len(m.helpMatches))
+		}
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · %s", offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()), matchStatus)
+	footerLabel := "Help"
+	if ru {
+		footerLabel = "Справка"
+	}
+	footer := fmt.Sprintf("%s %d-%d/%d · %s", footerLabel, offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()), matchStatus)
 	if inputActive {
-		footer += " · / search · Enter confirm search · Esc cancel"
+		if ru {
+			footer += " · / поиск · Enter подтвердить поиск · Esc отмена"
+		} else {
+			footer += " · / search · Enter confirm search · Esc cancel"
+		}
 	} else {
-		footer += " · / search · n next match · N previous match · Esc close"
+		if ru {
+			footer += " · / поиск · n следующее совпадение · N предыдущее совпадение · Esc закрыть"
+		} else {
+			footer += " · / search · n next match · N previous match · Esc close"
+		}
 	}
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
@@ -2462,11 +2596,17 @@ func tuiHelpView(m tuiModel) string {
 			continue
 		}
 		if i == tabBarLineIndex {
-			styledLines[i] = tuiStyleHelpTabBar(line, m.helpSection)
+			styledLines[i] = tuiStyleHelpTabBarForLang(line, m.helpSection, m.lang)
 			continue
 		}
 		plain := ansi.Strip(line)
-		if strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
+		isHeading := false
+		if ru {
+			isHeading = strings.HasPrefix(plain, "omt tui —") || tuiHelpHeadingLinesRU[plain]
+		} else {
+			isHeading = strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
+		}
+		if isHeading {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
@@ -2474,6 +2614,31 @@ func tuiHelpView(m tuiModel) string {
 		styledLines[i] = tuiHighlightHelpMatches(line, needle, current)
 	}
 	return strings.Join(styledLines, "\n")
+}
+
+// tuiHelpHeadingLinesRU is the Russian mirror of the English heading-line
+// checks in tuiHelpView above (the exact-match half of it: "Hotkeys",
+// "Navigation", "Data/view", ...) — every RU mini-header and section
+// heading that gets the same bold treatment its English original does. The
+// English side also bolds a few section headings by suffix ("...view",
+// "...filters", "...finish", "...search") rather than exact text; those
+// are folded into this same exact-match set for Russian rather than
+// re-derived as RU suffix rules, since "does this Russian sentence happen
+// to end in a matching suffix" has no natural equivalent — the point is
+// the same seven English headings this augments (page title handled
+// separately by its own prefix check below), not the suffix mechanism
+// that happened to catch them in English.
+var tuiHelpHeadingLinesRU = map[string]bool{
+	"Хоткеи":                   true,
+	"Навигация":                true,
+	"Данные/вид":               true,
+	"Фильтры/настройки":        true,
+	"Коды task-fit":            true,
+	"Общее/справка":            true,
+	"Экран деталей модели":     true,
+	"Столбцы, поиск и фильтры": true,
+	"Обновление и завершение":  true,
+	"Поиск в справке":          true,
 }
 
 func tuiFormatHelpLine(line string, width int) string {
@@ -2510,6 +2675,24 @@ func tuiStyleHelpTabBar(line string, active int) string {
 		return line
 	}
 	target := "[" + fmt.Sprintf("%d %s", active+1, tuiHelpSections[active].Title) + "]"
+	index := strings.Index(line, target)
+	if index < 0 {
+		return line
+	}
+	return line[:index] + tuiSelectedStyle.Render(target) + line[index+len(target):]
+}
+
+// tuiStyleHelpTabBarForLang is tuiStyleHelpTabBar with a language-aware
+// tab title, looking the bracketed target up in tuiHelpSectionsRU instead
+// of tuiHelpSections when Russian is active.
+func tuiStyleHelpTabBarForLang(line string, active int, lang string) string {
+	if lang != "ru" {
+		return tuiStyleHelpTabBar(line, active)
+	}
+	if active < 0 || active >= len(tuiHelpSectionsRU) {
+		return line
+	}
+	target := "[" + fmt.Sprintf("%d %s", active+1, tuiHelpSectionsRU[active].Title) + "]"
 	index := strings.Index(line, target)
 	if index < 0 {
 		return line
@@ -2856,6 +3039,7 @@ Data/view
 \tp\tavailability\tcycle any/free/paid.
 \tr\tsort\tquality/price ratio (q/p).
 \tv\tview\ttoggle all/top-paid-free.
+\tl\tlanguage\tswitch the interface between English and Russian; works from any screen.
 \tm\tranking\ttoggle ranking mode: mixed-utility or tier-priority.
 \ts\tordering\tcycle sort key.
 \tS\tordering\treverse order.
@@ -3004,6 +3188,314 @@ A row can carry a real number and still not rank: variant_mismatch, missing_iden
 legacy_unknown (an old snapshot saved before identity status existed) are all shown with their
 number but excluded, the same as a model with no score source at all, or a manual notes.yaml
 observation-only override, which is a vendor claim rather than an independent measurement.`
+
+// tuiHelpTitleLineRU is tuiHelpTitleLine's Russian counterpart, used only
+// by the *ForLang rendering path when m.lang == "ru". "omt tui" (the CLI's
+// own name) stays untranslated, matching every other proper noun and CLI
+// identifier in this feature.
+const tuiHelpTitleLineRU = "omt tui — хоткеи"
+
+// tuiHelpSectionOverviewBodyRU is tuiHelpSectionOverviewBody's Russian
+// translation. Terminology follows docs/methodology.md and model-map.tsv's
+// own header comment throughout this file's RU help content: "качество"
+// and "тир" in prose (matching README.md/docs/methodology.md's own choice
+// to decline these as ordinary Russian words), but quality>=, tier:,
+// tier-priority, mixed-utility, price_weight, tier_factor, quality_price
+// and every other literal filter/formula/CLI token stay English exactly as
+// typed, because translating a token a user has to type verbatim would be
+// actively wrong, not just inconsistent. exact_product, variant_mismatch,
+// rankable and !variant are the identity-gate's own status vocabulary,
+// kept English the same way docs/methodology.md keeps them.
+const tuiHelpSectionOverviewBodyRU = `omt отслеживает AI-модели, доступные на OpenRouter, и ранжирует их по качеству и цене.
+- Качество берётся из оценок SWE-bench Verified или LMArena Elo; цена — из каталога OpenRouter.
+- Модели сгруппированы по тирам относительно Claude Opus, Sonnet и Haiku, чтобы относительное
+качество было легко оценить.
+
+Что формирует каждую строку: три независимых вида данных
+Каждую строку формируют три вида данных, и ни один не выводится из другого.
+- Цена и контекст берутся живьём из каталога OpenRouter.
+- Качество — независимая бенчмарк-оценка: SWE-bench Verified (с vals.ai или swebench.com) либо
+LMArena Elo, никогда оба сразу; чем они отличаются и почему никогда не смешиваются — в разделе
+Score Sources.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, а не то, что вычисляется из
+оценки. Он нужен, чтобы модель без единого бенчмарка тоже была сравнима на одной знакомой шкале —
+«примерно уровня Sonnet» или «примерно уровня Haiku» — даже если у семейства модели вообще нет
+бенчмарк-числа.
+- quality и quality>= всегда означают rankable exact-product бенчмарк-наблюдение — никогда
+вендорское заявление и никогда тир.
+
+Identity matching: никогда по похожести имён
+Строка лидерборда никогда не привязывается к модели OpenRouter по похожести имён.
+- Единственный путь от строки одного сайта к slug'у другого сайта — ручная карта model-map.tsv.
+- Нет записи в карте — нет автоматически собранной оценки для этой модели, и это осознанное
+решение: правдоподобное совпадение имён на двух независимо администрируемых сайтах — ровно то, как
+число одной модели тихо приклеивается к другой.
+- Сопоставленный ключ source= сам по себе и есть утверждение об идентичности. Если источник вернул
+строку по этому ключу, она считается exact_product, даже если написание ключа отличается от slug'а
+OpenRouter, — это обычное дело между двумя сайтами с разными соглашениями об именовании.
+- Если сопоставленная строка на самом деле измеряет другой чекпоинт или вариант той же линейки,
+запись помечается маркером !variant (например, vals!variant=some/other-checkpoint), и строка остаётся
+вне ранжирования (variant_mismatch), несмотря на совпадение по ключу.
+- Только человек, редактируя карту, может принять такое решение; код это автоматически не ловит.
+
+Режимы ранжирования
+tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
+mixed-utility: сначала rankable-модели, затем платные сравниваются по paid utility из настроенной
+безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*ln(1+quality_price),
+где смешение цены 3:1, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а weight=10. Переменные formula,
+операции, глубина и лимиты узлов описаны в README. Task fit никогда не входит множителем.
+o, затем стрелка вниз к Score source, затем Space переключает SWE-bench и Arena.
+Флаг CLI --ranking принимает legacy, tier, tier-priority, mixed или mixed-utility; без него
+используется сортировка mixed-utility.`
+
+// tuiHelpSectionScoreSourcesBodyRU is tuiHelpSectionScoreSourcesBody's
+// Russian translation. "n/a" in the English body (what the table shows for
+// a model with no number on the active source) becomes н/д here, matching
+// the placeholder the app actually renders in Russian — see
+// tuiDetailPlaceholderRU.
+const tuiHelpSectionScoreSourcesBodyRU = `Источники оценки
+swebench: Status и ranking используют SWE-bench Verified, в процентах. Это значение по умолчанию.
+arena: Status и ranking используют рейтинг LMArena Elo, показанный как есть и нормализованный в 0-100
+перед тем, как он войдёт в формулу ранжирования.
+- Эти два источника никогда не смешиваются: в одном представлении модель без числа на активном
+источнике показывает н/д, даже если у другого источника число есть.
+- Выбирается через --score-source или Settings; переключение читает локальный снапшот, а
+сгенерированный markdown-документ всегда использует swebench.
+
+SWE-bench Verified: два источника, а не две альтернативы
+У самого SWE-bench Verified есть два возможных источника, и они друг другу fallback, а не
+взаимозаменяемые измерения.
+- vals.ai сам запускает каждую submitted-модель на одном фиксированном независимом харнессе, и его
+собственная строка лидерборда эхом возвращает точный ключ модели, по которому её нашли; именно этот
+эхо-ответ и позволяет проекту по умолчанию доверять идентичности строки (механику identity gate см. в
+разделе Overview).
+- swebench.com устроен иначе: это self-submitted лидерборд, где прислать прогон со своим агентским
+скаффолдом может кто угодно, поэтому одна и та же модель может появляться под несколькими разными
+скаффолдами с разными числами. Чтобы притупить стимул накручивать лидерборд одним агрессивным
+скаффолдом, проект берёт медиану по каждому отдельному сабмиченному скаффолду (один голос на
+скаффолд; повторный сабмит того же скаффолда заменяет прежний, а не добавляет второй голос) вместо
+единственного лучшего прогона, и текст самой строки говорит «median of N scaffolds», когда это
+применилось.
+- vals.ai побеждает всегда, когда у него есть пригодная, прошедшая identity-проверку строка для
+модели; swebench.com используется только как запасной источник — когда у vals.ai нет строки вовсе
+или её строка не прошла проверку идентичности.
+
+LMArena Elo: другая шкала, а не третья альтернатива
+LMArena Elo — не третий способ получить то же самое число.
+- Это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), построенный на голосованиях людей
+за вывод модели в парных сравнениях, а не оценка на фиксированном наборе реальных pull request'ов, как
+SWE-bench Verified.
+- Перед попаданием в формулу ранжирования он нормализуется в 0-100, но нормализация не делает его
+сравнимым с процентом SWE-bench: две модели с одинаковой оценкой 60 не «одинаково хороши» по одной и
+той же шкале — их измеряли два разных эксперимента.
+- Именно поэтому приложение никогда не показывает оба измерения одновременно для одной модели и
+никогда не позволяет фильтру их смешать.
+
+Переключение источников
+Space, в основном представлении или в Settings, меняет единственный активный критерий сразу и везде.
+- Status, ranking и фильтры quality>= двигаются вместе, и модель без числа на новом активном
+источнике показывает н/д, даже если оно было на другом.
+- Доверие к ранжированию начинается со знания, какое из этих трёх измерений дало число на экране;
+проверить это можно в этом разделе и по колонке источника в экране деталей модели.`
+
+// tuiHelpSectionHotkeysBodyRU is tuiHelpSectionHotkeysBody's Russian
+// translation. Every \tKey\tAction\tDescription row keeps its Key column
+// exactly as in English — literal key names are never translated, per this
+// feature's scoping rule — and translates the Action and Description
+// columns. tuiFormatHelpLine, which turns this tab-delimited text into
+// aligned columns on screen, is entirely language-agnostic (it just splits
+// on \t), so it needs no RU counterpart.
+const tuiHelpSectionHotkeysBodyRU = `Хоткеи
+
+Навигация
+\tUp\tнавигация в settings\tпредыдущее поле Settings.
+\tDown\tнавигация в settings\tследующее поле Settings.
+\tEsc\tзакрытие settings\tзакрыть Settings.
+\tUp\tнавигация в деталях\tпредыдущее поле в деталях.
+\tDown\tнавигация в деталях\tследующее поле в деталях.
+\tUp\tнавигация в help\tпрокрутка справки вверх.
+\tDown\tнавигация в help\tпрокрутка справки вниз.
+\tUp\tнавигация в columns\tпредыдущий столбец.
+\tDown\tнавигация в columns\tследующий столбец.
+\tEsc\tзакрытие columns\tотменить выбор столбцов.
+\tUp\tнавигация в filter\tпредыдущее поле фильтра.
+\tDown\tнавигация в filter\tследующее поле фильтра.
+\tEsc\tзакрытие filter\tотменить редактирование фильтра.
+\tUp\tнавигация\tпредыдущая модель; в help — прокрутка вверх.
+\tDown\tнавигация\tследующая модель; в help — прокрутка вниз.
+\tj / k\tнавигация\tперемещение по моделям; в help — прокрутка.
+\tHome / g\tпереход\tпервый элемент.
+\tEnd / G\tпереход\tпоследний элемент.
+\tPgUp / PgDown\tпрокрутка\tлистать модели или help постранично.
+\tEnter / Right\tдетали\tоткрыть экран деталей модели.
+\tEsc / Left / h\tзакрытие\tEsc, Left или h закрывает и возвращает к списку.
+
+Данные/вид
+\tq\tсортировка\tкачество.
+\tp\tдоступность\tцикл any/free/paid.
+\tr\tсортировка\tотношение качество/цена (q/p).
+\tv\tвид\tпереключить all/top-paid-free.
+\tl\tязык\tпереключить интерфейс между английским и русским; работает на любом экране.
+\tm\tранжирование\tпереключить режим ranking: mixed-utility или tier-priority.
+\ts\tпорядок\tциклический выбор ключа сортировки.
+\tS\tпорядок\tобратный порядок.
+\to\tsettings\tоткрыть settings.
+\tDown\tнавигация\tперейти к Score source в Settings.
+\tSpace\tпереключение\t(в основном виде) переключить между SWE-bench и Arena.
+\tSpace\tпереключение\t(в Settings) переключить между SWE-bench и Arena.
+\tR\tобновление\tобновить локальные данные.
+\tc\tстолбцы\tоткрыть выбор.
+\tn\tвид\tпереключить последний столбец между Task fit и Заметкой.
+
+Фильтры/настройки
+\tf\tфильтр\tредактировать структурированный фильтр.
+\t/\tпоиск\tискать по Name/Slug.
+\tSpace\tстолбцы\tпереключить столбец.
+\tEnter\tприменение columns\tприменить выбор столбцов.
+\tSpace\tтир\tциклически перебрать Тир.
+\tEnter\tприменение\tприменить текущий редактор.
+\tEsc\tотмена\tотменить текущий редактор.
+
+Коды task-fit
+\tI\tкод task-fit\timplement: написать или изменить продакшен-код.
+\tP\tкод task-fit\tplan: определить объём, шаги и решения.
+\tR\tкод task-fit\tresearch: исследовать варианты, свидетельства или поведение.
+\tD\tкод task-fit\tdebug: найти и исправить дефект или сбой.
+\tA\tкод task-fit\taudit: проверить качество, безопасность или соответствие требованиям.
+\tF\tкод task-fit\trefactor: улучшить структуру без изменения поведения.
+\tT\tкод task-fit\ttest: добавить или улучшить автоматизированную проверку.
+Отсутствие классификации task-fit отображается как н/д.
+
+Обновление и завершение
+\tR\tобновление\tобновить локальные данные сейчас. Автообновление использует --refresh-interval; 0 отключает его.
+\tx / Ctrl-C\tвыход\tвыйти из TUI.
+\tEsc\tзакрытие\tзакрыть help.
+\tEsc\tназад\tвернуться к списку из текущего оверлея.
+\t?\thelp\tзакрыть help.
+\tF1\thelp\tоткрыть полную справку.
+
+Поиск в справке
+\t/\tпоиск\tначать поиск в этом документе; ввести текст и нажать Enter.
+\tn\tсовпадения\tперейти к следующему совпадению; результаты поиска остаются выделенными.
+\tN\tсовпадения\tперейти к предыдущему совпадению; результаты поиска остаются выделенными.
+\tUp / Down\tпрокрутка\tпрокрутить эту справку; выбранное совпадение не меняется.
+\t0 совпадений\tстатус\tпоиск без совпадений отображается явно.
+\tEsc\tзакрытие\tотменить поиск.
+
+Общее/справка
+\tEsc\tзакрытие основного вида\tзакрыть основной вид.
+\tx / Ctrl-C\tвыход\tвыйти из TUI.
+\t?\thelp\tоткрыть справку на разделе Хоткеи.
+\t?\thelp\tзакрыть help.
+\tF1\thelp\tоткрыть полную справку.`
+
+// tuiHelpSectionFiltersBodyRU is tuiHelpSectionFiltersBody's Russian
+// translation. Field names referenced in the CLI/TUI examples (Тир,
+// Платные, Качество (минимум), ...) match the Filter overlay's own RU
+// labels exactly — see tuiTranslationsRU — while every literal filter
+// predicate/token (quality>=N, tier:VALUE, --filter) is left exactly as a
+// user has to type it.
+const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтры
+\tc\tстолбцы\tоткрыть выбор.
+\tSpace\tстолбцы\tпереключить столбец.
+\tEnter\tстолбцы\tприменить выбор столбцов.
+\tEsc\tстолбцы\tотменить выбор столбцов.
+Последний столбец остаётся выбранным.
+\t/\tпоиск\tищет по Name/Slug как обычный текст-подстроку.
+\tf\tфильтр\tредактирует структурированный фильтр и не меняет поиск.
+	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
+	Пример TUI: нажмите f, включите Платные, введите sonnet в Тир и 0.8 в Качество (минимум), затем Enter.
+	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Тир. Left/Right выбирают Тир или изменяют числовые значения; Space циклит Тир. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
+	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
+	Предикаты: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
+	Несколько фильтров разделяются запятой (или повторным --filter в CLI) и всегда работают через AND.
+	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
+	Для quality принимается ввод и 0..100, и 0..1: quality>=0.8 означает quality>=80.`
+
+// tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
+// translation.
+const tuiHelpSectionDetailBodyRU = `Экран деталей модели
+\tEnter или Right\tдетали\tEnter или Right открывает экран деталей для выделенной модели.
+\tEsc, Left или h\tдетали\tзакрыть его и вернуться к списку с тем же курсором.
+\tUp/Down или j/k\tпрокрутка\tпрокрутить текст деталей; PgUp/PgDown и Home/End тоже работают.
+Экран показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
+Вендорское описание переносится по ширине терминала, а не обрезается, как ячейка таблицы.
+Экран также содержит ссылку на страницу модели на OpenRouter и, если каталог её знает, — на репозиторий HuggingFace. Ссылки показаны как обычный текст; кликабельных терминальных гиперссылок нет.
+Подписи полей, заголовки блоков, ссылки и отсутствующие значения выделены цветом; цвет никогда не меняет раскладку.`
+
+// tuiHelpSectionMethodologyBodyRU is tuiHelpSectionMethodologyBody's
+// Russian translation, adapted closely from docs/methodology.md's own RU
+// text (which covers the same material at greater length) rather than
+// translated independently, per this feature's terminology rule: the two
+// should read as the same story told at two lengths, not two different
+// translations of the same English source.
+const tuiHelpSectionMethodologyBodyRU = `Методология: как строятся таблица и ранжирование
+Более подробная версия этой же истории, для чтения вне терминала, — в docs/methodology.md в
+репозитории проекта. Здесь нет ничего нового: раздел собирает воедино то, что уже сказано в Overview и
+Score Sources, плюс саму механику ранжирования.
+
+Что формирует каждую строку
+Каждую строку формируют три независимых вида данных, и ни один не выводится из другого.
+- Цена и контекст берутся живьём из каталога OpenRouter.
+- Качество — независимое бенчмарк-наблюдение: SWE-bench Verified (с vals.ai или swebench.com) либо
+LMArena Elo, никогда оба сразу.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, проставленная человеком, а не
+вычисленная из оценки.
+
+Identity gate: model-map.tsv — единственный путь к оценке
+Строка бенчмарка привязывается к модели OpenRouter только через model-map.tsv, никогда —
+сопоставлением похожих имён.
+- Нет записи в карте для источника — нет автоматически собранной оценки из этого источника, и это
+осознанное решение.
+- Сопоставленный ключ сам по себе и есть утверждение об идентичности: как только источник вернул
+строку по этому ключу, она считается exact_product, даже если её написание отличается от slug'а
+OpenRouter.
+- Сопоставленная строка, которая на самом деле измеряет другой чекпоинт или вариант, помечается
+маркером !variant на имени источника (например, vals!variant=some/other-checkpoint) и остаётся вне
+ранжирования (variant_mismatch), несмотря на совпадение по ключу; поймать это может только человек,
+редактируя файл, — никогда код.
+
+Три измерения, которые никогда не смешиваются
+- vals.ai сам запускает каждую модель на одном фиксированном независимом харнессе и эхом возвращает
+точный ключ, по которому её нашли; он побеждает всегда, когда у него есть пригодная, прошедшая
+identity-проверку строка.
+- swebench.com — self-submitted лидерборд: вместо единственного лучшего прогона берётся медиана по
+каждому отдельному сабмиченному скаффолду для модели (один голос на скаффолд); это только запасной
+источник — когда у vals.ai нет строки вовсе или её строка не прошла identity-проверку.
+- LMArena Elo — это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), нормализованный в
+0-100 перед попаданием в формулу ранжирования; он никогда не показывается рядом со SWE-bench и никогда
+не попадает в ту же колонку.
+
+Как на самом деле считается ранжирование
+- tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
+- mixed-utility (по умолчанию): сначала rankable-модели, затем платные сравниваются по paid utility
+из настроенной безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*
+ln(1+quality_price), где price_weight=10, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а сама цена —
+смешение input:output 3:1: (3*input+output)/4 за $/M токенов. Task fit никогда не входит множителем.
+- Бесплатные rankable-модели сравниваются просто по оценке; quality/price не определено при $0.
+
+Почему строка не попадает в ранжирование
+Строка может нести настоящее число и всё равно не участвовать в ранжировании: variant_mismatch,
+missing_identity и legacy_unknown (старый снапшот, сохранённый до появления статуса identity) — все
+показываются со своим числом, но исключаются, как и модель вообще без источника оценки, или ручной
+observation-only override из notes.yaml, который является вендорским заявлением, а не независимым
+измерением.`
+
+// tuiHelpSectionsRU is tuiHelpSections' Russian counterpart — same order,
+// same six sections, RU titles and RU bodies. tuiHelpSectionLinesForLang
+// picks between the two slices by language; nothing here ever feeds
+// tuiHelpDocument or tuiHelpLines(), which stay English-only by
+// construction (see the comment on tuiHelpDocument below) so the
+// Cyrillic-free structural tests keep passing unmodified.
+var tuiHelpSectionsRU = []tuiHelpSection{
+	{Title: "Обзор", Body: tuiHelpSectionOverviewBodyRU},
+	{Title: "Источники оценки", Body: tuiHelpSectionScoreSourcesBodyRU},
+	{Title: "Хоткеи", Body: tuiHelpSectionHotkeysBodyRU},
+	{Title: "Фильтры", Body: tuiHelpSectionFiltersBodyRU},
+	{Title: "Детали модели", Body: tuiHelpSectionDetailBodyRU},
+	{Title: "Методология", Body: tuiHelpSectionMethodologyBodyRU},
+}
 
 // stored in a section body, which is exactly what keeps this constant
 // entirely English: the content/structural tests that scan tuiHelpDocument
