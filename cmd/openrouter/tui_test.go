@@ -5131,3 +5131,299 @@ func TestTUIHelpSearchSeedsTheInputLineWithThePreviousQuery(t *testing.T) {
 		t.Fatalf("повторный / не показал затравку предыдущим запросом:\n%s", view)
 	}
 }
+
+// --- Russian localization (tui-russian-localization) ---
+//
+// The tests below cover the l/language_toggle feature: the default,
+// zero-value language stays English (m.lang == ""), l (and its Cyrillic
+// alias д) flips it to Russian and back from anywhere in the app, the
+// choice persists to config.yaml via config.SaveTUILanguage, and every
+// overlay/view actually renders Russian text — literal key names excepted
+// — once toggled. See internal/config/config_test.go for the
+// SaveTUILanguage persistence round trip mirroring SaveTUIFilter's own
+// tests.
+
+// TestTUILanguageZeroValueStaysEnglish pins the byte-identical-default
+// promise at the mechanism level: a bare tuiModel{} (lang's zero value)
+// must translate nothing, so every pre-existing test asserting on English
+// text keeps passing unmodified.
+func TestTUILanguageZeroValueStaysEnglish(t *testing.T) {
+	var m tuiModel
+	if m.lang != "" {
+		t.Fatalf("zero-value tuiModel has lang = %q, want \"\"", m.lang)
+	}
+	for en := range tuiTranslationsRU {
+		if got := m.t(en); got != en {
+			t.Fatalf("zero-value m.t(%q) = %q, want unchanged %q", en, got, en)
+		}
+	}
+	if got := tuiColumnLabelForLang(colName, scoreSourceSWEBench, m.lang); got != "Name" {
+		t.Fatalf("zero-value column label = %q, want \"Name\"", got)
+	}
+	if got := tuiDetailPlaceholderForLang(m.lang); got != "n/a" {
+		t.Fatalf("zero-value detail placeholder = %q, want \"n/a\"", got)
+	}
+}
+
+// TestTUILanguageToggleKey covers the l key itself: it flips m.lang from
+// the main list, flips it back, and — per this feature's design decision
+// to make language_toggle globally reachable like x, checked
+// unconditionally in key() rather than gated on m.overlay == "" — also
+// works from inside an overlay without closing it.
+func TestTUILanguageToggleKey(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	if m.lang != "" {
+		t.Fatalf("test setup: lang = %q, want \"\"", m.lang)
+	}
+	m = tuiKey(m, "l")
+	if m.lang != "ru" {
+		t.Fatalf("l did not switch to Russian: lang = %q", m.lang)
+	}
+	m = tuiKey(m, "l")
+	if m.lang != "" {
+		t.Fatalf("l did not switch back to English: lang = %q", m.lang)
+	}
+	// From inside an overlay: the overlay must stay open (l is not treated
+	// as a close/cancel key), and the language still flips.
+	m.overlay, m.settingsCursor = "settings", 0
+	m = tuiKey(m, "l")
+	if m.lang != "ru" {
+		t.Fatalf("l did not switch to Russian from inside Settings: lang = %q", m.lang)
+	}
+	if m.overlay != "settings" {
+		t.Fatalf("l closed the Settings overlay: overlay = %q, want \"settings\" to stay open", m.overlay)
+	}
+}
+
+// TestTUILanguageToggleCyrillicAlias directly exercises the д alias (the
+// physical ЙЦУКЕН position of Latin l) for the language toggle, alongside
+// the generic tuiShortcutCases coverage ("list toggle language" case) that
+// already proves every Cyrillic alias produces identical state to its
+// Latin counterpart.
+func TestTUILanguageToggleCyrillicAlias(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m = tuiKey(m, "д")
+	if m.lang != "ru" {
+		t.Fatalf("Cyrillic д did not switch to Russian: lang = %q", m.lang)
+	}
+	m = tuiKey(m, "д")
+	if m.lang != "" {
+		t.Fatalf("Cyrillic д did not switch back to English: lang = %q", m.lang)
+	}
+}
+
+// TestTUIOpenDetailsKeymapNoLongerIncludesL is the regression guard the
+// task explicitly calls for: l moved from being a third open_details
+// alias to its own language_toggle action, so the default keymap must
+// reflect exactly that split.
+func TestTUIOpenDetailsKeymapNoLongerIncludesL(t *testing.T) {
+	keymap := config.DefaultTUIKeymap()
+	openDetails := keymap["main"]["open_details"]
+	if len(openDetails) != 2 || openDetails[0] != "enter" || openDetails[1] != "right" {
+		t.Fatalf("main.open_details = %v, want exactly [enter right] (no l)", openDetails)
+	}
+	languageToggle := keymap["main"]["language_toggle"]
+	if len(languageToggle) != 1 || languageToggle[0] != "l" {
+		t.Fatalf("main.language_toggle = %v, want exactly [l]", languageToggle)
+	}
+}
+
+// TestTUIHelpTextRowReflectsEnterRightWithoutL is the other half of that
+// same regression guard: the Hotkeys section's own documentation of the
+// open_details row must no longer mention l, in either language.
+func TestTUIHelpTextRowReflectsEnterRightWithoutL(t *testing.T) {
+	if !strings.Contains(tuiHelpSectionHotkeysBody, `\tEnter / Right\tdetail\topen the model detail screen.`) {
+		t.Errorf("English Hotkeys body does not document the open_details row without l: %q", tuiHelpSectionHotkeysBody)
+	}
+	if strings.Contains(tuiHelpSectionHotkeysBody, "Enter / Right / l") {
+		t.Errorf("English Hotkeys body still mentions the retired Enter / Right / l form: %q", tuiHelpSectionHotkeysBody)
+	}
+	if !strings.Contains(tuiHelpSectionHotkeysBodyRU, `\tEnter / Right\tдетали\tоткрыть экран деталей модели.`) {
+		t.Errorf("Russian Hotkeys body does not document the open_details row without l: %q", tuiHelpSectionHotkeysBodyRU)
+	}
+	if strings.Contains(tuiHelpSectionHotkeysBodyRU, "Enter / Right / l") {
+		t.Errorf("Russian Hotkeys body mentions the retired Enter / Right / l form: %q", tuiHelpSectionHotkeysBodyRU)
+	}
+	// The new language_toggle row itself must be documented in both
+	// languages, with l kept as a literal key name in the Russian row too.
+	if !strings.Contains(tuiHelpSectionHotkeysBody, `\tl\tlanguage\t`) {
+		t.Errorf("English Hotkeys body does not document the l/language_toggle row: %q", tuiHelpSectionHotkeysBody)
+	}
+	if !strings.Contains(tuiHelpSectionHotkeysBodyRU, `\tl\tязык\t`) {
+		t.Errorf("Russian Hotkeys body does not document the l/language_toggle row: %q", tuiHelpSectionHotkeysBodyRU)
+	}
+}
+
+// TestTUIRussianMainViewRendersTranslatedText spot-checks the main list
+// view: title, meta line, and hints translate, while the literal
+// single-letter hotkeys in the hints line (o, R, x, f, p, q, r) are
+// untouched.
+func TestTUIRussianMainViewRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
+	m.width, m.height, m.lang = 120, 24, "ru"
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Модели OpenRouter", "навигация", "настройки", "выход", "фильтр", "доступность", "качество"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian main view is missing %q:\n%s", want, view)
+		}
+	}
+	// English still renders unchanged for the same model with lang reset.
+	m.lang = ""
+	englishView := ansi.Strip(m.View())
+	if !strings.Contains(englishView, "OpenRouter models") || strings.Contains(englishView, "Модели OpenRouter") {
+		t.Errorf("resetting lang to \"\" did not restore the English view:\n%s", englishView)
+	}
+}
+
+// TestTUIRussianHelpOverviewRendersTranslatedText spot-checks the F1 help
+// overlay's Overview section and its tab bar.
+func TestTUIRussianHelpOverviewRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.helpSection, m.width, m.lang = "help", 0, 120, "ru"
+	m.height = len(strings.Split(tuiHelpSectionOverviewBodyRU, "\n")) + 8 // tall enough that nothing scrolls off
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"[1 Обзор]", "2 Источники оценки", "3 Хоткеи", "качеству и цене", "model-map.tsv"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian help Overview is missing %q:\n%s", want, view)
+		}
+	}
+	// exact_product/variant_mismatch/!variant and every CLI/config token
+	// must survive untranslated inside the Russian prose.
+	for _, literal := range []string{"exact_product", "variant_mismatch", "!variant", "model-map.tsv", "--ranking", "mixed-utility"} {
+		if !strings.Contains(view, literal) {
+			t.Errorf("Russian help Overview lost the literal token %q:\n%s", literal, view)
+		}
+	}
+}
+
+// TestTUIRussianHelpHotkeysKeepsLiteralKeyNames is the key-name
+// preservation check across the Hotkeys section. Most Key-column cells in
+// this section are keymap-substituted (tuiConfiguredHelpLinesRU splices in
+// the actual configured binding), which renders in lower case via
+// keymap.CanonicalBinding — "space", not "Space" — for English rows too;
+// that case-folding is pre-existing behaviour shared by both languages,
+// not something this test needs to prove. What matters for translation
+// correctness is that the key names themselves are never turned into
+// Russian words, in either their substituted (lower-case) form or their
+// literal, never-substituted form in flowing Description-column prose
+// (e.g. "Esc, Left или h закрывает..." — a row whose Key column is
+// substituted but whose Description text is authored, untouched prose).
+func TestTUIRussianHelpHotkeysKeepsLiteralKeyNames(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.helpSection, m.width, m.height, m.lang = "help", 2, 120, len(strings.Split(tuiHelpSectionHotkeysBodyRU, "\n"))+8, "ru"
+	view := ansi.Strip(m.View())
+	for _, key := range []string{"space", "esc", "f1", "Esc, Left или h"} {
+		if !strings.Contains(view, key) {
+			t.Errorf("Russian Hotkeys view lost the literal key name %q:\n%s", key, view)
+		}
+	}
+	if !strings.Contains(view, "Хоткеи") || !strings.Contains(view, "переключить между SWE-bench и Arena") {
+		t.Errorf("Russian Hotkeys view is missing translated prose:\n%s", view)
+	}
+}
+
+// TestTUIRussianSettingsOverlayRendersTranslatedText spot-checks the
+// Settings overlay.
+func TestTUIRussianSettingsOverlayRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.settingsCursor, m.width, m.height, m.lang = "settings", 0, 100, 24, "ru"
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Настройки", "Ранжирование:", "Источник оценки:", "Space", "Esc"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Settings overlay is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTUIRussianFilterOverlayRendersTranslatedText spot-checks the Filter
+// overlay: field labels translate (Тир, Качество (минимум)), while the
+// literal filter syntax stays untouched.
+func TestTUIRussianFilterOverlayRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.width, m.height, m.lang = 100, 24, "ru"
+	m.openFilterEditor()
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Фильтр", "Тир", "Качество (минимум)", "Доступность", "Esc", "Enter", "Tab/Shift+Tab"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Filter overlay is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTUIRussianColumnsOverlayRendersTranslatedText spot-checks the
+// Columns overlay header line; the column identifiers themselves
+// (name, slug, task-fit, ...) are internal tokens, not prose, and are
+// left untranslated in both languages — see the comment on
+// tuiColumnLabelForLang for the distinct, translated table-header labels.
+func TestTUIRussianColumnsOverlayRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay, m.pendingColumns, m.width, m.height, m.lang = "columns", append([]tuiColumn(nil), m.columns...), 100, 24, "ru"
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Столбцы", "Space", "Enter", "Esc"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Columns overlay is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestTUIRussianDetailOverlayRendersTranslatedText spot-checks the Model
+// Detail overlay: the five section headers translate, the placeholder
+// becomes н/д for a genuinely empty field (Provider, on this fixture), and
+// the already-unconditionally-Russian labels (Производитель, Тир, ...)
+// keep rendering exactly as they did before this feature existed.
+func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.width, m.height, m.lang = 120, 80, "ru"
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("test setup: overlay = %q, want \"detail\"", m.overlay)
+	}
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"-- Идентичность --", "-- Цены --", "-- Бенчмарки --", "-- Происхождение и метаданные --", "-- Соответствие и заметки --", "Провайдер: н/д", "Детали 1-"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Detail overlay is missing %q:\n%s", want, view)
+		}
+	}
+	// Labels that were already unconditionally Russian before this feature
+	// existed must render exactly as before — unchanged by the toggle.
+	for _, want := range []string{"Производитель:", "Тир:", "Task fit:", "Оценка SWE-bench Verified"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Detail overlay lost pre-existing Russian text %q:\n%s", want, view)
+		}
+	}
+	// English still renders the untranslated headers and placeholder.
+	m.lang = ""
+	englishView := ansi.Strip(m.View())
+	for _, want := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --", "Провайдер: n/a", "Detail 1-"} {
+		if !strings.Contains(englishView, want) {
+			t.Errorf("English Detail overlay (lang reset) is missing %q:\n%s", want, englishView)
+		}
+	}
+}
+
+// TestTUIRussianTableColumnHeadersTranslate covers the main table's own
+// header row, rendered through renderTUILine/tuiColumnLabelForLang.
+func TestTUIRussianTableColumnHeadersTranslate(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}})
+	m.width, m.height, m.lang = 120, 24, "ru"
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Название", "Вход $/M", "Выход $/M"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian table header row is missing %q:\n%s", want, view)
+		}
+	}
+	// Proper nouns, metric names and terms of art the header keeps English
+	// for either language: Claude and the default Task fit column.
+	for _, want := range []string{"Claude", "Task fit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian table header row lost the untranslated term %q:\n%s", want, view)
+		}
+	}
+	// n swaps the last column from Task fit to Note — its own header
+	// translates too.
+	m = tuiKey(m, "n")
+	noteView := ansi.Strip(m.View())
+	if !strings.Contains(noteView, "Заметка") {
+		t.Errorf("Russian table header row is missing the Note column's translated header %q:\n%s", "Заметка", noteView)
+	}
+}
