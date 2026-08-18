@@ -2102,7 +2102,7 @@ func tuiHelpView(m tuiModel) string {
 			continue
 		}
 		plain := ansi.Strip(line)
-		if strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
+		if strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
@@ -2311,7 +2311,7 @@ type tuiHelpSection struct {
 // shared by every section (see tuiHelpSectionLines) and by the legacy
 // concatenated tuiHelpDocument below, so a structural test locating "the
 // title line" finds the same text either way.
-const tuiHelpTitleLine = "openrouter tui keys"
+const tuiHelpTitleLine = "omt tui keys"
 
 // tuiHelpTabBarAbsoluteIndex is the tab bar's fixed line position in every
 // full-mode tuiHelpSectionLines result: 0 title, 1 blank, 2 tab bar, 3
@@ -2339,31 +2339,45 @@ var tuiHelpSections = []tuiHelpSection{
 // tier), the identity-gate philosophy that matches a leaderboard row to an
 // OpenRouter slug, and the ranking formula (relocated verbatim from the
 // pre-sectioning document's own "Ranking modes" block — see git history for
-// the original single-page tuiHelpDocument this was split out of).
-const tuiHelpSectionOverviewBody = `openrouter tracks AI models available on OpenRouter and ranks them by quality and price.
-Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter catalogue.
-Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is easy to judge.
+// the original single-page tuiHelpDocument this was split out of). The
+// "three kinds of data" and "identity matching" blocks are broken into
+// "- " bulleted points, one per original sentence, instead of run-on
+// paragraphs — every sentence kept verbatim, only regrouped for
+// scannability. The program self-reference in the opening line is "omt",
+// the repo's short CLI name, not "openrouter".
+const tuiHelpSectionOverviewBody = `omt tracks AI models available on OpenRouter and ranks them by quality and price.
+- Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter
+catalogue.
+- Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is
+easy to judge.
 
-Three kinds of data feed every row, and none of them is derived from another. Price and context come
-live from the OpenRouter catalogue. Quality is an independent benchmark score, SWE-bench Verified
-(from vals.ai or swebench.com) or LMArena Elo, never both at once; see the Score sources section for
-how the two differ and why they are never mixed. Tier is a hand-assigned, Claude-relative capability estimate
-from model-map.tsv, not something computed from the score. It exists so an unrelated model family
-becomes comparable on one familiar scale, "about Sonnet-class" or "about Haiku-class", even when that
-family has no benchmark number at all. Quality and quality>= always mean a rankable, exact-product
-benchmark observation, never a vendor claim and never the tier.
+What feeds every row: three independent kinds of data
+Three kinds of data feed every row, and none of them is derived from another.
+- Price and context come live from the OpenRouter catalogue.
+- Quality is an independent benchmark score, SWE-bench Verified (from vals.ai or swebench.com) or
+LMArena Elo, never both at once; see the Score sources section for how the two differ and why they are
+never mixed.
+- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, not something
+computed from the score. It exists so an unrelated model family becomes comparable on one familiar
+scale, "about Sonnet-class" or "about Haiku-class", even when that family has no benchmark number at
+all.
+- Quality and quality>= always mean a rankable, exact-product benchmark observation, never a vendor
+claim and never the tier.
 
-Matching a leaderboard row to an OpenRouter model is never done by fuzzy name matching. A
-hand-maintained map, model-map.tsv, is the only path from one site's row to the other site's slug.
-No entry in the map means no automatically collected score for that model, on purpose: a
+Identity matching: never fuzzy name matching
+Matching a leaderboard row to an OpenRouter model is never done by fuzzy name matching.
+- A hand-maintained map, model-map.tsv, is the only path from one site's row to the other site's slug.
+- No entry in the map means no automatically collected score for that model, on purpose: a
 plausible-looking name match across two independently run sites is exactly how a wrong number ends up
-attached to the wrong model. The mapped source= key is itself the identity claim. If the source
-returns a row for that key, the row is trusted (exact_product) even when the key's spelling differs
-from the OpenRouter slug, which is normal between two sites with different naming conventions. When a
-mapped row actually measures a different checkpoint or variant of the same family, the map entry is
-marked !variant (for example vals!variant=some/other-checkpoint), and the row stays out of the ranking
-(variant_mismatch) despite the key match. A human, editing the map, is the only thing that can make
-that call; nothing in the code catches it automatically.
+attached to the wrong model.
+- The mapped source= key is itself the identity claim. If the source returns a row for that key, the row
+is trusted (exact_product) even when the key's spelling differs from the OpenRouter slug, which is
+normal between two sites with different naming conventions.
+- When a mapped row actually measures a different checkpoint or variant of the same family, the map
+entry is marked !variant (for example vals!variant=some/other-checkpoint), and the row stays out of the
+ranking (variant_mismatch) despite the key match.
+- A human, editing the map, is the only thing that can make that call; nothing in the code catches it
+automatically.
 
 Ranking modes
 tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
@@ -2377,40 +2391,48 @@ The CLI --ranking flag accepts legacy, tier, tier-priority, mixed, or mixed-util
 // independent single-harness runs versus swebench.com's self-submitted,
 // median-of-scaffolds leaderboard, and LMArena Elo's incomparable crowd
 // preference scale — grounded in model-map.tsv's own header comment and the
-// internal/sources package docs (valsai.go, swebench.go, arena.go).
+// internal/sources package docs (valsai.go, swebench.go, arena.go). Each
+// mini-header's paragraph is broken into "- " bulleted points, one per
+// original sentence — every sentence, including the exact swebench.com
+// median/one-vote-per-scaffold mechanics and the Bradley-Terry Elo caveat,
+// is kept verbatim; only the grouping changed.
 const tuiHelpSectionScoreSourcesBody = `Score sources
 swebench: Status and ranking use SWE-bench Verified, in percent. This is the default.
 arena: Status and ranking use the LMArena Elo rating, shown raw and normalised to 0-100 before it enters the ranking formula.
-The two are never mixed: in one view a model with no number on the active source shows n/a even when the other source has one. Choose with --score-source or Settings; the switch reads the local snapshot, and the generated markdown document is always swebench.
+- The two are never mixed: in one view a model with no number on the active source shows n/a even when
+the other source has one.
+- Choose with --score-source or Settings; the switch reads the local snapshot, and the generated
+markdown document is always swebench.
 
 SWE-bench Verified: two sources, not two alternatives
-SWE-bench Verified itself has two possible sources, and they are fallbacks for each other, not
-interchangeable measurements. vals.ai runs every submitted model itself, on one fixed, independent
-harness, and its own leaderboard row echoes back the exact model key it was found by; that echo is
-what lets this project trust the row's identity by default (see the Overview section for the
-identity-gate mechanics). swebench.com is different: it is a self-submitted leaderboard where anyone can submit a
-run with their own agentic scaffold, so the same model can appear under several different scaffolds
-with different scores. To blunt the incentive to game the leaderboard with one aggressive scaffold,
-this project takes the median across every distinct scaffold submitted for a model (one vote per
-scaffold; a resubmission of the same scaffold replaces it rather than adding a second vote) instead of
-the single best run, and the row's own text says "median of N scaffolds" when that happened. vals.ai
-wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as a
-fallback, when vals.ai has no row at all or its row fails the identity check.
+SWE-bench Verified itself has two possible sources, and they are fallbacks for each other, not interchangeable measurements.
+- vals.ai runs every submitted model itself, on one fixed, independent harness, and its own leaderboard
+row echoes back the exact model key it was found by; that echo is what lets this project trust the row's
+identity by default (see the Overview section for the identity-gate mechanics).
+- swebench.com is different: it is a self-submitted leaderboard where anyone can submit a run with their
+own agentic scaffold, so the same model can appear under several different scaffolds with different
+scores. To blunt the incentive to game the leaderboard with one aggressive scaffold, this project takes
+the median across every distinct scaffold submitted for a model (one vote per scaffold; a resubmission
+of the same scaffold replaces it rather than adding a second vote) instead of the single best run, and
+the row's own text says "median of N scaffolds" when that happened.
+- vals.ai wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as
+a fallback, when vals.ai has no row at all or its row fails the identity check.
 
 LMArena Elo: a different scale, not a third alternative
-LMArena Elo is not a third way to arrive at the same number. It is a crowd preference rating
-(Bradley-Terry, roughly 950-1550) built from head-to-head human votes on model output, not a score on
-a fixed set of real pull requests the way SWE-bench Verified is. It is rescaled to 0-100 before it
-enters the ranking formula, but rescaling does not make it comparable to a SWE-bench percentage: two
-models scoring 60 on each are not "equally good" by the same yardstick; they were measured by two
-different experiments. That is why the app never shows both at once for the same model and never lets
-a filter mix them.
+LMArena Elo is not a third way to arrive at the same number.
+- It is a crowd preference rating (Bradley-Terry, roughly 950-1550) built from head-to-head human votes
+on model output, not a score on a fixed set of real pull requests the way SWE-bench Verified is.
+- It is rescaled to 0-100 before it enters the ranking formula, but rescaling does not make it
+comparable to a SWE-bench percentage: two models scoring 60 on each are not "equally good" by the same
+yardstick; they were measured by two different experiments.
+- That is why the app never shows both at once for the same model and never lets a filter mix them.
 
-Switching sources: Space, in the main view or in Settings, changes which single yardstick is active
-everywhere at once. Status, ranking, and quality>= filters all move together, and a model with no
-number on the newly active source shows n/a even if it had one on the other. Trusting the ranking
-starts with knowing which of these three measurements produced the number on screen; this section, and
-the source column in the model detail view, are how to check.`
+Switching sources
+Space, in the main view or in Settings, changes which single yardstick is active everywhere at once.
+- Status, ranking, and quality>= filters all move together, and a model with no number on the newly
+active source shows n/a even if it had one on the other.
+- Trusting the ranking starts with knowing which of these three measurements produced the number on
+screen; this section, and the source column in the model detail view, are how to check.`
 
 // tuiHelpSectionHotkeysBody is the "Hotkeys" section: every
 // keybinding table from the pre-sectioning document (Navigation, Data/view,
@@ -2511,7 +2533,7 @@ const tuiHelpSectionFiltersBody = `Columns, search, and filters
 The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
 \tf\tfilter\tedits a structured filter and does not change the search.
-	CLI example: openrouter table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
+	CLI example: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
 	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
 	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
