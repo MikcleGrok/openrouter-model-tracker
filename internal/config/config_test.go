@@ -378,6 +378,138 @@ func TestSaveTUIFilterEmptyRemovesPersistedOverride(t *testing.T) {
 	}
 }
 
+// TestSaveTUILanguagePreservesConfig mirrors TestSaveTUIFilterPreservesConfig
+// exactly: SaveTUILanguage must touch only the tui_language key and leave
+// every other key, and comments, untouched.
+func TestSaveTUILanguagePreservesConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "# keep this comment\ndata_dir: project\nranking:\n  mixed_utility:\n    price_weight: 3.5\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveTUILanguage(path, "ru"); err != nil {
+		t.Fatalf("SaveTUILanguage: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TUILanguage != "ru" || got.DataDir != "project" || got.MixedUtilityPriceWeight() != 3.5 {
+		t.Fatalf("config after save = %+v", got)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "keep this comment") {
+		t.Fatalf("SaveTUILanguage dropped comment: %q", updated)
+	}
+}
+
+// TestSaveTUILanguageEmptyRemovesPersistedOverride mirrors
+// TestSaveTUIFilterEmptyRemovesPersistedOverride: writing "" removes the
+// tui_language key entirely rather than persisting a blank value, so a
+// config re-read afterwards sees the same as never having set it.
+func TestSaveTUILanguageEmptyRemovesPersistedOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("data_dir: project\ntui_language: ru\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveTUILanguage(path, ""); err != nil {
+		t.Fatalf("SaveTUILanguage: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TUILanguage != "" {
+		t.Fatalf("cleared config = %+v, want no persisted TUI language", got)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(updated), "tui_language") {
+		t.Fatalf("SaveTUILanguage left the tui_language key behind: %q", updated)
+	}
+}
+
+// TestSaveTUILanguageRoundTripsThroughLoad additionally proves the round
+// trip a live TUI session relies on: save, then load, gets back exactly
+// what was saved, for both accepted values.
+func TestSaveTUILanguageRoundTripsThroughLoad(t *testing.T) {
+	for _, lang := range []string{"ru", "en", ""} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("data_dir: .\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := SaveTUILanguage(path, lang); err != nil {
+			t.Fatalf("SaveTUILanguage(%q): %v", lang, err)
+		}
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load after SaveTUILanguage(%q): %v", lang, err)
+		}
+		if got.TUILanguage != lang {
+			t.Fatalf("SaveTUILanguage(%q) round trip = %q", lang, got.TUILanguage)
+		}
+	}
+}
+
+// TestLoadDefaultsTUILanguageToEmpty confirms a config file with no
+// tui_language key at all — including a config file that never existed,
+// which Load treats as an empty Config — decodes to the empty string, the
+// value the TUI reads as English.
+func TestLoadDefaultsTUILanguageToEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TUILanguage != "" {
+		t.Fatalf("TUILanguage with no key present = %q, want \"\"", got.TUILanguage)
+	}
+	missing, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+	if err != nil {
+		t.Fatalf("Load (missing file): %v", err)
+	}
+	if missing.TUILanguage != "" {
+		t.Fatalf("TUILanguage for a missing config file = %q, want \"\"", missing.TUILanguage)
+	}
+}
+
+// TestLoadRejectsInvalidTUILanguage guards the Load-time validation added
+// alongside tui_language: only "", "en" and "ru" (case-insensitively) are
+// accepted.
+func TestLoadRejectsInvalidTUILanguage(t *testing.T) {
+	for _, bad := range []string{"russian", "fr", "1"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		body := "data_dir: .\ntui_language: " + bad + "\n"
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "tui_language") {
+			t.Fatalf("Load with tui_language: %q error = %v, want a tui_language validation error", bad, err)
+		}
+	}
+	// Case and surrounding whitespace are tolerated, matching the
+	// strings.ToLower(strings.TrimSpace(...)) normalisation Load applies
+	// before comparing.
+	for _, good := range []string{"ru", "RU", "en", "EN", "", " ru "} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		body := "data_dir: .\ntui_language: \"" + good + "\"\n"
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err != nil {
+			t.Fatalf("Load with tui_language: %q: unexpected error %v", good, err)
+		}
+	}
+}
+
 func TestLoadRejectsFormulaAndPriceWeightTogether(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := "ranking:\n  mixed_utility:\n    price_weight: 0\n    formula:\n      op: neg\n      args:\n        - var: score\n"
