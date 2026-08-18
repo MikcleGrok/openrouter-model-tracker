@@ -448,7 +448,7 @@ func TestTUIKeyState(t *testing.T) {
 		t.Fatalf("substring search changed structured filter to %q", m.filter)
 	}
 	m = tuiKey(m, "f1")
-	if !strings.Contains(m.View(), "openrouter tui keys") {
+	if !strings.Contains(m.View(), "omt tui keys") {
 		t.Fatal("help overlay missing")
 	}
 	if !strings.Contains(tuiHelpDocument, `\tq\tsort\tquality.`) || !strings.Contains(tuiHelpDocument, `\tp\tavailability\tcycle any/free/paid.`) || !strings.Contains(tuiHelpDocument, `\tr\tsort\tquality/price ratio`) {
@@ -573,7 +573,7 @@ func tuiHelpDocumentLineIndex(lines []string, want string) int {
 
 func TestTUIFullHelpDescribesTheToolBeforeHotkeys(t *testing.T) {
 	lines := tuiHelpLines()
-	if len(lines) == 0 || lines[0] != "openrouter tui keys" {
+	if len(lines) == 0 || lines[0] != "omt tui keys" {
 		t.Fatalf("full help title missing or changed: %q", lines)
 	}
 	hotkeysIndex := tuiHelpDocumentLineIndex(lines, "Hotkeys")
@@ -1357,7 +1357,7 @@ func TestTUIFilterNumericArrowsDoNotCrossZero(t *testing.T) {
 
 func TestTUIFilterHelpDocumentsExamplesOperatorsAndScoreSource(t *testing.T) {
 	for _, want := range []string{
-		"openrouter table --filter 'paid,quality>=80'",
+		"omt table --filter 'paid,quality>=80'",
 		"press f",
 		"Predicates:",
 		"Operators:",
@@ -2326,7 +2326,7 @@ func TestTUIHelpRowsUseColumnsAndFitNarrowTerminals(t *testing.T) {
 	tuiForceColorProfile(t)
 	m := tuiModel{overlay: "help", width: 80, height: 20, helpSearch: "quality"}
 	view := tuiHelpView(m)
-	if !strings.Contains(view, tuiHeaderStyle.Render("openrouter tui keys (version "+version+")")) {
+	if !strings.Contains(view, tuiHeaderStyle.Render("omt tui keys (version "+version+")")) {
 		t.Fatal("help title is not colour-accented")
 	}
 	if ansi.Strip(view) == view {
@@ -2682,6 +2682,54 @@ func TestTUIHelpSearchIsScopedToTheCurrentSection(t *testing.T) {
 	}
 }
 
+// TestTUIHelpOverviewAndScoreSourcesAreItemizedAndKeepLoadBearingPrecision
+// locks two things about the Overview and Score Sources bodies now that
+// their prose is broken into "- " bulleted points instead of run-on
+// paragraphs: the itemized shape is actually present (guards against a
+// future edit silently flattening the bullets back into paragraphs), and
+// every precision-critical qualifier from the original prose survived the
+// reformat word-for-word. These exact phrases are the ones a sloppy rewrite
+// could plausibly soften first (see git history / task notes): swebench.com's
+// median-of-scaffolds, one-vote-per-scaffold mechanics, the exact_product /
+// variant_mismatch / !variant identity-gate vocabulary, and LMArena Elo's
+// Bradley-Terry, roughly-950-1550 crowd-preference caveat.
+func TestTUIHelpOverviewAndScoreSourcesAreItemizedAndKeepLoadBearingPrecision(t *testing.T) {
+	if !strings.Contains(tuiHelpSectionOverviewBody, "\n- ") {
+		t.Fatalf("Overview body is not itemized with \"- \" bullets: %q", tuiHelpSectionOverviewBody)
+	}
+	if !strings.Contains(tuiHelpSectionScoreSourcesBody, "\n- ") {
+		t.Fatalf("Score Sources body is not itemized with \"- \" bullets: %q", tuiHelpSectionScoreSourcesBody)
+	}
+	// Bullets are hand-wrapped onto multiple physical source lines (see the
+	// wrapping note above tuiHelpSectionScoreSourcesBody), so a
+	// precision-critical phrase can legitimately straddle a line break.
+	// Flatten whitespace before matching so this check tracks wording, not
+	// wrap points.
+	flatten := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	overviewFlat := flatten(tuiHelpSectionOverviewBody)
+	scoreFlat := flatten(tuiHelpSectionScoreSourcesBody)
+	for _, want := range []string{
+		"exact_product",
+		"variant_mismatch",
+		"!variant (for example vals!variant=some/other-checkpoint)",
+		"model-map.tsv",
+	} {
+		if !strings.Contains(overviewFlat, want) {
+			t.Errorf("Overview body lost load-bearing phrase %q after itemization", want)
+		}
+	}
+	for _, want := range []string{
+		`one vote per scaffold; a resubmission of the same scaffold replaces it rather than adding a second vote`,
+		`the row's own text says "median of N scaffolds" when that happened`,
+		"Bradley-Terry, roughly 950-1550",
+		"vals.ai wins whenever it has a usable, identity-checked row for a model; swebench.com is used only as a fallback, when vals.ai has no row at all or its row fails the identity check",
+	} {
+		if !strings.Contains(scoreFlat, want) {
+			t.Errorf("Score Sources body lost load-bearing phrase %q after itemization", want)
+		}
+	}
+}
+
 // TestTUIHelpTabBarShowsAllFiveSectionsWithActiveHighlighted is the direct
 // check for the confirmed tab-bar format: "[1 Overview] 2 Score Sources
 // 3 Hotkeys 4 Filters 5 Model Detail", the bracketed entry
@@ -2857,7 +2905,7 @@ func TestTUIHelpSearchWithEmptyNeedleDoesNotHighlightContent(t *testing.T) {
 		tabBar := tuiHelpTabBarLine(m.helpSection)
 		for index, line := range strings.Split(view, "\n") {
 			plain := ansi.Strip(line)
-			isHeader := strings.HasPrefix(plain, "openrouter tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == tabBar
+			isHeader := strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") || plain == tabBar
 			if !isHeader && line != plain {
 				t.Fatalf("empty needle styled content line %d for %q: %q", index, needle, line)
 			}
@@ -4502,14 +4550,18 @@ func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
 // пустой экран или запаниковать.
 func TestTUIHelpOverlayFitsSmallHeightsWhileTyping(t *testing.T) {
 	for _, height := range []int{1, 2, 3, 4, 5, 6, 7} {
-		// 0 is the very start, 999 clamps to the document's end; 9 is a
+		// 0 is the very start, 999 clamps to the document's end; 5 is a
 		// representative small non-zero offset that must land on a real
-		// hotkey row (not a blank section separator) so the height==1 case
-		// below can assert the screen is never blank. It was 5 before the
-		// full-help document grew a leading description block that pushed
-		// "Hotkeys" and the first Navigation row later; index 9 is the
-		// document's new first hotkey row ("Up settings navigate ...").
-		for _, offset := range []int{0, 9, 999} {
+		// content row (not a blank paragraph separator) so the height==1
+		// case below can assert the screen is never blank. m.helpSection
+		// defaults to 0 (Overview) and is never changed by this test, so
+		// the offset indexes into tuiHelpSectionOverviewBody's own lines
+		// (see tuiHelpSectionLines), not the Hotkeys section — index 5 is
+		// the Overview section's first bullet line ("- Quality comes
+		// from..."). This index moves whenever the Overview body is
+		// reflowed; pick a fresh non-blank index against the current body
+		// if this assertion starts failing again.
+		for _, offset := range []int{0, 5, 999} {
 			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 			m.overlay, m.width, m.height = "help", 40, height
 			m.inputMode, m.input, m.helpOffset = "help-search", "refresh", offset

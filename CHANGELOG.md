@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.26]
+
+- Break the F1 help overlay's dense Overview and Score Sources prose paragraphs into `- ` bulleted, labelled points for scannability — every original sentence kept verbatim (the `model-map.tsv` identity-gate mechanics, the `exact_product`/`variant_mismatch`/`!variant` vocabulary, swebench.com's median-of-scaffolds/one-vote-per-scaffold rule, and LMArena Elo's Bradley-Terry caveat are all unchanged). The Model Detail section was checked and left alone — it was already scannable.
+- Rename the program's self-reference in the F1 help content from `openrouter` to `omt` (the page title, the Overview opening line, and the Filters section's CLI example), matching the short `omt` alias the Homebrew formula already installs.
+
 ## [1.14.25]
 
 - Retire the separate `?` shortcuts help document: `?` now opens the same sectioned F1 help overlay, landing directly on the Hotkeys section instead of a single-page document that had drifted out of sync with it. Once open, it is fully navigable exactly like F1-opened help (digit keys, Left/Right, section-scoped search); `?` and Esc both continue to close it from any section.
