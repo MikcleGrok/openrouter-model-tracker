@@ -33,6 +33,7 @@ type Config struct {
 	TUI              TUIConfig     `yaml:"tui"`
 	TUIFilter        string        `yaml:"tui_filter"`
 	TUIFilterSet     bool          `yaml:"-"`
+	TUILanguage      string        `yaml:"tui_language"`
 	TUISteps         TUISteps      `yaml:"tui_steps"`
 	TUIKeymap        TUIKeymap     `yaml:"tui_keymap"`
 	Ranking          RankingConfig `yaml:"ranking"`
@@ -129,7 +130,7 @@ func (b *TUIBindings) UnmarshalYAML(value *yaml.Node) error {
 type TUIKeymap map[string]map[string]TUIBindings
 
 var defaultTUIKeymap = TUIKeymap{
-	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right", "l"}, "close": {"esc", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
+	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right"}, "language_toggle": {"l"}, "close": {"esc", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
 	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
 	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
@@ -138,7 +139,7 @@ var defaultTUIKeymap = TUIKeymap{
 }
 
 var tuiKeymapActions = map[string]map[string]bool{
-	"main":     {"open_settings": true, "open_details": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true, "switch_source": true, "cycle_availability": true, "toggle_layout": true},
+	"main":     {"open_settings": true, "open_details": true, "language_toggle": true, "close": true, "help": true, "full_help": true, "navigate_up": true, "navigate_down": true, "switch_source": true, "cycle_availability": true, "toggle_layout": true},
 	"settings": {"close": true, "navigate_up": true, "navigate_down": true, "switch_source": true},
 	"detail":   {"close": true, "navigate_up": true, "navigate_down": true},
 	"help":     {"close": true, "full_help": true, "navigate_up": true, "navigate_down": true},
@@ -440,7 +441,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +
-	"  main: {open_settings: [o], open_details: [enter, right, l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space], cycle_availability: [p], toggle_layout: [v]}\n" +
+	"  main: {open_settings: [o], open_details: [enter, right], language_toggle: [l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space], cycle_availability: [p], toggle_layout: [v]}\n" +
 	"  settings: {close: [esc, o], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space, enter]}\n" +
 	"  detail: {close: [esc, left, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
 	"  help: {close: [esc, '?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
@@ -686,6 +687,11 @@ func Load(path string) (Config, error) {
 	if _, err := ranking.Compile(c.Ranking.MixedUtility); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
+	switch strings.ToLower(strings.TrimSpace(c.TUILanguage)) {
+	case "", "en", "ru":
+	default:
+		return Config{}, fmt.Errorf("config: %s: tui_language must be \"en\" or \"ru\"", path)
+	}
 	return c, nil
 }
 
@@ -823,6 +829,47 @@ func SaveTUIFilter(path, filter string) error {
 		return writeYAML(path, &document)
 	}
 	root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui_filter"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: filter})
+	return writeYAML(path, &document)
+}
+
+// SaveTUILanguage updates only the persisted TUI language in the user
+// config, the same read/write-back shape SaveTUIFilter uses: only the
+// tui_language key is touched, and every other key (including unrelated
+// comments) survives untouched.
+func SaveTUILanguage(path, lang string) error {
+	body, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		body = []byte("{}\n")
+	} else if err != nil {
+		return fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if len(document.Content) == 0 {
+		document.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("config: %s: root must be a mapping", path)
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "tui_language" {
+			if lang == "" {
+				root.Content = append(root.Content[:i], root.Content[i+2:]...)
+				return writeYAML(path, &document)
+			}
+			root.Content[i+1].Kind = yaml.ScalarNode
+			root.Content[i+1].Tag = "!!str"
+			root.Content[i+1].Value = lang
+			return writeYAML(path, &document)
+		}
+	}
+	if lang == "" {
+		return writeYAML(path, &document)
+	}
+	root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tui_language"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: lang})
 	return writeYAML(path, &document)
 }
 

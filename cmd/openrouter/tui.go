@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -213,6 +214,14 @@ type tuiModel struct {
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
+	// lang selects the TUI's display language: "" (the zero value) means
+	// English, today's only behaviour and the persisted default; "ru" means
+	// Russian. Keeping "" as English rather than adding an explicit
+	// "en" sentinel is what makes a bare tuiModel{} — and a config.yaml
+	// without tui_language — render exactly like before this field existed.
+	// Toggled at runtime with l (see the language_toggle keymap action) and
+	// persisted via config.SaveTUILanguage.
+	lang string
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
@@ -272,6 +281,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.iconGaps = cfg.Table.IconGaps
 		m.icons = cfg.Icons
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
+		if strings.EqualFold(cfg.TUILanguage, "ru") {
+			m.lang = "ru"
+		}
 		m.filterFormExplicit = true
 		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 		m.rebuild()
@@ -461,7 +473,7 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 			}
 		}
 		if opts.OutputPath == "" {
-			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, layout: layout, topN: topN, err: fmt.Errorf("tui: live refresh requires --output or default_output")}
+			return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, layout: layout, topN: topN, err: errors.New(m.t("tui: live refresh requires --output or default_output"))}
 		}
 		_, err := refresh.Run(m.ctx, opts)
 		if err != nil {
@@ -492,9 +504,102 @@ func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
 	if m.scoreSource == scoreSourceArena {
 		source = scoreSourceSWEBench
 	}
-	m.status, m.err = "loading "+source+" from local snapshot...", ""
+	m.status, m.err = m.t("loading ")+source+m.t(" from local snapshot..."), ""
 	m.pendingScoreSource = source
 	return m, m.scoreSourceCmd(source)
+}
+
+// t translates a UI string from English to Russian when the Russian
+// display language is active (m.lang == "ru"), and returns it unchanged
+// otherwise — including for the zero-value tuiModel{}, which is what keeps
+// English the default. It looks a string up by its own English text
+// rather than by a separate key, so every call site stays readable in
+// whichever language its own source literal is already written in, and a
+// literal missing from tuiTranslationsRU degrades to English instead of
+// vanishing. This covers every inline UI string in the main list view and
+// the Settings/Filter/Columns overlays; the F1 help sections have their
+// own per-section EN/RU bodies (see tuiHelpSectionsRU) because their
+// content is too large and structural for a flat string table, and the
+// Model Detail overlay has its own *ForLang helper family, since almost
+// all of its labels were already unconditionally Russian before this
+// field existed (see tuiDetailLinesForLang).
+func (m tuiModel) t(en string) string {
+	if m.lang != "ru" {
+		return en
+	}
+	if ru, ok := tuiTranslationsRU[en]; ok {
+		return ru
+	}
+	return en
+}
+
+// tuiTranslationsRU is t's English-to-Russian lookup table. Key names,
+// proper nouns (OpenRouter, Claude, SWE-bench, Arena, LMArena), CLI/config
+// syntax (--filter, quality>=N, tui_filter), and ranking/layout/
+// score-source value tokens (mixed-utility, tier-priority, swebench,
+// arena, top-paid-free) are deliberately absent: they are never
+// translated, per the scoping rule that governed this whole feature (see
+// the F1 Overview/Score Sources/Methodology sections for the same rule
+// applied to prose).
+var tuiTranslationsRU = map[string]string{
+	"OpenRouter models": "Модели OpenRouter",
+	"ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s": "ранжирование:%s  источник:%s  сортировка:%s%s  вид:%s  топ-N:%d  фильтр:%q  поиск:%s  моделей:%d  данные:%s",
+	"status: ready":                   "статус: готово",
+	" (reverse)":                      " (обратный)",
+	"status: refreshing...":           "статус: обновление...",
+	"error: ":                         "ошибка: ",
+	"refreshing":                      "обновление",
+	"refreshed":                       "обновлено",
+	"score source changed":            "источник оценки изменён",
+	"score source switch failed":      "переключение источника оценки не удалось",
+	"score source %s: %v":             "источник оценки %s: %v",
+	"price history reload failed: %v": "не удалось перезагрузить историю цен: %v",
+	"loading ":                        "загрузка ",
+	" from local snapshot...":         " из локального снапшота...",
+	"tui: live refresh requires --output or default_output": "tui: для живого обновления нужен --output или default_output",
+
+	"↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p": "↑↓ навигация · o настройки · R обновить · x выход · f фильтр · p доступность · q качество · r q/p",
+	" · / search · Enter empty search to clear":                                                     " · / поиск · Enter с пустым текстом — очистить поиск",
+	"search: none (cleared)": "поиск: нет (очищен)",
+	"filter: none (cleared)": "фильтр: нет (очищен)",
+	"none (cleared)":         "нет (очищен)",
+	"none":                   "нет",
+	"filter: ":               "фильтр: ",
+
+	"Columns (Space toggle, Enter apply, Esc cancel)": "Столбцы (Space переключить, Enter применить, Esc отмена)",
+
+	"Settings (Enter/Space change, Esc close)": "Настройки (Enter/Space изменить, Esc закрыть)",
+	"Ranking: ":                         "Ранжирование: ",
+	"Score source: ":                    "Источник оценки: ",
+	" (Space switches SWE-bench/Arena)": " (Space переключает SWE-bench/Arena)",
+	"Filter: ":                          "Фильтр: ",
+	"Availability: ":                    "Доступность: ",
+	"Layout: ":                          "Вид: ",
+	" (top N=":                          " (топ N=",
+	"Columns: ":                         "Столбцы: ",
+	"Move Down to Score source, then press Space to switch.": "Стрелка вниз — к источнику оценки, затем Space для переключения.",
+	"Source uses the local snapshot; R refreshes data.":      "Источник использует локальный снапшот; R обновляет данные.",
+	"Select Filter to reuse the structured filter input.":    "Выберите Фильтр, чтобы использовать структурированный ввод фильтра.",
+	"Status: ": "Статус: ",
+	"Error: ":  "Ошибка: ",
+
+	"Filter": "Фильтр",
+	"↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit": "↑/↓ перемещение · ←/→ изменение значений · Space переключает/циклит Tier · ввод текста для правки",
+	"Tier options: (any), ": "Варианты Tier: (любой), ",
+	"Free":                  "Бесплатные",
+	"Paid":                  "Платные",
+	"Scored":                "С оценкой",
+	"Tier":                  "Тир",
+	"Quality minimum":       "Качество (минимум)",
+	"Context minimum":       "Контекст (минимум)",
+	"Input max":             "Вход (максимум)",
+	"Output max":            "Выход (максимум)",
+	"Has Q/P":               "Есть Q/P",
+	"Availability":          "Доступность",
+	"(any)":                 "(любой)",
+	"Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0":   "Шаг: качество ±%d очков · контекст ±%d токенов · вход/выход ±%d/%d центов · цены с двумя знаками после запятой · значения >= 0",
+	"Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0": "Шаг (устаревший режим): качество ±%d очков · контекст/вход/выход ±%d%%/%d%%/%d%% · отображение округляется до целых · значения >= 0",
+	"Enter apply · Esc cancel · c clear · Tab/Shift+Tab move":                                                              "Enter применить · Esc отмена · c очистить · Tab/Shift+Tab перемещение",
 }
 
 func (m tuiModel) keyMatches(context, action, key string) bool {
@@ -541,10 +646,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err.Error()
 			return m, nil
 		}
-		m.models, m.err, m.status = msg.models, "", "refreshed"
+		m.models, m.err, m.status = msg.models, "", m.t("refreshed")
 		history, err := pricehistory.Load(pricehistory.Path(m.dataDir))
 		if err != nil {
-			m.err = fmt.Sprintf("price history reload failed: %v", err)
+			m.err = fmt.Sprintf(m.t("price history reload failed: %v"), err)
 			return m, nil
 		}
 		m.priceHistory = history
@@ -577,13 +682,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.scoreSourceLoading = false
 			m.pendingScoreSource = ""
-			m.err = fmt.Sprintf("score source %s: %v", msg.source, msg.err)
-			m.status = "score source switch failed"
+			m.err = fmt.Sprintf(m.t("score source %s: %v"), msg.source, msg.err)
+			m.status = m.t("score source switch failed")
 			return m, nil
 		}
 		m.scoreSourceLoading = false
 		m.pendingScoreSource = ""
-		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", "score source changed"
+		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", m.t("score source changed")
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 		m.clampDetailOffset()
@@ -630,6 +735,22 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
+	}
+	// language_toggle (l, plus its Cyrillic ЙЦУКЕН-position alias д via
+	// tuiCommandKey) is checked unconditionally here too, the same way x
+	// is above: it is not gated on m.overlay == "" the way open_settings,
+	// open_details, help and full_help below are, because none of them
+	// share a meaning with l inside any overlay's own switch (checked: no
+	// overlay context binds a letter to "l" today) — a user mid-overlay
+	// (help, detail, settings, columns, filter) can flip the whole
+	// interface's language without backing out first, matching how x
+	// already reaches every overlay. It is still, like every other command
+	// key, unreachable while m.inputMode != "" — that branch already
+	// returned above — so l/д types literally into an active search or
+	// help-search draft, exactly as before.
+	if m.keyMatches("main", "language_toggle", key) {
+		m.toggleLanguage()
+		return m, nil
 	}
 	if m.overlay == "" && m.keyMatches("main", "open_settings", key) {
 		key = "o"
@@ -842,7 +963,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		m.overlay = "help"
 		m.setHelpSection(0)
-	case "enter", "right", "l":
+	case "enter", "right":
 		if !m.keyMatches("main", "open_details", originalKey) {
 			break
 		}
@@ -859,7 +980,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if !m.refreshing {
 			m.generation++
 			m.refreshing = true
-			m.status = "refreshing"
+			m.status = m.t("refreshing")
 			return m, m.refreshCmd()
 		}
 	}
@@ -890,7 +1011,9 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.inputMode, m.search = "", strings.TrimSpace(candidate)
 			m.rebuild()
 			if m.search == "" {
-				m.status = "search: none (cleared)"
+				m.status = m.t("search: none (cleared)")
+			} else if m.lang == "ru" {
+				m.status = fmt.Sprintf("поиск: %q (%s)", m.search, tuiPlural(len(m.visible), "совпадение", "совпадения", "совпадений"))
 			} else {
 				m.status = fmt.Sprintf("search: %q (%d matches)", m.search, len(m.visible))
 			}
@@ -900,7 +1023,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if strings.TrimSpace(candidate) == "" {
 			m.filter, m.err = "", ""
 			if inputMode == "filter" {
-				m.status = "filter: none (cleared)"
+				m.status = m.t("filter: none (cleared)")
 			}
 			if inputMode == "filter" && m.configPath != "" {
 				if err := config.SaveTUIFilter(m.configPath, ""); err != nil {
@@ -917,7 +1040,7 @@ func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		m.filter, m.err = candidate, ""
 		if inputMode == "filter" {
-			m.status = "filter: " + candidate
+			m.status = m.t("filter: ") + candidate
 		}
 		if inputMode == "filter" && m.configPath != "" {
 			if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
@@ -977,6 +1100,30 @@ func (m *tuiModel) persistLayout() {
 		return
 	}
 	if err := config.SaveTUILayout(m.configPath, m.layout, m.topN); err != nil {
+		m.err = err.Error()
+	}
+}
+
+// toggleLanguage flips m.lang between English ("") and Russian ("ru") and
+// persists the choice, the same write-through-only-when-configured shape
+// persistLayout uses. Unlike layout/topN, the language is never re-read
+// from disk on a periodic refresh (refreshCmd's tuiRefreshMsg carries no
+// language field): the toggle already writes through immediately, so a
+// live session and its own config.yaml can never disagree with each
+// other, and there is no CLI flag for language whose precedence a
+// mid-session reload would need to protect (unlike TUIFilter's
+// filterExplicit/filterDefaulted machinery). See the key() call site for
+// why this is checked from every overlay, not just the main list.
+func (m *tuiModel) toggleLanguage() {
+	if m.lang == "ru" {
+		m.lang = ""
+	} else {
+		m.lang = "ru"
+	}
+	if m.configPath == "" {
+		return
+	}
+	if err := config.SaveTUILanguage(m.configPath, m.lang); err != nil {
 		m.err = err.Error()
 	}
 }
@@ -1182,7 +1329,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	m.filter, m.err, m.overlay = candidate, "", ""
 	m.filterFormExplicit = true
 	m.filterDefaulted = false
-	m.status = "filter: " + filterStatusValue(candidate)
+	m.status = m.t("filter: ") + m.filterStatusValue(candidate)
 	if m.configPath != "" {
 		if err := config.SaveTUIFilter(m.configPath, candidate); err != nil {
 			m.err = err.Error()
@@ -1192,9 +1339,14 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
-func filterStatusValue(filter string) string {
+// filterStatusValue is a method, not a bare package-level function, so it
+// can read m.lang for the language-aware "cleared" text: applyFilterDraft
+// (its only caller) needs that, and nothing outside this file calls it at
+// a fixed English-only signature the way tuiColumnLabel or the
+// tuiDetailLines* wrapper family are called.
+func (m tuiModel) filterStatusValue(filter string) string {
 	if strings.TrimSpace(filter) == "" {
-		return "none (cleared)"
+		return m.t("none (cleared)")
 	}
 	return filter
 }
@@ -1515,7 +1667,7 @@ func (m tuiModel) View() string {
 		return tuiDetailView(m)
 	}
 	if m.overlay == "columns" {
-		lines := []string{"Columns (Space toggle, Enter apply, Esc cancel)", ""}
+		lines := []string{m.t("Columns (Space toggle, Enter apply, Esc cancel)"), ""}
 		for i, col := range tuiColumns {
 			mark := "[ ]"
 			if containsColumn(m.pendingColumns, col) {
@@ -1542,29 +1694,29 @@ func (m tuiModel) View() string {
 			columns = append(columns, string(col))
 		}
 		lines := []string{
-			"Settings (Enter/Space change, Esc close)",
+			m.t("Settings (Enter/Space change, Esc close)"),
 			"",
-			"> Ranking: " + rankingName,
-			"  Score source: " + m.scoreSource + " (Space switches SWE-bench/Arena)",
-			"  Filter: " + tuiDetailValue(m.filter),
-			"  Availability: " + tuiAvailabilityFromFilter(m.filter),
-			"  Layout: " + m.layout + " (top N=" + strconv.Itoa(m.topN) + ")",
-			"  Columns: " + strings.Join(columns, ", "),
+			"> " + m.t("Ranking: ") + rankingName,
+			"  " + m.t("Score source: ") + m.scoreSource + m.t(" (Space switches SWE-bench/Arena)"),
+			"  " + m.t("Filter: ") + tuiDetailValueForLang(m.filter, m.lang),
+			"  " + m.t("Availability: ") + tuiAvailabilityFromFilter(m.filter),
+			"  " + m.t("Layout: ") + m.layout + m.t(" (top N=") + strconv.Itoa(m.topN) + ")",
+			"  " + m.t("Columns: ") + strings.Join(columns, ", "),
 			"",
-			"Move Down to Score source, then press Space to switch.",
-			"Source uses the local snapshot; R refreshes data.",
-			"Select Filter to reuse the structured filter input.",
+			m.t("Move Down to Score source, then press Space to switch."),
+			m.t("Source uses the local snapshot; R refreshes data."),
+			m.t("Select Filter to reuse the structured filter input."),
 		}
 		// The Status/Error line reports live state, not part of the settings
 		// list above it, and must not sit flush against the last static hint
 		// line — hence the blank separator ahead of it, added only when
 		// there is actually a status/error line to separate.
 		if m.scoreSourceLoading {
-			lines = append(lines, "", "Status: loading "+m.pendingScoreSource+" from local snapshot...")
+			lines = append(lines, "", m.t("Status: ")+m.t("loading ")+m.pendingScoreSource+m.t(" from local snapshot..."))
 		} else if m.err != "" {
-			lines = append(lines, "", "Error: "+m.err)
+			lines = append(lines, "", m.t("Error: ")+m.err)
 		} else if m.status != "" {
-			lines = append(lines, "", "Status: "+m.status)
+			lines = append(lines, "", m.t("Status: ")+m.status)
 		}
 		for i := 0; i < 6; i++ {
 			prefix := "  "
@@ -1575,32 +1727,36 @@ func (m tuiModel) View() string {
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
-	title := truncateTable("OpenRouter models", m.width)
-	searchContext := "none"
+	title := truncateTable(m.t("OpenRouter models"), m.width)
+	searchContext := m.t("none")
 	if m.search != "" {
-		searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
+		if m.lang == "ru" {
+			searchContext = fmt.Sprintf("%q (%s)", m.search, tuiPlural(len(m.visible), "совпадение", "совпадения", "совпадений"))
+		} else {
+			searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
+		}
 	}
-	meta := truncateTable(plainTableText(fmt.Sprintf("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s", rankingLabel(m.ranking), m.scoreSource, m.sortKey, reverseLabel(m.reverse), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, m.t(reverseLabel(m.reverse)), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
 	status := m.status
 	if status == "" {
-		status = "status: ready"
+		status = m.t("status: ready")
 	}
 	if m.refreshing {
-		status = "status: refreshing..."
+		status = m.t("status: refreshing...")
 	}
 	if m.err != "" {
-		status = "error: " + m.err
+		status = m.t("error: ") + m.err
 	}
 	statusLine := tuiStatusStyle.Render(truncateTable(plainTableText(status), m.width))
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := "↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p"
+	hints := m.t("↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p")
 	if m.search != "" {
-		hints += " · / search · Enter empty search to clear"
+		hints += m.t(" · / search · Enter empty search to clear")
 	}
 	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
 	inputLine := truncateTable(plainTableText("/ "+m.input+"_"), m.width)
@@ -1659,7 +1815,12 @@ func (m tuiModel) View() string {
 func tuiFilterView(m tuiModel) string {
 	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability}
 	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability"}
-	lines := []string{"Filter", "", "↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit", "Tier options: (any), " + tier.ValuesString(), ""}
+	// tier.ValuesString() returns the literal tier predicate values
+	// (opus/sonnet/haiku/...), the same tokens the CLI's tier:VALUE filter
+	// syntax accepts — never translated, per this feature's scoping rule
+	// for CLI/filter syntax.
+	tierOptions := m.t("Tier options: (any), ") + tier.ValuesString()
+	lines := []string{m.t("Filter"), "", m.t("↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit"), tierOptions, ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -1670,16 +1831,16 @@ func tuiFilterView(m tuiModel) string {
 			value = tuiFilterDisplayValue(i, value)
 		}
 		if i >= 3 && value == "" {
-			value = "(any)"
+			value = m.t("(any)")
 		}
-		lines = append(lines, prefix+label+": "+value)
+		lines = append(lines, prefix+m.t(label)+": "+value)
 	}
 	steps := m.filterSteps.WithDefaults()
-	stepText := fmt.Sprintf("Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0", steps.QualityPoints, steps.ContextTokens, steps.InputCents, steps.OutputCents)
+	stepText := fmt.Sprintf(m.t("Steps: quality ±%d points · context ±%d tokens · input/output ±%d/%d cents · prices use two decimals · values >= 0"), steps.QualityPoints, steps.ContextTokens, steps.InputCents, steps.OutputCents)
 	if steps.Legacy {
-		stepText = fmt.Sprintf("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0", steps.Quality, steps.Context, steps.Input, steps.Output)
+		stepText = fmt.Sprintf(m.t("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0"), steps.Quality, steps.Context, steps.Input, steps.Output)
 	}
-	lines = append(lines, "", "Enter apply · Esc cancel · c clear · Tab/Shift+Tab move", "Tier options: (any), "+tier.ValuesString(), stepText)
+	lines = append(lines, "", m.t("Enter apply · Esc cancel · c clear · Tab/Shift+Tab move"), tierOptions, stepText)
 	return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
@@ -1743,7 +1904,7 @@ func (m tuiModel) tuiColumnsWidth(columns []tuiColumn) int {
 	}
 	width := tableDisplayWidth("  ") + 3*(len(columns)-1)
 	for _, column := range columns {
-		width += tuiColumnMinimumWidth(column, m.scoreSource)
+		width += tuiColumnMinimumWidthForLang(column, m.scoreSource, m.lang)
 	}
 	return width
 }
@@ -1759,10 +1920,10 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 		}
 	}
 	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	widths := tuiCellWidths(columns, available, m.nameWidth, m.scoreSource)
+	widths := tuiCellWidthsForLang(columns, available, m.nameWidth, m.scoreSource, m.lang)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
-		value := tuiColumnLabel(col, m.scoreSource)
+		value := tuiColumnLabelForLang(col, m.scoreSource, m.lang)
 		if values != nil {
 			if i < len(values) {
 				value = values[i]
@@ -1776,7 +1937,17 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
 }
 
-func tuiCellWidths(columns []tuiColumn, available, nameWidth int, scoreSource string) []int {
+// tuiCellWidthsForLang computes each column's rendered width, sized for
+// whichever language's header text is actually on screen: a Russian
+// header can be longer or shorter than its English counterpart, and the
+// column has to be at least as wide as whichever label is currently
+// displayed or it would get truncated. There is no English-only sibling
+// here — unlike tuiColumnLabel (which the detail/table tests call
+// directly at its exact 2-argument signature) or the tuiDetailLines*
+// wrapper family, nothing outside this file ever called a lang-unaware
+// version of this specific function, so adding one here would only be
+// dead code.
+func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSource, lang string) []int {
 	widths := make([]int, len(columns))
 	if len(columns) == 0 {
 		return widths
@@ -1793,7 +1964,7 @@ func tuiCellWidths(columns []tuiColumn, available, nameWidth int, scoreSource st
 	minimums := make([]int, len(columns))
 	minimumWidth := 0
 	for i, column := range columns {
-		minimums[i] = tuiColumnMinimumWidth(column, scoreSource)
+		minimums[i] = tuiColumnMinimumWidthForLang(column, scoreSource, lang)
 		minimumWidth += minimums[i]
 	}
 	if minimumWidth > available {
@@ -1833,11 +2004,15 @@ func tuiCellWidths(columns []tuiColumn, available, nameWidth int, scoreSource st
 	return widths
 }
 
-func tuiColumnMinimumWidth(column tuiColumn, scoreSource string) int {
+// tuiColumnMinimumWidthForLang computes a column's minimum width from
+// whichever language's header label (tuiColumnLabelForLang) is actually
+// on screen — see tuiCellWidthsForLang for why there is no English-only
+// sibling to name this "ForLang" relative to.
+func tuiColumnMinimumWidthForLang(column tuiColumn, scoreSource, lang string) int {
 	if scoreSource == "" {
 		scoreSource = scoreSourceDefault
 	}
-	return max(1, tableDisplayWidth(tuiColumnLabel(column, scoreSource)))
+	return max(1, tableDisplayWidth(tuiColumnLabelForLang(column, scoreSource, lang)))
 }
 
 func tuiNumericColumn(column tuiColumn) bool {
@@ -1874,6 +2049,48 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 		return "Task fit"
 	case colNote:
 		return "Note"
+	default:
+		return string(column)
+	}
+}
+
+// tuiColumnLabelForLang is tuiColumnLabel with a language-aware header.
+// tuiColumnLabel itself is left untouched — it has a direct test call
+// site pinned to its exact 2-argument signature — so this is a sibling,
+// not a change, matching the *ForLang convention used throughout the
+// detail screen. Slug, Claude, Arena Elo, SWE % and Task fit stay English
+// in both languages: Slug and Task fit are terms of art kept English even
+// in Russian prose elsewhere (see tuiDetailLinesForLang and
+// docs/methodology.md's own choice for "Task fit"), and Claude/Arena Elo/
+// SWE % are proper nouns and metric names, not translatable prose.
+func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
+	if lang != "ru" {
+		return tuiColumnLabel(column, scoreSource)
+	}
+	switch column {
+	case colName:
+		return "Название"
+	case colSlug:
+		return "Slug"
+	case colClaude:
+		return "Claude"
+	case colStatus:
+		if scoreSource == scoreSourceArena {
+			return "Arena Elo"
+		}
+		return "SWE %"
+	case colQuality:
+		return "Q/P очки/$M"
+	case colContext:
+		return "Контекст"
+	case colInput:
+		return "Вход $/M"
+	case colOutput:
+		return "Выход $/M"
+	case colTask:
+		return "Task fit"
+	case colNote:
+		return "Заметка"
 	default:
 		return string(column)
 	}
@@ -1954,9 +2171,13 @@ func tuiOverlayPlain(lines []string, width, height int) string {
 // what actually prevents that false match; nothing about how the line
 // ends does.
 func (m tuiModel) helpLines() []string {
-	lines := tuiHelpSectionLines(m.helpSection)
-	lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
-	return tuiConfiguredHelpLines(lines, m.keymap)
+	lines := tuiHelpSectionLinesForLang(m.helpSection, m.lang)
+	if m.lang == "ru" {
+		lines[0] = fmt.Sprintf("%s (версия %s)", lines[0], version)
+	} else {
+		lines[0] = fmt.Sprintf("%s (version %s)", lines[0], version)
+	}
+	return tuiConfiguredHelpLinesForLang(lines, m.keymap, m.lang)
 }
 
 // tuiHelpSectionLines builds the lines the F1 overlay actually renders for
@@ -1977,6 +2198,22 @@ func tuiHelpSectionLines(section int) []string {
 	section = tuiClampHelpSection(section)
 	lines := []string{tuiHelpTitleLine, "", tuiHelpTabBarLine(section), ""}
 	return append(lines, strings.Split(tuiHelpSections[section].Body, "\n")...)
+}
+
+// tuiHelpSectionLinesForLang is tuiHelpSectionLines with a language
+// switch: English (lang != "ru") delegates to the untouched original,
+// byte-identical to today; Russian builds the same four-line frame (title,
+// blank, tab bar, blank) plus body from tuiHelpSectionsRU instead. tuiModel
+// never calls tuiHelpSectionLines directly any more — see m.helpLines() —
+// so every test that does call it directly keeps exercising the exact
+// same English-only path it always has.
+func tuiHelpSectionLinesForLang(section int, lang string) []string {
+	if lang != "ru" {
+		return tuiHelpSectionLines(section)
+	}
+	section = tuiClampHelpSection(section)
+	lines := []string{tuiHelpTitleLineRU, "", tuiHelpTabBarLineForLang(section, lang), ""}
+	return append(lines, strings.Split(tuiHelpSectionsRU[section].Body, "\n")...)
 }
 
 // tuiClampHelpSection keeps a section index in range without wrapping,
@@ -2009,6 +2246,27 @@ func tuiHelpTabBarLine(active int) string {
 	return strings.Join(parts, " ")
 }
 
+// tuiHelpTabBarLineForLang is tuiHelpTabBarLine with a language-aware
+// section list: the tab titles themselves are the one piece of this
+// feature's content judged prose-like enough to translate (see
+// tuiHelpSectionsRU) rather than fixed UI chrome, per this feature's own
+// scoping decision.
+func tuiHelpTabBarLineForLang(active int, lang string) string {
+	if lang != "ru" {
+		return tuiHelpTabBarLine(active)
+	}
+	active = tuiClampHelpSection(active)
+	parts := make([]string, len(tuiHelpSectionsRU))
+	for i, section := range tuiHelpSectionsRU {
+		label := fmt.Sprintf("%d %s", i+1, section.Title)
+		if i == active {
+			label = "[" + label + "]"
+		}
+		parts[i] = label
+	}
+	return strings.Join(parts, " ")
+}
+
 func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	if keymap == nil {
 		return lines
@@ -2016,39 +2274,40 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 	keymap = keymap.WithDefaults()
 	result := append([]string(nil), lines...)
 	replacements := map[string]config.TUIBindings{
-		`\tUp\tnavigate\t`:                                                   keymap["main"]["navigate_up"],
-		`\tDown\tnavigate\t`:                                                 keymap["main"]["navigate_down"],
-		`\tj / k\tmove\t`:                                                    append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
-		`\tEnter / Right / l\tdetail\t`:                                      keymap["main"]["open_details"],
-		`\tEsc / Left / h\tclose\t`:                                          keymap["detail"]["close"],
-		`\to\tsettings\topen settings.`:                                      keymap["main"]["open_settings"],
-		`\t?\thelp\topen help at Hotkeys.`:                                   keymap["main"]["help"],
-		`\tF1\thelp\topen full help.`:                                        keymap["main"]["full_help"],
+		`\tUp\tnavigate\t`:                 keymap["main"]["navigate_up"],
+		`\tDown\tnavigate\t`:               keymap["main"]["navigate_down"],
+		`\tj / k\tmove\t`:                  append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
+		`\tEnter / Right\tdetail\t`:        keymap["main"]["open_details"],
+		`\tEsc / Left / h\tclose\t`:        keymap["detail"]["close"],
+		`\to\tsettings\topen settings.`:    keymap["main"]["open_settings"],
+		`\tl\tlanguage\t`:                  keymap["main"]["language_toggle"],
+		`\t?\thelp\topen help at Hotkeys.`: keymap["main"]["help"],
+		`\tF1\thelp\topen full help.`:      keymap["main"]["full_help"],
 		`\tSpace\tswitch\t(main) switch between SWE-bench and Arena.`:        keymap["main"]["switch_source"],
 		`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`: keymap["settings"]["switch_source"],
-		`\tSpace\tcolumns\t`:                                                 keymap["columns"]["toggle"],
-		`\tSpace\ttier\t`:                                                    keymap["filter"]["toggle"],
-		`\tEnter\tapply\t`:                                                   keymap["filter"]["apply"],
-		`\tEsc\tcancel\t`:                                                    keymap["filter"]["close"],
-		`\tEsc\tcolumns\t`:                                                   keymap["columns"]["close"],
-		`\tEnter\tcolumns\t`:                                                 keymap["columns"]["apply"],
-		`\tEnter\tcolumns apply\t`:                                           keymap["columns"]["apply"],
-		`\t?\thelp\tclose help.`:                                             keymap["help"]["close"],
-		`\tEsc\tclose\tclose help.`:                                          keymap["help"]["close"],
-		`\tUp\tsettings navigate\t`:                                          keymap["settings"]["navigate_up"],
-		`\tDown\tsettings navigate\t`:                                        keymap["settings"]["navigate_down"],
-		`\tEsc\tsettings close\t`:                                            keymap["settings"]["close"],
-		`\tUp\tdetail navigate\t`:                                            keymap["detail"]["navigate_up"],
-		`\tDown\tdetail navigate\t`:                                          keymap["detail"]["navigate_down"],
-		`\tUp\thelp navigate\t`:                                              keymap["help"]["navigate_up"],
-		`\tDown\thelp navigate\t`:                                            keymap["help"]["navigate_down"],
-		`\tUp\tcolumns navigate\t`:                                           keymap["columns"]["navigate_up"],
-		`\tDown\tcolumns navigate\t`:                                         keymap["columns"]["navigate_down"],
-		`\tEsc\tcolumns close\t`:                                             keymap["columns"]["close"],
-		`\tUp\tfilter navigate\t`:                                            keymap["filter"]["navigate_up"],
-		`\tDown\tfilter navigate\t`:                                          keymap["filter"]["navigate_down"],
-		`\tEsc\tfilter close\t`:                                              keymap["filter"]["close"],
-		`\tEsc\tmain close\t`:                                                keymap["main"]["close"],
+		`\tSpace\tcolumns\t`:          keymap["columns"]["toggle"],
+		`\tSpace\ttier\t`:             keymap["filter"]["toggle"],
+		`\tEnter\tapply\t`:            keymap["filter"]["apply"],
+		`\tEsc\tcancel\t`:             keymap["filter"]["close"],
+		`\tEsc\tcolumns\t`:            keymap["columns"]["close"],
+		`\tEnter\tcolumns\t`:          keymap["columns"]["apply"],
+		`\tEnter\tcolumns apply\t`:    keymap["columns"]["apply"],
+		`\t?\thelp\tclose help.`:      keymap["help"]["close"],
+		`\tEsc\tclose\tclose help.`:   keymap["help"]["close"],
+		`\tUp\tsettings navigate\t`:   keymap["settings"]["navigate_up"],
+		`\tDown\tsettings navigate\t`: keymap["settings"]["navigate_down"],
+		`\tEsc\tsettings close\t`:     keymap["settings"]["close"],
+		`\tUp\tdetail navigate\t`:     keymap["detail"]["navigate_up"],
+		`\tDown\tdetail navigate\t`:   keymap["detail"]["navigate_down"],
+		`\tUp\thelp navigate\t`:       keymap["help"]["navigate_up"],
+		`\tDown\thelp navigate\t`:     keymap["help"]["navigate_down"],
+		`\tUp\tcolumns navigate\t`:    keymap["columns"]["navigate_up"],
+		`\tDown\tcolumns navigate\t`:  keymap["columns"]["navigate_down"],
+		`\tEsc\tcolumns close\t`:      keymap["columns"]["close"],
+		`\tUp\tfilter navigate\t`:     keymap["filter"]["navigate_up"],
+		`\tDown\tfilter navigate\t`:   keymap["filter"]["navigate_down"],
+		`\tEsc\tfilter close\t`:       keymap["filter"]["close"],
+		`\tEsc\tmain close\t`:         keymap["main"]["close"],
 	}
 	for i := range result {
 		for marker, bindings := range replacements {
@@ -2060,6 +2319,78 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		}
 	}
 	return result
+}
+
+// tuiConfiguredHelpLinesRU is tuiConfiguredHelpLines for the Russian
+// Hotkeys/Filters bodies: same substitution mechanism, a separate
+// replacements map keyed against the RU Action-column wording chosen in
+// tuiHelpSectionHotkeysBodyRU/tuiHelpSectionFiltersBodyRU instead of the
+// English one. One EN marker — `\tj / k\tmove\t` — is not mirrored here: it
+// never actually matches anything in the English body either (the body's
+// own Action column reads "navigate", never "move", for every j/k row), so
+// it substitutes nothing today; carrying that same no-op into Russian
+// would only be one more thing to keep in sync for no behavioural gain.
+func tuiConfiguredHelpLinesRU(lines []string, keymap config.TUIKeymap) []string {
+	if keymap == nil {
+		return lines
+	}
+	keymap = keymap.WithDefaults()
+	result := append([]string(nil), lines...)
+	replacements := map[string]config.TUIBindings{
+		`\tUp\tнавигация\t`:                keymap["main"]["navigate_up"],
+		`\tDown\tнавигация\t`:              keymap["main"]["navigate_down"],
+		`\tEnter / Right\tдетали\t`:        keymap["main"]["open_details"],
+		`\tEsc / Left / h\tзакрытие\t`:     keymap["detail"]["close"],
+		`\to\tsettings\tоткрыть settings.`: keymap["main"]["open_settings"],
+		`\tl\tязык\t`:                      keymap["main"]["language_toggle"],
+		`\t?\thelp\tоткрыть справку на разделе Хоткеи.`:                                 keymap["main"]["help"],
+		`\tF1\thelp\tоткрыть полную справку.`:                                           keymap["main"]["full_help"],
+		`\tSpace\tпереключение\t(в основном виде) переключить между SWE-bench и Arena.`: keymap["main"]["switch_source"],
+		`\tSpace\tпереключение\t(в Settings) переключить между SWE-bench и Arena.`:      keymap["settings"]["switch_source"],
+		`\tSpace\tстолбцы\t`:               keymap["columns"]["toggle"],
+		`\tSpace\tтир\t`:                   keymap["filter"]["toggle"],
+		`\tEnter\tприменение\t`:            keymap["filter"]["apply"],
+		`\tEsc\tотмена\t`:                  keymap["filter"]["close"],
+		`\tEsc\tстолбцы\t`:                 keymap["columns"]["close"],
+		`\tEnter\tстолбцы\t`:               keymap["columns"]["apply"],
+		`\tEnter\tприменение columns\t`:    keymap["columns"]["apply"],
+		`\t?\thelp\tзакрыть help.`:         keymap["help"]["close"],
+		`\tEsc\tзакрытие\tзакрыть help.`:   keymap["help"]["close"],
+		`\tUp\tнавигация в settings\t`:     keymap["settings"]["navigate_up"],
+		`\tDown\tнавигация в settings\t`:   keymap["settings"]["navigate_down"],
+		`\tEsc\tзакрытие settings\t`:       keymap["settings"]["close"],
+		`\tUp\tнавигация в деталях\t`:      keymap["detail"]["navigate_up"],
+		`\tDown\tнавигация в деталях\t`:    keymap["detail"]["navigate_down"],
+		`\tUp\tнавигация в help\t`:         keymap["help"]["navigate_up"],
+		`\tDown\tнавигация в help\t`:       keymap["help"]["navigate_down"],
+		`\tUp\tнавигация в columns\t`:      keymap["columns"]["navigate_up"],
+		`\tDown\tнавигация в columns\t`:    keymap["columns"]["navigate_down"],
+		`\tEsc\tзакрытие columns\t`:        keymap["columns"]["close"],
+		`\tUp\tнавигация в filter\t`:       keymap["filter"]["navigate_up"],
+		`\tDown\tнавигация в filter\t`:     keymap["filter"]["navigate_down"],
+		`\tEsc\tзакрытие filter\t`:         keymap["filter"]["close"],
+		`\tEsc\tзакрытие основного вида\t`: keymap["main"]["close"],
+	}
+	for i := range result {
+		for marker, bindings := range replacements {
+			if strings.Contains(result[i], marker) {
+				parts := strings.Split(marker, `\t`)
+				replacement := `\t` + strings.Join(bindings, " / ") + `\t` + strings.Join(parts[2:], `\t`)
+				result[i] = strings.Replace(result[i], marker, replacement, 1)
+			}
+		}
+	}
+	return result
+}
+
+// tuiConfiguredHelpLinesForLang dispatches tuiConfiguredHelpLines vs.
+// tuiConfiguredHelpLinesRU by language, the same switch every other
+// *ForLang function in this file makes.
+func tuiConfiguredHelpLinesForLang(lines []string, keymap config.TUIKeymap, lang string) []string {
+	if lang == "ru" {
+		return tuiConfiguredHelpLinesRU(lines, keymap)
+	}
+	return tuiConfiguredHelpLines(lines, keymap)
 }
 
 // helpViewportHeight reserves room for the trailing status cluster —  a
@@ -2149,19 +2480,39 @@ func tuiHelpView(m tuiModel) string {
 		inputLineIndex = len(lines)
 		lines = append(lines, plainTableText("/ "+m.input+"_"))
 	}
+	ru := m.lang == "ru"
 	matchStatus := "0 matches"
+	if ru {
+		matchStatus = "0 совпадений"
+	}
 	if len(m.helpMatches) > 0 {
 		position := 0
 		if m.helpMatch >= 0 && m.helpMatch < len(m.helpMatches) {
 			position = m.helpMatch + 1
 		}
-		matchStatus = fmt.Sprintf("%d/%d matches", position, len(m.helpMatches))
+		if ru {
+			matchStatus = fmt.Sprintf("%d/%d совпадений", position, len(m.helpMatches))
+		} else {
+			matchStatus = fmt.Sprintf("%d/%d matches", position, len(m.helpMatches))
+		}
 	}
-	footer := fmt.Sprintf("Help %d-%d/%d · %s", offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()), matchStatus)
+	footerLabel := "Help"
+	if ru {
+		footerLabel = "Справка"
+	}
+	footer := fmt.Sprintf("%s %d-%d/%d · %s", footerLabel, offset+1, min(len(m.helpLines()), offset+body), len(m.helpLines()), matchStatus)
 	if inputActive {
-		footer += " · / search · Enter confirm search · Esc cancel"
+		if ru {
+			footer += " · / поиск · Enter подтвердить поиск · Esc отмена"
+		} else {
+			footer += " · / search · Enter confirm search · Esc cancel"
+		}
 	} else {
-		footer += " · / search · n next match · N previous match · Esc close"
+		if ru {
+			footer += " · / поиск · n следующее совпадение · N предыдущее совпадение · Esc закрыть"
+		} else {
+			footer += " · / search · n next match · N previous match · Esc close"
+		}
 	}
 	if m.helpSearch != "" {
 		footer += fmt.Sprintf(" · %q", m.helpSearch)
@@ -2176,11 +2527,17 @@ func tuiHelpView(m tuiModel) string {
 			continue
 		}
 		if i == tabBarLineIndex {
-			styledLines[i] = tuiStyleHelpTabBar(line, m.helpSection)
+			styledLines[i] = tuiStyleHelpTabBarForLang(line, m.helpSection, m.lang)
 			continue
 		}
 		plain := ansi.Strip(line)
-		if strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search") {
+		isHeading := false
+		if ru {
+			isHeading = strings.HasPrefix(plain, "omt tui —") || tuiHelpHeadingLinesRU[plain]
+		} else {
+			isHeading = strings.HasPrefix(plain, "omt tui ") || strings.HasSuffix(plain, "keys") || plain == "Hotkeys" || plain == "Navigation" || plain == "Data/view" || plain == "Filters/settings" || plain == "Task-fit codes" || plain == "General/help" || strings.HasSuffix(plain, "view") || strings.HasSuffix(plain, "filters") || strings.HasSuffix(plain, "finish") || strings.HasSuffix(plain, "search")
+		}
+		if isHeading {
 			styledLines[i] = tuiHeaderStyle.Render(line)
 			continue
 		}
@@ -2188,6 +2545,31 @@ func tuiHelpView(m tuiModel) string {
 		styledLines[i] = tuiHighlightHelpMatches(line, needle, current)
 	}
 	return strings.Join(styledLines, "\n")
+}
+
+// tuiHelpHeadingLinesRU is the Russian mirror of the English heading-line
+// checks in tuiHelpView above (the exact-match half of it: "Hotkeys",
+// "Navigation", "Data/view", ...) — every RU mini-header and section
+// heading that gets the same bold treatment its English original does. The
+// English side also bolds a few section headings by suffix ("...view",
+// "...filters", "...finish", "...search") rather than exact text; those
+// are folded into this same exact-match set for Russian rather than
+// re-derived as RU suffix rules, since "does this Russian sentence happen
+// to end in a matching suffix" has no natural equivalent — the point is
+// the same seven English headings this augments (page title handled
+// separately by its own prefix check below), not the suffix mechanism
+// that happened to catch them in English.
+var tuiHelpHeadingLinesRU = map[string]bool{
+	"Хоткеи":                   true,
+	"Навигация":                true,
+	"Данные/вид":               true,
+	"Фильтры/настройки":        true,
+	"Коды task-fit":            true,
+	"Общее/справка":            true,
+	"Экран деталей модели":     true,
+	"Столбцы, поиск и фильтры": true,
+	"Обновление и завершение":  true,
+	"Поиск в справке":          true,
 }
 
 func tuiFormatHelpLine(line string, width int) string {
@@ -2224,6 +2606,24 @@ func tuiStyleHelpTabBar(line string, active int) string {
 		return line
 	}
 	target := "[" + fmt.Sprintf("%d %s", active+1, tuiHelpSections[active].Title) + "]"
+	index := strings.Index(line, target)
+	if index < 0 {
+		return line
+	}
+	return line[:index] + tuiSelectedStyle.Render(target) + line[index+len(target):]
+}
+
+// tuiStyleHelpTabBarForLang is tuiStyleHelpTabBar with a language-aware
+// tab title, looking the bracketed target up in tuiHelpSectionsRU instead
+// of tuiHelpSections when Russian is active.
+func tuiStyleHelpTabBarForLang(line string, active int, lang string) string {
+	if lang != "ru" {
+		return tuiStyleHelpTabBar(line, active)
+	}
+	if active < 0 || active >= len(tuiHelpSectionsRU) {
+		return line
+	}
+	target := "[" + fmt.Sprintf("%d %s", active+1, tuiHelpSectionsRU[active].Title) + "]"
 	index := strings.Index(line, target)
 	if index < 0 {
 		return line
@@ -2282,9 +2682,12 @@ func (m tuiModel) detailRow() (model.Model, bool) {
 func tuiDetailView(m tuiModel) string {
 	row, ok := m.detailRow()
 	if !ok {
+		if m.lang == "ru" {
+			return tuiFullscreenText("Модель не выбрана · Esc закрыть", m.width, m.height)
+		}
 		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
 	}
-	lines := tuiDetailLinesWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, time.Now(), m.priceHistory, m.icons, m.iconGap, m.iconGaps)
+	lines := tuiDetailLinesForLang(row, m.scoreSource, m.width, time.Now(), m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
 	body := tuiDetailBodyHeight(m.height)
 	offset := max(0, min(m.detailOffset, max(0, len(lines)-body)))
 	end := min(len(lines), offset+body)
@@ -2293,6 +2696,9 @@ func tuiDetailView(m tuiModel) string {
 		visible = []string{""}
 	}
 	footer := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines))
+	if m.lang == "ru" {
+		footer = fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, len(lines))
+	}
 	// The footer is state (scroll position), not detail content, and must
 	// not sit flush against the last content line. tuiDetailBodyHeight
 	// already reserves two rows (blank + footer) for exactly this, so the
@@ -2556,7 +2962,7 @@ Navigation
 \tHome / g\tjump\tfirst item.
 \tEnd / G\tjump\tlast item.
 \tPgUp / PgDown\tscroll\tpage through models or help.
-\tEnter / Right / l\tdetail\topen the model detail screen.
+\tEnter / Right\tdetail\topen the model detail screen.
 \tEsc / Left / h\tclose\tEsc, Left or h closes it and returns to the list.
 
 Data/view
@@ -2564,6 +2970,7 @@ Data/view
 \tp\tavailability\tcycle any/free/paid.
 \tr\tsort\tquality/price ratio (q/p).
 \tv\tview\ttoggle all/top-paid-free.
+\tl\tlanguage\tswitch the interface between English and Russian; works from any screen.
 \tm\tranking\ttoggle ranking mode: mixed-utility or tier-priority.
 \ts\tordering\tcycle sort key.
 \tS\tordering\treverse order.
@@ -2643,7 +3050,7 @@ The last column stays selected.
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
-\tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.
+\tEnter or Right\tdetail\tEnter or Right opens the detail screen for the highlighted model.
 \tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
 \tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
 It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
@@ -2712,6 +3119,314 @@ A row can carry a real number and still not rank: variant_mismatch, missing_iden
 legacy_unknown (an old snapshot saved before identity status existed) are all shown with their
 number but excluded, the same as a model with no score source at all, or a manual notes.yaml
 observation-only override, which is a vendor claim rather than an independent measurement.`
+
+// tuiHelpTitleLineRU is tuiHelpTitleLine's Russian counterpart, used only
+// by the *ForLang rendering path when m.lang == "ru". "omt tui" (the CLI's
+// own name) stays untranslated, matching every other proper noun and CLI
+// identifier in this feature.
+const tuiHelpTitleLineRU = "omt tui — хоткеи"
+
+// tuiHelpSectionOverviewBodyRU is tuiHelpSectionOverviewBody's Russian
+// translation. Terminology follows docs/methodology.md and model-map.tsv's
+// own header comment throughout this file's RU help content: "качество"
+// and "тир" in prose (matching README.md/docs/methodology.md's own choice
+// to decline these as ordinary Russian words), but quality>=, tier:,
+// tier-priority, mixed-utility, price_weight, tier_factor, quality_price
+// and every other literal filter/formula/CLI token stay English exactly as
+// typed, because translating a token a user has to type verbatim would be
+// actively wrong, not just inconsistent. exact_product, variant_mismatch,
+// rankable and !variant are the identity-gate's own status vocabulary,
+// kept English the same way docs/methodology.md keeps them.
+const tuiHelpSectionOverviewBodyRU = `omt отслеживает AI-модели, доступные на OpenRouter, и ранжирует их по качеству и цене.
+- Качество берётся из оценок SWE-bench Verified или LMArena Elo; цена — из каталога OpenRouter.
+- Модели сгруппированы по тирам относительно Claude Opus, Sonnet и Haiku, чтобы относительное
+качество было легко оценить.
+
+Что формирует каждую строку: три независимых вида данных
+Каждую строку формируют три вида данных, и ни один не выводится из другого.
+- Цена и контекст берутся живьём из каталога OpenRouter.
+- Качество — независимая бенчмарк-оценка: SWE-bench Verified (с vals.ai или swebench.com) либо
+LMArena Elo, никогда оба сразу; чем они отличаются и почему никогда не смешиваются — в разделе
+Score Sources.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, а не то, что вычисляется из
+оценки. Он нужен, чтобы модель без единого бенчмарка тоже была сравнима на одной знакомой шкале —
+«примерно уровня Sonnet» или «примерно уровня Haiku» — даже если у семейства модели вообще нет
+бенчмарк-числа.
+- quality и quality>= всегда означают rankable exact-product бенчмарк-наблюдение — никогда
+вендорское заявление и никогда тир.
+
+Identity matching: никогда по похожести имён
+Строка лидерборда никогда не привязывается к модели OpenRouter по похожести имён.
+- Единственный путь от строки одного сайта к slug'у другого сайта — ручная карта model-map.tsv.
+- Нет записи в карте — нет автоматически собранной оценки для этой модели, и это осознанное
+решение: правдоподобное совпадение имён на двух независимо администрируемых сайтах — ровно то, как
+число одной модели тихо приклеивается к другой.
+- Сопоставленный ключ source= сам по себе и есть утверждение об идентичности. Если источник вернул
+строку по этому ключу, она считается exact_product, даже если написание ключа отличается от slug'а
+OpenRouter, — это обычное дело между двумя сайтами с разными соглашениями об именовании.
+- Если сопоставленная строка на самом деле измеряет другой чекпоинт или вариант той же линейки,
+запись помечается маркером !variant (например, vals!variant=some/other-checkpoint), и строка остаётся
+вне ранжирования (variant_mismatch), несмотря на совпадение по ключу.
+- Только человек, редактируя карту, может принять такое решение; код это автоматически не ловит.
+
+Режимы ранжирования
+tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
+mixed-utility: сначала rankable-модели, затем платные сравниваются по paid utility из настроенной
+безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*ln(1+quality_price),
+где смешение цены 3:1, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а weight=10. Переменные formula,
+операции, глубина и лимиты узлов описаны в README. Task fit никогда не входит множителем.
+o, затем стрелка вниз к Score source, затем Space переключает SWE-bench и Arena.
+Флаг CLI --ranking принимает legacy, tier, tier-priority, mixed или mixed-utility; без него
+используется сортировка mixed-utility.`
+
+// tuiHelpSectionScoreSourcesBodyRU is tuiHelpSectionScoreSourcesBody's
+// Russian translation. "n/a" in the English body (what the table shows for
+// a model with no number on the active source) becomes н/д here, matching
+// the placeholder the app actually renders in Russian — see
+// tuiDetailPlaceholderRU.
+const tuiHelpSectionScoreSourcesBodyRU = `Источники оценки
+swebench: Status и ranking используют SWE-bench Verified, в процентах. Это значение по умолчанию.
+arena: Status и ranking используют рейтинг LMArena Elo, показанный как есть и нормализованный в 0-100
+перед тем, как он войдёт в формулу ранжирования.
+- Эти два источника никогда не смешиваются: в одном представлении модель без числа на активном
+источнике показывает н/д, даже если у другого источника число есть.
+- Выбирается через --score-source или Settings; переключение читает локальный снапшот, а
+сгенерированный markdown-документ всегда использует swebench.
+
+SWE-bench Verified: два источника, а не две альтернативы
+У самого SWE-bench Verified есть два возможных источника, и они друг другу fallback, а не
+взаимозаменяемые измерения.
+- vals.ai сам запускает каждую submitted-модель на одном фиксированном независимом харнессе, и его
+собственная строка лидерборда эхом возвращает точный ключ модели, по которому её нашли; именно этот
+эхо-ответ и позволяет проекту по умолчанию доверять идентичности строки (механику identity gate см. в
+разделе Overview).
+- swebench.com устроен иначе: это self-submitted лидерборд, где прислать прогон со своим агентским
+скаффолдом может кто угодно, поэтому одна и та же модель может появляться под несколькими разными
+скаффолдами с разными числами. Чтобы притупить стимул накручивать лидерборд одним агрессивным
+скаффолдом, проект берёт медиану по каждому отдельному сабмиченному скаффолду (один голос на
+скаффолд; повторный сабмит того же скаффолда заменяет прежний, а не добавляет второй голос) вместо
+единственного лучшего прогона, и текст самой строки говорит «median of N scaffolds», когда это
+применилось.
+- vals.ai побеждает всегда, когда у него есть пригодная, прошедшая identity-проверку строка для
+модели; swebench.com используется только как запасной источник — когда у vals.ai нет строки вовсе
+или её строка не прошла проверку идентичности.
+
+LMArena Elo: другая шкала, а не третья альтернатива
+LMArena Elo — не третий способ получить то же самое число.
+- Это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), построенный на голосованиях людей
+за вывод модели в парных сравнениях, а не оценка на фиксированном наборе реальных pull request'ов, как
+SWE-bench Verified.
+- Перед попаданием в формулу ранжирования он нормализуется в 0-100, но нормализация не делает его
+сравнимым с процентом SWE-bench: две модели с одинаковой оценкой 60 не «одинаково хороши» по одной и
+той же шкале — их измеряли два разных эксперимента.
+- Именно поэтому приложение никогда не показывает оба измерения одновременно для одной модели и
+никогда не позволяет фильтру их смешать.
+
+Переключение источников
+Space, в основном представлении или в Settings, меняет единственный активный критерий сразу и везде.
+- Status, ranking и фильтры quality>= двигаются вместе, и модель без числа на новом активном
+источнике показывает н/д, даже если оно было на другом.
+- Доверие к ранжированию начинается со знания, какое из этих трёх измерений дало число на экране;
+проверить это можно в этом разделе и по колонке источника в экране деталей модели.`
+
+// tuiHelpSectionHotkeysBodyRU is tuiHelpSectionHotkeysBody's Russian
+// translation. Every \tKey\tAction\tDescription row keeps its Key column
+// exactly as in English — literal key names are never translated, per this
+// feature's scoping rule — and translates the Action and Description
+// columns. tuiFormatHelpLine, which turns this tab-delimited text into
+// aligned columns on screen, is entirely language-agnostic (it just splits
+// on \t), so it needs no RU counterpart.
+const tuiHelpSectionHotkeysBodyRU = `Хоткеи
+
+Навигация
+\tUp\tнавигация в settings\tпредыдущее поле Settings.
+\tDown\tнавигация в settings\tследующее поле Settings.
+\tEsc\tзакрытие settings\tзакрыть Settings.
+\tUp\tнавигация в деталях\tпредыдущее поле в деталях.
+\tDown\tнавигация в деталях\tследующее поле в деталях.
+\tUp\tнавигация в help\tпрокрутка справки вверх.
+\tDown\tнавигация в help\tпрокрутка справки вниз.
+\tUp\tнавигация в columns\tпредыдущий столбец.
+\tDown\tнавигация в columns\tследующий столбец.
+\tEsc\tзакрытие columns\tотменить выбор столбцов.
+\tUp\tнавигация в filter\tпредыдущее поле фильтра.
+\tDown\tнавигация в filter\tследующее поле фильтра.
+\tEsc\tзакрытие filter\tотменить редактирование фильтра.
+\tUp\tнавигация\tпредыдущая модель; в help — прокрутка вверх.
+\tDown\tнавигация\tследующая модель; в help — прокрутка вниз.
+\tj / k\tнавигация\tперемещение по моделям; в help — прокрутка.
+\tHome / g\tпереход\tпервый элемент.
+\tEnd / G\tпереход\tпоследний элемент.
+\tPgUp / PgDown\tпрокрутка\tлистать модели или help постранично.
+\tEnter / Right\tдетали\tоткрыть экран деталей модели.
+\tEsc / Left / h\tзакрытие\tEsc, Left или h закрывает и возвращает к списку.
+
+Данные/вид
+\tq\tсортировка\tкачество.
+\tp\tдоступность\tцикл any/free/paid.
+\tr\tсортировка\tотношение качество/цена (q/p).
+\tv\tвид\tпереключить all/top-paid-free.
+\tl\tязык\tпереключить интерфейс между английским и русским; работает на любом экране.
+\tm\tранжирование\tпереключить режим ranking: mixed-utility или tier-priority.
+\ts\tпорядок\tциклический выбор ключа сортировки.
+\tS\tпорядок\tобратный порядок.
+\to\tsettings\tоткрыть settings.
+\tDown\tнавигация\tперейти к Score source в Settings.
+\tSpace\tпереключение\t(в основном виде) переключить между SWE-bench и Arena.
+\tSpace\tпереключение\t(в Settings) переключить между SWE-bench и Arena.
+\tR\tобновление\tобновить локальные данные.
+\tc\tстолбцы\tоткрыть выбор.
+\tn\tвид\tпереключить последний столбец между Task fit и Заметкой.
+
+Фильтры/настройки
+\tf\tфильтр\tредактировать структурированный фильтр.
+\t/\tпоиск\tискать по Name/Slug.
+\tSpace\tстолбцы\tпереключить столбец.
+\tEnter\tприменение columns\tприменить выбор столбцов.
+\tSpace\tтир\tциклически перебрать Тир.
+\tEnter\tприменение\tприменить текущий редактор.
+\tEsc\tотмена\tотменить текущий редактор.
+
+Коды task-fit
+\tI\tкод task-fit\timplement: написать или изменить продакшен-код.
+\tP\tкод task-fit\tplan: определить объём, шаги и решения.
+\tR\tкод task-fit\tresearch: исследовать варианты, свидетельства или поведение.
+\tD\tкод task-fit\tdebug: найти и исправить дефект или сбой.
+\tA\tкод task-fit\taudit: проверить качество, безопасность или соответствие требованиям.
+\tF\tкод task-fit\trefactor: улучшить структуру без изменения поведения.
+\tT\tкод task-fit\ttest: добавить или улучшить автоматизированную проверку.
+Отсутствие классификации task-fit отображается как н/д.
+
+Обновление и завершение
+\tR\tобновление\tобновить локальные данные сейчас. Автообновление использует --refresh-interval; 0 отключает его.
+\tx / Ctrl-C\tвыход\tвыйти из TUI.
+\tEsc\tзакрытие\tзакрыть help.
+\tEsc\tназад\tвернуться к списку из текущего оверлея.
+\t?\thelp\tзакрыть help.
+\tF1\thelp\tоткрыть полную справку.
+
+Поиск в справке
+\t/\tпоиск\tначать поиск в этом документе; ввести текст и нажать Enter.
+\tn\tсовпадения\tперейти к следующему совпадению; результаты поиска остаются выделенными.
+\tN\tсовпадения\tперейти к предыдущему совпадению; результаты поиска остаются выделенными.
+\tUp / Down\tпрокрутка\tпрокрутить эту справку; выбранное совпадение не меняется.
+\t0 совпадений\tстатус\tпоиск без совпадений отображается явно.
+\tEsc\tзакрытие\tотменить поиск.
+
+Общее/справка
+\tEsc\tзакрытие основного вида\tзакрыть основной вид.
+\tx / Ctrl-C\tвыход\tвыйти из TUI.
+\t?\thelp\tоткрыть справку на разделе Хоткеи.
+\t?\thelp\tзакрыть help.
+\tF1\thelp\tоткрыть полную справку.`
+
+// tuiHelpSectionFiltersBodyRU is tuiHelpSectionFiltersBody's Russian
+// translation. Field names referenced in the CLI/TUI examples (Тир,
+// Платные, Качество (минимум), ...) match the Filter overlay's own RU
+// labels exactly — see tuiTranslationsRU — while every literal filter
+// predicate/token (quality>=N, tier:VALUE, --filter) is left exactly as a
+// user has to type it.
+const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтры
+\tc\tстолбцы\tоткрыть выбор.
+\tSpace\tстолбцы\tпереключить столбец.
+\tEnter\tстолбцы\tприменить выбор столбцов.
+\tEsc\tстолбцы\tотменить выбор столбцов.
+Последний столбец остаётся выбранным.
+\t/\tпоиск\tищет по Name/Slug как обычный текст-подстроку.
+\tf\tфильтр\tредактирует структурированный фильтр и не меняет поиск.
+	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
+	Пример TUI: нажмите f, включите Платные, введите sonnet в Тир и 0.8 в Качество (минимум), затем Enter.
+	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Тир. Left/Right выбирают Тир или изменяют числовые значения; Space циклит Тир. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
+	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
+	Предикаты: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
+	Несколько фильтров разделяются запятой (или повторным --filter в CLI) и всегда работают через AND.
+	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
+	Для quality принимается ввод и 0..100, и 0..1: quality>=0.8 означает quality>=80.`
+
+// tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
+// translation.
+const tuiHelpSectionDetailBodyRU = `Экран деталей модели
+\tEnter или Right\tдетали\tEnter или Right открывает экран деталей для выделенной модели.
+\tEsc, Left или h\tдетали\tзакрыть его и вернуться к списку с тем же курсором.
+\tUp/Down или j/k\tпрокрутка\tпрокрутить текст деталей; PgUp/PgDown и Home/End тоже работают.
+Экран показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
+Вендорское описание переносится по ширине терминала, а не обрезается, как ячейка таблицы.
+Экран также содержит ссылку на страницу модели на OpenRouter и, если каталог её знает, — на репозиторий HuggingFace. Ссылки показаны как обычный текст; кликабельных терминальных гиперссылок нет.
+Подписи полей, заголовки блоков, ссылки и отсутствующие значения выделены цветом; цвет никогда не меняет раскладку.`
+
+// tuiHelpSectionMethodologyBodyRU is tuiHelpSectionMethodologyBody's
+// Russian translation, adapted closely from docs/methodology.md's own RU
+// text (which covers the same material at greater length) rather than
+// translated independently, per this feature's terminology rule: the two
+// should read as the same story told at two lengths, not two different
+// translations of the same English source.
+const tuiHelpSectionMethodologyBodyRU = `Методология: как строятся таблица и ранжирование
+Более подробная версия этой же истории, для чтения вне терминала, — в docs/methodology.md в
+репозитории проекта. Здесь нет ничего нового: раздел собирает воедино то, что уже сказано в Overview и
+Score Sources, плюс саму механику ранжирования.
+
+Что формирует каждую строку
+Каждую строку формируют три независимых вида данных, и ни один не выводится из другого.
+- Цена и контекст берутся живьём из каталога OpenRouter.
+- Качество — независимое бенчмарк-наблюдение: SWE-bench Verified (с vals.ai или swebench.com) либо
+LMArena Elo, никогда оба сразу.
+- Тир — ручная, Claude-relative оценка возможностей из model-map.tsv, проставленная человеком, а не
+вычисленная из оценки.
+
+Identity gate: model-map.tsv — единственный путь к оценке
+Строка бенчмарка привязывается к модели OpenRouter только через model-map.tsv, никогда —
+сопоставлением похожих имён.
+- Нет записи в карте для источника — нет автоматически собранной оценки из этого источника, и это
+осознанное решение.
+- Сопоставленный ключ сам по себе и есть утверждение об идентичности: как только источник вернул
+строку по этому ключу, она считается exact_product, даже если её написание отличается от slug'а
+OpenRouter.
+- Сопоставленная строка, которая на самом деле измеряет другой чекпоинт или вариант, помечается
+маркером !variant на имени источника (например, vals!variant=some/other-checkpoint) и остаётся вне
+ранжирования (variant_mismatch), несмотря на совпадение по ключу; поймать это может только человек,
+редактируя файл, — никогда код.
+
+Три измерения, которые никогда не смешиваются
+- vals.ai сам запускает каждую модель на одном фиксированном независимом харнессе и эхом возвращает
+точный ключ, по которому её нашли; он побеждает всегда, когда у него есть пригодная, прошедшая
+identity-проверку строка.
+- swebench.com — self-submitted лидерборд: вместо единственного лучшего прогона берётся медиана по
+каждому отдельному сабмиченному скаффолду для модели (один голос на скаффолд); это только запасной
+источник — когда у vals.ai нет строки вовсе или её строка не прошла identity-проверку.
+- LMArena Elo — это crowd preference рейтинг (Bradley-Terry, примерно 950-1550), нормализованный в
+0-100 перед попаданием в формулу ранжирования; он никогда не показывается рядом со SWE-bench и никогда
+не попадает в ту же колонку.
+
+Как на самом деле считается ранжирование
+- tier-priority: сначала rankable-модели, затем Opus, Sonnet, Haiku, оценка и Q/P.
+- mixed-utility (по умолчанию): сначала rankable-модели, затем платные сравниваются по paid utility
+из настроенной безопасной YAML formula. Без formula utility = score + price_weight*tier_factor*
+ln(1+quality_price), где price_weight=10, факторы Opus=1, Sonnet=1, Haiku=0.5, Free=0, а сама цена —
+смешение input:output 3:1: (3*input+output)/4 за $/M токенов. Task fit никогда не входит множителем.
+- Бесплатные rankable-модели сравниваются просто по оценке; quality/price не определено при $0.
+
+Почему строка не попадает в ранжирование
+Строка может нести настоящее число и всё равно не участвовать в ранжировании: variant_mismatch,
+missing_identity и legacy_unknown (старый снапшот, сохранённый до появления статуса identity) — все
+показываются со своим числом, но исключаются, как и модель вообще без источника оценки, или ручной
+observation-only override из notes.yaml, который является вендорским заявлением, а не независимым
+измерением.`
+
+// tuiHelpSectionsRU is tuiHelpSections' Russian counterpart — same order,
+// same six sections, RU titles and RU bodies. tuiHelpSectionLinesForLang
+// picks between the two slices by language; nothing here ever feeds
+// tuiHelpDocument or tuiHelpLines(), which stay English-only by
+// construction (see the comment on tuiHelpDocument below) so the
+// Cyrillic-free structural tests keep passing unmodified.
+var tuiHelpSectionsRU = []tuiHelpSection{
+	{Title: "Обзор", Body: tuiHelpSectionOverviewBodyRU},
+	{Title: "Источники оценки", Body: tuiHelpSectionScoreSourcesBodyRU},
+	{Title: "Хоткеи", Body: tuiHelpSectionHotkeysBodyRU},
+	{Title: "Фильтры", Body: tuiHelpSectionFiltersBodyRU},
+	{Title: "Детали модели", Body: tuiHelpSectionDetailBodyRU},
+	{Title: "Методология", Body: tuiHelpSectionMethodologyBodyRU},
+}
 
 // stored in a section body, which is exactly what keeps this constant
 // entirely English: the content/structural tests that scan tuiHelpDocument
@@ -2872,13 +3587,46 @@ const (
 	// model in the snapshot file.
 	tuiOpenRouterModelURL  = "https://openrouter.ai/"
 	tuiHuggingFaceModelURL = "https://huggingface.co/"
+
+	// tuiDetailPlaceholderRU is tuiDetailPlaceholder's Russian counterpart,
+	// used by the *ForLang siblings below when the detail screen is
+	// rendered in Russian. The comment on tuiDetailValue already named this
+	// exact text as "the project's н/д placeholder" before the language
+	// toggle existed to select it; this is what actually wires that up.
+	tuiDetailPlaceholderRU = "н/д"
 )
 
+// tuiDetailPlaceholderForLang picks tuiDetailPlaceholder's English or
+// Russian text. It exists alongside the plain constant, not instead of it,
+// because tuiDetailValue and its frozen callers (tuiDetailLines and every
+// other English-only member of that wrapper family — see the comment on
+// tuiDetailLinesWithHistoryAndIconsAndGaps) must keep returning exactly
+// "n/a" unconditionally: those functions and the tests pinned to their
+// exact arities predate the language toggle and must render byte-identical
+// output regardless of it.
+func tuiDetailPlaceholderForLang(lang string) string {
+	if lang == "ru" {
+		return tuiDetailPlaceholderRU
+	}
+	return tuiDetailPlaceholder
+}
+
 // tuiDetailValue is the detail screen's single rule for an absent value:
-// the project's н/д placeholder, never a labelled blank.
+// the placeholder, never a labelled blank. It is always English —
+// see tuiDetailValueForLang for the language-aware sibling that
+// tuiDetailLinesForLang and the Settings overlay actually render with.
 func tuiDetailValue(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return tuiDetailPlaceholder
+	}
+	return plainTableText(value)
+}
+
+// tuiDetailValueForLang is tuiDetailValue with a language-aware
+// placeholder. See tuiDetailPlaceholderForLang.
+func tuiDetailValueForLang(value, lang string) string {
+	if strings.TrimSpace(value) == "" {
+		return tuiDetailPlaceholderForLang(lang)
 	}
 	return plainTableText(value)
 }
@@ -2895,6 +3643,15 @@ func tuiDetailURL(prefix, id string) string {
 	return prefix + id
 }
 
+// tuiDetailURLForLang is tuiDetailURL with a language-aware placeholder.
+func tuiDetailURLForLang(prefix, id, lang string) string {
+	id = strings.TrimSpace(plainTableText(id))
+	if id == "" {
+		return tuiDetailPlaceholderForLang(lang)
+	}
+	return prefix + id
+}
+
 func tuiDetailLicense(m model.Model) string {
 	license := m.License
 	if strings.TrimSpace(license) == "" {
@@ -2903,12 +3660,32 @@ func tuiDetailLicense(m model.Model) string {
 	return tuiDetailValue(license)
 }
 
+// tuiDetailLicenseForLang is tuiDetailLicense with a language-aware
+// placeholder.
+func tuiDetailLicenseForLang(m model.Model, lang string) string {
+	license := m.License
+	if strings.TrimSpace(license) == "" {
+		license = m.OpenWeights
+	}
+	return tuiDetailValueForLang(license, lang)
+}
+
 func tuiDetailOpenRouterURL(m model.Model) string {
 	id := m.CanonicalSlug
 	if strings.TrimSpace(id) == "" {
 		id = m.Slug
 	}
 	return tuiDetailURL(tuiOpenRouterModelURL, id)
+}
+
+// tuiDetailOpenRouterURLForLang is tuiDetailOpenRouterURL with a
+// language-aware placeholder.
+func tuiDetailOpenRouterURLForLang(m model.Model, lang string) string {
+	id := m.CanonicalSlug
+	if strings.TrimSpace(id) == "" {
+		id = m.Slug
+	}
+	return tuiDetailURLForLang(tuiOpenRouterModelURL, id, lang)
 }
 
 // tuiDetailPrice formats a $/M price. pricing.FormatDollar returns an
@@ -2928,6 +3705,17 @@ func tuiDetailPrice(v float64) string {
 func tuiDetailTaskFit(m model.Model) string {
 	if len(m.TaskFit) == 0 {
 		return tuiDetailPlaceholder
+	}
+	return strings.Join(m.TaskFit, " + ")
+}
+
+// tuiDetailTaskFitForLang is tuiDetailTaskFit with a language-aware
+// placeholder. The task-fit codes themselves (I/P/R/D/A/F/T) are never
+// translated in either language — see tableTaskFit and the Hotkeys
+// section's "Task-fit codes" table.
+func tuiDetailTaskFitForLang(m model.Model, lang string) string {
+	if len(m.TaskFit) == 0 {
+		return tuiDetailPlaceholderForLang(lang)
 	}
 	return strings.Join(m.TaskFit, " + ")
 }
@@ -2974,6 +3762,23 @@ func tuiDetailWrapped(value string, width int) []string {
 	return wrapped
 }
 
+// tuiDetailWrappedForLang is tuiDetailWrapped with a language-aware
+// placeholder. Translating only the placeholder, never the wrapped prose
+// itself, is deliberate: value is vendor-authored free text (a model's own
+// description or its note), out of scope for translation the same way any
+// other upstream/internal-package string is.
+func tuiDetailWrappedForLang(value string, width int, lang string) []string {
+	value = strings.TrimSpace(plainDetailText(value))
+	if value == "" {
+		return []string{"  " + tuiDetailPlaceholderForLang(lang)}
+	}
+	wrapped := tuiWrapText(value, max(1, width-2))
+	for i := range wrapped {
+		wrapped[i] = "  " + wrapped[i]
+	}
+	return wrapped
+}
+
 // tuiDetailCreated renders the catalogue's publication timestamp in both
 // forms the screen promises: the absolute date, which is stable enough to
 // live in the snapshot, and the age, which is derived from now and
@@ -2989,11 +3794,34 @@ func tuiDetailCreated(created int64, now time.Time) string {
 	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
 }
 
+// tuiDetailCreatedForLang is tuiDetailCreated with a language-aware
+// placeholder. tuiDetailAge itself is already unconditionally Russian —
+// see its own comment — so only the "no timestamp at all" branch differs
+// by language.
+func tuiDetailCreatedForLang(created int64, now time.Time, lang string) string {
+	if created <= 0 {
+		return tuiDetailPlaceholderForLang(lang)
+	}
+	published := time.Unix(created, 0).UTC()
+	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
+}
+
 func tuiDetailReleaseDate(created int64, now time.Time) string {
 	if created <= 0 {
 		return tuiDetailPlaceholder
 	}
 	return tuiDetailCreated(created, now) + "; дата создания записи каталога, релиз неизвестен"
+}
+
+// tuiDetailReleaseDateForLang is tuiDetailReleaseDate with a
+// language-aware placeholder. The trailing note is already unconditionally
+// Russian in both languages — see tuiDetailReleaseDate's own history — so
+// it is repeated verbatim here rather than translated a second way.
+func tuiDetailReleaseDateForLang(created int64, now time.Time, lang string) string {
+	if created <= 0 {
+		return tuiDetailPlaceholderForLang(lang)
+	}
+	return tuiDetailCreatedForLang(created, now, lang) + "; дата создания записи каталога, релиз неизвестен"
 }
 
 // tuiDetailAge spells the distance between two instants in whole days,
@@ -3044,6 +3872,18 @@ func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
 	return append(lines, tuiDetailScoreLines(m.Score, m.ScoreLabel)...)
 }
 
+// tuiDetailSWEBenchBlockForLang is tuiDetailSWEBenchBlock with a
+// language-aware placeholder; the heading and the arena-view explanation
+// are already unconditionally Russian (see tuiDetailSWEBenchBlock's own
+// history) and are repeated verbatim here.
+func tuiDetailSWEBenchBlockForLang(m model.Model, scoreSource, lang string) []string {
+	lines := []string{"Оценка SWE-bench Verified (проценты):"}
+	if scoreSource != scoreSourceSWEBench {
+		return append(lines, "  "+tuiDetailPlaceholderForLang(lang)+" (активно представление arena, число SWE-bench в него не проецируется)")
+	}
+	return append(lines, tuiDetailScoreLinesForLang(m.Score, m.ScoreLabel, lang)...)
+}
+
 // tuiDetailArenaBlock renders the LMArena section from the raw Elo fields,
 // which model.ForScoreSource leaves untouched in both views. It is a
 // separate block with its own heading and its own scale spelled out: this
@@ -3051,6 +3891,12 @@ func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
 // acceptable only because they are labelled and physically apart.
 func tuiDetailArenaBlock(m model.Model) []string {
 	return append([]string{"Оценка LMArena (рейтинг Elo):"}, tuiDetailScoreLines(m.ArenaScore, m.ArenaLabel)...)
+}
+
+// tuiDetailArenaBlockForLang is tuiDetailArenaBlock with a language-aware
+// placeholder.
+func tuiDetailArenaBlockForLang(m model.Model, lang string) []string {
+	return append([]string{"Оценка LMArena (рейтинг Elo):"}, tuiDetailScoreLinesForLang(m.ArenaScore, m.ArenaLabel, lang)...)
 }
 
 // tuiDetailScoreLines prints one score with the provenance the project's
@@ -3072,6 +3918,34 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 		"  Согласованность identity: "+tuiDetailValue(model.NormalizeMissingLabels(info.IdentityStatus)),
 		"  Источник: "+tuiDetailValue(model.NormalizeMissingLabels(info.SourceURL)),
 		"  Проверено: "+tuiDetailValue(model.NormalizeMissingLabels(info.Checked)),
+		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
+}
+
+// tuiDetailScoreLinesForLang is tuiDetailScoreLines with a language-aware
+// placeholder. Every label here is already unconditionally Russian except
+// the placeholder text buried in each value — including "Provenance:"
+// itself, deliberately kept English in both languages: its value,
+// model.FormatScoreProvenance, is an internal-package-authored
+// key=value;key=value debug dump with its own fixed English field names
+// (raw=, metric=, identity=, ...), out of scope for translation the same
+// way any other internal-package string is, so labelling it in Russian
+// while its content stays English would read as a half-translation rather
+// than a real one.
+func tuiDetailScoreLinesForLang(info *model.ScoreInfo, label, lang string) []string {
+	lines := []string{"  Значение: " + tuiDetailValueForLang(label, lang)}
+	if info == nil {
+		return append(lines, "  Provenance: "+model.FormatScoreProvenance(nil))
+	}
+	if info.Stale {
+		lines = append(lines, "  Устарело: значение взято из прошлого снапшота")
+	}
+	return append(lines,
+		"  Измеренный вариант: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.VariantMeasured), lang),
+		"  Метрика: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Metric), lang),
+		"  Единица: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Unit), lang),
+		"  Согласованность identity: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.IdentityStatus), lang),
+		"  Источник: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.SourceURL), lang),
+		"  Проверено: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Checked), lang),
 		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 
@@ -3158,6 +4032,89 @@ func tuiDetailLinesWithHistoryAndIconsAndGaps(m model.Model, scoreSource string,
 	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
 	lines = append(lines, "", "-- Fit and notes --", "Заметка:")
 	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
+	return tuiDetailAlignRows(lines, width)
+}
+
+// tuiDetailLinesForLang is what tuiDetailView actually renders with — the
+// only consumer of the language toggle in the detail screen, alongside the
+// Settings overlay's own use of tuiDetailValueForLang. It mirrors
+// tuiDetailLinesWithHistoryAndIconsAndGaps line for line rather than
+// wrapping it, using the *ForLang siblings throughout, because almost
+// every field label on this screen was already unconditionally Russian
+// before the language toggle existed (see that function's own git
+// history) — the only things that actually vary by language are the five
+// "-- Section --" headers below and every value-side placeholder, both of
+// which the frozen function and its whole wrapper family
+// (tuiDetailLines/WithHistory/WithHistoryAndIcons/...) must keep
+// rendering in English exactly as before, unconditionally, since tests
+// call those exact arities directly. "Task fit:" is deliberately left
+// untranslated in both languages, matching docs/methodology.md's own
+// choice to keep that term in English inside Russian prose.
+func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps, lang string) []string {
+	headers := map[string]string{
+		"-- Identity --":                "-- Идентичность --",
+		"-- Pricing --":                 "-- Цены --",
+		"-- Benchmarks --":              "-- Бенчмарки --",
+		"-- Provenance and metadata --": "-- Происхождение и метаданные --",
+		"-- Fit and notes --":           "-- Соответствие и заметки --",
+	}
+	header := func(en string) string {
+		if lang == "ru" {
+			return headers[en]
+		}
+		return en
+	}
+	context := tuiDetailPlaceholderForLang(lang)
+	if m.Context > 0 {
+		context = pricing.FormatContext(m.Context)
+	}
+	lines := tuiWrapText(tuiDetailValueForLang(m.DisplayName, lang)+" ("+tuiDetailValueForLang(m.Slug, lang)+")", max(1, width))
+	lines = append(lines,
+		"",
+		header("-- Identity --"),
+	)
+	manufacturerLine := "Производитель: " + tuiDetailValueForLang(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap), lang)
+	lines = append(lines, tuiWrapWord(manufacturerLine, max(1, width))...)
+	lines = append(lines,
+		"Провайдер: "+tuiDetailValueForLang(m.Provider, lang),
+		"Лицензия: "+tuiDetailLicenseForLang(m, lang),
+		"Тир: "+tuiDetailValueForLang(m.Tier, lang),
+		"Claude-референс: "+tuiDetailValueForLang(m.ClaudeRef, lang),
+		"Task fit: "+tuiDetailTaskFitForLang(m, lang),
+	)
+	lines = append(lines,
+		"",
+		header("-- Pricing --"),
+		"Контекст: "+context+" токенов",
+		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
+		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
+	)
+	if m.LongContextPriceLabel != "" {
+		lines = append(lines,
+			"Длинный контекст: "+plainTableText(m.LongContextPriceLabel),
+			"  вход: "+plainTableText(m.LongContextInLabel),
+			"  выход: "+plainTableText(m.LongContextOutLabel),
+		)
+	}
+	if historyLines := tuiDetailPriceHistory(history, m.Slug); len(historyLines) > 0 {
+		lines = append(lines, historyLines...)
+	}
+	lines = append(lines, "Открытые веса: "+tuiDetailValueForLang(m.OpenWeights, lang), "")
+	lines = append(lines, header("-- Benchmarks --"))
+	lines = append(lines, tuiDetailSWEBenchBlockForLang(m, scoreSource, lang)...)
+	lines = append(lines, "")
+	lines = append(lines, tuiDetailArenaBlockForLang(m, lang)...)
+	lines = append(lines, "", header("-- Provenance and metadata --"), "Дата релиза: "+tuiDetailReleaseDateForLang(m.Created, now, lang), "Страница OpenRouter: "+tuiDetailOpenRouterURLForLang(m, lang))
+	if m.MetadataSourceURL != "" {
+		lines = append(lines, "Источник метаданных: "+tuiDetailValueForLang(m.MetadataSourceURL, lang))
+	}
+	if strings.TrimSpace(m.HuggingFaceID) != "" {
+		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURLForLang(tuiHuggingFaceModelURL, m.HuggingFaceID, lang))
+	}
+	lines = append(lines, "Описание:")
+	lines = append(lines, tuiDetailWrappedForLang(m.Description, width, lang)...)
+	lines = append(lines, "", header("-- Fit and notes --"), "Заметка:")
+	lines = append(lines, tuiDetailWrappedForLang(tableNote(m), width, lang)...)
 	return tuiDetailAlignRows(lines, width)
 }
 
