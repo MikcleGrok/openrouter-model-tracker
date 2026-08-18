@@ -766,7 +766,7 @@ func TestTUIQuestionMarkOpensFullHelpAtHotkeys(t *testing.T) {
 	}
 	for _, want := range []string{
 		`\tF1\thelp\topen full help.`,
-		`\tEnter / Right / l\tdetail\topen the model detail screen.`,
+		`\tEnter / Right\tdetail\topen the model detail screen.`,
 		`\tSpace\tswitch\t(in Settings) switch between SWE-bench and Arena.`,
 		`\tv\tview\ttoggle all/top-paid-free.`,
 	} {
@@ -2868,7 +2868,7 @@ func TestTUIConfiguredHelpLinesKeepKeyColumnSeparateFromAction(t *testing.T) {
 // TestTUIConfiguredHelpLinesDoNotDoubleSubstituteOpenDetails guards against
 // a related hazard: the Hotkeys section's "open the model detail screen."
 // row used to be matched by two different replacements-map markers at once —
-// `\tEnter / Right / l\tdetail\t` (correct: replaces only the Key column)
+// `\tEnter / Right\tdetail\t` (correct: replaces only the Key column)
 // and `\tdetail\topen the model detail screen.` (the same Action-column-first
 // shape as the switch_source/settings/help markers above). Because Go
 // randomises map iteration order, whichever marker happened to run first
@@ -2891,7 +2891,7 @@ func TestTUIConfiguredHelpLinesDoNotDoubleSubstituteOpenDetails(t *testing.T) {
 		if !ok {
 			t.Fatalf("configured 'open the model detail screen.' line did not parse into 3 columns: %q", raw)
 		}
-		if wantKey := "enter / right / l"; key != wantKey {
+		if wantKey := "enter / right"; key != wantKey {
 			t.Fatalf("configured 'open the model detail screen.' key = %q, want %q (line: %q)", key, wantKey, raw)
 		}
 		if action != "detail" {
@@ -4184,10 +4184,12 @@ func tuiDetailModel(t *testing.T) tuiModel {
 }
 
 func TestTUIDetailOverlayOpensAndCloses(t *testing.T) {
+	// l used to be a third alias for open_details, alongside Enter and
+	// Right; it now drives the language toggle instead (see
+	// TestTUILanguageToggleKey), so this list no longer includes it.
 	for _, msg := range []tea.KeyMsg{
 		{Type: tea.KeyEnter},
 		{Type: tea.KeyRight},
-		{Type: tea.KeyRunes, Runes: []rune("l")},
 	} {
 		m := tuiDetailModel(t)
 		m, _ = m.key(msg)
@@ -4315,7 +4317,7 @@ func TestTUIDetailOverlayDoesNotOpenOnAnEmptyList(t *testing.T) {
 func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 	for _, want := range []string{
 		"Model detail view",
-		"Enter, Right or l opens the detail screen",
+		"Enter or Right opens the detail screen",
 		"Esc, Left or h closes it",
 		"scroll the detail text",
 		"links to the model's OpenRouter page",
@@ -4494,6 +4496,7 @@ type tuiShortcutState struct {
 	err          string
 	visible      []string
 	columns      []tuiColumn
+	lang         string
 }
 
 func tuiShortcutSnapshot(m tuiModel) tuiShortcutState {
@@ -4507,7 +4510,7 @@ func tuiShortcutSnapshot(m tuiModel) tuiShortcutState {
 		filter: m.filter, helpSearch: m.helpSearch, helpOffset: m.helpOffset,
 		detailOffset: m.detailOffset, columnCursor: m.columnCursor, lastNote: m.lastNote,
 		refreshing: m.refreshing, generation: m.generation, status: m.status, err: m.err,
-		visible: slugs, columns: append([]tuiColumn(nil), m.columns...),
+		visible: slugs, columns: append([]tuiColumn(nil), m.columns...), lang: m.lang,
 	}
 }
 
@@ -4619,7 +4622,7 @@ func tuiShortcutCases() []tuiShortcutCase {
 		{name: "list cursor up", latin: "k", russian: "л", setup: tuiShortcutListModelAtBottom},
 		{name: "list jump home", latin: "g", russian: "п", setup: tuiShortcutListModelAtBottom},
 		{name: "list jump end", latin: "G", russian: "П", setup: tuiShortcutListModel},
-		{name: "list open detail", latin: "l", russian: "д", setup: tuiShortcutListModel},
+		{name: "list toggle language", latin: "l", russian: "д", setup: tuiShortcutListModel},
 		{name: "list cycle sort key", latin: "s", russian: "ы", setup: tuiShortcutListModel},
 		{name: "list reverse order", latin: "S", russian: "Ы", setup: tuiShortcutListModel},
 		{name: "list toggle ranking", latin: "m", russian: "ь", setup: tuiShortcutListModel},

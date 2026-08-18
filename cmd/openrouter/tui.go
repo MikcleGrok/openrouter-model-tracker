@@ -213,6 +213,14 @@ type tuiModel struct {
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
+	// lang selects the TUI's display language: "" (the zero value) means
+	// English, today's only behaviour and the persisted default; "ru" means
+	// Russian. Keeping "" as English rather than adding an explicit
+	// "en" sentinel is what makes a bare tuiModel{} — and a config.yaml
+	// without tui_language — render exactly like before this field existed.
+	// Toggled at runtime with l (see the language_toggle keymap action) and
+	// persisted via config.SaveTUILanguage.
+	lang string
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
@@ -272,6 +280,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.iconGaps = cfg.Table.IconGaps
 		m.icons = cfg.Icons
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
+		if strings.EqualFold(cfg.TUILanguage, "ru") {
+			m.lang = "ru"
+		}
 		m.filterFormExplicit = true
 		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 		m.rebuild()
@@ -631,6 +642,22 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
+	// language_toggle (l, plus its Cyrillic ЙЦУКЕН-position alias д via
+	// tuiCommandKey) is checked unconditionally here too, the same way x
+	// is above: it is not gated on m.overlay == "" the way open_settings,
+	// open_details, help and full_help below are, because none of them
+	// share a meaning with l inside any overlay's own switch (checked: no
+	// overlay context binds a letter to "l" today) — a user mid-overlay
+	// (help, detail, settings, columns, filter) can flip the whole
+	// interface's language without backing out first, matching how x
+	// already reaches every overlay. It is still, like every other command
+	// key, unreachable while m.inputMode != "" — that branch already
+	// returned above — so l/д types literally into an active search or
+	// help-search draft, exactly as before.
+	if m.keyMatches("main", "language_toggle", key) {
+		m.toggleLanguage()
+		return m, nil
+	}
 	if m.overlay == "" && m.keyMatches("main", "open_settings", key) {
 		key = "o"
 	}
@@ -842,7 +869,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 		m.overlay = "help"
 		m.setHelpSection(0)
-	case "enter", "right", "l":
+	case "enter", "right":
 		if !m.keyMatches("main", "open_details", originalKey) {
 			break
 		}
@@ -977,6 +1004,30 @@ func (m *tuiModel) persistLayout() {
 		return
 	}
 	if err := config.SaveTUILayout(m.configPath, m.layout, m.topN); err != nil {
+		m.err = err.Error()
+	}
+}
+
+// toggleLanguage flips m.lang between English ("") and Russian ("ru") and
+// persists the choice, the same write-through-only-when-configured shape
+// persistLayout uses. Unlike layout/topN, the language is never re-read
+// from disk on a periodic refresh (refreshCmd's tuiRefreshMsg carries no
+// language field): the toggle already writes through immediately, so a
+// live session and its own config.yaml can never disagree with each
+// other, and there is no CLI flag for language whose precedence a
+// mid-session reload would need to protect (unlike TUIFilter's
+// filterExplicit/filterDefaulted machinery). See the key() call site for
+// why this is checked from every overlay, not just the main list.
+func (m *tuiModel) toggleLanguage() {
+	if m.lang == "ru" {
+		m.lang = ""
+	} else {
+		m.lang = "ru"
+	}
+	if m.configPath == "" {
+		return
+	}
+	if err := config.SaveTUILanguage(m.configPath, m.lang); err != nil {
 		m.err = err.Error()
 	}
 }
@@ -2019,7 +2070,7 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		`\tUp\tnavigate\t`:                                                   keymap["main"]["navigate_up"],
 		`\tDown\tnavigate\t`:                                                 keymap["main"]["navigate_down"],
 		`\tj / k\tmove\t`:                                                    append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
-		`\tEnter / Right / l\tdetail\t`:                                      keymap["main"]["open_details"],
+		`\tEnter / Right\tdetail\t`:                                          keymap["main"]["open_details"],
 		`\tEsc / Left / h\tclose\t`:                                          keymap["detail"]["close"],
 		`\to\tsettings\topen settings.`:                                      keymap["main"]["open_settings"],
 		`\t?\thelp\topen help at Hotkeys.`:                                   keymap["main"]["help"],
@@ -2556,7 +2607,7 @@ Navigation
 \tHome / g\tjump\tfirst item.
 \tEnd / G\tjump\tlast item.
 \tPgUp / PgDown\tscroll\tpage through models or help.
-\tEnter / Right / l\tdetail\topen the model detail screen.
+\tEnter / Right\tdetail\topen the model detail screen.
 \tEsc / Left / h\tclose\tEsc, Left or h closes it and returns to the list.
 
 Data/view
@@ -2643,7 +2694,7 @@ The last column stays selected.
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
-\tEnter, Right or l\tdetail\tEnter, Right or l opens the detail screen for the highlighted model.
+\tEnter or Right\tdetail\tEnter or Right opens the detail screen for the highlighted model.
 \tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
 \tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
 It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
