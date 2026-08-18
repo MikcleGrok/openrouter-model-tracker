@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.30]
+
+- Add regression-test coverage auditing every single-key TUI hotkey — every main-context command letter, F1, digits, navigation keys, and the full Cyrillic ЙЦУКЕН alias table from `tuiLayoutAliases` — against every active text-input context (the search box, the F1 help search, and the Filter overlay's numeric fields), following up on the `x`-interception fix in 1.14.27. No dispatch bug was found: `m.inputMode` already gates the whole command surface, not just `x`.
+- Pin one genuine finding from that audit: the Filter overlay's four numeric fields (Quality/Context/Input/Output) also accept free-text rune entry, but aren't gated behind `m.inputMode`, so `x` closes the whole overlay and discards an in-progress numeric edit — exactly the way `c` already does. Judged intentional, since no letter is ever valid content in a float-parsed field, and now covered by a dedicated test so a future `key()` change can't silently drift from that precedent.
+
 ## [1.14.29]
 
 - Fix status/footer lines rendering flush against the content above them, with no blank line in between — the F1 help overlay's position footer (`Help N-M/T · ...`), its search input line, the Model Detail overlay's position footer (`Detail N-M/T · ...`), the Settings overlay's Status/Error line, and the main table's status/hints/search-input footer all now have a blank separator line before them, matching the Filter overlay's existing spacing.
