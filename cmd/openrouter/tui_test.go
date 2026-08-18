@@ -356,38 +356,104 @@ func TestTUIXQuitsMainWindow(t *testing.T) {
 	if msg := cmd(); msg != (tea.QuitMsg{}) {
 		t.Fatalf("x in the main window returned %T, want tea.QuitMsg", msg)
 	}
+}
 
+// TestTUIXDoesNotInterceptActiveTextInput is a regression test: x used to be
+// checked before m.inputMode, so it quit the app (search, overlay == "") or
+// closed the parent overlay (help-search, overlay == "help") instead of
+// inserting the literal character — making it impossible to type an "x" into
+// a search string (e.g. "x-ai/grok-4.5", a real model-map.tsv slug). Esc
+// already cancels an active input correctly (proven by
+// TestTUIEscCancelsActiveTextInput below); x must defer to it, not race it.
+func TestTUIXDoesNotInterceptActiveTextInput(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.inputMode, m.input = "search", "draft"
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(tuiModel)
-	if cmd == nil {
-		t.Fatal("x in the main search input did not return a quit command")
+	if cmd != nil {
+		t.Fatalf("x while typing a search returned a command %v, want nil (no quit)", cmd)
 	}
-	if msg := cmd(); msg != (tea.QuitMsg{}) {
-		t.Fatalf("x in the main search input returned %T, want tea.QuitMsg", msg)
+	if m.inputMode != "search" || m.input != "draftx" {
+		t.Fatalf("x while typing a search = mode %q input %q, want mode \"search\" input \"draftx\"", m.inputMode, m.input)
 	}
-	if m.inputMode != "search" || m.input != "draft" {
-		t.Fatalf("x changed the main search input: mode=%q input=%q", m.inputMode, m.input)
+
+	m = newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m = tuiKey(m, "?") // open help, land on the sectioned overlay
+	if m.overlay != "help" {
+		t.Fatalf("test setup: ? did not open help, overlay=%q", m.overlay)
+	}
+	m.inputMode, m.input, m.helpSearch = "help-search", "x-ai", ""
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(tuiModel)
+	if cmd != nil {
+		t.Fatalf("x while typing a help search returned a command %v, want nil", cmd)
+	}
+	if m.overlay != "help" || m.inputMode != "help-search" || m.input != "x-aix" {
+		t.Fatalf("x while typing a help search = overlay %q mode %q input %q, want overlay \"help\" mode \"help-search\" input \"x-aix\"", m.overlay, m.inputMode, m.input)
 	}
 }
 
-func TestTUIXClosesChildWithoutQuitting(t *testing.T) {
+// TestTUIEscCancelsActiveTextInput documents the cancel path x must not race:
+// Esc abandons the in-progress draft (and, for help-search, discards it
+// outright) without touching the parent overlay.
+func TestTUIEscCancelsActiveTextInput(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
-	m = tuiKey(m, "enter")
-	if m.overlay != "detail" {
-		t.Fatalf("Enter overlay = %q, want detail", m.overlay)
-	}
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m.inputMode, m.input, m.search = "search", "x-ai", "old"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = next.(tuiModel)
-	if m.overlay != "" || cmd != nil {
-		t.Fatalf("x in child window = overlay %q, cmd %v; want parent and no quit", m.overlay, cmd)
+	if cmd != nil || m.inputMode != "" || m.search != "old" {
+		t.Fatalf("esc while typing a search = mode %q search %q cmd %v, want mode \"\" search \"old\" cmd nil", m.inputMode, m.search, cmd)
 	}
 
-	m.overlay, m.inputMode, m.input = "filter", "filter", "draft"
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = tuiKey(m, "?")
+	m.inputMode, m.input, m.helpSearch = "help-search", "x-ai", ""
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	m = next.(tuiModel)
-	if m.overlay != "" || m.inputMode != "" || m.input != "" || cmd != nil {
-		t.Fatalf("x in modal input = overlay %q, mode %q, input %q, cmd %v; want parent and no quit", m.overlay, m.inputMode, m.input, cmd)
+	if cmd != nil || m.overlay != "help" || m.inputMode != "" || m.input != "" {
+		t.Fatalf("esc while typing a help search = overlay %q mode %q input %q cmd %v, want overlay \"help\" mode \"\" input \"\" cmd nil", m.overlay, m.inputMode, m.input, cmd)
+	}
+}
+
+// TestTUIXClosesEveryOverlayType proves x closes every overlay with the same
+// state cleanup as that overlay's own dedicated close key — not just a blind
+// overlay = "". Detail's own close also zeroes detailOffset (its dedicated
+// scroll state); this proves x does too, instead of leaving it stale.
+func TestTUIXClosesEveryOverlayType(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(t *testing.T) tuiModel
+	}{
+		{"detail", tuiShortcutDetailModelScrolled},
+		{"help", tuiShortcutHelpModelScrolled},
+		{"columns", tuiShortcutColumnsModelScrolled},
+		{"settings", func(t *testing.T) tuiModel {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+			return tuiKey(m, "o")
+		}},
+		{"filter", func(t *testing.T) tuiModel {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+			m.openFilterEditor()
+			return m
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := test.setup(t)
+			viaDedicatedClose := tuiKey(m, "esc")
+			if viaDedicatedClose.overlay != "" {
+				t.Fatalf("test setup: esc did not close the %s overlay", test.name)
+			}
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+			viaX := next.(tuiModel)
+			if cmd != nil {
+				t.Fatalf("x on the %s overlay returned a command %v, want nil", test.name, cmd)
+			}
+			if viaX.overlay != "" {
+				t.Fatalf("x on the %s overlay left overlay = %q, want \"\"", test.name, viaX.overlay)
+			}
+			if viaX.detailOffset != viaDedicatedClose.detailOffset {
+				t.Fatalf("x on the %s overlay left detailOffset = %d, want %d (matching the dedicated close key)", test.name, viaX.detailOffset, viaDedicatedClose.detailOffset)
+			}
+		})
 	}
 }
 
@@ -4207,6 +4273,9 @@ type tuiShortcutCase struct {
 func tuiShortcutCases() []tuiShortcutCase {
 	return []tuiShortcutCase{
 		{name: "list quit", latin: "x", russian: "ч", setup: tuiShortcutListModel},
+		{name: "detail close via x", latin: "x", russian: "ч", setup: tuiShortcutDetailModelScrolled},
+		{name: "help close via x", latin: "x", russian: "ч", setup: tuiShortcutHelpModelScrolled},
+		{name: "columns close via x", latin: "x", russian: "ч", setup: tuiShortcutColumnsModelScrolled},
 		{name: "list cursor down", latin: "j", russian: "о", setup: tuiShortcutListModel},
 		{name: "list cursor up", latin: "k", russian: "л", setup: tuiShortcutListModelAtBottom},
 		{name: "list jump home", latin: "g", russian: "п", setup: tuiShortcutListModelAtBottom},
