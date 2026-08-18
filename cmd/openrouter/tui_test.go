@@ -457,6 +457,180 @@ func TestTUIXClosesEveryOverlayType(t *testing.T) {
 	}
 }
 
+// TestTUISearchModesAbsorbEveryCommandKeyLiterally generalizes
+// TestTUIXDoesNotInterceptActiveTextInput beyond x alone: every letter that
+// is a live single-key command elsewhere in the app — including the
+// hardcoded x exit, the full default-keymap letters (main context: s, m, S,
+// c, n, f, p, v, o, ?, q, r, R, plus h/l via close/open_details), space,
+// digits, and the complete Cyrillic ЙЦУКЕН alias table from
+// tuiLayoutAliases — must land as a literal character while a search or
+// help-search draft is being typed, never as the command it names outside
+// of active text input. This is a hotkey-input-safety audit regression test:
+// it did not exist before the audit, and it passes against the current
+// implementation (no bug found, no production change made).
+func TestTUISearchModesAbsorbEveryCommandKeyLiterally(t *testing.T) {
+	// Every Latin letter bound to a command in the main context, plus space,
+	// digits, and the full tuiLayoutAliases Cyrillic table (each alias
+	// translates to one of these Latin letters via tuiCommandKey).
+	commandKeys := []rune("qrRScnfpvoxsm?ghGjkl 0123456789члощпПрдыЫьстайзкК.,")
+	for _, test := range []struct {
+		name        string
+		setup       func() tuiModel
+		mode        string
+		overlayWant string
+	}{
+		{
+			name: "search",
+			setup: func() tuiModel {
+				m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+				return tuiKey(m, "/")
+			},
+			mode:        "search",
+			overlayWant: "",
+		},
+		{
+			name: "help-search",
+			setup: func() tuiModel {
+				m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+				m = tuiKey(m, "?")
+				return tuiKey(m, "/")
+			},
+			mode:        "help-search",
+			overlayWant: "help",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := test.setup()
+			if m.inputMode != test.mode {
+				t.Fatalf("test setup: inputMode = %q, want %q", m.inputMode, test.mode)
+			}
+			var want strings.Builder
+			for _, r := range commandKeys {
+				next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				m = next.(tuiModel)
+				if cmd != nil {
+					t.Fatalf("key %q while typing %s returned a command %v, want nil", string(r), test.name, cmd)
+				}
+				if m.inputMode != test.mode || m.overlay != test.overlayWant {
+					t.Fatalf("key %q while typing %s changed state to mode %q overlay %q, want mode %q overlay %q", string(r), test.name, m.inputMode, m.overlay, test.mode, test.overlayWant)
+				}
+				want.WriteRune(r)
+				if m.input != want.String() {
+					t.Fatalf("key %q while typing %s = input %q, want %q (not inserted literally)", string(r), test.name, m.input, want.String())
+				}
+			}
+		})
+	}
+}
+
+// TestTUISearchModesIgnoreNavigationKeysWithoutFiringCommands covers the
+// non-rune half of the same command surface: arrows, F1, Home, End, PgUp,
+// and PgDn. bubbletea carries no msg.Runes for these, so inputKey's default
+// case appends nothing — the meaningful assertion is that no command fires
+// and the in-progress draft survives untouched, not that anything gets
+// inserted.
+func TestTUISearchModesIgnoreNavigationKeysWithoutFiringCommands(t *testing.T) {
+	navigationKeys := []tea.KeyType{tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd, tea.KeyPgUp, tea.KeyPgDown, tea.KeyF1}
+	for _, test := range []struct {
+		name        string
+		setup       func() tuiModel
+		mode        string
+		overlayWant string
+	}{
+		{
+			name: "search",
+			setup: func() tuiModel {
+				m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+				m = tuiKey(m, "/")
+				m.input = "draft"
+				return m
+			},
+			mode:        "search",
+			overlayWant: "",
+		},
+		{
+			name: "help-search",
+			setup: func() tuiModel {
+				m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+				m = tuiKey(m, "?")
+				m = tuiKey(m, "/")
+				m.input = "draft"
+				return m
+			},
+			mode:        "help-search",
+			overlayWant: "help",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, kt := range navigationKeys {
+				m := test.setup()
+				next, cmd := m.Update(tea.KeyMsg{Type: kt})
+				m = next.(tuiModel)
+				if cmd != nil {
+					t.Fatalf("%v while typing %s returned a command %v, want nil", kt, test.name, cmd)
+				}
+				if m.inputMode != test.mode || m.overlay != test.overlayWant {
+					t.Fatalf("%v while typing %s changed state to mode %q overlay %q, want mode %q overlay %q", kt, test.name, m.inputMode, m.overlay, test.mode, test.overlayWant)
+				}
+				if m.input != "draft" {
+					t.Fatalf("%v while typing %s changed input to %q, want unchanged \"draft\"", kt, test.name, m.input)
+				}
+			}
+		})
+	}
+}
+
+// TestTUIXDiscardsInProgressFilterFieldEditLikeClearDoes documents a real
+// finding from the hotkey-input-safety audit: the Filter overlay is not
+// pure structured-editor input the way it first looks — its four numeric
+// fields (Quality minimum, Context minimum, Input max, Output max) fall
+// through filterKey's default case and accept free-text rune-by-rune entry,
+// the same append-to-draft mechanism a search box uses. Unlike a search
+// draft, though, that entry is never gated behind m.inputMode (openFilterEditor
+// leaves m.inputMode == ""), so the hardcoded universal-exit check at the
+// very top of key() sees every keystroke first — including x mid-edit on one
+// of these fields — and closes the whole overlay, discarding whatever was
+// typed.
+//
+// This is judged intentional, not a bug: TestTUIFilterClearCommandWorksFromCheckboxAndTextFields
+// already proves "c" (and its Cyrillic alias) discards a mid-typed numeric
+// field the exact same way, and none of these fields legitimately accept a
+// letter as content in the first place (they parse as plain floats), so no
+// keystroke here could ever have "meant" to insert x literally. This test
+// pins that precedent — proving x behaves consistently with the
+// already-established "c" behavior — so a future key() change (e.g. the l
+// hotkey planned for the upcoming localization work) doesn't silently start
+// treating x differently on this exact path.
+func TestTUIXDiscardsInProgressFilterFieldEditLikeClearDoes(t *testing.T) {
+	rows := []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}}
+	for _, test := range []struct {
+		name string
+		key  string
+	}{
+		{"latin", "x"},
+		{"cyrillic alias", "ч"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+			m.filter = "paid,output<=2"
+			m = tuiKey(m, "f")
+			m.filterDraft.output = "12"
+			m.filterCursor = 7 // Output max — the same field the "c" test above exercises.
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
+			got := next.(tuiModel)
+			if cmd != nil {
+				t.Fatalf("%q mid-edit on a filter text field returned a command %v, want nil", test.key, cmd)
+			}
+			if got.overlay != "" {
+				t.Fatalf("%q mid-edit on a filter text field left overlay = %q, want \"\" (closed, same as Esc)", test.key, got.overlay)
+			}
+			if got.filter != "paid,output<=2" {
+				t.Fatalf("%q mid-edit on a filter text field changed the applied filter to %q, want unchanged %q", test.key, got.filter, "paid,output<=2")
+			}
+		})
+	}
+}
+
 func TestTUIKeyState(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}})
 	m = tuiKey(m, "j")
