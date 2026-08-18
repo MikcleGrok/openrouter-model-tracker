@@ -4,6 +4,7 @@ bin/
 /release-notes.md
 /dist/
 /docs/openrouter-model-comparison.md
+/model-snapshot.json
 
 # Static cosign signing key material MUST never be committed. Only the
 # public half (cosign.pub, tracked in the repo root) is a source artifact.
