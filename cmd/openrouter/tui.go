@@ -700,7 +700,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.helpNextMatch(1)
 		case "N":
 			m.helpNextMatch(-1)
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4", "5", "6":
 			// Digit jump and Left/Right step navigate sections of the one
 			// sectioned help document; both F1 and ? open the same overlay
 			// now, so there is no separate unsectioned mode to guard against.
@@ -1944,12 +1944,12 @@ func (m tuiModel) helpLines() []string {
 
 // tuiHelpSectionLines builds the lines the F1 overlay actually renders for
 // the given section: one section at a time, framed by a page title and the
-// tab bar (tuiHelpTabBarLine) that names all five and highlights the active
+// tab bar (tuiHelpTabBarLine) that names all six and highlights the active
 // one. F1 and ? both open this same overlay — F1 lands on section 0
 // (Overview), ? on section 2 (Hotkeys) — there is no separate unsectioned
 // mode anymore. This is deliberately a different function from the
 // package-level tuiHelpLines(), which keeps returning
-// strings.Split(tuiHelpDocument, "\n") — the flat concatenation of all five
+// strings.Split(tuiHelpDocument, "\n") — the flat concatenation of all six
 // section bodies behind one English-only title line. That legacy view
 // exists purely for content and structural tests ("does the full help still
 // document X", tab-column audits, the Cyrillic-free checks) that were
@@ -1966,19 +1966,19 @@ func tuiHelpSectionLines(section int) []string {
 // matching every other cursor-style movement in this file — m.cursor,
 // columnCursor, settingsCursor and filterCursor all clamp at their ends
 // instead of wrapping round. Left/Right (setHelpSection) rely on this to
-// stop at "Overview" and "Model Detail" instead of cycling past them.
+// stop at "Overview" and "Methodology" instead of cycling past them.
 func tuiClampHelpSection(section int) int {
 	return max(0, min(len(tuiHelpSections)-1, section))
 }
 
 // tuiHelpTabBarLine renders the section indicator shown above the F1
 // overlay's content, e.g. "[1 Overview] 2 Score Sources 3 Hotkeys
-// 4 Filters 5 Model Detail" with the active section bracketed. The
-// bracket is the plain-text signal of which section is active; tuiHelpView
-// additionally colours that bracketed span with tuiSelectedStyle, the same
-// style the main table uses for its selected row, so the active tab reads
-// the same way the app already marks "the highlighted one" everywhere
-// else.
+// 4 Filters 5 Model Detail 6 Methodology" with the active section
+// bracketed. The bracket is the plain-text signal of which section is
+// active; tuiHelpView additionally colours that bracketed span with
+// tuiSelectedStyle, the same style the main table uses for its selected
+// row, so the active tab reads the same way the app already marks "the
+// highlighted one" everywhere else.
 func tuiHelpTabBarLine(active int) string {
 	active = tuiClampHelpSection(active)
 	parts := make([]string, len(tuiHelpSections))
@@ -2325,7 +2325,7 @@ func tuiStyleDetailLine(line string) string {
 	}
 }
 
-// tuiHelpSection is one F1 full-help section: a Russian tab-bar label (the
+// tuiHelpSection is one F1 full-help section: an English tab-bar label (the
 // one piece of this document that is UI chrome, not reference prose — see
 // tuiHelpTabBarLine) and an English body, exactly like the rest of this
 // document has always been. See tuiHelpSections for the full list and
@@ -2348,7 +2348,7 @@ const tuiHelpTitleLine = "omt tui keys"
 const tuiHelpTabBarAbsoluteIndex = 2
 
 // tuiHelpSections is the ordered list of F1 full-help sections. Section
-// index order is both the tab-bar order and what digit keys 1-5 and
+// index order is both the tab-bar order and what digit keys 1-6 and
 // Left/Right (setHelpSection) navigate — index+1 is the digit that jumps to
 // it. tuiHelpDocument below concatenates every Body, in this order, behind
 // one shared title: that flat view is what content/structural tests still
@@ -2360,6 +2360,7 @@ var tuiHelpSections = []tuiHelpSection{
 	{Title: "Hotkeys", Body: tuiHelpSectionHotkeysBody},
 	{Title: "Filters", Body: tuiHelpSectionFiltersBody},
 	{Title: "Model Detail", Body: tuiHelpSectionDetailBody},
+	{Title: "Methodology", Body: tuiHelpSectionMethodologyBody},
 }
 
 // tuiHelpSectionOverviewBody is the "Overview" section: what the tool does,
@@ -2583,6 +2584,68 @@ The vendor description is wrapped to the terminal width instead of being cut lik
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
 Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.`
 
+// tuiHelpSectionMethodologyBody is the "Methodology" section: the
+// sixth F1 section, a brief but complete synthesis of how every row's data
+// and the ranking itself are built, drawing together — not restating
+// verbatim — points the Overview and Score Sources sections already make,
+// plus the ranking mechanics (the exact mixed-utility formula, the 3:1
+// price blend, and the identity states that keep a row out of ranking
+// despite carrying a real number). Grounded in model-map.tsv's own header
+// comment, internal/model/model.go's classifyIdentity/selectRow doc
+// comments and the IdentityExact/IdentityVariantMismatch/IdentityMissing/
+// IdentityLegacyUnknown/IdentityObservationOnly constants, and the
+// internal/sources package docs (valsai.go, swebench.go, arena.go). The
+// same content, with the extra room a web page allows, lives in
+// docs/methodology.md in the project repository; this is its
+// terminal-friendly cut, not a different text.
+const tuiHelpSectionMethodologyBody = `Methodology: how the table and ranking are built
+The longer version of this same story, meant for reading outside the terminal, lives in
+docs/methodology.md in the project repository. Nothing here is new: it draws together points the
+Overview and Score Sources sections already make, plus the ranking mechanics itself.
+
+What feeds every row
+Three independent kinds of data feed every row, and none of them is derived from another.
+- Price and context come live from the OpenRouter catalogue.
+- Quality is an independent benchmark observation, SWE-bench Verified (from vals.ai or swebench.com)
+or LMArena Elo, never both at once.
+- Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, set by a human,
+not computed from the score.
+
+Identity gate: model-map.tsv is the only path to a score
+A benchmark row is attached to an OpenRouter model only through model-map.tsv, never by matching
+names that merely look alike.
+- No entry in the map for a source means no automatically collected score from that source, on
+purpose.
+- The mapped key is itself the identity claim: once the source returns a row for it, the row is
+trusted (exact_product) even when its spelling differs from the OpenRouter slug.
+- A mapped row that actually measures a different checkpoint or variant is marked !variant on the
+source name (for example vals!variant=some/other-checkpoint) and stays out of the ranking
+(variant_mismatch) despite the key match; only a human editing the file catches this, never the code.
+
+Three measurements, never mixed
+- vals.ai runs every model itself on one fixed, independent harness and echoes back the exact key it
+was found by; it wins whenever it has a usable, identity-checked row.
+- swebench.com is a self-submitted leaderboard: the median across every distinct scaffold submitted
+for a model (one vote per scaffold) is used instead of the single best run; it is only a fallback,
+used when vals.ai has no row at all or its row fails identity.
+- LMArena Elo is a crowd preference rating (Bradley-Terry, roughly 950-1550), rescaled to 0-100
+before entering the ranking formula; it is never shown alongside SWE-bench and never enters the same
+column.
+
+How the ranking actually computes
+- tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.
+- mixed-utility (default): rankable first, then paid utility from the configured safe YAML formula.
+Without a formula, utility is score + price_weight*tier_factor*ln(1+quality_price), with
+price_weight=10, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0, and price itself a 3:1 input:output
+blend: (3*input+output)/4 per $/M tokens. Task-fit is never a multiplier.
+- Free rankable models are compared by score alone; quality/price is undefined at $0.
+
+Why a row does not rank
+A row can carry a real number and still not rank: variant_mismatch, missing_identity, and
+legacy_unknown (an old snapshot saved before identity status existed) are all shown with their
+number but excluded, the same as a model with no score source at all, or a manual notes.yaml
+observation-only override, which is a vendor claim rather than an independent measurement.`
+
 // stored in a section body, which is exactly what keeps this constant
 // entirely English: the content/structural tests that scan tuiHelpDocument
 // for stray Cyrillic are checking reference prose, not the tab-bar labels
@@ -2598,7 +2661,8 @@ const tuiHelpDocument = tuiHelpTitleLine + "\n\n" +
 	tuiHelpSectionScoreSourcesBody + "\n\n" +
 	tuiHelpSectionHotkeysBody + "\n\n" +
 	tuiHelpSectionFiltersBody + "\n\n" +
-	tuiHelpSectionDetailBody
+	tuiHelpSectionDetailBody + "\n\n" +
+	tuiHelpSectionMethodologyBody
 
 func tuiHelpLines() []string { return strings.Split(tuiHelpDocument, "\n") }
 
