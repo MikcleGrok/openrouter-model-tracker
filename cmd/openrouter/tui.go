@@ -2577,6 +2577,21 @@ var tuiHelpHeadingLinesRU = map[string]bool{
 	"Поиск в справке":          true,
 }
 
+// tuiHelpActionColumnCap is the upper bound tuiFormatHelpLine's action
+// column never grows past, however wide the terminal is. It must stay at
+// least as wide as the longest action-column label authored in either
+// language across every \t-row help section (Hotkeys, Filters, Detail) —
+// currently the Russian "закрытие основного вида" (23 columns) — or that
+// label silently truncates mid-word, e.g. "навигация в settings" (20
+// columns) becoming "навигация в s...". This was sized to 16 to fit the
+// English labels alone when the action column was first added, and stayed
+// there through the Russian localization even though several Russian
+// labels for the same slots run longer than their English originals;
+// TestTUIHelpActionColumnFitsEveryLanguage in tui_test.go asserts every
+// current label still fits, so a future label that outgrows this cap fails
+// that test instead of shipping truncated.
+const tuiHelpActionColumnCap = 24
+
 func tuiFormatHelpLine(line string, width int) string {
 	if !strings.Contains(line, `\t`) {
 		return line
@@ -2593,7 +2608,7 @@ func tuiFormatHelpLine(line string, width int) string {
 		return truncateTable(parts[0]+" "+parts[1]+" "+parts[2], available)
 	}
 	keyWidth := min(8, max(3, available/7))
-	actionWidth := min(16, max(7, available/4))
+	actionWidth := min(tuiHelpActionColumnCap, max(7, available/4))
 	descriptionWidth := max(1, available-keyWidth-actionWidth-4)
 	return tuiPadCell(truncateTable(parts[0], keyWidth), keyWidth, false) + "  " + tuiPadCell(truncateTable(parts[1], actionWidth), actionWidth, false) + "  " + truncateTable(parts[2], descriptionWidth)
 }

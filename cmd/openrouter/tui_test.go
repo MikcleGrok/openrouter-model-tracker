@@ -2756,6 +2756,43 @@ func TestTUIHelpRowsRemainSingleColumnWhenNarrow(t *testing.T) {
 	}
 }
 
+// TestTUIHelpActionColumnFitsEveryLanguage is the general-case guard behind
+// TestTUIRussianHelpHotkeysActionColumnIsNotTruncated: every \tKey\tAction\t
+// Description row in every help section that uses the tab-column format —
+// in both languages — must fit its action column without truncation once
+// the terminal is wide enough that only the fixed action-column cap (not
+// the terminal width) could force it. 200 columns is comfortably above that
+// cap; at that width, tuiFormatHelpLine's actionWidth is pinned at its cap
+// (min(cap, max(7, width/4))), so this isolates whether the cap itself is
+// wide enough for the longest action label actually authored, in either
+// language, rather than re-testing narrow-terminal behaviour (already
+// covered above). A too-narrow cap silently truncates the action column
+// exactly the way the reported bug did — this is what would have caught it
+// before release, across every row, not just the two reported ones.
+func TestTUIHelpActionColumnFitsEveryLanguage(t *testing.T) {
+	const wide = 200
+	bodies := map[string]string{
+		"Hotkeys EN": tuiHelpSectionHotkeysBody,
+		"Hotkeys RU": tuiHelpSectionHotkeysBodyRU,
+		"Filters EN": tuiHelpSectionFiltersBody,
+		"Filters RU": tuiHelpSectionFiltersBodyRU,
+		"Detail EN":  tuiHelpSectionDetailBody,
+		"Detail RU":  tuiHelpSectionDetailBodyRU,
+	}
+	for name, body := range bodies {
+		for _, line := range strings.Split(body, "\n") {
+			_, action, _, ok := tuiHelpRowColumns(line)
+			if !ok || action == "" {
+				continue
+			}
+			formatted := tuiFormatHelpLine(line, wide)
+			if !strings.Contains(formatted, action) {
+				t.Errorf("%s: action column %q truncated at width %d (cap too narrow): %q", name, action, wide, formatted)
+			}
+		}
+	}
+}
+
 // tuiHelpRowColumns splits a help-document content line the same way
 // tuiFormatHelpLine does, and reports whether it parsed as a clean
 // \tKey\tAction\tDescription row. It exists so the tests below can assert on
@@ -5462,6 +5499,28 @@ func TestTUIRussianHelpHotkeysKeepsLiteralKeyNames(t *testing.T) {
 	}
 	if !strings.Contains(view, "Хоткеи") || !strings.Contains(view, "переключить между SWE-bench и Arena") {
 		t.Errorf("Russian Hotkeys view is missing translated prose:\n%s", view)
+	}
+}
+
+// TestTUIRussianHelpHotkeysActionColumnIsNotTruncated reproduces a reported
+// display bug: at a realistic terminal width, the Settings-navigation rows'
+// action column ("навигация в settings") was cut mid-word to "навигация в
+// s..." because tuiFormatHelpLine's action-column cap (16, sized for
+// English) is narrower than several Russian action labels. The full label
+// must survive; only genuinely long Description-column prose is expected to
+// truncate in this fixed-width table.
+func TestTUIRussianHelpHotkeysActionColumnIsNotTruncated(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.helpSection, m.width, m.lang = "help", 2, 120, "ru"
+	m.height = len(m.helpLines()) + 8 // tall enough that nothing scrolls off
+	view := ansi.Strip(m.View())
+	if strings.Contains(view, "навигация в s...") {
+		t.Fatalf("Russian Hotkeys view still truncates the settings-navigation action column:\n%s", view)
+	}
+	for _, want := range []string{"навигация в settings", "навигация в деталях", "навигация в columns", "навигация в filter"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Russian Hotkeys view lost the full action label %q:\n%s", want, view)
+		}
 	}
 }
 
