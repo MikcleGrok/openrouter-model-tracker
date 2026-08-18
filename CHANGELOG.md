@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.31]
+
+- Add a runtime Russian translation of the entire interactive TUI, toggled with `l` (mnemonic "language") and persisted to `config.yaml` via a new `tui_language` field. English stays the default — nothing changes for an existing config or a fresh session unless `l` is pressed. `l` is repurposed from a third `open_details` alias (alongside `Enter`/`Right`) to the new `language_toggle` keymap action, checked globally like `x` so it switches the language from the main list or from inside any overlay; its Cyrillic ЙЦУКЕН alias `д` follows automatically.
+- Translate the main list view, the Settings/Filter/Columns overlays, the Model Detail overlay's remaining English text (section headers, the `n/a` placeholder → `н/д`, footer), table column headers, and all six F1 help sections (Overview, Score Sources, Hotkeys, Filters, Model Detail, Methodology) including the tab bar and search-mode status line. Literal key names, proper nouns and every literal CLI/filter/formula token are never translated; terminology follows `docs/methodology.md` and `model-map.tsv`'s own header comment throughout.
+
 ## [1.14.30]
 
 - Add regression-test coverage auditing every single-key TUI hotkey — every main-context command letter, F1, digits, navigation keys, and the full Cyrillic ЙЦУКЕН alias table from `tuiLayoutAliases` — against every active text-input context (the search box, the F1 help search, and the Filter overlay's numeric fields), following up on the `x`-interception fix in 1.14.27. No dispatch bug was found: `m.inputMode` already gates the whole command surface, not just `x`.
