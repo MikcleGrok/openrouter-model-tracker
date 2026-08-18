@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.32]
+
+- Fully justify the F1 help overlay's prose paragraphs: every wrapped line of a paragraph, except its last, now gets extra inter-word spacing distributed as evenly as possible so both edges sit flush against the help box's width — the standard newspaper-column convention — instead of the previous ragged-right layout. Wrapping is now genuinely dynamic to the current terminal width, replacing text that used to be pre-wrapped to a fixed width baked into the source and truncated (not reflowed) whenever it didn't fit. Key-binding/table rows, the Filters section's literal CLI/TUI examples, bullet markers and their indent, and the title/tab-bar chrome are all excluded and render exactly as before; every other overlay (main table, Model Detail, Settings, Filter) is unaffected.
+
 ## [1.14.31]
 
 - Add a runtime Russian translation of the entire interactive TUI, toggled with `l` (mnemonic "language") and persisted to `config.yaml` via a new `tui_language` field. English stays the default — nothing changes for an existing config or a fresh session unless `l` is pressed. `l` is repurposed from a third `open_details` alias (alongside `Enter`/`Right`) to the new `language_toggle` keymap action, checked globally like `x` so it switches the language from the main list or from inside any overlay; its Cyrillic ЙЦУКЕН alias `д` follows automatically.
