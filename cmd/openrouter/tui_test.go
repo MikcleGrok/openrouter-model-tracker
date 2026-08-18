@@ -913,6 +913,46 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	}
 }
 
+// TestTUISettingsStatusLineHasBlankLineSeparatorFromHints is a regression
+// test for the reported bug in the Settings overlay: the trailing
+// Status:/Error: line — state, not part of the fixed settings list above it
+// — used to sit flush against "Select Filter to reuse the structured filter
+// input.", the last static hint line, with no blank line between them.
+func TestTUISettingsStatusLineHasBlankLineSeparatorFromHints(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*tuiModel)
+		want  string
+	}{
+		{"status", func(m *tuiModel) { m.status = "score source changed" }, "Status: score source changed"},
+		{"error", func(m *tuiModel) { m.err = "boom" }, "Error: boom"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+			m.overlay, m.width, m.height = "settings", 100, 30
+			test.setup(&m)
+			lines := strings.Split(m.View(), "\n")
+			statusIndex := -1
+			for i, line := range lines {
+				if strings.Contains(line, test.want) {
+					statusIndex = i
+					break
+				}
+			}
+			if statusIndex < 1 {
+				t.Fatalf("%q not found (or at the very top) in settings view: %q", test.want, lines)
+			}
+			// The settings overlay is rendered inside tuiBox's rounded
+			// border, so a blank content row still carries the border's own
+			// "│" glyphs and padding — strip those before checking for
+			// emptiness.
+			if blank := strings.TrimSpace(strings.Trim(lines[statusIndex-1], "│")); blank != "" {
+				t.Fatalf("no blank line separates the hint text from the status/error line: %q", lines[statusIndex-1])
+			}
+		})
+	}
+}
+
 func TestTUISettingsAvailabilityRowCyclesAvailabilityInPlace(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	m.overlay, m.settingsCursor, m.filter = "settings", 3, ""
@@ -2105,6 +2145,52 @@ func TestTUIStatusDescribesShortcuts(t *testing.T) {
 	}
 }
 
+// TestTUIStatusFooterHasBlankLineSeparatorFromTableContent is a regression
+// test for the reported bug: the status/hints footer (and the search input
+// line, when active) used to sit flush against the last table row, with no
+// blank line between them — exactly the same defect the Help overlay's own
+// footer had (see TestTUIHelpInputLineCostsExactlyOneContentRow and
+// TestTUIDetailViewFooterReportsThePosition for the other two overlays it
+// was found in). The blank line is state, not content, so it belongs above
+// the whole footer cluster, not between its own lines — hintsLine still sits
+// directly under statusLine, and the input line directly under hintsLine.
+func TestTUIStatusFooterHasBlankLineSeparatorFromTableContent(t *testing.T) {
+	rows := []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.width, m.height = 100, 12
+
+	lines := strings.Split(m.View(), "\n")
+	statusIndex := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "status: ") || strings.HasPrefix(line, "error: ") {
+			statusIndex = i
+			break
+		}
+	}
+	if statusIndex < 1 {
+		t.Fatalf("status line not found (or at the very top) in view: %q", lines)
+	}
+	if lines[statusIndex-1] != "" {
+		t.Fatalf("no blank line separates the last table row from the status footer: %q", lines[statusIndex-1])
+	}
+
+	m.inputMode, m.input = "search", "gpt"
+	typingLines := strings.Split(m.View(), "\n")
+	typingStatusIndex := -1
+	for i, line := range typingLines {
+		if strings.HasPrefix(line, "status: ") || strings.HasPrefix(line, "error: ") {
+			typingStatusIndex = i
+			break
+		}
+	}
+	if typingStatusIndex < 1 || typingLines[typingStatusIndex-1] != "" {
+		t.Fatalf("no blank line separates the last table row from the status footer while typing: %q", typingLines)
+	}
+	if got := typingLines[len(typingLines)-1]; got != "/ gpt_" {
+		t.Fatalf("input line = %q, want the search input as the last line", got)
+	}
+}
+
 func TestTUIRenderTUILineUsesDisplayWidthAndStripsANSI(t *testing.T) {
 	m := tuiModel{width: 22}
 	columns := []tuiColumn{colName, colContext}
@@ -2367,13 +2453,29 @@ func TestTUIHelpSearchMaxOffsetIncludesInputRow(t *testing.T) {
 	// this test does not exist to exercise.
 	m := tuiModel{overlay: "help", helpSection: 2, width: 100, height: 5, inputMode: "help-search"}
 	helpLines := m.helpLines()
-	if got, want := m.helpMaxOffset(), len(helpLines)-4; got != want {
+	// helpViewportHeight reserves 3 rows while searching — a blank
+	// separator, the input line, and the footer — not just the 1 it used to
+	// reserve for the input line alone, so the max offset leaves 2 content
+	// rows on screen (height 5 minus that reservation of 3), not 4.
+	if got, want := m.helpMaxOffset(), len(helpLines)-2; got != want {
 		t.Fatalf("help search max offset = %d, want %d", got, want)
 	}
 	m.helpOffset = m.helpMaxOffset()
 	lines := strings.Split(tuiHelpView(m), "\n")
-	if got, want := ansi.Strip(lines[3]), tuiFormatHelpLine(helpLines[len(helpLines)-1], m.width); got != want {
-		t.Fatalf("last visible help line = %q, want %q", got, want)
+	// At this offset and height, all 5 rows are spoken for exactly: the
+	// last 2 content lines, the blank separator, the input line, and the
+	// footer — nothing is clipped.
+	if got, want := ansi.Strip(lines[1]), tuiFormatHelpLine(helpLines[len(helpLines)-1], m.width); got != want {
+		t.Fatalf("last visible content line = %q, want %q", got, want)
+	}
+	if lines[2] != "" {
+		t.Fatalf("no blank line separates content from the input line: %q", lines[2])
+	}
+	if got, want := ansi.Strip(lines[3]), "/ _"; got != want {
+		t.Fatalf("input line = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(ansi.Strip(lines[4]), "Help ") {
+		t.Fatalf("footer missing at the last line: %q", lines[4])
 	}
 }
 
@@ -3693,8 +3795,15 @@ func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
 	m.overlay, m.width, m.height = "detail", 120, 10
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	total := len(tuiDetailLines(m.visible[0], m.scoreSource, m.width, time.Now()))
-	if want := fmt.Sprintf("Detail 1-9/%d · ↑↓ scroll · Esc close", total); !strings.HasPrefix(lines[len(lines)-1], want) {
+	body := tuiDetailBodyHeight(m.height)
+	if want := fmt.Sprintf("Detail 1-%d/%d · ↑↓ scroll · Esc close", body, total); !strings.HasPrefix(lines[len(lines)-1], want) {
 		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)
+	}
+	// The footer reports state, not detail content, and must not sit flush
+	// against the last content line — tuiDetailBodyHeight now reserves a
+	// blank separator ahead of it in addition to the footer itself.
+	if lines[len(lines)-2] != "" {
+		t.Fatalf("no blank line separates detail content from the footer: %q", lines[len(lines)-2])
 	}
 }
 
@@ -4628,23 +4737,38 @@ func TestTUIHelpSearchInputLineNotStyledWhenEndingInUnderscore(t *testing.T) {
 	t.Fatalf("internal error: tuiViewHasPlainLine found the line but split by newline didn't")
 }
 
-// TestTUIHelpInputLineCostsExactlyOneContentRow — проверка off-by-one.
-// Она сравнивает вывод справки во время набора с выводом той же справки
-// без набора на том же helpOffset: контентные строки первого обязаны быть
-// в точности первыми height-1 контентными строками второго, а последней
-// строкой экрана обязана быть строка ввода. Ни потерянной строки
-// документа, ни лишней пустой. Высоты подобраны так, чтобы на каждой из
-// них строка ввода реально была видна — это требует раздела длиннее любой
-// проверяемой высоты (59), иначе контент не заполняет экран и после него
-// остаётся пустой хвост, а не строка ввода последней. Раздел "Hotkeys"
-// (helpSection 2) — 86 строк с заголовком, заведомо длиннее;
-// "Overview" (34 строки), напротив, короче большинства проверяемых высот и
-// для этой проверки не годится.
+// TestTUIHelpInputLineCostsExactlyOneContentRow — проверка off-by-one,
+// обновлённая вместе с тем, что теперь footer больше не теряется молча:
+// helpViewportHeight резервирует и пустой разделитель, и (во время набора)
+// строку ввода, и сам footer — раньше он резервировал только строку ввода,
+// а footer в это время просто обрезался tuiFullscreenText'ом, если раздел
+// заполнял весь viewport (это и было тем самым «известным дефектом вне
+// скопа», см. TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter).
+// Экран теперь состоит из четырёх частей — контент, пустая строка,
+// (во время набора) строка ввода, footer — и тест проверяет ровно то,
+// что заявлено в названии: строка ввода стоит ровно одну дополнительную
+// контентную строку, при равном числе резервируемых снизу строк footer
+// остаётся на месте в обоих случаях. Высоты подобраны так, чтобы во всех
+// них хватало места и на пустой разделитель, и на footer, и (во время
+// набора) на строку ввода одновременно — иначе tuiHelpView сам отбрасывает
+// разделитель первым (см. tuiHelpView), и сравнение по индексам ниже не
+// имеет смысла; поведение на совсем маленьких высотах покрыто
+// TestTUIHelpOverlayFitsSmallHeightsWhileTyping. Раздел "Hotkeys"
+// (helpSection 2) — 86 строк с заголовком, заведомо длиннее любой из них.
 func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
-	for _, height := range []int{2, 3, 5, 10, 24, 40, 59} {
+	for _, height := range []int{10, 24, 40, 59} {
 		idle := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 		idle.overlay, idle.helpSection, idle.width, idle.height = "help", 2, 200, height
 		idleLines := strings.Split(idle.View(), "\n")
+		if len(idleLines) != height {
+			t.Fatalf("height %d: справка отрисовала %d строк, want %d", height, len(idleLines), height)
+		}
+		if !strings.HasPrefix(ansi.Strip(idleLines[height-1]), "Help ") {
+			t.Fatalf("height %d: footer в состоянии покоя отсутствует: %q", height, idleLines[height-1])
+		}
+		if idleLines[height-2] != "" {
+			t.Fatalf("height %d: перед footer'ом в состоянии покоя нет пустой строки: %q", height, idleLines[height-2])
+		}
 
 		typing := idle
 		typing.inputMode, typing.input = "help-search", "ref"
@@ -4654,13 +4778,28 @@ func TestTUIHelpInputLineCostsExactlyOneContentRow(t *testing.T) {
 		if len(typingLines) != height {
 			t.Fatalf("height %d: справка во время набора отрисовала %d строк, want %d", height, len(typingLines), height)
 		}
-		if got := ansi.Strip(typingLines[height-1]); got != "/ ref_" {
-			t.Fatalf("height %d: последняя строка экрана = %q, want строку ввода %q", height, got, "/ ref_")
+		if !strings.HasPrefix(ansi.Strip(typingLines[height-1]), "Help ") {
+			t.Fatalf("height %d: footer во время набора пропал: %q", height, typingLines[height-1])
 		}
-		for i := 0; i < height-1; i++ {
-			got, want := ansi.Strip(typingLines[i]), ansi.Strip(idleLines[i])
-			if got != want {
-				t.Fatalf("height %d: контентная строка %d = %q во время набора, want %q — строка ввода обязана стоить ровно одну строку", height, i, got, want)
+		if got := ansi.Strip(typingLines[height-2]); got != "/ ref_" {
+			t.Fatalf("height %d: строка ввода = %q, want %q прямо над footer'ом", height, got, "/ ref_")
+		}
+		if typingLines[height-3] != "" {
+			t.Fatalf("height %d: перед строкой ввода нет пустой строки: %q", height, typingLines[height-3])
+		}
+
+		// Строка ввода обязана стоить ровно одну контентную строку: контент
+		// во время набора (всё выше его собственного разделителя) обязан
+		// быть контентом состояния покоя (всё выше его разделителя) без
+		// последней строки — не короче и не длиннее.
+		idleContent := idleLines[:height-2]
+		typingContent := typingLines[:height-3]
+		if len(typingContent) != len(idleContent)-1 {
+			t.Fatalf("height %d: контента во время набора %d строк, want ровно на одну меньше, чем %d в покое", height, len(typingContent), len(idleContent))
+		}
+		for i := range typingContent {
+			if got, want := ansi.Strip(typingContent[i]), ansi.Strip(idleContent[i]); got != want {
+				t.Fatalf("height %d: контентная строка %d = %q во время набора, want %q", height, i, got, want)
 			}
 		}
 	}
@@ -4705,14 +4844,18 @@ func TestTUIHelpOverlayFitsSmallHeightsWhileTyping(t *testing.T) {
 	}
 }
 
-// TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter — единственная
-// проверка порядка трёх частей экрана, и она обязана идти на высоте 60.
-// Ниже её футер справки не виден и сегодня: документ — 58 строк,
-// tuiHelpView дописывает футер уже после нарезки на height строк, а
-// tuiFullscreenText режет лишнее, поэтому во время набора футер выживает
-// только при height >= 60. Это известный дефект обрезки футера, он вне
-// скопа задачи и здесь не чинится — на нём просто нельзя утверждать
-// порядок ниже этой высоты.
+// TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter проверяет порядок
+// экрана во время поиска: контент, затем пустая строка-разделитель, затем
+// строка ввода, затем footer, вплотную друг к другу — так и остаётся
+// строка ввода прямо перед footer'ом (footerIndex == inputIndex+1).
+// Раньше это работало только при height >= 60: helpViewportHeight
+// резервировал строку только под сам input, footer дописывался уже после
+// нарезки на height строк и просто обрезался tuiFullscreenText'ом, если
+// раздел заполнял весь viewport (документ здесь — 58 строк). Теперь footer
+// зарезервирован всегда наравне со строкой ввода и разделителем (см.
+// helpViewportHeight), так что здесь также проверяется, что footer и
+// разделитель реально видны при щедрой высоте — регрессия именно этого
+// прежде принятого как есть дефекта.
 func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.overlay, m.width, m.height = "help", 200, 60
@@ -4741,6 +4884,9 @@ func TestTUIHelpInputLineSitsBetweenTheContentAndTheFooter(t *testing.T) {
 	}
 	if got := ansi.Strip(lines[footerIndex]); !strings.Contains(got, "· / search · Enter confirm search · Esc cancel") {
 		t.Fatalf("футер справки = %q, want строку навигации под строкой ввода", got)
+	}
+	if inputIndex < 1 || lines[inputIndex-1] != "" {
+		t.Fatalf("перед строкой ввода нет пустой строки-разделителя: input=%d line=%q", inputIndex, lines[inputIndex-1])
 	}
 }
 

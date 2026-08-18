@@ -1,5 +1,10 @@
 # What's New
 
+## [1.14.29]
+
+- Fix status/footer lines rendering flush against the content above them, with no blank line in between — the F1 help overlay's position footer (`Help N-M/T · ...`), its search input line, the Model Detail overlay's position footer (`Detail N-M/T · ...`), the Settings overlay's Status/Error line, and the main table's status/hints/search-input footer all now have a blank separator line before them, matching the Filter overlay's existing spacing.
+- Fix the F1 help overlay's footer silently disappearing on a tall terminal or a long section instead of just missing its separator: the viewport now always reserves room for it (and, while searching, for the input line too), instead of relying on the surrounding text to happen to be short enough to leave it room.
+
 ## [1.14.28]
 
 - Add a sixth F1 help section, Methodology: a brief but complete synthesis of how every row's data and the ranking itself are built — the three independent kinds of data behind a row, the `model-map.tsv` identity gate and its `!variant` escape hatch, the vals.ai/swebench.com/LMArena three-way split and vals.ai's priority, the exact mixed-utility formula, and why a row with a real number can still be excluded from ranking. Digit `6` and `Right` from Model Detail both reach it, matching the existing five-section navigation.
