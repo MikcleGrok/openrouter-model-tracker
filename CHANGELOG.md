@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.33]
+
+- Fix the F1 help overlay's Hotkeys/Filters/Detail tables truncating longer action/context labels mid-word: `tuiFormatHelpLine`'s action-column width cap was hardcoded to 16 columns, sized only for English text, so Russian translations like "навигация в settings" (20 columns) silently overflowed and got cut off. Widened to a named `tuiHelpActionColumnCap = 24` constant with margin for the longest label in either language, fixing all 12 affected rows across both languages, not just the two originally reported.
+
 ## [1.14.32]
 
 - Fully justify the F1 help overlay's prose paragraphs: every wrapped line of a paragraph, except its last, now gets extra inter-word spacing distributed as evenly as possible so both edges sit flush against the help box's width — the standard newspaper-column convention — instead of the previous ragged-right layout. Wrapping is now genuinely dynamic to the current terminal width, replacing text that used to be pre-wrapped to a fixed width baked into the source and truncated (not reflowed) whenever it didn't fit. Key-binding/table rows, the Filters section's literal CLI/TUI examples, bullet markers and their indent, and the title/tab-bar chrome are all excluded and render exactly as before; every other overlay (main table, Model Detail, Settings, Filter) is unaffected.
