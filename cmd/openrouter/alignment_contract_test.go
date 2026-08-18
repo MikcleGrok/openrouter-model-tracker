@@ -209,7 +209,7 @@ func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 	m.overlay, m.width, m.height = "detail", 28, 9
 	m.iconGap, m.iconGaps, m.icons = 1, config.IconGaps{"acme": 8}, config.IconConfig{Unknown: "?"}
 	configuredView := ansi.Strip(m.View())
-	if !strings.Contains(configuredView, "Производитель: ?") {
+	if !strings.Contains(configuredView, "Manufacturer: ?") {
 		t.Fatalf("detail did not render configured gap: %q", ansi.Strip(m.View()))
 	}
 	legacy := m
