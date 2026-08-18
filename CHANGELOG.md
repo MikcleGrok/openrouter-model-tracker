@@ -1,5 +1,11 @@
 # What's New
 
+## [1.14.28]
+
+- Add a sixth F1 help section, Methodology: a brief but complete synthesis of how every row's data and the ranking itself are built — the three independent kinds of data behind a row, the `model-map.tsv` identity gate and its `!variant` escape hatch, the vals.ai/swebench.com/LMArena three-way split and vals.ai's priority, the exact mixed-utility formula, and why a row with a real number can still be excluded from ranking. Digit `6` and `Right` from Model Detail both reach it, matching the existing five-section navigation.
+- Add `docs/methodology.md`: the same story with the extra room a web page allows, grounded in `model-map.tsv`'s header comment, `internal/model/model.go`'s identity-classification code and `internal/sources` package docs. The F1 Methodology section is its terminal-friendly cut, not a different text.
+- Add a short "Методология" section to README.md summarising the same principles, linking to `docs/methodology.md` for the full write-up.
+
 ## [1.14.27]
 
 - Fix `x` intercepting active text input: typing `x` (or its Cyrillic `ч` alias) while in the search box or the F1 help search no longer quits/closes the surrounding overlay — it inserts the literal character, matching every other letter. Searching for a real `model-map.tsv` slug like `x-ai/grok-4.5` used to quit the whole TUI the moment `x` was typed; it now works. Esc remains the only way to cancel out of active text input.

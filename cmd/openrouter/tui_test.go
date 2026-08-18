@@ -623,6 +623,14 @@ func TestTUIQuestionMarkOpensFullHelpAtHotkeys(t *testing.T) {
 	if m.helpSection != 4 || !strings.Contains(m.View(), "Model detail view") {
 		t.Fatalf("digit 5 did not switch to the model-detail section: section=%d view=%q", m.helpSection, m.View())
 	}
+	// Digit 6 jumps to the sixth section, Methodology. The check asserts a
+	// body-only phrase, not the bare word "Methodology" — that word is also
+	// in the tab bar on every section, so it would not catch a broken jump.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("6")})
+	m = next.(tuiModel)
+	if m.helpSection != 5 || !strings.Contains(m.View(), "how the table and ranking are built") {
+		t.Fatalf("digit 6 did not switch to the methodology section: section=%d view=%q", m.helpSection, m.View())
+	}
 }
 
 // tuiHelpDocumentLineIndex returns the index of the first line equal to
@@ -2646,14 +2654,14 @@ func TestTUIHelpSectionSwitchRebuildsSearchMatches(t *testing.T) {
 	}
 }
 
-// TestTUIHelpDigitKeysJumpToSection covers the F1 overlay's five-section
-// navigation: digit keys 1-5 jump straight to the matching tuiHelpSections
+// TestTUIHelpDigitKeysJumpToSection covers the F1 overlay's six-section
+// navigation: digit keys 1-6 jump straight to the matching tuiHelpSections
 // index, reset the scroll offset, and rebuild search matches against the
 // newly active section. F1 and ? both open this same sectioned overlay (at
 // section 0 and 2 respectively), so there is no separate mode to switch
 // between anymore.
 func TestTUIHelpDigitKeysJumpToSection(t *testing.T) {
-	for digit, wantSection := range map[string]int{"1": 0, "2": 1, "3": 2, "4": 3, "5": 4} {
+	for digit, wantSection := range map[string]int{"1": 0, "2": 1, "3": 2, "4": 3, "5": 4, "6": 5} {
 		m := tuiModel{overlay: "help", helpSection: 0, helpOffset: 7, width: 100, height: 10, helpSearch: "search"}
 		m.helpMatches = tuiHelpSearchInLines(m.helpSearch, tuiHelpSectionLines(0))
 		m.helpMatch = 0
@@ -2685,17 +2693,17 @@ func TestTUIHelpLeftRightStepAndClampWithoutWrapping(t *testing.T) {
 	if m.helpSection != 0 {
 		t.Fatalf("left at the first section = %d, want clamped at 0 (no wraparound)", m.helpSection)
 	}
-	for want := 1; want <= 4; want++ {
+	for want := 1; want <= 5; want++ {
 		m = tuiKey(m, "right")
 		if m.helpSection != want {
 			t.Fatalf("right step %d: section = %d, want %d", want, m.helpSection, want)
 		}
 	}
 	m = tuiKey(m, "right")
-	if m.helpSection != 4 {
-		t.Fatalf("right past the last section = %d, want clamped at 4 (no wraparound)", m.helpSection)
+	if m.helpSection != 5 {
+		t.Fatalf("right past the last section = %d, want clamped at 5 (no wraparound)", m.helpSection)
 	}
-	for want := 3; want >= 0; want-- {
+	for want := 4; want >= 0; want-- {
 		m = tuiKey(m, "left")
 		if m.helpSection != want {
 			t.Fatalf("left step to %d: section = %d, want %d", want, m.helpSection, want)
@@ -2796,17 +2804,65 @@ func TestTUIHelpOverviewAndScoreSourcesAreItemizedAndKeepLoadBearingPrecision(t 
 	}
 }
 
-// TestTUIHelpTabBarShowsAllFiveSectionsWithActiveHighlighted is the direct
+// TestTUIHelpMethodologySectionCoversRankingPrinciples locks the sixth F1
+// help section (Methodology) to the load-bearing facts this project's rating
+// honesty rests on: the three independent kinds of data behind every row,
+// the model-map.tsv identity gate and its !variant escape hatch, the
+// vals.ai/swebench.com/LMArena three-way split and vals.ai's priority, the
+// mixed-utility formula's exact constants, and the identity states that
+// exclude a row from ranking despite carrying a real number. It is itemized
+// with "- " bullets like Overview and Score Sources, and it points back to
+// docs/methodology.md for the fuller write-up.
+func TestTUIHelpMethodologySectionCoversRankingPrinciples(t *testing.T) {
+	if !strings.Contains(tuiHelpSectionMethodologyBody, "\n- ") {
+		t.Fatalf("Methodology body is not itemized with \"- \" bullets: %q", tuiHelpSectionMethodologyBody)
+	}
+	// The body's price_weight=10 claim is checked against the real constant,
+	// not just copy-of-the-constant prose, so the two cannot silently drift
+	// apart if ranking.DefaultPriceWeight is ever changed.
+	if ranking.DefaultPriceWeight != 10 {
+		t.Fatalf("ranking.DefaultPriceWeight = %v, want 10 to match the Methodology body's price_weight=10 claim (update the body text too if this is an intentional change)", ranking.DefaultPriceWeight)
+	}
+	flat := strings.Join(strings.Fields(tuiHelpSectionMethodologyBody), " ")
+	for _, want := range []string{
+		"docs/methodology.md",
+		"Price and context come live from the OpenRouter catalogue.",
+		"Tier is a hand-assigned, Claude-relative capability estimate from model-map.tsv, set by a human, not computed from the score.",
+		"model-map.tsv is the only path to a score",
+		"exact_product",
+		"marked !variant on the source name (for example vals!variant=some/other-checkpoint)",
+		"variant_mismatch",
+		"vals.ai runs every model itself on one fixed, independent harness",
+		"swebench.com is a self-submitted leaderboard",
+		"it is only a fallback, used when vals.ai has no row at all or its row fails identity",
+		"Bradley-Terry, roughly 950-1550",
+		"never shown alongside SWE-bench",
+		"tier-priority: rankable models first, then Opus, Sonnet, Haiku, score, and Q/P.",
+		"score + price_weight*tier_factor*ln(1+quality_price)",
+		"price_weight=10, factors Opus=1, Sonnet=1, Haiku=0.5, Free=0",
+		"3:1 input:output blend: (3*input+output)/4 per $/M tokens",
+		"Task-fit is never a multiplier.",
+		"missing_identity",
+		"legacy_unknown",
+		"observation-only override, which is a vendor claim rather than an independent measurement",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("Methodology body is missing load-bearing phrase %q", want)
+		}
+	}
+}
+
+// TestTUIHelpTabBarShowsAllSixSectionsWithActiveHighlighted is the direct
 // check for the confirmed tab-bar format: "[1 Overview] 2 Score Sources
-// 3 Hotkeys 4 Filters 5 Model Detail", the bracketed entry
+// 3 Hotkeys 4 Filters 5 Model Detail 6 Methodology", the bracketed entry
 // matching the active section, and that entry (and only that entry) styled
 // distinctly (tuiSelectedStyle, the same style the main table's selected
 // row uses).
-func TestTUIHelpTabBarShowsAllFiveSectionsWithActiveHighlighted(t *testing.T) {
-	if len(tuiHelpSections) != 5 {
-		t.Fatalf("tuiHelpSections has %d entries, want 5", len(tuiHelpSections))
+func TestTUIHelpTabBarShowsAllSixSectionsWithActiveHighlighted(t *testing.T) {
+	if len(tuiHelpSections) != 6 {
+		t.Fatalf("tuiHelpSections has %d entries, want 6", len(tuiHelpSections))
 	}
-	wantTitles := []string{"Overview", "Score Sources", "Hotkeys", "Filters", "Model Detail"}
+	wantTitles := []string{"Overview", "Score Sources", "Hotkeys", "Filters", "Model Detail", "Methodology"}
 	for i, want := range wantTitles {
 		if tuiHelpSections[i].Title != want {
 			t.Fatalf("tuiHelpSections[%d].Title = %q, want %q", i, tuiHelpSections[i].Title, want)

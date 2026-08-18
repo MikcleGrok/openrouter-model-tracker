@@ -37,6 +37,17 @@ Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжиру
 - История цен (`openrouter history`) и отчёт об изменениях каталога (`openrouter
   check`) поверх того же локального снимка.
 
+## Методология
+
+Каждая строка таблицы собрана из трёх независимых источников: живая цена и
+контекст из каталога OpenRouter, независимый benchmark score (SWE-bench
+Verified с vals.ai/swebench.com или LMArena Elo — никогда оба сразу) и
+ручной Claude-relative tier. Строка с лидерборда попадает в оценку модели
+только через явное сопоставление в `model-map.tsv` — никогда по похожести
+имён, — а платные модели ранжируются по «качество/цена» с настраиваемой
+value-формулой. Полное описание identity-gate, трёх измерений качества и
+формулы ранжирования — в [docs/methodology.md](docs/methodology.md).
+
 ## Установка
 
 Для macOS и Linux — публичный Homebrew tap:
