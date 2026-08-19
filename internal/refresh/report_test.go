@@ -7,6 +7,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
@@ -190,5 +191,28 @@ func TestReportString(t *testing.T) {
 
 	if empty := (Report{}).String(); !strings.Contains(empty, "нечего") {
 		t.Errorf("an empty report must say so explicitly, got:\n%s", empty)
+	}
+}
+
+// TestReportStringPriceChangesStayRussian locks down that this report — read
+// only by internal/refresh's Russian-language callers, never by the TUI's
+// own language toggle — keeps rendering a long-context override change with
+// the Russian preposition "от" regardless of pricehistory.Format's lang
+// parameter existing at all: this call site must always pass "ru".
+func TestReportStringPriceChangesStayRussian(t *testing.T) {
+	r := Report{PriceChanges: []PriceChange{{
+		Slug:     "openai/gpt-5.6-luna",
+		Previous: pricehistory.Price{Found: true, InPerM: 0.5, OutPerM: 3, Context: 1000000},
+		Current: pricehistory.Price{
+			Found: true, InPerM: 0.5, OutPerM: 3, Context: 1000000,
+			HasOverride: true, OverrideMinTokens: 272000, OverrideInPerM: 1, OverrideOutPerM: 4,
+		},
+	}}}
+	s := r.String()
+	if !strings.Contains(s, "openai/gpt-5.6-luna: $0.5/$3, 1000K → $0.5/$3, 1000K; long-context $1/$4 от 272K+") {
+		t.Errorf("Report.String() price change did not render the Russian long-context clause:\n%s", s)
+	}
+	if strings.Contains(s, " from ") {
+		t.Errorf("Report.String() leaked the English preposition into this always-Russian report:\n%s", s)
 	}
 }

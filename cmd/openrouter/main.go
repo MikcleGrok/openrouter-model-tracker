@@ -191,7 +191,11 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string) (st
 			price := observation.Prices[slug]
 			change := ""
 			if before, ok := previous[slug]; ok && !pricehistory.Equal(before, price) {
-				change = fmt.Sprintf("%s -> %s", pricehistory.Format(before), pricehistory.Format(price))
+				// The `history` CLI command's output is English-only (see
+				// the header rows above), so lang is always "" here — never
+				// the TUI's own language toggle, which this command has no
+				// concept of.
+				change = fmt.Sprintf("%s -> %s", pricehistory.Format(before, ""), pricehistory.Format(price, ""))
 			}
 			if format == "markdown" {
 				threshold, overrideIn, overrideOut := "", "", ""

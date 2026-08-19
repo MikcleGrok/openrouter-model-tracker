@@ -57,6 +57,32 @@ func TestHistoryRetention(t *testing.T) {
 	}
 }
 
+// TestFormat guards the long-context override clause's preposition: it must
+// follow the lang argument ("" = English "from", "ru" = Russian "от")
+// instead of being hardcoded to Russian regardless of caller — the bug that
+// let an unconditional Cyrillic "от" leak into English-mode output.
+func TestFormat(t *testing.T) {
+	base := Price{Found: true, InPerM: 0.5, OutPerM: 3, Context: 1000000}
+	if got := Format(base, ""); got != "$0.5/$3, 1000K" {
+		t.Errorf("Format(base, \"\") = %q, want %q", got, "$0.5/$3, 1000K")
+	}
+	if got := Format(base, "ru"); got != "$0.5/$3, 1000K" {
+		t.Errorf("Format(base, \"ru\") = %q, want %q — no override, nothing to translate", got, "$0.5/$3, 1000K")
+	}
+
+	override := base
+	override.HasOverride = true
+	override.OverrideMinTokens = 272000
+	override.OverrideInPerM = 1
+	override.OverrideOutPerM = 4
+	if got := Format(override, ""); got != "$0.5/$3, 1000K; long-context $1/$4 from 272K+" {
+		t.Errorf("Format(override, \"\") = %q, want the English preposition %q", got, "from")
+	}
+	if got := Format(override, "ru"); got != "$0.5/$3, 1000K; long-context $1/$4 от 272K+" {
+		t.Errorf("Format(override, \"ru\") = %q, want the Russian preposition %q", got, "от")
+	}
+}
+
 func TestHistorySaveErrorDoesNotReplaceExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "history.json")

@@ -159,10 +159,27 @@ type Model struct {
 	// input/output price columns (the per-tier table) — putting the combined
 	// label there would land the input price under the output column's
 	// header. All three are empty when the catalogue reported no override
-	// for this slug.
+	// for this slug. All three are unconditionally Russian and frozen: they
+	// feed the comparison-doc renderer (internal/refresh, always Russian)
+	// and the TUI Detail overlay's pre-language-toggle render path, both of
+	// which must keep reading exactly this text. A language-aware renderer
+	// (the TUI's *ForLang path) must NOT read these three fields — it has
+	// no way to translate the preposition baked into an already-formatted
+	// string — and should instead format its own label from the raw numbers
+	// below.
 	LongContextPriceLabel string
 	LongContextInLabel    string
 	LongContextOutLabel   string
+
+	// HasLongContextOverride and the three fields below it are the raw
+	// numbers behind LongContextPriceLabel/InLabel/OutLabel above, carried
+	// separately so a language-aware renderer can compose its own label
+	// (any preposition, any language) instead of reading the frozen,
+	// unconditionally-Russian strings.
+	HasLongContextOverride       bool
+	LongContextOverrideInPerM    float64
+	LongContextOverrideOutPerM   float64
+	LongContextOverrideMinTokens int
 
 	// Rankable is false for a row whose number does not belong to the product
 	// sold under this slug, or which has no SWE-bench Verified number at all.
@@ -326,6 +343,10 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			m.LongContextPriceLabel = fmt.Sprintf("%s / %s от %s+", pricing.FormatDollar(price.OverrideInPerM), pricing.FormatDollar(price.OverrideOutPerM), threshold)
 			m.LongContextInLabel = fmt.Sprintf("%s от %s+", pricing.FormatDollar(price.OverrideInPerM), threshold)
 			m.LongContextOutLabel = fmt.Sprintf("%s от %s+", pricing.FormatDollar(price.OverrideOutPerM), threshold)
+			m.HasLongContextOverride = true
+			m.LongContextOverrideInPerM = price.OverrideInPerM
+			m.LongContextOverrideOutPerM = price.OverrideOutPerM
+			m.LongContextOverrideMinTokens = price.OverrideMinTokens
 		}
 
 		if row, identity, has := selectRow(rowsBySlug[e.Slug], e, price); has {

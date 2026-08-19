@@ -118,10 +118,23 @@ func (h *History) Save(path string) error {
 
 func Equal(a, b Price) bool { return a == b }
 
-func Format(p Price) string {
+// Format renders p as a change-log fragment: "$in/$out, contextK" plus, when
+// p carries a long-context override, a "; long-context $in/$out <prep>
+// thresholdK+" clause. lang follows the same "" (English) / "ru" (Russian)
+// convention as the TUI's own language toggle and *ForLang helpers
+// (cmd/openrouter/tui.go) — it only picks the override clause's preposition
+// ("from" / "от"); nothing else in the string is natural language. A caller
+// with no language concept of its own passes a fixed lang instead of varying
+// it: the always-Russian refresh report passes "ru", the always-English
+// `openrouter history` CLI command passes "".
+func Format(p Price, lang string) string {
 	base := fmt.Sprintf("$%.4g/$%.4g, %dK", p.InPerM, p.OutPerM, p.Context/1000)
 	if !p.HasOverride {
 		return base
 	}
-	return fmt.Sprintf("%s; long-context $%.4g/$%.4g от %dK+", base, p.OverrideInPerM, p.OverrideOutPerM, p.OverrideMinTokens/1000)
+	preposition := "from"
+	if lang == "ru" {
+		preposition = "от"
+	}
+	return fmt.Sprintf("%s; long-context $%.4g/$%.4g %s %dK+", base, p.OverrideInPerM, p.OverrideOutPerM, preposition, p.OverrideMinTokens/1000)
 }
