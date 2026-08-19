@@ -3714,6 +3714,46 @@ func tuiDetailTestModel() model.Model {
 	}
 }
 
+// tuiDetailEnglishOnlyTestModel is the fixture for
+// TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels: every value it carries
+// is deliberately ASCII/English, unlike tuiDetailTestModel above whose Note
+// and OpenWeights fields are genuinely Russian curated/vendor data (out of
+// scope for translation — see tuiDetailWrappedForLang and
+// tuiDetailLicenseForLang). Its long-context labels are hand-written
+// English-safe strings rather than the real merge output from
+// internal/model.MergeWithArena, which always bakes an unconditional
+// Cyrillic "от" into LongContextPriceLabel/*Label regardless of UI language
+// (internal/model/model.go:326) — a separate, pre-existing, out-of-scope
+// value-formatting issue in a different package, not a Detail-overlay
+// label, so this fixture sidesteps it on purpose rather than needing an
+// allowlist entry for it.
+func tuiDetailEnglishOnlyTestModel() model.Model {
+	return model.Model{
+		Slug: "acme/beacon-9", DisplayName: "Beacon 9", Tier: "sonnet",
+		Owner: "Acme Labs", Provider: "Acme Cloud", License: "MIT",
+		OpenWeights: "yes", ClaudeRef: "≈ Sonnet 4.5",
+		InPerM: 2, OutPerM: 6, Context: 200000,
+		Created: 1786034890, Description: "Beacon 9 is a balanced general-purpose model with strong tool use.",
+		CanonicalSlug: "acme/beacon-9-20260804", HuggingFaceID: "acme-labs/beacon-9",
+		MetadataSourceURL:     "https://acme.example/models/beacon-9",
+		LongContextPriceLabel: "$1.00 / $4.00 from 272K+", LongContextInLabel: "$1.00 from 272K+", LongContextOutLabel: "$4.00 from 272K+",
+		Score: &model.ScoreInfo{
+			Metric: "SWE-bench Verified", Value: 82.8, Unit: "%", VariantMeasured: "acme/beacon-9",
+			IdentityStatus: model.IdentityExact, Stale: true,
+			SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-14",
+		},
+		ScoreLabel: "82.8%",
+		ArenaScore: &model.ScoreInfo{
+			Metric: "LMArena Elo", Value: 1400, Unit: "Elo", VariantMeasured: "acme/beacon-9",
+			IdentityStatus: model.IdentityExact,
+			SourceURL:      "https://arena.ai/leaderboard/text", Checked: "2026-08-10",
+		},
+		ArenaLabel: "1400 Elo",
+		TaskFit:    []string{"implement", "plan"},
+		Note:       "Reliable for backend refactors.",
+	}
+}
+
 func tuiDetailIndex(t *testing.T, lines []string, prefix string) int {
 	t.Helper()
 	for i, line := range lines {
@@ -4091,7 +4131,7 @@ func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 60
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "Оценка SWE-bench Verified", "93.0%", "Оценка LMArena", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close"} {
+	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "SWE-bench Verified score", "93.0%", "LMArena score", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("detail view is missing %q:\n%s", want, view)
 		}
@@ -4105,7 +4145,7 @@ func TestTUIDetailViewWrapsTheDescriptionInsteadOfTruncating(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 40, 60
 	view := m.View()
-	parts := strings.SplitN(view, "Описание:", 2)
+	parts := strings.SplitN(view, "Description:", 2)
 	if len(parts) != 2 {
 		t.Fatalf("the detail view has no description block:\n%s", view)
 	}
@@ -4330,7 +4370,7 @@ func TestTUIDetailViewStylesBothLinkKinds(t *testing.T) {
 	if !strings.Contains(view, "38;5;74") || strings.Contains(view, "38;5;81") {
 		t.Errorf("the view does not use the calm link palette 74 exclusively:\n%s", view)
 	}
-	if !strings.Contains(view, tuiHeaderStyle.Render("Страница OpenRouter: ")) {
+	if !strings.Contains(view, tuiHeaderStyle.Render("OpenRouter page: ")) {
 		t.Errorf("the link label is not styled like every other field label:\n%s", view)
 	}
 }
@@ -4558,11 +4598,11 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 	view := ansi.Strip(m.View())
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
-		"Дата релиза: 2026-08-06",
+		"Release date: 2026-08-06",
 		"Demo Dated is strong at long context and weak at latency.",
-		"Оценка SWE-bench Verified",
+		"SWE-bench Verified score",
 		"75.0%",
-		"Оценка LMArena",
+		"LMArena score",
 		"1400 Elo",
 	} {
 		if !strings.Contains(view, want) {
@@ -4929,8 +4969,8 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 	plain := ansi.Strip(view)
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
-		"Страница OpenRouter: https://openrouter.ai/demo/dated-20260804",
-		"Репозиторий HuggingFace: https://huggingface.co/demo-labs/Dated",
+		"OpenRouter page: https://openrouter.ai/demo/dated-20260804",
+		"HuggingFace repository: https://huggingface.co/demo-labs/Dated",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, plain)
@@ -4945,7 +4985,7 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 	// row the list highlights, so moving the cursor is all it takes.
 	m.cursor = tuiRowIndex(t, m.visible, "demo/closed")
 	closed := ansi.Strip(m.View())
-	if !strings.Contains(closed, "Страница OpenRouter: https://openrouter.ai/demo/closed-20260804") {
+	if !strings.Contains(closed, "OpenRouter page: https://openrouter.ai/demo/closed-20260804") {
 		t.Errorf("the second row lost its OpenRouter link:\n%s", closed)
 	}
 	if strings.Contains(closed, "HuggingFace") {
@@ -5571,8 +5611,11 @@ func TestTUIRussianColumnsOverlayRendersTranslatedText(t *testing.T) {
 // TestTUIRussianDetailOverlayRendersTranslatedText spot-checks the Model
 // Detail overlay: the five section headers translate, the placeholder
 // becomes н/д for a genuinely empty field (Provider, on this fixture), and
-// the already-unconditionally-Russian labels (Производитель, Тир, ...)
-// keep rendering exactly as they did before this feature existed.
+// — since the fix for the field-labels-stuck-in-Russian bug (see
+// TestTUIDetailOverlayEnglishModeTranslatesFieldLabels) — the field labels
+// themselves now translate too, in both directions: Task fit stays English
+// in both languages (a term of art, per tuiDetailTaskFitForLang), while
+// every other label switches with m.lang.
 func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.width, m.height, m.lang = 120, 80, "ru"
@@ -5586,19 +5629,127 @@ func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 			t.Errorf("Russian Detail overlay is missing %q:\n%s", want, view)
 		}
 	}
-	// Labels that were already unconditionally Russian before this feature
-	// existed must render exactly as before — unchanged by the toggle.
+	// The field labels render in Russian, same text as before the fix.
 	for _, want := range []string{"Производитель:", "Тир:", "Task fit:", "Оценка SWE-bench Verified"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Russian Detail overlay lost pre-existing Russian text %q:\n%s", want, view)
 		}
 	}
-	// English still renders the untranslated headers and placeholder.
+	// English now renders English field labels too — this is the bug fix:
+	// before it, the labels stayed Russian ("Провайдер: n/a") even with
+	// English selected.
 	m.lang = ""
 	englishView := ansi.Strip(m.View())
-	for _, want := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --", "Провайдер: n/a", "Detail 1-"} {
+	for _, want := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --", "Provider: n/a", "Task fit:", "Detail 1-"} {
 		if !strings.Contains(englishView, want) {
 			t.Errorf("English Detail overlay (lang reset) is missing %q:\n%s", want, englishView)
+		}
+	}
+	for _, mustNotHave := range []string{"Провайдер:", "Производитель:", "Тир:"} {
+		if strings.Contains(englishView, mustNotHave) {
+			t.Errorf("English Detail overlay (lang reset) still carries the Russian label %q:\n%s", mustNotHave, englishView)
+		}
+	}
+}
+
+// TestTUIDetailOverlayEnglishModeTranslatesFieldLabels reproduces the
+// reported bug directly against tuiDetailLinesForLang: with English
+// selected (lang == ""), every field label inside the Identity, Pricing,
+// Benchmarks and Provenance/Fit blocks stayed hardcoded Russian — only the
+// five "-- Section --" headers and the value-side placeholder actually
+// varied with m.lang. tuiDetailTestModel carries a vals.ai-sourced
+// SWE-bench score, an LMArena score, a HuggingFace repository id and a
+// canonical slug, so every label reachable from this fixture is checked
+// here, English text present and the old Russian label text gone.
+func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	lines := tuiDetailLinesForLang(tuiDetailTestModel(), scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "")
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"Manufacturer: 🌀 OpenAI (C)",
+		"Provider: n/a",
+		"License: нет", // License itself is empty; falls back to the (untranslated, curated) OpenWeights value.
+		"Tier: opus",
+		"Claude reference: ≈ Opus 4.6",
+		"Task fit: implement + debug",
+		"Context: 1M tokens",
+		"Input: $0.50 per M tokens",
+		"Output: $3.00 per M tokens",
+		"Long context: $1.00 / $4.00 от 272K+", // value, not a label — untranslated by design.
+		"  input: $1.00 от 272K+",
+		"  output: $4.00 от 272K+",
+		"Open weights: нет",
+		"SWE-bench Verified score (percent):",
+		"  Value: 93.0%",
+		"  Variant measured: openai/gpt-5.6-luna",
+		"  Metric: SWE-bench Verified",
+		"  Unit: n/a",
+		"  Identity status: n/a",
+		"  Source: https://www.vals.ai/benchmarks/swebench",
+		"  Checked: 2026-08-03",
+		"LMArena score (Elo rating):",
+		"  Value: 1453 Elo",
+		"  Variant measured: gpt-5-6-luna",
+		"  Metric: LMArena Elo",
+		"Release date: 2026-08-06 (2 months ago); catalogue entry creation date, release date unknown",
+		"OpenRouter page: https://openrouter.ai/openai/gpt-5.6-luna-20260804",
+		"HuggingFace repository: https://huggingface.co/openai-community/gpt-5-6-luna",
+		"Description:",
+		"Note:",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("English detail lines are missing %q:\n%s", want, joined)
+		}
+	}
+	// The pre-existing Russian labels must be gone in English mode. This is
+	// the assertion that would have caught the original bug: it failed
+	// before the fix because every one of these was still present.
+	for _, mustNotHave := range []string{
+		"Производитель:", "Провайдер:", "Лицензия:", "Тир:", "Claude-референс:",
+		"Контекст:", "Вход:", "Выход:", "Длинный контекст:", "  вход:", "  выход:",
+		"Открытые веса:", "Оценка SWE-bench Verified", "Оценка LMArena",
+		"Значение:", "Устарело:", "Измеренный вариант:", "Метрика:", "Единица:",
+		"Согласованность identity:", "Источник:", "Проверено:", "Дата релиза:",
+		"дата создания записи каталога", "Страница OpenRouter:",
+		"Репозиторий HuggingFace:", "Описание:", "Заметка:",
+	} {
+		if strings.Contains(joined, mustNotHave) {
+			t.Errorf("English detail lines still carry the Russian label %q:\n%s", mustNotHave, joined)
+		}
+	}
+}
+
+// TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels is the Model Detail
+// screen's general-case counterpart to
+// TestTUIDetailOverlayEnglishModeTranslatesFieldLabels — a regression guard
+// in the spirit of TestTUIHelpActionColumnFitsEveryLanguage, meant to catch
+// a *future* field added to the overlay without its English translation,
+// not just re-check the specific labels already known about today.
+// tuiDetailEnglishOnlyTestModel is deliberately all-ASCII/English in every
+// value field (see its own doc comment for the two known, pre-existing,
+// out-of-scope exceptions it sidesteps on purpose), so this scan needs no
+// allowlist at all: any Cyrillic rune anywhere in this fixture's
+// English-mode rendered output can only be a hardcoded label the *ForLang
+// chain forgot to translate.
+func TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels(t *testing.T) {
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"acme/beacon-9": {Found: true, InPerM: 2, OutPerM: 6, Context: 200000}}},
+		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"acme/beacon-9": {Found: true, InPerM: 2, OutPerM: 8, Context: 200000}}},
+	}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailEnglishOnlyTestModel()})
+	m.priceHistory = history
+	m.width, m.height = 160, 200
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.overlay != "detail" {
+		t.Fatalf("test setup: overlay = %q, want \"detail\"", m.overlay)
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "Price history:") {
+		t.Fatalf("test setup: price history block did not render:\n%s", view)
+	}
+	for _, r := range view {
+		if unicode.Is(unicode.Cyrillic, r) {
+			t.Fatalf("English-mode Detail overlay contains a Cyrillic character %q — a label was missed:\n%s", r, view)
 		}
 	}
 }

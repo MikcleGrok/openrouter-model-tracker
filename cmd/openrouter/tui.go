@@ -3744,7 +3744,12 @@ func tuiDetailTaskFitForLang(m model.Model, lang string) string {
 	return strings.Join(m.TaskFit, " + ")
 }
 
-func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string {
+// tuiDetailPriceHistoryLines builds the recorded-change lines shared by
+// tuiDetailPriceHistory and tuiDetailPriceHistoryForLang, without the
+// heading — the heading is the only part of this block that varies by
+// language; the change lines themselves are formatted prices and ISO dates,
+// already language-neutral.
+func tuiDetailPriceHistoryLines(history *pricehistory.History, slug string) []string {
 	if history == nil || len(history.Observations) < 2 {
 		return nil
 	}
@@ -3763,10 +3768,29 @@ func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string 
 		lines = append(lines, "  "+observation.ObservedAt.UTC().Format("2006-01-02")+": "+pricehistory.Format(previous)+" -> "+pricehistory.Format(current))
 		previous = current
 	}
+	return lines
+}
+
+func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string {
+	lines := tuiDetailPriceHistoryLines(history, slug)
 	if len(lines) == 0 {
 		return nil
 	}
 	return append([]string{"Динамика цен:"}, lines...)
+}
+
+// tuiDetailPriceHistoryForLang is tuiDetailPriceHistory with a
+// language-aware heading.
+func tuiDetailPriceHistoryForLang(history *pricehistory.History, slug, lang string) []string {
+	lines := tuiDetailPriceHistoryLines(history, slug)
+	if len(lines) == 0 {
+		return nil
+	}
+	heading := "Динамика цен:"
+	if lang != "ru" {
+		heading = "Price history:"
+	}
+	return append([]string{heading}, lines...)
 }
 
 // tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
@@ -3819,15 +3843,14 @@ func tuiDetailCreated(created int64, now time.Time) string {
 }
 
 // tuiDetailCreatedForLang is tuiDetailCreated with a language-aware
-// placeholder. tuiDetailAge itself is already unconditionally Russian —
-// see its own comment — so only the "no timestamp at all" branch differs
-// by language.
+// placeholder and, since the field-labels-stuck-in-Russian fix, a
+// language-aware age too — see tuiDetailAgeForLang.
 func tuiDetailCreatedForLang(created int64, now time.Time, lang string) string {
 	if created <= 0 {
 		return tuiDetailPlaceholderForLang(lang)
 	}
 	published := time.Unix(created, 0).UTC()
-	return published.Format("2006-01-02") + " (" + tuiDetailAge(published, now) + ")"
+	return published.Format("2006-01-02") + " (" + tuiDetailAgeForLang(published, now, lang) + ")"
 }
 
 func tuiDetailReleaseDate(created int64, now time.Time) string {
@@ -3838,19 +3861,24 @@ func tuiDetailReleaseDate(created int64, now time.Time) string {
 }
 
 // tuiDetailReleaseDateForLang is tuiDetailReleaseDate with a
-// language-aware placeholder. The trailing note is already unconditionally
-// Russian in both languages — see tuiDetailReleaseDate's own history — so
-// it is repeated verbatim here rather than translated a second way.
+// language-aware placeholder and trailing note.
 func tuiDetailReleaseDateForLang(created int64, now time.Time, lang string) string {
 	if created <= 0 {
 		return tuiDetailPlaceholderForLang(lang)
 	}
-	return tuiDetailCreatedForLang(created, now, lang) + "; дата создания записи каталога, релиз неизвестен"
+	note := "; дата создания записи каталога, релиз неизвестен"
+	if lang != "ru" {
+		note = "; catalogue entry creation date, release date unknown"
+	}
+	return tuiDetailCreatedForLang(created, now, lang) + note
 }
 
 // tuiDetailAge spells the distance between two instants in whole days,
 // months or years — whichever the reader actually cares about at that
-// distance.
+// distance. Frozen: tuiDetailCreated (and every test that calls it
+// directly, e.g. TestTUIDetailAgeUsesRussianPluralForms) is pinned to this
+// exact Russian text; tuiDetailAgeForLang is the language-aware sibling
+// tuiDetailCreatedForLang actually renders with.
 func tuiDetailAge(published, now time.Time) string {
 	days := int(now.UTC().Sub(published).Hours() / 24)
 	switch {
@@ -3864,6 +3892,28 @@ func tuiDetailAge(published, now time.Time) string {
 		return tuiPlural(days/30, "месяц", "месяца", "месяцев") + " назад"
 	default:
 		return tuiPlural(days/365, "год", "года", "лет") + " назад"
+	}
+}
+
+// tuiDetailAgeForLang is tuiDetailAge with an English rendering. English
+// only distinguishes singular from plural (tuiPluralEN), unlike Russian's
+// three-way one/few/many split (tuiPlural).
+func tuiDetailAgeForLang(published, now time.Time, lang string) string {
+	if lang == "ru" {
+		return tuiDetailAge(published, now)
+	}
+	days := int(now.UTC().Sub(published).Hours() / 24)
+	switch {
+	case days < 0:
+		return "future date"
+	case days == 0:
+		return "today"
+	case days < 31:
+		return tuiPluralEN(days, "day") + " ago"
+	case days < 365:
+		return tuiPluralEN(days/30, "month") + " ago"
+	default:
+		return tuiPluralEN(days/365, "year") + " ago"
 	}
 }
 
@@ -3882,6 +3932,15 @@ func tuiPlural(n int, one, few, many string) string {
 	return fmt.Sprintf("%d %s", n, form)
 }
 
+// tuiPluralEN is tuiPlural's English counterpart: a plain singular/plural
+// split, no one/few/many distinction.
+func tuiPluralEN(n int, unit string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, unit)
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
+}
+
 // tuiDetailSWEBenchBlock renders the SWE-bench Verified section. In the
 // arena view the row has already been through model.ForScoreSource, which
 // overwrites Score/ScoreLabel with the Arena projection — printing those
@@ -3897,13 +3956,15 @@ func tuiDetailSWEBenchBlock(m model.Model, scoreSource string) []string {
 }
 
 // tuiDetailSWEBenchBlockForLang is tuiDetailSWEBenchBlock with a
-// language-aware placeholder; the heading and the arena-view explanation
-// are already unconditionally Russian (see tuiDetailSWEBenchBlock's own
-// history) and are repeated verbatim here.
+// language-aware heading, placeholder and arena-view explanation.
 func tuiDetailSWEBenchBlockForLang(m model.Model, scoreSource, lang string) []string {
-	lines := []string{"Оценка SWE-bench Verified (проценты):"}
+	heading, note := "Оценка SWE-bench Verified (проценты):", " (активно представление arena, число SWE-bench в него не проецируется)"
+	if lang != "ru" {
+		heading, note = "SWE-bench Verified score (percent):", " (arena view is active, the SWE-bench number is not projected into it)"
+	}
+	lines := []string{heading}
 	if scoreSource != scoreSourceSWEBench {
-		return append(lines, "  "+tuiDetailPlaceholderForLang(lang)+" (активно представление arena, число SWE-bench в него не проецируется)")
+		return append(lines, "  "+tuiDetailPlaceholderForLang(lang)+note)
 	}
 	return append(lines, tuiDetailScoreLinesForLang(m.Score, m.ScoreLabel, lang)...)
 }
@@ -3918,9 +3979,13 @@ func tuiDetailArenaBlock(m model.Model) []string {
 }
 
 // tuiDetailArenaBlockForLang is tuiDetailArenaBlock with a language-aware
-// placeholder.
+// heading and placeholder.
 func tuiDetailArenaBlockForLang(m model.Model, lang string) []string {
-	return append([]string{"Оценка LMArena (рейтинг Elo):"}, tuiDetailScoreLinesForLang(m.ArenaScore, m.ArenaLabel, lang)...)
+	heading := "Оценка LMArena (рейтинг Elo):"
+	if lang != "ru" {
+		heading = "LMArena score (Elo rating):"
+	}
+	return append([]string{heading}, tuiDetailScoreLinesForLang(m.ArenaScore, m.ArenaLabel, lang)...)
 }
 
 // tuiDetailScoreLines prints one score with the provenance the project's
@@ -3945,10 +4010,9 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 
-// tuiDetailScoreLinesForLang is tuiDetailScoreLines with a language-aware
-// placeholder. Every label here is already unconditionally Russian except
-// the placeholder text buried in each value — including "Provenance:"
-// itself, deliberately kept English in both languages: its value,
+// tuiDetailScoreLinesForLang is tuiDetailScoreLines with language-aware
+// field labels, a language-aware placeholder, and one deliberate exception:
+// "Provenance:" itself stays English in both languages, because its value,
 // model.FormatScoreProvenance, is an internal-package-authored
 // key=value;key=value debug dump with its own fixed English field names
 // (raw=, metric=, identity=, ...), out of scope for translation the same
@@ -3956,20 +4020,26 @@ func tuiDetailScoreLines(info *model.ScoreInfo, label string) []string {
 // while its content stays English would read as a half-translation rather
 // than a real one.
 func tuiDetailScoreLinesForLang(info *model.ScoreInfo, label, lang string) []string {
-	lines := []string{"  Значение: " + tuiDetailValueForLang(label, lang)}
+	valueLabel, staleLine, variantLabel, metricLabel, unitLabel, identityLabel, sourceLabel, checkedLabel :=
+		"  Значение: ", "  Устарело: значение взято из прошлого снапшота", "  Измеренный вариант: ", "  Метрика: ", "  Единица: ", "  Согласованность identity: ", "  Источник: ", "  Проверено: "
+	if lang != "ru" {
+		valueLabel, staleLine, variantLabel, metricLabel, unitLabel, identityLabel, sourceLabel, checkedLabel =
+			"  Value: ", "  Stale: value taken from a previous snapshot", "  Variant measured: ", "  Metric: ", "  Unit: ", "  Identity status: ", "  Source: ", "  Checked: "
+	}
+	lines := []string{valueLabel + tuiDetailValueForLang(label, lang)}
 	if info == nil {
 		return append(lines, "  Provenance: "+model.FormatScoreProvenance(nil))
 	}
 	if info.Stale {
-		lines = append(lines, "  Устарело: значение взято из прошлого снапшота")
+		lines = append(lines, staleLine)
 	}
 	return append(lines,
-		"  Измеренный вариант: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.VariantMeasured), lang),
-		"  Метрика: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Metric), lang),
-		"  Единица: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Unit), lang),
-		"  Согласованность identity: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.IdentityStatus), lang),
-		"  Источник: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.SourceURL), lang),
-		"  Проверено: "+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Checked), lang),
+		variantLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.VariantMeasured), lang),
+		metricLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Metric), lang),
+		unitLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Unit), lang),
+		identityLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.IdentityStatus), lang),
+		sourceLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.SourceURL), lang),
+		checkedLabel+tuiDetailValueForLang(model.NormalizeMissingLabels(info.Checked), lang),
 		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 
@@ -4063,17 +4133,20 @@ func tuiDetailLinesWithHistoryAndIconsAndGaps(m model.Model, scoreSource string,
 // only consumer of the language toggle in the detail screen, alongside the
 // Settings overlay's own use of tuiDetailValueForLang. It mirrors
 // tuiDetailLinesWithHistoryAndIconsAndGaps line for line rather than
-// wrapping it, using the *ForLang siblings throughout, because almost
-// every field label on this screen was already unconditionally Russian
-// before the language toggle existed (see that function's own git
-// history) — the only things that actually vary by language are the five
-// "-- Section --" headers below and every value-side placeholder, both of
-// which the frozen function and its whole wrapper family
-// (tuiDetailLines/WithHistory/WithHistoryAndIcons/...) must keep
-// rendering in English exactly as before, unconditionally, since tests
-// call those exact arities directly. "Task fit:" is deliberately left
-// untranslated in both languages, matching docs/methodology.md's own
-// choice to keep that term in English inside Russian prose.
+// wrapping it, using the *ForLang siblings throughout: the frozen function
+// and its whole wrapper family (tuiDetailLines/WithHistory/
+// WithHistoryAndIcons/...) must keep rendering in unconditional Russian
+// exactly as before, since tests call those exact arities directly and every
+// field label on this screen was unconditionally Russian before the
+// language toggle existed. This function is the fix for that: every label
+// below — the five "-- Section --" headers, every field label inside them,
+// and every value-side placeholder — now actually varies with lang, via the
+// header/lbl closures. "Task fit:" is the one deliberate exception, left
+// untranslated in both languages, matching docs/methodology.md's own choice
+// to keep that term in English inside Russian prose. Two block helpers this
+// function calls — tuiDetailSWEBenchBlockForLang/tuiDetailArenaBlockForLang,
+// via tuiDetailScoreLinesForLang — carry their own near-duplicate label set
+// for each of the two independent score sources; both are lang-aware too.
 func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps, lang string) []string {
 	headers := map[string]string{
 		"-- Identity --":                "-- Идентичность --",
@@ -4088,6 +4161,17 @@ func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now tim
 		}
 		return en
 	}
+	// lbl is header's sibling for field labels rather than section
+	// headers: same "look the Russian text up only when lang == ru" shape,
+	// but the two languages are given side by side at the call site
+	// instead of through a shared map, since — unlike the five section
+	// headers — no other function needs to share this particular table.
+	lbl := func(en, ru string) string {
+		if lang == "ru" {
+			return ru
+		}
+		return en
+	}
 	context := tuiDetailPlaceholderForLang(lang)
 	if m.Context > 0 {
 		context = pricing.FormatContext(m.Context)
@@ -4097,47 +4181,48 @@ func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now tim
 		"",
 		header("-- Identity --"),
 	)
-	manufacturerLine := "Производитель: " + tuiDetailValueForLang(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap), lang)
+	manufacturerLine := lbl("Manufacturer: ", "Производитель: ") + tuiDetailValueForLang(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap), lang)
 	lines = append(lines, tuiWrapWord(manufacturerLine, max(1, width))...)
 	lines = append(lines,
-		"Провайдер: "+tuiDetailValueForLang(m.Provider, lang),
-		"Лицензия: "+tuiDetailLicenseForLang(m, lang),
-		"Тир: "+tuiDetailValueForLang(m.Tier, lang),
-		"Claude-референс: "+tuiDetailValueForLang(m.ClaudeRef, lang),
+		lbl("Provider: ", "Провайдер: ")+tuiDetailValueForLang(m.Provider, lang),
+		lbl("License: ", "Лицензия: ")+tuiDetailLicenseForLang(m, lang),
+		lbl("Tier: ", "Тир: ")+tuiDetailValueForLang(m.Tier, lang),
+		lbl("Claude reference: ", "Claude-референс: ")+tuiDetailValueForLang(m.ClaudeRef, lang),
 		"Task fit: "+tuiDetailTaskFitForLang(m, lang),
 	)
+	perMTokens := lbl(" per M tokens", " за M токенов")
 	lines = append(lines,
 		"",
 		header("-- Pricing --"),
-		"Контекст: "+context+" токенов",
-		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
-		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
+		lbl("Context: ", "Контекст: ")+context+lbl(" tokens", " токенов"),
+		lbl("Input: ", "Вход: ")+tuiDetailPrice(m.InPerM)+perMTokens,
+		lbl("Output: ", "Выход: ")+tuiDetailPrice(m.OutPerM)+perMTokens,
 	)
 	if m.LongContextPriceLabel != "" {
 		lines = append(lines,
-			"Длинный контекст: "+plainTableText(m.LongContextPriceLabel),
-			"  вход: "+plainTableText(m.LongContextInLabel),
-			"  выход: "+plainTableText(m.LongContextOutLabel),
+			lbl("Long context: ", "Длинный контекст: ")+plainTableText(m.LongContextPriceLabel),
+			lbl("  input: ", "  вход: ")+plainTableText(m.LongContextInLabel),
+			lbl("  output: ", "  выход: ")+plainTableText(m.LongContextOutLabel),
 		)
 	}
-	if historyLines := tuiDetailPriceHistory(history, m.Slug); len(historyLines) > 0 {
+	if historyLines := tuiDetailPriceHistoryForLang(history, m.Slug, lang); len(historyLines) > 0 {
 		lines = append(lines, historyLines...)
 	}
-	lines = append(lines, "Открытые веса: "+tuiDetailValueForLang(m.OpenWeights, lang), "")
+	lines = append(lines, lbl("Open weights: ", "Открытые веса: ")+tuiDetailValueForLang(m.OpenWeights, lang), "")
 	lines = append(lines, header("-- Benchmarks --"))
 	lines = append(lines, tuiDetailSWEBenchBlockForLang(m, scoreSource, lang)...)
 	lines = append(lines, "")
 	lines = append(lines, tuiDetailArenaBlockForLang(m, lang)...)
-	lines = append(lines, "", header("-- Provenance and metadata --"), "Дата релиза: "+tuiDetailReleaseDateForLang(m.Created, now, lang), "Страница OpenRouter: "+tuiDetailOpenRouterURLForLang(m, lang))
+	lines = append(lines, "", header("-- Provenance and metadata --"), lbl("Release date: ", "Дата релиза: ")+tuiDetailReleaseDateForLang(m.Created, now, lang), lbl("OpenRouter page: ", "Страница OpenRouter: ")+tuiDetailOpenRouterURLForLang(m, lang))
 	if m.MetadataSourceURL != "" {
-		lines = append(lines, "Источник метаданных: "+tuiDetailValueForLang(m.MetadataSourceURL, lang))
+		lines = append(lines, lbl("Metadata source: ", "Источник метаданных: ")+tuiDetailValueForLang(m.MetadataSourceURL, lang))
 	}
 	if strings.TrimSpace(m.HuggingFaceID) != "" {
-		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURLForLang(tuiHuggingFaceModelURL, m.HuggingFaceID, lang))
+		lines = append(lines, lbl("HuggingFace repository: ", "Репозиторий HuggingFace: ")+tuiDetailURLForLang(tuiHuggingFaceModelURL, m.HuggingFaceID, lang))
 	}
-	lines = append(lines, "Описание:")
+	lines = append(lines, lbl("Description:", "Описание:"))
 	lines = append(lines, tuiDetailWrappedForLang(m.Description, width, lang)...)
-	lines = append(lines, "", header("-- Fit and notes --"), "Заметка:")
+	lines = append(lines, "", header("-- Fit and notes --"), lbl("Note:", "Заметка:"))
 	lines = append(lines, tuiDetailWrappedForLang(tableNote(m), width, lang)...)
 	return tuiDetailAlignRows(lines, width)
 }
