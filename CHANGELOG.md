@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.36]
+
+- Fix `secrets-check` missing the PKCS8 private-key header format (plain and encrypted variants) that cosign's own release-signing key actually uses — the pre-existing regex only covered RSA/EC/OPENSSH/PGP headers plus AWS/GitHub token patterns, so a leaked cosign private key wouldn't have tripped it. Add a tracked `.githooks/pre-commit` hook, opt-in via `make install-hooks`, that runs the check automatically before every commit instead of only when invoked by hand.
+
 ## [1.14.35]
 
 - Fix the long-context price label's Russian preposition ("от") leaking into English-mode pricing text: the Model Detail overlay's price lines and `internal/pricehistory`'s change-history formatting always built the "от 272K+"/"from 272K+" clause with the hardcoded Russian word, regardless of UI language. `model.Model` now carries the raw long-context override fields alongside the existing frozen (still Russian, still used by the always-Russian comparison-document renderer) label, so the TUI composes its own "from"/"от" label at render time via a new `tuiLongContextLabelsForLang`, and `pricehistory.Format` takes an explicit `lang` parameter. The Russian-only refresh report and the English-only `openrouter history` CLI output were already correct and are unaffected.
