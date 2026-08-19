@@ -6,6 +6,11 @@ bin/
 /docs/openrouter-model-comparison.md
 /model-snapshot.json
 
+# Tracked pre-commit hooks (installed via `make install-hooks`); a personal
+# global ~/.gitignore may otherwise exclude all dotfiles/dot-directories.
+!.githooks
+!.githooks/**
+
 # Static cosign signing key material MUST never be committed. Only the
 # public half (cosign.pub, tracked in the repo root) is a source artifact.
 # The private key is generated and stored outside this repo entirely; these
