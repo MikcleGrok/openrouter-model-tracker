@@ -3686,11 +3686,20 @@ func tuiDetailLicense(m model.Model) string {
 }
 
 // tuiDetailLicenseForLang is tuiDetailLicense with a language-aware
-// placeholder.
+// placeholder. Its OpenWeights fallback deliberately keeps reading the raw,
+// untranslated value — a bare "да"/"нет" there stays as curated free text,
+// same as tuiDetailOpenWeightsForLang's own doc comment explains — except
+// for notes.NeedsReview: like tuiDetailClaudeRefForLang, that shared
+// "nobody wrote this note yet" sentinel is a status flag, not content, so it
+// gets the same English/Russian treatment here too, whichever of License or
+// the OpenWeights fallback produced it.
 func tuiDetailLicenseForLang(m model.Model, lang string) string {
 	license := m.License
 	if strings.TrimSpace(license) == "" {
 		license = m.OpenWeights
+	}
+	if lang != "ru" && license == notes.NeedsReview {
+		return "_needs review_"
 	}
 	return tuiDetailValueForLang(license, lang)
 }
@@ -3705,6 +3714,14 @@ func tuiDetailLicenseForLang(m model.Model, lang string) string {
 // the untranslated m.OpenWeights value for its own fallback): translating
 // just the leading word there would leave the rest in Russian syntax, worse
 // than leaving the whole value alone.
+//
+// notes.NeedsReview is the exception: a model with no notes.yaml entry at
+// all gets that shared "nobody wrote this note yet" sentinel back from
+// nt.OpenWeights(slug) (internal/notes/notes.go's orNeedsReview) — a status
+// flag, not curated content, so it gets the same English/Russian treatment
+// tuiDetailClaudeRefForLang already gives it. Leaving it untranslated here
+// also leaked into the License line whenever License is unset, since
+// tuiDetailLicenseForLang falls back to this same raw value.
 func tuiDetailOpenWeightsForLang(value, lang string) string {
 	if lang != "ru" {
 		switch value {
@@ -3712,6 +3729,8 @@ func tuiDetailOpenWeightsForLang(value, lang string) string {
 			return "yes"
 		case "нет":
 			return "no"
+		case notes.NeedsReview:
+			return "_needs review_"
 		}
 	}
 	return tuiDetailValueForLang(value, lang)

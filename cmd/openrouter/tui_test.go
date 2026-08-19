@@ -5787,6 +5787,44 @@ func TestTUIDetailOverlayLeavesAnnotatedOpenWeightsUntranslated(t *testing.T) {
 	}
 }
 
+// TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel covers a third
+// leak in the same family as
+// TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues: a model with
+// no notes.yaml entry at all gets notes.NeedsReview back from
+// nt.OpenWeights(slug) too (internal/notes/notes.go's orNeedsReview, the same
+// sentinel tuiDetailClaudeRefForLang already translates), but
+// tuiDetailOpenWeightsForLang never special-cased it — only the bare
+// "да"/"нет" boolean. So "Open weights: _нужен обзор_" leaked into English
+// mode. License inherits the same leak by construction: tuiDetailLicenseForLang
+// falls back to reading the raw m.OpenWeights value whenever License is
+// unset (see its own doc comment), so fixing OpenWeights fixes both lines.
+func TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	m := tuiDetailTestModel()
+	m.OpenWeights = notes.NeedsReview // no notes.yaml entry for this model at all
+	m.License = ""                    // unset, so it falls back to OpenWeights
+
+	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	for _, want := range []string{"Open weights: _needs review_", "License: _needs review_"} {
+		if !strings.Contains(english, want) {
+			t.Errorf("English detail lines are missing %q:\n%s", want, english)
+		}
+	}
+	for _, mustNotHave := range []string{"Open weights: " + notes.NeedsReview, "License: " + notes.NeedsReview} {
+		if strings.Contains(english, mustNotHave) {
+			t.Errorf("English detail lines still carry the untranslated Russian sentinel %q:\n%s", mustNotHave, english)
+		}
+	}
+
+	// Russian mode is unaffected: both values render exactly as before.
+	russian := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
+	for _, want := range []string{"Открытые веса: " + notes.NeedsReview, "Лицензия: " + notes.NeedsReview} {
+		if !strings.Contains(russian, want) {
+			t.Errorf("Russian detail lines regressed on %q:\n%s", want, russian)
+		}
+	}
+}
+
 // TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels is the Model Detail
 // screen's general-case counterpart to
 // TestTUIDetailOverlayEnglishModeTranslatesFieldLabels — a regression guard
