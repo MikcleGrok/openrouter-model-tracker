@@ -17,6 +17,15 @@ func TestRenderHistoryFormatsAndFilters(t *testing.T) {
 	if err != nil || !strings.Contains(markdown, "a/model") || !strings.Contains(markdown, "long-context threshold") || !strings.Contains(markdown, "500K+") || !strings.Contains(markdown, "long-context $1.5/$4") || strings.Contains(markdown, "b/model") {
 		t.Fatalf("markdown = %q, %v", markdown, err)
 	}
+	// `openrouter history` output is English-only, headers included (see the
+	// "timestamp | slug | ..." row above) — it must never bake in the
+	// Russian preposition "от" for a change's long-context clause.
+	if strings.Contains(markdown, "от") {
+		t.Errorf("markdown change column carries the Russian preposition \"от\"; CLI output is English-only:\n%s", markdown)
+	}
+	if !strings.Contains(markdown, "long-context $1.5/$4 from 500K+") {
+		t.Errorf("markdown change column is missing the English long-context clause:\n%s", markdown)
+	}
 	tsv, err := renderHistory(history, "", "2026-08-02T00:00:00Z", "tsv")
 	if err != nil || !strings.HasPrefix(tsv, "timestamp\tslug\tinput_per_million") || !strings.Contains(tsv, "a/model\t1\t2\t1000\t500000\t1.5\t4") {
 		t.Fatalf("tsv = %q, %v", tsv, err)

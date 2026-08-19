@@ -3705,6 +3705,7 @@ func tuiDetailTestModel() model.Model {
 		Created: 1786034890, Description: "GPT-5.6 Luna is OpenAI's long-context flagship, strong at code and weak at latency.",
 		CanonicalSlug: "openai/gpt-5.6-luna-20260804", HuggingFaceID: "openai-community/gpt-5-6-luna",
 		LongContextPriceLabel: "$1.00 / $4.00 от 272K+", LongContextInLabel: "$1.00 от 272K+", LongContextOutLabel: "$4.00 от 272K+",
+		HasLongContextOverride: true, LongContextOverrideInPerM: 1, LongContextOverrideOutPerM: 4, LongContextOverrideMinTokens: 272000,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93, VariantMeasured: "openai/gpt-5.6-luna", SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-08-03"},
 		ScoreLabel: "93.0%",
 		ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, VariantMeasured: "gpt-5-6-luna", SourceURL: "https://arena.ai/leaderboard/text", Checked: "2026-08-06"},
@@ -3719,14 +3720,12 @@ func tuiDetailTestModel() model.Model {
 // is deliberately ASCII/English, unlike tuiDetailTestModel above whose Note
 // and OpenWeights fields are genuinely Russian curated/vendor data (out of
 // scope for translation — see tuiDetailWrappedForLang and
-// tuiDetailLicenseForLang). Its long-context labels are hand-written
-// English-safe strings rather than the real merge output from
-// internal/model.MergeWithArena, which always bakes an unconditional
-// Cyrillic "от" into LongContextPriceLabel/*Label regardless of UI language
-// (internal/model/model.go:326) — a separate, pre-existing, out-of-scope
-// value-formatting issue in a different package, not a Detail-overlay
-// label, so this fixture sidesteps it on purpose rather than needing an
-// allowlist entry for it.
+// tuiDetailLicenseForLang). Its long-context override is set via the raw
+// HasLongContextOverride/LongContextOverride* fields, exercising the real
+// ForLang render path (tuiLongContextLabelsForLang) rather than the frozen,
+// unconditionally-Russian LongContextPriceLabel/*Label strings that
+// internal/model.MergeWithArena also computes (internal/model/model.go)
+// but which the ForLang path must not read.
 func tuiDetailEnglishOnlyTestModel() model.Model {
 	return model.Model{
 		Slug: "acme/beacon-9", DisplayName: "Beacon 9", Tier: "sonnet",
@@ -3735,8 +3734,8 @@ func tuiDetailEnglishOnlyTestModel() model.Model {
 		InPerM: 2, OutPerM: 6, Context: 200000,
 		Created: 1786034890, Description: "Beacon 9 is a balanced general-purpose model with strong tool use.",
 		CanonicalSlug: "acme/beacon-9-20260804", HuggingFaceID: "acme-labs/beacon-9",
-		MetadataSourceURL:     "https://acme.example/models/beacon-9",
-		LongContextPriceLabel: "$1.00 / $4.00 from 272K+", LongContextInLabel: "$1.00 from 272K+", LongContextOutLabel: "$4.00 from 272K+",
+		MetadataSourceURL:      "https://acme.example/models/beacon-9",
+		HasLongContextOverride: true, LongContextOverrideInPerM: 1, LongContextOverrideOutPerM: 4, LongContextOverrideMinTokens: 272000,
 		Score: &model.ScoreInfo{
 			Metric: "SWE-bench Verified", Value: 82.8, Unit: "%", VariantMeasured: "acme/beacon-9",
 			IdentityStatus: model.IdentityExact, Stale: true,
@@ -5675,9 +5674,9 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 		"Context: 1M tokens",
 		"Input: $0.50 per M tokens",
 		"Output: $3.00 per M tokens",
-		"Long context: $1.00 / $4.00 от 272K+", // value, not a label — untranslated by design.
-		"  input: $1.00 от 272K+",
-		"  output: $4.00 от 272K+",
+		"Long context: $1.00 / $4.00 from 272K+", // this was the reported bug: the value's own "от" stayed Russian even in English mode.
+		"  input: $1.00 from 272K+",
+		"  output: $4.00 from 272K+",
 		"Open weights: нет",
 		"SWE-bench Verified score (percent):",
 		"  Value: 93.0%",
@@ -5734,7 +5733,13 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 func TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels(t *testing.T) {
 	history := &pricehistory.History{Observations: []pricehistory.Observation{
 		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"acme/beacon-9": {Found: true, InPerM: 2, OutPerM: 6, Context: 200000}}},
-		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"acme/beacon-9": {Found: true, InPerM: 2, OutPerM: 8, Context: 200000}}},
+		// The second observation gains a long-context override so the
+		// recorded-change line exercises pricehistory.Format's own
+		// "от"/"from" preposition too, not just the two fields above.
+		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"acme/beacon-9": {
+			Found: true, InPerM: 2, OutPerM: 8, Context: 200000,
+			HasOverride: true, OverrideMinTokens: 300000, OverrideInPerM: 1.5, OverrideOutPerM: 5,
+		}}},
 	}}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailEnglishOnlyTestModel()})
 	m.priceHistory = history

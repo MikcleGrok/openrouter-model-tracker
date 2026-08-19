@@ -3746,10 +3746,12 @@ func tuiDetailTaskFitForLang(m model.Model, lang string) string {
 
 // tuiDetailPriceHistoryLines builds the recorded-change lines shared by
 // tuiDetailPriceHistory and tuiDetailPriceHistoryForLang, without the
-// heading — the heading is the only part of this block that varies by
-// language; the change lines themselves are formatted prices and ISO dates,
-// already language-neutral.
-func tuiDetailPriceHistoryLines(history *pricehistory.History, slug string) []string {
+// heading. lang is not just for the heading: a change line's own text can
+// carry pricehistory.Format's long-context preposition ("от"/"from") when
+// the change touched an override, so it must vary with lang too — an
+// earlier version of this comment called the change lines "already
+// language-neutral", which was wrong for exactly that case.
+func tuiDetailPriceHistoryLines(history *pricehistory.History, slug, lang string) []string {
 	if history == nil || len(history.Observations) < 2 {
 		return nil
 	}
@@ -3765,14 +3767,14 @@ func tuiDetailPriceHistoryLines(history *pricehistory.History, slug string) []st
 			previous, havePrevious = current, true
 			continue
 		}
-		lines = append(lines, "  "+observation.ObservedAt.UTC().Format("2006-01-02")+": "+pricehistory.Format(previous)+" -> "+pricehistory.Format(current))
+		lines = append(lines, "  "+observation.ObservedAt.UTC().Format("2006-01-02")+": "+pricehistory.Format(previous, lang)+" -> "+pricehistory.Format(current, lang))
 		previous = current
 	}
 	return lines
 }
 
 func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string {
-	lines := tuiDetailPriceHistoryLines(history, slug)
+	lines := tuiDetailPriceHistoryLines(history, slug, "ru")
 	if len(lines) == 0 {
 		return nil
 	}
@@ -3780,9 +3782,9 @@ func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string 
 }
 
 // tuiDetailPriceHistoryForLang is tuiDetailPriceHistory with a
-// language-aware heading.
+// language-aware heading and change-line preposition.
 func tuiDetailPriceHistoryForLang(history *pricehistory.History, slug, lang string) []string {
-	lines := tuiDetailPriceHistoryLines(history, slug)
+	lines := tuiDetailPriceHistoryLines(history, slug, lang)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -3791,6 +3793,30 @@ func tuiDetailPriceHistoryForLang(history *pricehistory.History, slug, lang stri
 		heading = "Price history:"
 	}
 	return append([]string{heading}, lines...)
+}
+
+// tuiLongContextLabelsForLang formats model.Model's long-context override —
+// the raw HasLongContextOverride/LongContextOverride* fields, not the
+// frozen, unconditionally-Russian LongContextPriceLabel/InLabel/OutLabel
+// strings model.MergeWithArena also computes — choosing the "from"/"от"
+// preposition by lang the same way pricehistory.Format does. combined is
+// empty (with in and out) when the model has no override, mirroring the
+// frozen fields' own "all three empty" convention.
+func tuiLongContextLabelsForLang(m model.Model, lang string) (combined, in, out string) {
+	if !m.HasLongContextOverride {
+		return "", "", ""
+	}
+	preposition := "from"
+	if lang == "ru" {
+		preposition = "от"
+	}
+	threshold := pricing.FormatContext(m.LongContextOverrideMinTokens)
+	inDollar := pricing.FormatDollar(m.LongContextOverrideInPerM)
+	outDollar := pricing.FormatDollar(m.LongContextOverrideOutPerM)
+	combined = fmt.Sprintf("%s / %s %s %s+", inDollar, outDollar, preposition, threshold)
+	in = fmt.Sprintf("%s %s %s+", inDollar, preposition, threshold)
+	out = fmt.Sprintf("%s %s %s+", outDollar, preposition, threshold)
+	return combined, in, out
 }
 
 // tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
@@ -4198,11 +4224,11 @@ func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now tim
 		lbl("Input: ", "Вход: ")+tuiDetailPrice(m.InPerM)+perMTokens,
 		lbl("Output: ", "Выход: ")+tuiDetailPrice(m.OutPerM)+perMTokens,
 	)
-	if m.LongContextPriceLabel != "" {
+	if combined, in, out := tuiLongContextLabelsForLang(m, lang); combined != "" {
 		lines = append(lines,
-			lbl("Long context: ", "Длинный контекст: ")+plainTableText(m.LongContextPriceLabel),
-			lbl("  input: ", "  вход: ")+plainTableText(m.LongContextInLabel),
-			lbl("  output: ", "  выход: ")+plainTableText(m.LongContextOutLabel),
+			lbl("Long context: ", "Длинный контекст: ")+plainTableText(combined),
+			lbl("  input: ", "  вход: ")+plainTableText(in),
+			lbl("  output: ", "  выход: ")+plainTableText(out),
 		)
 	}
 	if historyLines := tuiDetailPriceHistoryForLang(history, m.Slug, lang); len(historyLines) > 0 {

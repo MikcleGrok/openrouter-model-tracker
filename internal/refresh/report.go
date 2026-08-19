@@ -166,7 +166,10 @@ func (r Report) String() string {
 	if len(r.PriceChanges) > 0 {
 		b.WriteString("💰 изменения цен с последнего live-наблюдения:\n")
 		for _, change := range r.PriceChanges {
-			b.WriteString("    " + change.Slug + ": " + pricehistory.Format(change.Previous) + " → " + pricehistory.Format(change.Current) + "\n")
+			// This report is unconditionally Russian throughout (see every
+			// other section title in this method), so lang is always "ru"
+			// here regardless of the TUI's own language toggle.
+			b.WriteString("    " + change.Slug + ": " + pricehistory.Format(change.Previous, "ru") + " → " + pricehistory.Format(change.Current, "ru") + "\n")
 		}
 	}
 	if b.Len() == 0 {

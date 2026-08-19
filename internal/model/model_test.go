@@ -97,6 +97,16 @@ func TestMerge(t *testing.T) {
 	if luna.LongContextOutLabel != "$4.00 от 272K+" {
 		t.Errorf("luna.LongContextOutLabel = %q, want %q", luna.LongContextOutLabel, "$4.00 от 272K+")
 	}
+	// The raw override numbers behind those frozen (unconditionally Russian)
+	// labels must also be exposed, so a language-aware renderer can format
+	// its own "from"/"от" clause instead of reading the Russian string.
+	if !luna.HasLongContextOverride {
+		t.Error("luna.HasLongContextOverride = false, want true — the catalogue reported an override for this slug")
+	}
+	if luna.LongContextOverrideInPerM != 1 || luna.LongContextOverrideOutPerM != 4 || luna.LongContextOverrideMinTokens != 272000 {
+		t.Errorf("luna long-context override raw fields = in %v out %v minTokens %v, want 1 / 4 / 272000",
+			luna.LongContextOverrideInPerM, luna.LongContextOverrideOutPerM, luna.LongContextOverrideMinTokens)
+	}
 
 	m3 := m["minimax/minimax-m3"]
 	if m3.Score == nil || m3.Score.Value != 80.5 {
@@ -114,6 +124,9 @@ func TestMerge(t *testing.T) {
 	if m3.LongContextPriceLabel != "" || m3.LongContextInLabel != "" || m3.LongContextOutLabel != "" {
 		t.Errorf("m3 long-context labels = %q / %q / %q, want all empty — the catalogue reported no override for this slug",
 			m3.LongContextPriceLabel, m3.LongContextInLabel, m3.LongContextOutLabel)
+	}
+	if m3.HasLongContextOverride {
+		t.Error("m3.HasLongContextOverride = true, want false — the catalogue reported no override for this slug")
 	}
 
 	pro := m["deepseek/deepseek-v4-pro"]
