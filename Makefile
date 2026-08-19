@@ -39,7 +39,7 @@ GITHUB_RUN_ID ?= local
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check sign-flags-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -91,8 +91,12 @@ dependency-check:
 	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-passed scans are explicit blockers/errors.'
 
 secrets-check:
-	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
+	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA |EC |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
 	@printf '%s\n' 'Secrets check passed for tracked source.'
+
+install-hooks:
+	@cd $(ROOT) && git config core.hooksPath .githooks
+	@printf '%s\n' 'Installed: git hooks now run from .githooks (pre-commit secrets-check enabled).'
 
 sign-flags-check:
 	@$(ROOT)scripts/sign_flags_test.sh
@@ -303,6 +307,7 @@ help:
 		'security       Run the repository security baseline' \
 		'dependency-check Run govulncheck and OSV-Scanner (required)' \
 		'secrets-check  Scan tracked source for high-confidence secret patterns' \
+		'install-hooks  Point core.hooksPath at .githooks (enables the pre-commit secrets-check)' \
 		'sbom           Generate SPDX SBOM with Syft (required)' \
 		'release-manifest Write and checksum-bind the signed release-manifest.json' \
 		'provenance-predicate Write the SLSA v1 provenance predicate' \

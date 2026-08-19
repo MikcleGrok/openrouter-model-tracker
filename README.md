@@ -72,6 +72,9 @@ cd openrouter-model-tracker
 go build -o bin/openrouter ./cmd/openrouter
 ```
 
+После клонирования полезно выполнить `make install-hooks` — это включает pre-commit
+проверку, которая блокирует коммит приватных ключей и credentials в отслеживаемых файлах.
+
 ## Документация
 
 Локальная разработка, полный список команд, Makefile-таргеты, релиз-процесс и файлы, которые правятся руками, — в [docs/reference.md](docs/reference.md).

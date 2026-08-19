@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-commit hook: blocks commits containing private keys or credentials (runs `make secrets-check`).
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+
+if ! (cd "$root" && make secrets-check >/dev/null 2>&1); then
+  printf '%s\n' 'BLOCKED: possible private key or credential detected in tracked files -- commit aborted. Remove it before committing.' >&2
+  exit 1
+fi
+
+exit 0
