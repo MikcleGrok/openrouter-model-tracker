@@ -1,5 +1,9 @@
 # What's New
 
+## [1.14.34]
+
+- Fix the Model Detail overlay (`Enter` on a model) showing Russian field labels in every section — Identity, Pricing, Benchmarks, Provenance, Fit/notes — even when English UI language was selected. Only the section headers ("-- Identity --" etc.) were previously made bilingual when the `l` language toggle shipped; every field label inside them (Manufacturer/Provider/License/Tier/Claude reference, Context/Input/Output/Price history/Open weights, Value/Stale/Variant measured/Metric/Unit/Identity status/Source/Checked, Release date/OpenRouter page/Metadata source/HuggingFace repository/Description/Note) was still a hardcoded Russian string with no language branching at all. All of them are now translated and switch correctly with the language toggle, matching the section headers. `Task fit:` and the internal `Provenance:` debug-dump key intentionally remain untranslated (term of art / fixed internal key names).
+
 ## [1.14.33]
 
 - Fix the F1 help overlay's Hotkeys/Filters/Detail tables truncating longer action/context labels mid-word: `tuiFormatHelpLine`'s action-column width cap was hardcoded to 16 columns, sized only for English text, so Russian translations like "навигация в settings" (20 columns) silently overflowed and got cut off. Widened to a named `tuiHelpActionColumnCap = 24` constant with margin for the longest label in either language, fixing all 12 affected rows across both languages, not just the two originally reported.
