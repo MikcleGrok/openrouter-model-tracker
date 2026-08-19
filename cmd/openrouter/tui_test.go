@@ -21,6 +21,7 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
@@ -3718,9 +3719,13 @@ func tuiDetailTestModel() model.Model {
 // tuiDetailEnglishOnlyTestModel is the fixture for
 // TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels: every value it carries
 // is deliberately ASCII/English, unlike tuiDetailTestModel above whose Note
-// and OpenWeights fields are genuinely Russian curated/vendor data (out of
-// scope for translation — see tuiDetailWrappedForLang and
-// tuiDetailLicenseForLang). Its long-context override is set via the raw
+// field is genuinely Russian curated prose (out of scope for translation —
+// see tuiDetailWrappedForLang) and whose empty License falls back to the
+// raw, untranslated OpenWeights value (see tuiDetailLicenseForLang; the
+// "Open weights" line itself does translate its bare "да"/"нет" boolean —
+// see tuiDetailOpenWeightsForLang — but this fixture's own OpenWeights is
+// "yes" already, so that path is not what keeps it Cyrillic-free). Its
+// long-context override is set via the raw
 // HasLongContextOverride/LongContextOverride* fields, exercising the real
 // ForLang render path (tuiLongContextLabelsForLang) rather than the frozen,
 // unconditionally-Russian LongContextPriceLabel/*Label strings that
@@ -5677,7 +5682,7 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 		"Long context: $1.00 / $4.00 from 272K+", // this was the reported bug: the value's own "от" stayed Russian even in English mode.
 		"  input: $1.00 from 272K+",
 		"  output: $4.00 from 272K+",
-		"Open weights: нет",
+		"Open weights: no", // bare "нет" translates now — see TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues.
 		"SWE-bench Verified score (percent):",
 		"  Value: 93.0%",
 		"  Variant measured: openai/gpt-5.6-luna",
@@ -5714,6 +5719,108 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 	} {
 		if strings.Contains(joined, mustNotHave) {
 			t.Errorf("English detail lines still carry the Russian label %q:\n%s", mustNotHave, joined)
+		}
+	}
+}
+
+// TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues covers the two
+// value-side leaks left behind by the label fix in
+// TestTUIDetailOverlayEnglishModeTranslatesFieldLabels: "Open weights: нет"
+// and "Claude reference: _нужен обзор_" stayed hardcoded Russian in English
+// mode even after PR #34, because both live in tuiDetailLinesForLang's
+// ForLang chain as raw *values* (notes.yaml curated data), not as one of the
+// field *labels* that fix translated.
+//
+// Open weights only translates the bare "да"/"нет" boolean lead-in —
+// notes.yaml's richer, annotated entries ("да, Apache 2.0", "частично
+// (...)", "статус не подтверждён") are genuinely curated free text, same as
+// License and Note, and stay untranslated on purpose (see
+// tuiDetailOpenWeightsForLang and
+// TestTUIDetailOverlayLeavesAnnotatedOpenWeightsUntranslated below).
+//
+// Claude reference only translates notes.NeedsReview, the shared "nobody
+// wrote this note yet" sentinel used across every curated notes.yaml field —
+// a status flag, not content, so it gets the same English/Russian treatment
+// tuiDetailPlaceholderForLang already gives a genuinely empty field (see
+// tuiDetailClaudeRefForLang).
+func TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	m := tuiDetailTestModel()
+	m.ClaudeRef = notes.NeedsReview // no manual Claude-tier reference note yet
+
+	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	for _, want := range []string{"Open weights: no", "Claude reference: _needs review_"} {
+		if !strings.Contains(english, want) {
+			t.Errorf("English detail lines are missing %q:\n%s", want, english)
+		}
+	}
+	for _, mustNotHave := range []string{"Open weights: нет", "Claude reference: " + notes.NeedsReview} {
+		if strings.Contains(english, mustNotHave) {
+			t.Errorf("English detail lines still carry the untranslated Russian value %q:\n%s", mustNotHave, english)
+		}
+	}
+
+	// Russian mode is unaffected: both values render exactly as before.
+	russian := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
+	for _, want := range []string{"Открытые веса: нет", "Claude-референс: " + notes.NeedsReview} {
+		if !strings.Contains(russian, want) {
+			t.Errorf("Russian detail lines regressed on %q:\n%s", want, russian)
+		}
+	}
+}
+
+// TestTUIDetailOverlayLeavesAnnotatedOpenWeightsUntranslated is the scope
+// boundary for TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues:
+// only the bare "да"/"нет" boolean translates. An annotated open_weights
+// value (license name, partial-support caveat, ...) is curated free text —
+// translating just the leading word would leave the rest in Russian syntax,
+// worse than leaving the whole value alone — so it must render unchanged in
+// both languages, exactly like License and Note already do.
+func TestTUIDetailOverlayLeavesAnnotatedOpenWeightsUntranslated(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	m := tuiDetailTestModel()
+	m.OpenWeights = "да, Apache 2.0"
+
+	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	if !strings.Contains(english, "Open weights: да, Apache 2.0") {
+		t.Errorf("English detail lines should leave the annotated open_weights value untranslated:\n%s", english)
+	}
+}
+
+// TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel covers a third
+// leak in the same family as
+// TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues: a model with
+// no notes.yaml entry at all gets notes.NeedsReview back from
+// nt.OpenWeights(slug) too (internal/notes/notes.go's orNeedsReview, the same
+// sentinel tuiDetailClaudeRefForLang already translates), but
+// tuiDetailOpenWeightsForLang never special-cased it — only the bare
+// "да"/"нет" boolean. So "Open weights: _нужен обзор_" leaked into English
+// mode. License inherits the same leak by construction: tuiDetailLicenseForLang
+// falls back to reading the raw m.OpenWeights value whenever License is
+// unset (see its own doc comment), so fixing OpenWeights fixes both lines.
+func TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel(t *testing.T) {
+	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
+	m := tuiDetailTestModel()
+	m.OpenWeights = notes.NeedsReview // no notes.yaml entry for this model at all
+	m.License = ""                    // unset, so it falls back to OpenWeights
+
+	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	for _, want := range []string{"Open weights: _needs review_", "License: _needs review_"} {
+		if !strings.Contains(english, want) {
+			t.Errorf("English detail lines are missing %q:\n%s", want, english)
+		}
+	}
+	for _, mustNotHave := range []string{"Open weights: " + notes.NeedsReview, "License: " + notes.NeedsReview} {
+		if strings.Contains(english, mustNotHave) {
+			t.Errorf("English detail lines still carry the untranslated Russian sentinel %q:\n%s", mustNotHave, english)
+		}
+	}
+
+	// Russian mode is unaffected: both values render exactly as before.
+	russian := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
+	for _, want := range []string{"Открытые веса: " + notes.NeedsReview, "Лицензия: " + notes.NeedsReview} {
+		if !strings.Contains(russian, want) {
+			t.Errorf("Russian detail lines regressed on %q:\n%s", want, russian)
 		}
 	}
 }

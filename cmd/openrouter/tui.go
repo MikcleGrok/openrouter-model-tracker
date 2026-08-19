@@ -19,6 +19,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
@@ -3685,13 +3686,68 @@ func tuiDetailLicense(m model.Model) string {
 }
 
 // tuiDetailLicenseForLang is tuiDetailLicense with a language-aware
-// placeholder.
+// placeholder. Its OpenWeights fallback deliberately keeps reading the raw,
+// untranslated value — a bare "да"/"нет" there stays as curated free text,
+// same as tuiDetailOpenWeightsForLang's own doc comment explains — except
+// for notes.NeedsReview: like tuiDetailClaudeRefForLang, that shared
+// "nobody wrote this note yet" sentinel is a status flag, not content, so it
+// gets the same English/Russian treatment here too, whichever of License or
+// the OpenWeights fallback produced it.
 func tuiDetailLicenseForLang(m model.Model, lang string) string {
 	license := m.License
 	if strings.TrimSpace(license) == "" {
 		license = m.OpenWeights
 	}
+	if lang != "ru" && license == notes.NeedsReview {
+		return "_needs review_"
+	}
 	return tuiDetailValueForLang(license, lang)
+}
+
+// tuiDetailOpenWeightsForLang renders the "Open weights" line's value.
+// notes.yaml stores open_weights as curated free text: a plain "да"/"нет"
+// boolean lead-in, sometimes followed by a license name or a caveat ("да,
+// Apache 2.0", "частично (Mistral AI Non-Production License — только
+// research/testing)", "статус не подтверждён"). Only the bare boolean
+// translates — annotating text stays exactly as curated, same as License
+// and Note (see tuiDetailLicenseForLang, which deliberately keeps reading
+// the untranslated m.OpenWeights value for its own fallback): translating
+// just the leading word there would leave the rest in Russian syntax, worse
+// than leaving the whole value alone.
+//
+// notes.NeedsReview is the exception: a model with no notes.yaml entry at
+// all gets that shared "nobody wrote this note yet" sentinel back from
+// nt.OpenWeights(slug) (internal/notes/notes.go's orNeedsReview) — a status
+// flag, not curated content, so it gets the same English/Russian treatment
+// tuiDetailClaudeRefForLang already gives it. Leaving it untranslated here
+// also leaked into the License line whenever License is unset, since
+// tuiDetailLicenseForLang falls back to this same raw value.
+func tuiDetailOpenWeightsForLang(value, lang string) string {
+	if lang != "ru" {
+		switch value {
+		case "да":
+			return "yes"
+		case "нет":
+			return "no"
+		case notes.NeedsReview:
+			return "_needs review_"
+		}
+	}
+	return tuiDetailValueForLang(value, lang)
+}
+
+// tuiDetailClaudeRefForLang renders the "Claude reference" line's value.
+// notes.yaml uses notes.NeedsReview as the shared "nobody has written this
+// note yet" sentinel across every curated field; unlike genuine curated
+// prose it is a status flag, not content, so it gets the same
+// English/Russian treatment tuiDetailPlaceholderForLang already gives a
+// genuinely empty field. Every other value is real curated text and passes
+// through unchanged.
+func tuiDetailClaudeRefForLang(value, lang string) string {
+	if lang != "ru" && value == notes.NeedsReview {
+		return "_needs review_"
+	}
+	return tuiDetailValueForLang(value, lang)
 }
 
 func tuiDetailOpenRouterURL(m model.Model) string {
@@ -4213,7 +4269,7 @@ func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now tim
 		lbl("Provider: ", "Провайдер: ")+tuiDetailValueForLang(m.Provider, lang),
 		lbl("License: ", "Лицензия: ")+tuiDetailLicenseForLang(m, lang),
 		lbl("Tier: ", "Тир: ")+tuiDetailValueForLang(m.Tier, lang),
-		lbl("Claude reference: ", "Claude-референс: ")+tuiDetailValueForLang(m.ClaudeRef, lang),
+		lbl("Claude reference: ", "Claude-референс: ")+tuiDetailClaudeRefForLang(m.ClaudeRef, lang),
 		"Task fit: "+tuiDetailTaskFitForLang(m, lang),
 	)
 	perMTokens := lbl(" per M tokens", " за M токенов")
@@ -4234,7 +4290,7 @@ func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now tim
 	if historyLines := tuiDetailPriceHistoryForLang(history, m.Slug, lang); len(historyLines) > 0 {
 		lines = append(lines, historyLines...)
 	}
-	lines = append(lines, lbl("Open weights: ", "Открытые веса: ")+tuiDetailValueForLang(m.OpenWeights, lang), "")
+	lines = append(lines, lbl("Open weights: ", "Открытые веса: ")+tuiDetailOpenWeightsForLang(m.OpenWeights, lang), "")
 	lines = append(lines, header("-- Benchmarks --"))
 	lines = append(lines, tuiDetailSWEBenchBlockForLang(m, scoreSource, lang)...)
 	lines = append(lines, "")
