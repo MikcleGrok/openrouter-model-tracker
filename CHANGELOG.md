@@ -1,5 +1,13 @@
 # What's New
 
+## [Unreleased]
+
+- No unreleased changes.
+
+## [1.14.37]
+
+- Добавить настраиваемую ширину колонки имени модели в CLI и TUI, сохранив корректное выравнивание таблиц на разных ширинах терминала.
+
 ## [1.14.36]
 
 - Fix `secrets-check` missing the PKCS8 private-key header format (plain and encrypted variants) that cosign's own release-signing key actually uses — the pre-existing regex only covered RSA/EC/OPENSSH/PGP headers plus AWS/GitHub token patterns, so a leaked cosign private key wouldn't have tripped it. Add a tracked `.githooks/pre-commit` hook, opt-in via `make install-hooks`, that runs the check automatically before every commit instead of only when invoked by hand.
