@@ -144,6 +144,7 @@ type Model struct {
 	Owner       string
 	OpenWeights string
 	ClaudeRef   string
+	Copyright   string
 	ManualScore *notes.ScoreOverride
 
 	// Display strings, precomputed so the template stays logic-free.
@@ -332,6 +333,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			Owner:         nt.Owner(e.Slug),
 			OpenWeights:   nt.OpenWeights(e.Slug),
 			ClaudeRef:     nt.ClaudeRef(e.Slug),
+			Copyright:     nt.Copyright(e.Slug),
 		}
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
 		m.InputPrice, m.OutputPrice = m.InPerM, m.OutPerM

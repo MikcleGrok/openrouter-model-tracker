@@ -64,8 +64,11 @@ func TestMerge(t *testing.T) {
 	}
 
 	luna := m["openai/gpt-5.6-luna"]
-	if luna.DisplayName != "GPT-5.6 Luna" || luna.Owner != "OpenAI (C)" || luna.OpenWeights != "нет" {
+	if luna.DisplayName != "GPT-5.6 Luna" || luna.Owner != "OpenAI (C)" || luna.OpenWeights != "нет" || luna.Copyright != notes.CopyrightCompliant {
 		t.Errorf("luna prose = %+v, want it pulled from notes.yaml", luna)
+	}
+	if byslug(got)["minimax/minimax-m3"].Copyright != notes.CopyrightUnknown {
+		t.Errorf("missing copyright = %q, want unknown", byslug(got)["minimax/minimax-m3"].Copyright)
 	}
 	if len(luna.TaskFit) != 3 || luna.TaskFit[0] != "implement" {
 		t.Errorf("luna.TaskFit = %v, want propagated normalized metadata", luna.TaskFit)

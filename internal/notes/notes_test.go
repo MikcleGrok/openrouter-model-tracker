@@ -29,6 +29,9 @@ func TestModelAccessors(t *testing.T) {
 	if got := n.OpenWeights("openai/gpt-5.6-luna"); got != "нет" {
 		t.Errorf("OpenWeights = %q, want %q", got, "нет")
 	}
+	if got := n.Copyright("openai/gpt-5.6-luna"); got != CopyrightCompliant {
+		t.Errorf("Copyright = %q, want %q", got, CopyrightCompliant)
+	}
 	if got := n.ModelNote("openai/gpt-5.6-luna"); got != "Оценка независимая (vals.ai)." {
 		t.Errorf("ModelNote = %q", got)
 	}
@@ -47,6 +50,33 @@ func TestTaskFitRejectsUnknownKeyword(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown keyword") {
 		t.Fatalf("Load error = %v, want unknown keyword", err)
+	}
+}
+
+func TestCopyrightRejectsUnknownValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    copyright: unclear\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown value") {
+		t.Fatalf("Load error = %v, want unknown value", err)
+	}
+}
+
+func TestCopyrightAcceptsTriStateValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	body := "models:\n  compliant/model:\n    copyright: compliant\n  non-compliant/model:\n    copyright: non_compliant\n  unknown/model:\n    copyright: unknown\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for slug, want := range map[string]string{"compliant/model": CopyrightCompliant, "non-compliant/model": CopyrightNonCompliant, "unknown/model": CopyrightUnknown} {
+		if got := n.Copyright(slug); got != want {
+			t.Errorf("Copyright(%q) = %q, want %q", slug, got, want)
+		}
 	}
 }
 

@@ -47,6 +47,7 @@ models:
     display: GPT-5.6 Luna
     owner: OpenAI (C)
     open_weights: "нет"
+    copyright: compliant
     note: "Оценка независимая (vals.ai)."
     task_fit: [test, implement, implement, audit]
   minimax/minimax-m3:

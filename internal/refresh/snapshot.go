@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
@@ -31,6 +32,7 @@ type SnapshotEntry struct {
 	License           string           `json:"license,omitempty"`
 	ModelURL          string           `json:"model_url,omitempty"`
 	MetadataSourceURL string           `json:"metadata_source_url,omitempty"`
+	Copyright         string           `json:"copyright,omitempty"`
 	HasOverride       bool             `json:"has_long_context_override,omitempty"`
 	OverrideMinTokens int              `json:"long_context_min_tokens,omitempty"`
 	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
@@ -94,6 +96,9 @@ func LoadSnapshot(path string) (*Snapshot, error) {
 		entry.License = model.NormalizeMissingLabels(entry.License)
 		entry.ModelURL = model.NormalizeMissingLabels(entry.ModelURL)
 		entry.MetadataSourceURL = model.NormalizeMissingLabels(entry.MetadataSourceURL)
+		if entry.Copyright == "" {
+			entry.Copyright = notes.CopyrightUnknown
+		}
 		normalizeScoreInfo(entry.Score)
 		normalizeScoreInfo(entry.ArenaScore)
 		s.Models[slug] = entry
@@ -158,6 +163,7 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 			License:           m.License,
 			ModelURL:          m.ModelURL,
 			MetadataSourceURL: m.MetadataSourceURL,
+			Copyright:         m.Copyright,
 			Score:             m.Score,
 			ArenaScore:        m.ArenaScore,
 		}

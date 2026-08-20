@@ -14,12 +14,12 @@
 
 Один лучший вариант на каждый уровень качества Claude.
 
-| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Почему фаворит |
-|---|---|---|---|---|---|---|---|
-| ≈ Fable 5 | нет достойного кандидата | — | — | — | — | — | Ни одна проверенная модель независимо не подтверждает Fable-уровень. |
-| >≈ Opus 5 | GPT-5.6 Luna | $0.50 / $3.00 ($1.00 / $4.00 от 272K+) · 1M | 93.0% | 82.7 | OpenAI (C) | нет | Лучшее соотношение цена/качество. |
+| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Почему фаворит |
+|---|---|---|---|---|---|---|---|---|
+| ≈ Fable 5 | нет достойного кандидата | — | — | — | — | — | unknown | Ни одна проверенная модель независимо не подтверждает Fable-уровень. |
+| >≈ Opus 5 | GPT-5.6 Luna | $0.50 / $3.00 ($1.00 / $4.00 от 272K+) · 1M | 93.0% | 82.7 | OpenAI (C) | нет | unknown | Лучшее соотношение цена/качество. |
   Provenance: raw=93; metric=SWE-bench Verified; unit=n/a; variant=openai/gpt-5.6-luna; identity=n/a; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
-| ↳ второй выбор | GPT-5.6 Sol | $5.00 / $30.00 · 1M | 96.2% | 8.6 | OpenAI (C) | нет | Ближе всего к Opus 5 по сырой оценке. |
+| ↳ второй выбор | GPT-5.6 Sol | $5.00 / $30.00 · 1M | 96.2% | 8.6 | OpenAI (C) | нет | unknown | Ближе всего к Opus 5 по сырой оценке. |
   Provenance: raw=96.2; metric=SWE-bench Verified; unit=n/a; variant=openai/gpt-5.6-sol; identity=n/a; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
 
 ## Цены Claude (справочно)
@@ -48,11 +48,11 @@ SaferAI Frontier Risk Management Tracker: OpenAI 34%.
 
 ### >≈ Opus 5
 
-| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Примечание |
-|---|---|---|---|---|---|---|---|---|---|
-| GPT-5.6 Luna | openai/gpt-5.6-luna | $0.50 ($1.00 от 272K+) | $3.00 ($4.00 от 272K+) | 1M | 93.0% | 82.7 | OpenAI (C) | нет | Независимая оценка (vals.ai). |
+| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Примечание |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GPT-5.6 Luna | openai/gpt-5.6-luna | $0.50 ($1.00 от 272K+) | $3.00 ($4.00 от 272K+) | 1M | 93.0% | 82.7 | OpenAI (C) | нет | unknown | Независимая оценка (vals.ai). |
   Provenance: raw=93; metric=SWE-bench Verified; unit=n/a; variant=openai/gpt-5.6-luna; identity=n/a; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
-| GPT-5.6 Sol | openai/gpt-5.6-sol | $5.00 | $30.00 | 1M | 96.2% | 8.6 | OpenAI (C) | нет | Оговорка METR сохраняется. |
+| GPT-5.6 Sol | openai/gpt-5.6-sol | $5.00 | $30.00 | 1M | 96.2% | 8.6 | OpenAI (C) | нет | unknown | Оговорка METR сохраняется. |
   Provenance: raw=96.2; metric=SWE-bench Verified; unit=n/a; variant=openai/gpt-5.6-sol; identity=n/a; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
 
 ## Сколько токенов даст $10
@@ -81,9 +81,9 @@ SaferAI Frontier Risk Management Tracker: OpenAI 34%.
 
 Модели с ценой $0/$0 — из каталога OpenRouter.
 
-| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Примечание |
-|---|---|---|---|---|---|---|---|
-| NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1M | 65–70.4% (только вендор) | <≈ Haiku 4.5 (бесплатная) | NVIDIA | да, OpenMDW-1.1 | 550B/55B-active MoE. |
+| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright | Примечание |
+|---|---|---|---|---|---|---|---|---|
+| NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1M | 65–70.4% (только вендор) | <≈ Haiku 4.5 (бесплатная) | NVIDIA | да, OpenMDW-1.1 | unknown | 550B/55B-active MoE. |
   Provenance: raw=70.4; metric=SWE-bench Verified; unit=n/a; variant=vendor-claimed; identity=n/a; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a
 
 Для всех `:free`-моделей: rate-limit 20 запросов/мин.

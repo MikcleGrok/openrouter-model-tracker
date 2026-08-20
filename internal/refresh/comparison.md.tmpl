@@ -14,16 +14,16 @@
 
 {{.FavoritesIntro}}
 
-| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Почему фаворит |
-|---|---|---|---|---|---|---|---|
+| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Почему фаворит |
+|---|---|---|---|---|---|---|---|---|
 {{- range .Favorites}}
 {{- if .Model}}
-| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Reason}} |
+| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Model.Copyright}} | {{.Reason}} |
 {{- if .Model}}
   Provenance: {{provenance .Model.Score}}
 {{- end}}
 {{- else}}
-| {{.TierLabel}} | {{.Fallback}} | — | — | — | — | — | {{.Reason}} |
+| {{.TierLabel}} | {{.Fallback}} | — | — | — | — | — | unknown | {{.Reason}} |
 {{- end}}
 {{- end}}
 
@@ -57,10 +57,10 @@
 {{range .Tiers}}
 ### {{.Heading}}
 
-| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Примечание |
-|---|---|---|---|---|---|---|---|---|---|
+| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Примечание |
+|---|---|---|---|---|---|---|---|---|---|---|
 {{- range .Rows}}
-| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
+| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
   Provenance: {{provenance .Score}}
 {{- end}}
 {{end}}
@@ -92,10 +92,10 @@
 
 {{.FreeIntro}}
 
-| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Примечание |
-|---|---|---|---|---|---|---|---|
+| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright | Примечание |
+|---|---|---|---|---|---|---|---|---|
 {{- range .FreeModels}}
-| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Note}} |
+| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
   Provenance: {{provenance .Score}}
 {{- end}}
 
