@@ -4,6 +4,10 @@
 
 - Replace the ambiguous manual `copyright` classification with `copyright_guardrail`, a tri-state field for observed model behavior around bypassing protected-content restrictions. Missing values remain `unknown` and are never inferred from the model license.
 
+## [1.14.40]
+
+- Add the `copyright_guardrail` TUI column and structured filter, including CSV combinations of `enforces`, `bypasses`, and `unknown`.
+
 ## [1.14.39]
 
 - Add `copyright_guardrail` metadata to describe observed model behavior around bypassing protected-content restrictions, with explicit `enforces`, `bypasses`, and `unknown` states instead of inferring the result from the model license.
