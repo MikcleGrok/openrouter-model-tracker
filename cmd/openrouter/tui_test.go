@@ -142,6 +142,28 @@ func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	}
 }
 
+func TestTUIFilterDraftCopyrightGuardrailRoundTrip(t *testing.T) {
+	draft := tuiFilterDraftFromString("copyright_guardrail:bypasses,unknown")
+	if draft.copyrightGuardrail != "bypasses,unknown" || draft.string() != "copyright_guardrail:bypasses,unknown" {
+		t.Fatalf("copyright guardrail draft = %+v, serialized %q", draft, draft.string())
+	}
+	if got := tuiNextCopyrightGuardrail(""); got != notes.CopyrightGuardrailEnforces {
+		t.Fatalf("next copyright guardrail = %q", got)
+	}
+}
+
+func TestTUICopyrightGuardrailColumnUsesModelFieldAndUnknownFallback(t *testing.T) {
+	if got := tuiColumnLabel(colCopyrightGuardrail, scoreSourceDefault); got != "Copyright guardrail" {
+		t.Fatalf("copyright guardrail label = %q", got)
+	}
+	if got := tuiCell(model.Model{CopyrightGuardrail: ""}, colCopyrightGuardrail, false, scoreSourceDefault); got != notes.CopyrightGuardrailUnknown {
+		t.Fatalf("empty copyright guardrail cell = %q, want unknown", got)
+	}
+	if got := tuiCell(model.Model{CopyrightGuardrail: notes.CopyrightGuardrailBypasses}, colCopyrightGuardrail, false, scoreSourceDefault); got != notes.CopyrightGuardrailBypasses {
+		t.Fatalf("copyright guardrail cell = %q", got)
+	}
+}
+
 func TestTUIFilterOpensEffectiveDefaultFields(t *testing.T) {
 	m := tuiModel{filter: config.DefaultFilter, filterFormExplicit: true}
 	m.openFilterEditor()

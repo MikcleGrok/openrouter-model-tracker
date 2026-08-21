@@ -687,6 +687,25 @@ func TestFilterTableModelsAcceptsTierCaseInsensitively(t *testing.T) {
 	}
 }
 
+func TestFilterTableModelsCopyrightGuardrailCSVAndMissingValues(t *testing.T) {
+	models := []model.Model{{Slug: "enforces", CopyrightGuardrail: notes.CopyrightGuardrailEnforces}, {Slug: "bypasses", CopyrightGuardrail: notes.CopyrightGuardrailBypasses}, {Slug: "missing"}}
+	got, err := filterTableModels(models, []string{"copyright_guardrail:bypasses,unknown"})
+	if err != nil || len(got) != 2 || got[0].Slug != "bypasses" || got[1].Slug != "missing" {
+		t.Fatalf("copyright guardrail CSV filter = %+v, error %v", got, err)
+	}
+	if _, err := filterTableModels(models, []string{"copyright_guardrail:license"}); err == nil {
+		t.Fatal("invalid copyright guardrail unexpectedly accepted")
+	}
+}
+
+func TestSplitFilterKeepsCopyrightGuardrailCSV(t *testing.T) {
+	got := splitFilter("paid,copyright_guardrail:enforces,bypasses,quality>=80")
+	want := []string{"paid", "copyright_guardrail:enforces,bypasses", "quality>=80"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitFilter = %#v, want %#v", got, want)
+	}
+}
+
 func TestFilterTableModelsQualityPriceAndAvailabilityPredicates(t *testing.T) {
 	models := []model.Model{{Slug: "paid", Free: false, HasQualityPrice: true, QualityPrice: 4}, {Slug: "free", Free: true, HasQualityPrice: false}, {Slug: "invalid", Free: false, HasQualityPrice: false}}
 	got, err := filterTableModels(models, []string{"has-q/p", "availability:paid"})

@@ -31,19 +31,20 @@ import (
 type tuiColumn string
 
 const (
-	colName    tuiColumn = "name"
-	colSlug    tuiColumn = "slug"
-	colClaude  tuiColumn = "claude"
-	colStatus  tuiColumn = "status"
-	colQuality tuiColumn = "q/p"
-	colContext tuiColumn = "context"
-	colInput   tuiColumn = "input"
-	colOutput  tuiColumn = "output"
-	colTask    tuiColumn = "task-fit"
-	colNote    tuiColumn = "note"
+	colName               tuiColumn = "name"
+	colSlug               tuiColumn = "slug"
+	colClaude             tuiColumn = "claude"
+	colCopyrightGuardrail tuiColumn = "copyright-guardrail"
+	colStatus             tuiColumn = "status"
+	colQuality            tuiColumn = "q/p"
+	colContext            tuiColumn = "context"
+	colInput              tuiColumn = "input"
+	colOutput             tuiColumn = "output"
+	colTask               tuiColumn = "task-fit"
+	colNote               tuiColumn = "note"
 )
 
-var tuiColumns = []tuiColumn{colName, colSlug, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask, colNote}
+var tuiColumns = []tuiColumn{colName, colSlug, colClaude, colCopyrightGuardrail, colStatus, colQuality, colContext, colInput, colOutput, colTask, colNote}
 var tuiSortKeys = []string{"name", "slug", "context", "input", "output", "price", "quality", "q/p", "utility"}
 
 var (
@@ -153,6 +154,7 @@ type tuiFilterDraft struct {
 	free, paid, scored bool
 	hasQP              bool
 	availability       string
+	copyrightGuardrail string
 	tier               string
 	quality            string
 	context            string
@@ -340,7 +342,7 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 	filtered := append([]model.Model(nil), m.models...)
 	if m.filter != "" {
 		var err error
-		filtered, err = filterTableModels(filtered, strings.Split(m.filter, ","))
+		filtered, err = filterTableModels(filtered, []string{m.filter})
 		if err != nil {
 			return nil, -1, err
 		}
@@ -1259,7 +1261,7 @@ func (m *tuiModel) openFilterEditor() {
 }
 
 func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	const filterFields = 10
+	const filterFields = 11
 	switch key {
 	case "esc":
 		m.closeOverlay()
@@ -1274,6 +1276,8 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
 		} else if m.filterCursor == 9 {
 			m.filterDraft.availability = tuiPreviousAvailability(m.filterDraft.availability)
+		} else if m.filterCursor == 10 {
+			m.filterDraft.copyrightGuardrail = tuiPreviousCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, -1, m.filterSteps)
 		}
@@ -1282,6 +1286,8 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
 		} else if m.filterCursor == 9 {
 			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
+		} else if m.filterCursor == 10 {
+			m.filterDraft.copyrightGuardrail = tuiNextCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, 1, m.filterSteps)
 		}
@@ -1303,6 +1309,8 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.filterDraft.hasQP = !m.filterDraft.hasQP
 		case 9:
 			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
+		case 10:
+			m.filterDraft.copyrightGuardrail = tuiNextCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
 		}
 	case "c":
 		m.filterDraft = tuiFilterDraft{}
@@ -1394,6 +1402,8 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 			draft.availability = strings.TrimSpace(value[len("availability:"):])
 		case strings.HasPrefix(lower, "tier:"):
 			draft.tier = strings.TrimSpace(value[len("tier:"):])
+		case strings.HasPrefix(lower, "copyright_guardrail:"):
+			draft.copyrightGuardrail = strings.TrimSpace(value[len("copyright_guardrail:"):])
 		case strings.HasPrefix(lower, "quality>="):
 			draft.quality = tuiCanonicalDraftValue(4, strings.TrimSpace(value[len("quality>="):]))
 		case strings.HasPrefix(lower, "context>="):
@@ -1433,6 +1443,9 @@ func (d tuiFilterDraft) string() string {
 	if d.availability != "" && d.availability != "any" {
 		filters = append(filters, "availability:"+d.availability)
 	}
+	if strings.TrimSpace(d.copyrightGuardrail) != "" {
+		filters = append(filters, "copyright_guardrail:"+strings.TrimSpace(d.copyrightGuardrail))
+	}
 	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
 		if strings.TrimSpace(item.value) != "" {
 			field := map[string]int{"quality": 4, "context": 5, "input": 6, "output": 7}[item.name]
@@ -1447,6 +1460,30 @@ func (d tuiFilterDraft) string() string {
 		}
 	}
 	return strings.Join(filters, ",")
+}
+
+func tuiCopyrightGuardrailValues() []string {
+	return []string{"", notes.CopyrightGuardrailEnforces, notes.CopyrightGuardrailBypasses, notes.CopyrightGuardrailUnknown}
+}
+
+func tuiNextCopyrightGuardrail(current string) string {
+	values := tuiCopyrightGuardrailValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+1)%len(values)]
+		}
+	}
+	return values[0]
+}
+
+func tuiPreviousCopyrightGuardrail(current string) string {
+	values := tuiCopyrightGuardrailValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+len(values)-1)%len(values)]
+		}
+	}
+	return values[0]
 }
 
 func tuiNextAvailability(current string) string {
@@ -1634,11 +1671,13 @@ func (d *tuiFilterDraft) append(field int, value string) {
 		d.input += value
 	case 7:
 		d.output += value
+	case 10:
+		d.copyrightGuardrail += value
 	}
 }
 
 func (d *tuiFilterDraft) deleteLast(field int) {
-	values := []*string{nil, nil, nil, &d.tier, &d.quality, &d.context, &d.input, &d.output}
+	values := []*string{nil, nil, nil, &d.tier, &d.quality, &d.context, &d.input, &d.output, nil, &d.availability, &d.copyrightGuardrail}
 	if field < len(values) && values[field] != nil {
 		value := *values[field]
 		if value != "" {
@@ -1814,8 +1853,8 @@ func (m tuiModel) View() string {
 }
 
 func tuiFilterView(m tuiModel) string {
-	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability}
-	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability"}
+	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability, m.filterDraft.copyrightGuardrail}
+	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability", "Copyright guardrail"}
 	// tier.ValuesString() returns the literal tier predicate values
 	// (opus/sonnet/haiku/...), the same tokens the CLI's tier:VALUE filter
 	// syntax accepts — never translated, per this feature's scoping rule
@@ -2033,6 +2072,8 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 		return "Slug"
 	case colClaude:
 		return "Claude"
+	case colCopyrightGuardrail:
+		return "Copyright guardrail"
 	case colStatus:
 		if scoreSource == scoreSourceArena {
 			return "Arena Elo"
@@ -2075,6 +2116,8 @@ func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
 		return "Slug"
 	case colClaude:
 		return "Claude"
+	case colCopyrightGuardrail:
+		return "Copyright guardrail"
 	case colStatus:
 		if scoreSource == scoreSourceArena {
 			return "Arena Elo"
@@ -3038,7 +3081,7 @@ The last column stays selected.
 	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
 	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
 	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
-	Predicates: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Predicates: paid, free, scored; tier:VALUE; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
 	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
@@ -3278,7 +3321,7 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 	Пример TUI: нажмите f, включите Платные, введите sonnet в Тир и 0.8 в Качество (минимум), затем Enter.
 	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Тир. Left/Right выбирают Тир или изменяют числовые значения; Space циклит Тир. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
 	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
-	Предикаты: paid, free, scored; tier:VALUE; quality>=N; context>=N; input<=N; output<=N.
+	Предикаты: paid, free, scored; tier:VALUE; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
 	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
 	Несколько фильтров разделяются запятой (или повторным --filter в CLI) и всегда работают через AND.
 	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
@@ -4408,6 +4451,8 @@ func tuiCellWithIconsAndGaps(m model.Model, col tuiColumn, note bool, scoreSourc
 		value = m.Slug
 	case colClaude:
 		value = tableClaudeForSource(m, scoreSource)
+	case colCopyrightGuardrail:
+		value = normalizeCopyrightGuardrail(m.CopyrightGuardrail)
 	case colStatus:
 		value = tableStatus(m)
 	case colQuality:

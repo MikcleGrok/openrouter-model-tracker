@@ -460,6 +460,17 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 					return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", tier, raw, tierpkg.ValuesString())
 				}
 				parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
+			case strings.HasPrefix(filter, "copyright_guardrail:"):
+				values := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "copyright_guardrail:")), ",")
+				allowed := make(map[string]bool, len(values))
+				for _, value := range values {
+					normalized := normalizeCopyrightGuardrail(value)
+					if normalized == "" {
+						return nil, fmt.Errorf("table: malformed filter %q; copyright_guardrail has an unknown value", raw)
+					}
+					allowed[normalized] = true
+				}
+				parsed = append(parsed, func(m model.Model) bool { return allowed[normalizeCopyrightGuardrail(m.CopyrightGuardrail)] })
 			case strings.HasPrefix(filter, "quality>="):
 				threshold, err := parseFiniteTableThreshold(raw, "quality", strings.TrimSpace(strings.TrimPrefix(filter, "quality>=")))
 				if err != nil {
@@ -491,7 +502,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				}
 				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
 			default:
-				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:*, quality>=N, context>=N, input<=N, output<=N", raw)
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:*, copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
 		}
 	}
@@ -515,7 +526,39 @@ func splitFilter(filter string) []string {
 	if strings.TrimSpace(filter) == "" {
 		return nil
 	}
-	return strings.Split(filter, ",")
+	parts := strings.Split(filter, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if len(result) > 0 && isCopyrightGuardrailValue(trimmed) && strings.HasPrefix(strings.ToLower(result[len(result)-1]), "copyright_guardrail:") {
+			result[len(result)-1] += "," + trimmed
+			continue
+		}
+		result = append(result, part)
+	}
+	return result
+}
+
+func isCopyrightGuardrailValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case notes.CopyrightGuardrailEnforces, notes.CopyrightGuardrailBypasses, notes.CopyrightGuardrailUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCopyrightGuardrail(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case notes.CopyrightGuardrailEnforces:
+		return notes.CopyrightGuardrailEnforces
+	case notes.CopyrightGuardrailBypasses:
+		return notes.CopyrightGuardrailBypasses
+	case "", notes.CopyrightGuardrailUnknown:
+		return notes.CopyrightGuardrailUnknown
+	default:
+		return ""
+	}
 }
 
 func parseFiniteTableThreshold(raw, field, value string) (float64, error) {
