@@ -10,32 +10,34 @@ import (
 	"path/filepath"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 // SnapshotEntry is what one model looked like at the end of the previous run.
 type SnapshotEntry struct {
-	InPerM            float64          `json:"in_per_m"`
-	OutPerM           float64          `json:"out_per_m"`
-	Context           int              `json:"context"`
-	Created           int64            `json:"created,omitempty"`
-	Description       string           `json:"description,omitempty"`
-	CatalogName       string           `json:"catalog_name,omitempty"`
-	CanonicalSlug     string           `json:"canonical_slug,omitempty"`
-	HuggingFaceID     string           `json:"hugging_face_id,omitempty"`
-	Provider          string           `json:"provider,omitempty"`
-	ReleaseVariant    string           `json:"release_variant,omitempty"`
-	ModelVariant      string           `json:"model_variant,omitempty"`
-	Reasoning         string           `json:"reasoning,omitempty"`
-	Configuration     string           `json:"configuration,omitempty"`
-	License           string           `json:"license,omitempty"`
-	ModelURL          string           `json:"model_url,omitempty"`
-	MetadataSourceURL string           `json:"metadata_source_url,omitempty"`
-	HasOverride       bool             `json:"has_long_context_override,omitempty"`
-	OverrideMinTokens int              `json:"long_context_min_tokens,omitempty"`
-	OverrideInPerM    float64          `json:"long_context_input_per_million,omitempty"`
-	OverrideOutPerM   float64          `json:"long_context_output_per_million,omitempty"`
-	Score             *model.ScoreInfo `json:"score,omitempty"`
+	InPerM             float64          `json:"in_per_m"`
+	OutPerM            float64          `json:"out_per_m"`
+	Context            int              `json:"context"`
+	Created            int64            `json:"created,omitempty"`
+	Description        string           `json:"description,omitempty"`
+	CatalogName        string           `json:"catalog_name,omitempty"`
+	CanonicalSlug      string           `json:"canonical_slug,omitempty"`
+	HuggingFaceID      string           `json:"hugging_face_id,omitempty"`
+	Provider           string           `json:"provider,omitempty"`
+	ReleaseVariant     string           `json:"release_variant,omitempty"`
+	ModelVariant       string           `json:"model_variant,omitempty"`
+	Reasoning          string           `json:"reasoning,omitempty"`
+	Configuration      string           `json:"configuration,omitempty"`
+	License            string           `json:"license,omitempty"`
+	ModelURL           string           `json:"model_url,omitempty"`
+	MetadataSourceURL  string           `json:"metadata_source_url,omitempty"`
+	CopyrightGuardrail string           `json:"copyright_guardrail,omitempty"`
+	HasOverride        bool             `json:"has_long_context_override,omitempty"`
+	OverrideMinTokens  int              `json:"long_context_min_tokens,omitempty"`
+	OverrideInPerM     float64          `json:"long_context_input_per_million,omitempty"`
+	OverrideOutPerM    float64          `json:"long_context_output_per_million,omitempty"`
+	Score              *model.ScoreInfo `json:"score,omitempty"`
 	// ArenaScore is the raw Elo, kept apart from Score for the same reason the
 	// two columns are apart: one source going down must never put its number
 	// into the other's view on the next run's fallback.
@@ -94,6 +96,9 @@ func LoadSnapshot(path string) (*Snapshot, error) {
 		entry.License = model.NormalizeMissingLabels(entry.License)
 		entry.ModelURL = model.NormalizeMissingLabels(entry.ModelURL)
 		entry.MetadataSourceURL = model.NormalizeMissingLabels(entry.MetadataSourceURL)
+		if entry.CopyrightGuardrail == "" {
+			entry.CopyrightGuardrail = notes.CopyrightGuardrailUnknown
+		}
 		normalizeScoreInfo(entry.Score)
 		normalizeScoreInfo(entry.ArenaScore)
 		s.Models[slug] = entry
@@ -146,20 +151,21 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 	s := &Snapshot{FetchedAt: fetchedAt, Models: make(map[string]SnapshotEntry, len(models))}
 	for _, m := range models {
 		s.Models[m.Slug] = SnapshotEntry{
-			InPerM:            m.InPerM,
-			OutPerM:           m.OutPerM,
-			Context:           m.Context,
-			Created:           m.Created,
-			Description:       m.Description,
-			CatalogName:       m.CatalogName,
-			CanonicalSlug:     m.CanonicalSlug,
-			HuggingFaceID:     m.HuggingFaceID,
-			Provider:          m.Provider,
-			License:           m.License,
-			ModelURL:          m.ModelURL,
-			MetadataSourceURL: m.MetadataSourceURL,
-			Score:             m.Score,
-			ArenaScore:        m.ArenaScore,
+			InPerM:             m.InPerM,
+			OutPerM:            m.OutPerM,
+			Context:            m.Context,
+			Created:            m.Created,
+			Description:        m.Description,
+			CatalogName:        m.CatalogName,
+			CanonicalSlug:      m.CanonicalSlug,
+			HuggingFaceID:      m.HuggingFaceID,
+			Provider:           m.Provider,
+			License:            m.License,
+			ModelURL:           m.ModelURL,
+			MetadataSourceURL:  m.MetadataSourceURL,
+			CopyrightGuardrail: m.CopyrightGuardrail,
+			Score:              m.Score,
+			ArenaScore:         m.ArenaScore,
 		}
 	}
 	return s

@@ -98,6 +98,24 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if m3 := got.Models["minimax/minimax-m3"]; m3.Score != nil {
 		t.Errorf("m3.Score = %+v, want nil to survive as nil", m3.Score)
 	}
+	if got.Models["minimax/minimax-m3"].CopyrightGuardrail != "unknown" {
+		t.Errorf("m3.CopyrightGuardrail = %q, want unknown for omitted snapshot metadata", got.Models["minimax/minimax-m3"].CopyrightGuardrail)
+	}
+}
+
+func TestSnapshotRoundTripsCopyrightGuardrail(t *testing.T) {
+	models := []model.Model{{Slug: "a/model", CopyrightGuardrail: "bypasses"}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-08-08").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Models["a/model"].CopyrightGuardrail; got != "bypasses" {
+		t.Errorf("CopyrightGuardrail = %q, want bypasses", got)
+	}
 }
 
 func TestLoadSnapshotWithoutCatalogBaselineRemainsCompatible(t *testing.T) {
@@ -146,7 +164,7 @@ func TestNewSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal loaded entry: %v", err)
 	}
-	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":"","provenance":"","canonical_id":"","release_variant":"","model_variant":"","reasoning":"","configuration":"","provider":"","uncertainty":"","sample_size":"","harness":"","scaffold":""}}` {
+	if string(body) != `{"in_per_m":1,"out_per_m":2,"context":100000,"copyright_guardrail":"unknown","score":{"metric":"","value":50,"variant_measured":"","source_url":"","checked":"","provenance":"","canonical_id":"","release_variant":"","model_variant":"","reasoning":"","configuration":"","provider":"","uncertainty":"","sample_size":"","harness":"","scaffold":""}}` {
 		t.Fatalf("loaded entry metadata = %s, want no task-fit or quality/price fields", body)
 	}
 }

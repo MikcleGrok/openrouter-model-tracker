@@ -18,7 +18,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		InPerM: 0.5, OutPerM: 3, Context: 1000000,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 93.0, VariantMeasured: "openai/gpt-5.6-luna"},
 		ScoreLabel: "93.0%", QualityPriceLabel: "82.7", Rankable: true,
-		Owner: "OpenAI (C)", OpenWeights: "нет", Note: "Независимая оценка (vals.ai).",
+		Owner: "OpenAI (C)", OpenWeights: "нет", CopyrightGuardrail: "unknown", Note: "Независимая оценка (vals.ai).",
 		Tokens10In: pricing.Tokens10(0.5), Tokens10Out: pricing.Tokens10(3), Tokens10Mixed: pricing.Tokens10(1.125),
 		LongContextPriceLabel: "$1.00 / $4.00 от 272K+",
 		LongContextInLabel:    "$1.00 от 272K+",
@@ -29,7 +29,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		InPerM: 5, OutPerM: 30, Context: 1000000,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 96.2, VariantMeasured: "openai/gpt-5.6-sol"},
 		ScoreLabel: "96.2%", QualityPriceLabel: "8.6", Rankable: true,
-		Owner: "OpenAI (C)", OpenWeights: "нет", Note: "Оговорка METR сохраняется.",
+		Owner: "OpenAI (C)", OpenWeights: "нет", CopyrightGuardrail: "unknown", Note: "Оговорка METR сохраняется.",
 		Tokens10In: pricing.Tokens10(5), Tokens10Out: pricing.Tokens10(30), Tokens10Mixed: pricing.Tokens10(11.25),
 	}
 	nemo = model.Model{
@@ -37,7 +37,7 @@ func goldenModels() (luna, sol, nemo model.Model) {
 		Context: 1000000, Free: true,
 		Score:      &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70.4, VariantMeasured: "vendor-claimed"},
 		ScoreLabel: "65–70.4% (только вендор)", QualityPriceLabel: "n/a (free)", Rankable: true,
-		ClaudeRef: "<≈ Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1",
+		ClaudeRef: "<≈ Haiku 4.5 (бесплатная)", Owner: "NVIDIA", OpenWeights: "да, OpenMDW-1.1", CopyrightGuardrail: "unknown",
 		Note: "550B/55B-active MoE.",
 	}
 	return

@@ -139,12 +139,13 @@ type Model struct {
 	InputPrice      float64
 	OutputPrice     float64
 
-	Note        string
-	TaskFit     []string
-	Owner       string
-	OpenWeights string
-	ClaudeRef   string
-	ManualScore *notes.ScoreOverride
+	Note               string
+	TaskFit            []string
+	Owner              string
+	OpenWeights        string
+	ClaudeRef          string
+	CopyrightGuardrail string
+	ManualScore        *notes.ScoreOverride
 
 	// Display strings, precomputed so the template stays logic-free.
 	ScoreLabel        string
@@ -314,24 +315,25 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		}
 
 		m := Model{
-			Slug:          e.Slug,
-			DisplayName:   nt.DisplayName(e.Slug),
-			Tier:          e.Tier,
-			InPerM:        price.InPerM,
-			OutPerM:       price.OutPerM,
-			Context:       price.Context,
-			Free:          price.Free,
-			Created:       price.Created,
-			Description:   price.Description,
-			CatalogName:   price.Name,
-			CanonicalSlug: price.CanonicalSlug,
-			HuggingFaceID: price.HuggingFaceID,
-			Provider:      ProviderLabel(e.Slug, price.Provider),
-			Note:          nt.ModelNote(e.Slug),
-			TaskFit:       nt.TaskFit(e.Slug),
-			Owner:         nt.Owner(e.Slug),
-			OpenWeights:   nt.OpenWeights(e.Slug),
-			ClaudeRef:     nt.ClaudeRef(e.Slug),
+			Slug:               e.Slug,
+			DisplayName:        nt.DisplayName(e.Slug),
+			Tier:               e.Tier,
+			InPerM:             price.InPerM,
+			OutPerM:            price.OutPerM,
+			Context:            price.Context,
+			Free:               price.Free,
+			Created:            price.Created,
+			Description:        price.Description,
+			CatalogName:        price.Name,
+			CanonicalSlug:      price.CanonicalSlug,
+			HuggingFaceID:      price.HuggingFaceID,
+			Provider:           ProviderLabel(e.Slug, price.Provider),
+			Note:               nt.ModelNote(e.Slug),
+			TaskFit:            nt.TaskFit(e.Slug),
+			Owner:              nt.Owner(e.Slug),
+			OpenWeights:        nt.OpenWeights(e.Slug),
+			ClaudeRef:          nt.ClaudeRef(e.Slug),
+			CopyrightGuardrail: nt.CopyrightGuardrail(e.Slug),
 		}
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
 		m.InputPrice, m.OutputPrice = m.InPerM, m.OutPerM

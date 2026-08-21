@@ -137,6 +137,12 @@ harness/scaffold, provider и configuration. Если источник поле 
 не молчаливое удаление provenance. Snapshot fallback помечается `stale` и
 `[snapshot fallback]`, включая Arena metadata/source URL/license/model URL.
 
+`notes.yaml` хранит ручное поле `copyright_guardrail` со значениями `enforces`,
+`bypasses` и `unknown`. Оно описывает поведение модели при попытке обойти
+ограничения на защищённый контент: соблюдение ограничений, готовность помогать
+обходить их или отсутствие проверяемого результата соответственно. Пропущенное
+значение считается `unknown`; лицензия модели для этого поля не используется.
+
 В таблице `Score` показывает raw benchmark number и короткое состояние; Q/P
 равен только `valid benchmark quality / mixed price`, а при mismatch, legacy,
 missing или ручном observation-only значении равен `н/д` и сортируется последним.

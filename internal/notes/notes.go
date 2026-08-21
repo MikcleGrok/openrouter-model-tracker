@@ -24,6 +24,12 @@ var taskFitKnown = map[string]bool{
 // same slug also lands in the run report.
 const NeedsReview = "_нужен обзор_"
 
+const (
+	CopyrightGuardrailEnforces = "enforces"
+	CopyrightGuardrailBypasses = "bypasses"
+	CopyrightGuardrailUnknown  = "unknown"
+)
+
 // defaultNoScoreReason fills the Качество/цена column for a row that has no
 // rankable SWE-bench Verified number.
 const defaultNoScoreReason = "n/a (no SWE-bench Verified score)"
@@ -62,14 +68,15 @@ type Company struct {
 }
 
 type modelNote struct {
-	Display       string         `yaml:"display"`
-	Owner         string         `yaml:"owner"`
-	OpenWeights   string         `yaml:"open_weights"`
-	ClaudeRef     string         `yaml:"claude_ref"`
-	Note          string         `yaml:"note"`
-	NoScoreReason string         `yaml:"no_score_reason"`
-	Score         *ScoreOverride `yaml:"score"`
-	TaskFit       []string       `yaml:"task_fit"`
+	Display            string         `yaml:"display"`
+	Owner              string         `yaml:"owner"`
+	OpenWeights        string         `yaml:"open_weights"`
+	ClaudeRef          string         `yaml:"claude_ref"`
+	Note               string         `yaml:"note"`
+	NoScoreReason      string         `yaml:"no_score_reason"`
+	Score              *ScoreOverride `yaml:"score"`
+	TaskFit            []string       `yaml:"task_fit"`
+	CopyrightGuardrail string         `yaml:"copyright_guardrail"`
 }
 
 type file struct {
@@ -109,6 +116,10 @@ func Load(path string) (*Notes, error) {
 		m.ClaudeRef = normalizeMissingLabels(m.ClaudeRef)
 		m.Note = normalizeMissingLabels(m.Note)
 		m.NoScoreReason = normalizeMissingLabels(m.NoScoreReason)
+		m.CopyrightGuardrail, err = normalizeCopyrightGuardrail(m.CopyrightGuardrail)
+		if err != nil {
+			return nil, fmt.Errorf("notes: models.%s.copyright_guardrail: %w", slug, err)
+		}
 		if m.Score != nil {
 			m.Score.Label = normalizeMissingLabels(m.Score.Label)
 			m.Score.Source = normalizeMissingLabels(m.Score.Source)
@@ -199,6 +210,19 @@ func normalizeTaskFit(values []string) ([]string, error) {
 
 func joinTaskFitKeywords() string { return "implement, plan, research, debug, audit, refactor, test" }
 
+func normalizeCopyrightGuardrail(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return CopyrightGuardrailUnknown, nil
+	}
+	switch value {
+	case CopyrightGuardrailEnforces, CopyrightGuardrailBypasses, CopyrightGuardrailUnknown:
+		return value, nil
+	default:
+		return "", fmt.Errorf("unknown value %q; allowed values: %s, %s, %s", value, CopyrightGuardrailEnforces, CopyrightGuardrailBypasses, CopyrightGuardrailUnknown)
+	}
+}
+
 func (n *Notes) model(slug string) modelNote { return n.f.Models[slug] }
 
 func orNeedsReview(s string) string {
@@ -242,6 +266,16 @@ func (n *Notes) Owner(slug string) string { return orNeedsReview(n.model(slug).O
 
 // OpenWeights returns the "Открытые веса" cell.
 func (n *Notes) OpenWeights(slug string) string { return orNeedsReview(n.model(slug).OpenWeights) }
+
+// CopyrightGuardrail returns manually checked behavior around protected content.
+// Missing values intentionally mean unknown and never use the catalogue license.
+func (n *Notes) CopyrightGuardrail(slug string) string {
+	value, err := normalizeCopyrightGuardrail(n.model(slug).CopyrightGuardrail)
+	if err != nil {
+		return CopyrightGuardrailUnknown
+	}
+	return value
+}
 
 // ClaudeRef returns the "Ориентир по Claude" cell of the free-models table.
 func (n *Notes) ClaudeRef(slug string) string { return orNeedsReview(n.model(slug).ClaudeRef) }

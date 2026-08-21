@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Replace the ambiguous manual `copyright` classification with `copyright_guardrail`, a tri-state field for observed model behavior around bypassing protected-content restrictions. Missing values remain `unknown` and are never inferred from the model license.
 
 ## [1.14.37]
 
