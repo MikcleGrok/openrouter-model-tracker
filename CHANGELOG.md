@@ -12,6 +12,10 @@
 
 - Add `copyright_guardrail` metadata to describe observed model behavior around bypassing protected-content restrictions, with explicit `enforces`, `bypasses`, and `unknown` states instead of inferring the result from the model license.
 
+## [1.14.38]
+
+- Добавить классификацию моделей по copyright-метаданным.
+
 ## [1.14.37]
 
 - Добавить настраиваемую ширину колонки имени модели в CLI и TUI, сохранив корректное выравнивание таблиц на разных ширинах терминала.

@@ -28,6 +28,9 @@ const (
 	CopyrightGuardrailEnforces = "enforces"
 	CopyrightGuardrailBypasses = "bypasses"
 	CopyrightGuardrailUnknown  = "unknown"
+	CopyrightCompliant         = "compliant"
+	CopyrightNonCompliant      = "non_compliant"
+	CopyrightUnknown           = "unknown"
 )
 
 // defaultNoScoreReason fills the Качество/цена column for a row that has no
@@ -76,6 +79,7 @@ type modelNote struct {
 	NoScoreReason      string         `yaml:"no_score_reason"`
 	Score              *ScoreOverride `yaml:"score"`
 	TaskFit            []string       `yaml:"task_fit"`
+	Copyright          string         `yaml:"copyright"`
 	CopyrightGuardrail string         `yaml:"copyright_guardrail"`
 }
 
@@ -116,6 +120,10 @@ func Load(path string) (*Notes, error) {
 		m.ClaudeRef = normalizeMissingLabels(m.ClaudeRef)
 		m.Note = normalizeMissingLabels(m.Note)
 		m.NoScoreReason = normalizeMissingLabels(m.NoScoreReason)
+		m.Copyright, err = normalizeCopyright(m.Copyright)
+		if err != nil {
+			return nil, fmt.Errorf("notes: models.%s.copyright: %w", slug, err)
+		}
 		m.CopyrightGuardrail, err = normalizeCopyrightGuardrail(m.CopyrightGuardrail)
 		if err != nil {
 			return nil, fmt.Errorf("notes: models.%s.copyright_guardrail: %w", slug, err)
@@ -208,7 +216,18 @@ func normalizeTaskFit(values []string) ([]string, error) {
 	return result, nil
 }
 
-func joinTaskFitKeywords() string { return "implement, plan, research, debug, audit, refactor, test" }
+func normalizeCopyright(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return CopyrightUnknown, nil
+	}
+	switch value {
+	case CopyrightCompliant, CopyrightNonCompliant, CopyrightUnknown:
+		return value, nil
+	default:
+		return "", fmt.Errorf("unknown value %q; allowed values: %s, %s, %s", value, CopyrightCompliant, CopyrightNonCompliant, CopyrightUnknown)
+	}
+}
 
 func normalizeCopyrightGuardrail(value string) (string, error) {
 	value = strings.TrimSpace(value)
@@ -222,6 +241,8 @@ func normalizeCopyrightGuardrail(value string) (string, error) {
 		return "", fmt.Errorf("unknown value %q; allowed values: %s, %s, %s", value, CopyrightGuardrailEnforces, CopyrightGuardrailBypasses, CopyrightGuardrailUnknown)
 	}
 }
+
+func joinTaskFitKeywords() string { return "implement, plan, research, debug, audit, refactor, test" }
 
 func (n *Notes) model(slug string) modelNote { return n.f.Models[slug] }
 
@@ -267,14 +288,29 @@ func (n *Notes) Owner(slug string) string { return orNeedsReview(n.model(slug).O
 // OpenWeights returns the "Открытые веса" cell.
 func (n *Notes) OpenWeights(slug string) string { return orNeedsReview(n.model(slug).OpenWeights) }
 
-// CopyrightGuardrail returns manually checked behavior around protected content.
+// Copyright returns the manual copyright classification from notes.yaml.
 // Missing values intentionally mean unknown and never use the catalogue license.
-func (n *Notes) CopyrightGuardrail(slug string) string {
-	value, err := normalizeCopyrightGuardrail(n.model(slug).CopyrightGuardrail)
+func (n *Notes) Copyright(slug string) string {
+	value, err := normalizeCopyright(n.model(slug).Copyright)
 	if err != nil {
-		return CopyrightGuardrailUnknown
+		return CopyrightUnknown
 	}
 	return value
+}
+
+// CopyrightGuardrail exposes the legacy TUI value without making it canonical.
+func (n *Notes) CopyrightGuardrail(slug string) string {
+	if value := strings.TrimSpace(n.model(slug).CopyrightGuardrail); value != "" {
+		return value
+	}
+	switch n.Copyright(slug) {
+	case CopyrightCompliant:
+		return CopyrightGuardrailEnforces
+	case CopyrightNonCompliant:
+		return CopyrightGuardrailBypasses
+	default:
+		return CopyrightGuardrailUnknown
+	}
 }
 
 // ClaudeRef returns the "Ориентир по Claude" cell of the free-models table.

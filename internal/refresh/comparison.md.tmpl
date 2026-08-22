@@ -10,17 +10,17 @@
 
 Обновлено: {{.UpdatedDate}}{{with .UpdatedNote}} ({{.}}){{end}}
 
-`Copyright guardrail` — ручная проверка поведения модели при запросе на обход ограничений защищённого контента: `enforces` — соблюдает ограничения, `bypasses` — помогает их обходить, `unknown` — проверяемого результата нет. Значение не выводится из лицензии.
+`Copyright` — ручная классификация поведения модели при запросе на защищённый контент: `compliant` — соблюдает ограничения, `non_compliant` — может обойти ограничения, `unknown` — проверяемого результата нет. Значение не выводится из лицензии.
 
 ## Фавориты по категориям (относительно уровня Claude)
 
 {{.FavoritesIntro}}
 
-| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright guardrail | Почему фаворит |
+| Capability estimate | Модель | Цена вход/выход, контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Почему фаворит |
 |---|---|---|---|---|---|---|---|---|
 {{- range .Favorites}}
 {{- if .Model}}
-| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Model.CopyrightGuardrail}} | {{.Reason}} |
+| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Model.Copyright}} | {{.Reason}} |
 {{- if .Model}}
   Provenance: {{provenance .Model.Score}}
 {{- end}}
@@ -59,10 +59,10 @@
 {{range .Tiers}}
 ### {{.Heading}}
 
-| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright guardrail | Примечание |
+| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Примечание |
 |---|---|---|---|---|---|---|---|---|---|---|
 {{- range .Rows}}
-| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.CopyrightGuardrail}} | {{.Note}} |
+| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
   Provenance: {{provenance .Score}}
 {{- end}}
 {{end}}
@@ -94,10 +94,10 @@
 
 {{.FreeIntro}}
 
-| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright guardrail | Примечание |
+| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright | Примечание |
 |---|---|---|---|---|---|---|---|---|
 {{- range .FreeModels}}
-| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.CopyrightGuardrail}} | {{.Note}} |
+| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
   Provenance: {{provenance .Score}}
 {{- end}}
 

@@ -29,8 +29,8 @@ func TestModelAccessors(t *testing.T) {
 	if got := n.OpenWeights("openai/gpt-5.6-luna"); got != "нет" {
 		t.Errorf("OpenWeights = %q, want %q", got, "нет")
 	}
-	if got := n.CopyrightGuardrail("openai/gpt-5.6-luna"); got != CopyrightGuardrailEnforces {
-		t.Errorf("CopyrightGuardrail = %q, want %q", got, CopyrightGuardrailEnforces)
+	if got := n.Copyright("openai/gpt-5.6-luna"); got != CopyrightCompliant {
+		t.Errorf("Copyright = %q, want %q", got, CopyrightCompliant)
 	}
 	if got := n.ModelNote("openai/gpt-5.6-luna"); got != "Оценка независимая (vals.ai)." {
 		t.Errorf("ModelNote = %q", got)
@@ -53,9 +53,9 @@ func TestTaskFitRejectsUnknownKeyword(t *testing.T) {
 	}
 }
 
-func TestCopyrightGuardrailRejectsUnknownValue(t *testing.T) {
+func TestCopyrightRejectsUnknownValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.yaml")
-	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    copyright_guardrail: unclear\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    copyright: unclear\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown value") {
@@ -63,9 +63,9 @@ func TestCopyrightGuardrailRejectsUnknownValue(t *testing.T) {
 	}
 }
 
-func TestCopyrightGuardrailAcceptsTriStateValues(t *testing.T) {
+func TestCopyrightAcceptsTriStateValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.yaml")
-	body := "models:\n  enforces/model:\n    copyright_guardrail: enforces\n  bypasses/model:\n    copyright_guardrail: bypasses\n  unknown/model:\n    copyright_guardrail: unknown\n"
+	body := "models:\n  compliant/model:\n    copyright: compliant\n  non-compliant/model:\n    copyright: non_compliant\n  unknown/model:\n    copyright: unknown\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -73,24 +73,10 @@ func TestCopyrightGuardrailAcceptsTriStateValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for slug, want := range map[string]string{"enforces/model": CopyrightGuardrailEnforces, "bypasses/model": CopyrightGuardrailBypasses, "unknown/model": CopyrightGuardrailUnknown} {
-		if got := n.CopyrightGuardrail(slug); got != want {
-			t.Errorf("CopyrightGuardrail(%q) = %q, want %q", slug, got, want)
+	for slug, want := range map[string]string{"compliant/model": CopyrightCompliant, "non-compliant/model": CopyrightNonCompliant, "unknown/model": CopyrightUnknown} {
+		if got := n.Copyright(slug); got != want {
+			t.Errorf("Copyright(%q) = %q, want %q", slug, got, want)
 		}
-	}
-}
-
-func TestCopyrightGuardrailMissingMeansUnknown(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notes.yaml")
-	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    owner: Demo\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	n, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := n.CopyrightGuardrail("demo/model"); got != CopyrightGuardrailUnknown {
-		t.Errorf("missing CopyrightGuardrail = %q, want %q", got, CopyrightGuardrailUnknown)
 	}
 }
 

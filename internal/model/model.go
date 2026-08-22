@@ -139,11 +139,13 @@ type Model struct {
 	InputPrice      float64
 	OutputPrice     float64
 
-	Note               string
-	TaskFit            []string
-	Owner              string
-	OpenWeights        string
-	ClaudeRef          string
+	Note        string
+	TaskFit     []string
+	Owner       string
+	OpenWeights string
+	ClaudeRef   string
+	Copyright   string
+	// CopyrightGuardrail remains for the already merged TUI/filter contract.
 	CopyrightGuardrail string
 	ManualScore        *notes.ScoreOverride
 
@@ -333,6 +335,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			Owner:              nt.Owner(e.Slug),
 			OpenWeights:        nt.OpenWeights(e.Slug),
 			ClaudeRef:          nt.ClaudeRef(e.Slug),
+			Copyright:          nt.Copyright(e.Slug),
 			CopyrightGuardrail: nt.CopyrightGuardrail(e.Slug),
 		}
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)

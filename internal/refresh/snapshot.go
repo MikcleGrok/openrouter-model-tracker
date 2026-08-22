@@ -32,6 +32,7 @@ type SnapshotEntry struct {
 	License            string           `json:"license,omitempty"`
 	ModelURL           string           `json:"model_url,omitempty"`
 	MetadataSourceURL  string           `json:"metadata_source_url,omitempty"`
+	Copyright          string           `json:"copyright,omitempty"`
 	CopyrightGuardrail string           `json:"copyright_guardrail,omitempty"`
 	HasOverride        bool             `json:"has_long_context_override,omitempty"`
 	OverrideMinTokens  int              `json:"long_context_min_tokens,omitempty"`
@@ -96,8 +97,14 @@ func LoadSnapshot(path string) (*Snapshot, error) {
 		entry.License = model.NormalizeMissingLabels(entry.License)
 		entry.ModelURL = model.NormalizeMissingLabels(entry.ModelURL)
 		entry.MetadataSourceURL = model.NormalizeMissingLabels(entry.MetadataSourceURL)
+		if entry.Copyright == "" {
+			entry.Copyright = notes.CopyrightUnknown
+		}
 		if entry.CopyrightGuardrail == "" {
-			entry.CopyrightGuardrail = notes.CopyrightGuardrailUnknown
+			entry.CopyrightGuardrail = copyrightGuardrailFor(entry.Copyright)
+		}
+		if entry.Copyright == notes.CopyrightUnknown && entry.CopyrightGuardrail != notes.CopyrightGuardrailUnknown {
+			entry.Copyright = copyrightForGuardrail(entry.CopyrightGuardrail)
 		}
 		normalizeScoreInfo(entry.Score)
 		normalizeScoreInfo(entry.ArenaScore)
@@ -163,12 +170,35 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 			License:            m.License,
 			ModelURL:           m.ModelURL,
 			MetadataSourceURL:  m.MetadataSourceURL,
+			Copyright:          m.Copyright,
 			CopyrightGuardrail: m.CopyrightGuardrail,
 			Score:              m.Score,
 			ArenaScore:         m.ArenaScore,
 		}
 	}
 	return s
+}
+
+func copyrightGuardrailFor(value string) string {
+	switch value {
+	case notes.CopyrightCompliant:
+		return notes.CopyrightGuardrailEnforces
+	case notes.CopyrightNonCompliant:
+		return notes.CopyrightGuardrailBypasses
+	default:
+		return notes.CopyrightGuardrailUnknown
+	}
+}
+
+func copyrightForGuardrail(value string) string {
+	switch value {
+	case notes.CopyrightGuardrailEnforces:
+		return notes.CopyrightCompliant
+	case notes.CopyrightGuardrailBypasses:
+		return notes.CopyrightNonCompliant
+	default:
+		return notes.CopyrightUnknown
+	}
 }
 
 // NewSnapshotWithPrices also persists catalogue-only long-context fields that
