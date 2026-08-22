@@ -4,6 +4,10 @@
 
 - Preserve the manual `copyright` classification as a tri-state field for observed model behavior around bypassing protected-content restrictions. Missing values remain `unknown` and are never inferred from the model license.
 
+## [1.14.42]
+
+- Fix Russian F1 help action labels being truncated by the fixed-width action column; retain full labels such as `навигация в settings` and preserve regression coverage for every localized help section.
+
 ## [1.14.41]
 
 - Preserve the manual `copyright` classification for observed model behavior around bypassing protected-content restrictions while keeping compatibility with the existing TUI guardrail filter.
