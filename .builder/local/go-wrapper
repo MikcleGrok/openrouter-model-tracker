@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+required=$(awk '$1 == "go" { print $2; exit }' "$root/go.mod")
+major=${required%%.*}
+minor=${required#*.}
+minor=${minor%%.*}
+
+version_key() {
+    version=${1#go}
+    old_ifs=$IFS
+    IFS=.
+    set -- $version
+    IFS=$old_ifs
+    printf '%03d%03d%03d\n' "$1" "$2" "${3:-0}"
+}
+
+selected=
+selected_version=
+selected_key=
+for candidate in /opt/homebrew/Cellar/go/*/libexec/bin/go /usr/local/Cellar/go/*/libexec/bin/go; do
+    [ -x "$candidate" ] || continue
+    actual=$($candidate version 2>/dev/null || true)
+    actual_version=$(printf '%s\n' "$actual" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^go[0-9]/) { sub(/^go/, "", $i); print $i; exit } }')
+    [ -n "$actual_version" ] || continue
+    case "$actual_version" in "$major.$minor".*) ;; *) continue ;; esac
+    actual_key=$(version_key "$actual_version")
+    if [ -z "$selected" ] || [ "$actual_key" -gt "$selected_key" ]; then
+        selected=$candidate
+        selected_version=$actual_version
+        selected_key=$actual_key
+    fi
+done
+
+if [ -z "$selected" ]; then
+    printf 'FAIL\nDETAIL No installed Go toolchain satisfies go %s.\nACTION Install Go %s.%s; automatic download is disabled.\n' "$required" "$major" "$minor"
+    exit 1
+fi
+
+if [ "${1:-}" = "--check" ] || [ "${1:-}" = "--print-toolchain" ]; then
+    if [ "${1:-}" = "--check" ]; then
+        printf 'PASS\nDETAIL Go %s selected: %s\n' "$selected_version" "$selected"
+    else
+        printf 'go%s\n' "$selected_version"
+    fi
+    exit 0
+fi
+
+printf 'go-wrapper: Go %s selected: %s\n' "$selected_version" "$selected" >&2
+exec env -u GOROOT GOENV=off GOTOOLCHAIN=local "$selected" "$@"
