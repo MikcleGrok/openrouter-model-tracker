@@ -1990,7 +1990,7 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 		}
 	}
 	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	widths := tuiCellWidthsForLang(columns, available, m.nameWidth, m.scoreSource, m.lang)
+	widths := m.tuiCellWidths(columns, available, values)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
 		value := tuiColumnLabelForLang(col, m.scoreSource, m.lang)
@@ -2007,6 +2007,25 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	return truncateTable(prefix+strings.Join(parts, " | "), m.width)
 }
 
+func (m tuiModel) tuiCellWidths(columns []tuiColumn, available int, values []string) []int {
+	contentWidths := make([]int, len(columns))
+	for i, column := range columns {
+		contentWidths[i] = tuiColumnMinimumWidthForLang(column, m.scoreSource, m.lang)
+	}
+	for i, value := range values {
+		if i < len(contentWidths) {
+			contentWidths[i] = max(contentWidths[i], tableDisplayWidth(plainTableText(ansi.Strip(value))))
+		}
+	}
+	for _, row := range m.visible {
+		for i, column := range columns {
+			value := tuiCellWithIconsAndGaps(row, column, m.lastNote, m.scoreSource, m.icons, m.iconGap, m.iconGaps)
+			contentWidths[i] = max(contentWidths[i], tableDisplayWidth(plainTableText(ansi.Strip(value))))
+		}
+	}
+	return tuiCellWidthsForLangWithContent(columns, available, m.nameWidth, m.scoreSource, m.lang, contentWidths)
+}
+
 // tuiCellWidthsForLang computes each column's rendered width, sized for
 // whichever language's header text is actually on screen: a Russian
 // header can be longer or shorter than its English counterpart, and the
@@ -2018,6 +2037,14 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 // version of this specific function, so adding one here would only be
 // dead code.
 func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSource, lang string) []int {
+	contentWidths := make([]int, len(columns))
+	for i, column := range columns {
+		contentWidths[i] = tuiColumnMinimumWidthForLang(column, scoreSource, lang)
+	}
+	return tuiCellWidthsForLangWithContent(columns, available, nameWidth, scoreSource, lang, contentWidths)
+}
+
+func tuiCellWidthsForLangWithContent(columns []tuiColumn, available, nameWidth int, scoreSource, lang string, contentWidths []int) []int {
 	widths := make([]int, len(columns))
 	if len(columns) == 0 {
 		return widths
@@ -2050,10 +2077,19 @@ func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSo
 			break
 		}
 	}
+	for i := range contentWidths {
+		if i >= len(columns) {
+			break
+		}
+		contentWidths[i] = max(contentWidths[i], minimums[i])
+	}
+	if nameIndex >= 0 {
+		contentWidths[nameIndex] = max(contentWidths[nameIndex], nameWidth)
+	}
 	remaining := available
 	if nameIndex >= 0 {
 		otherMinimum := minimumWidth - minimums[nameIndex]
-		widths[nameIndex] = min(max(minimums[nameIndex], nameWidth), max(minimums[nameIndex], available-otherMinimum))
+		widths[nameIndex] = min(contentWidths[nameIndex], max(minimums[nameIndex], available-otherMinimum))
 		remaining -= widths[nameIndex]
 	}
 	for i := range columns {
@@ -2063,13 +2099,34 @@ func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSo
 		widths[i] = minimums[i]
 		remaining -= widths[i]
 	}
-	for i := 0; remaining > 0; i++ {
-		index := i % len(widths)
-		if index == nameIndex && len(widths) > 1 {
-			continue
+	for remaining > 0 {
+		grown := false
+		for i := range widths {
+			if i == nameIndex || widths[i] >= contentWidths[i] {
+				continue
+			}
+			widths[i]++
+			remaining--
+			grown = true
+			if remaining == 0 {
+				break
+			}
 		}
-		widths[index]++
-		remaining--
+		if !grown {
+			break
+		}
+	}
+	for remaining > 0 {
+		for i := range widths {
+			if i == nameIndex && len(widths) > 1 {
+				continue
+			}
+			widths[i]++
+			remaining--
+			if remaining == 0 {
+				break
+			}
+		}
 	}
 	return widths
 }

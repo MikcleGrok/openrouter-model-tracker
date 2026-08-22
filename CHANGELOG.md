@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Copy the exact visible TUI selection, including Unicode-width cells and visible truncation markers; clamp releases outside a rendered line without showing an internal selection error.
+- Let wide TUI viewports expand model names and Claude labels to their full rendered values instead of leaving unused space while truncating identity columns.
 
 ## [1.14.43]
 
