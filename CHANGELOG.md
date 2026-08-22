@@ -4,6 +4,10 @@
 
 - Copy the exact visible TUI selection, including Unicode-width cells and visible truncation markers; clamp releases outside a rendered line without showing an internal selection error.
 
+## [1.14.44]
+
+- Let wide TUI viewports expand model names and Claude labels to their full rendered values instead of leaving unused space while truncating identity columns.
+
 ## [1.14.43]
 
 - Restore quiet, readable TUI selection behavior: selection copies the frozen rendered frame, safely clamps release coordinates outside visible text, and preserves OSC52/tmux and clipboard fallbacks.

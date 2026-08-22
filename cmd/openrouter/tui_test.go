@@ -2331,6 +2331,39 @@ func TestTUINameColumnGetsWeightedWidth(t *testing.T) {
 	}
 }
 
+func TestTUIWideViewportShowsFullIdentityValues(t *testing.T) {
+	row := model.Model{Slug: "deepseek", DisplayName: "DeepSeek DeepSeeK V3.1 Thinker", Tier: "sonnet"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 160, 10
+	m.columns = []tuiColumn{colName, colClaude}
+	view := m.View()
+	claude := tableClaude(row)
+	if !strings.Contains(view, row.DisplayName) || !strings.Contains(view, claude) {
+		t.Fatalf("wide viewport truncated identity values: %q", view)
+	}
+	header := strings.Split(view, "\n")[2]
+	data := strings.Split(view, "\n")[3]
+	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(data)) {
+		t.Fatalf("header/data geometry differs: header=%q data=%q", header, data)
+	}
+}
+
+func TestTUIInsufficientViewportTruncatesIdentityValues(t *testing.T) {
+	row := model.Model{Slug: "deepseek", DisplayName: "DeepSeek DeepSeeK V3.1 Thinker", Tier: "sonnet"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 40, 10
+	m.columns = []tuiColumn{colName, colClaude}
+	view := m.View()
+	if strings.Contains(view, row.DisplayName) && strings.Contains(view, tableClaude(row)) {
+		t.Fatalf("insufficient viewport unexpectedly showed full identity values: %q", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > m.width {
+			t.Fatalf("line exceeds narrow viewport: %q", line)
+		}
+	}
+}
+
 func TestTUIStatusDescribesShortcuts(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.width, m.height = 100, 10
