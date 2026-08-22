@@ -217,6 +217,12 @@ type tuiModel struct {
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
+	selection             tuiSelection
+	clipboardToken        uint64
+	clipboardPending      bool
+	clipboardWrite        func(string) error
+	clipboardState        *tuiClipboardState
+	clipboardOutput       io.Writer
 	// lang selects the TUI's display language: "" (the zero value) means
 	// English, today's only behaviour and the persisted default; "ru" means
 	// Russian. Keeping "" as English rather than adding an explicit
@@ -291,7 +297,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 		m.rebuild()
 	}
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen())
+	synchronizedOutput := &tuiSynchronizedWriter{out: out}
+	m.clipboardOutput = synchronizedOutput
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
 	_, err = p.Run()
 	return err
 }
@@ -561,13 +569,13 @@ var tuiTranslationsRU = map[string]string{
 	" from local snapshot...":         " из локального снапшота...",
 	"tui: live refresh requires --output or default_output": "tui: для живого обновления нужен --output или default_output",
 
-	"↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p": "↑↓ навигация · o настройки · R обновить · x выход · f фильтр · p доступность · q качество · r q/p",
-	" · / search · Enter empty search to clear":                                                     " · / поиск · Enter с пустым текстом — очистить поиск",
-	"search: none (cleared)": "поиск: нет (очищен)",
-	"filter: none (cleared)": "фильтр: нет (очищен)",
-	"none (cleared)":         "нет (очищен)",
-	"none":                   "нет",
-	"filter: ":               "фильтр: ",
+	"↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p · mouse drag select · y copy": "↑↓ навигация · o настройки · R обновить · x выход · f фильтр · p доступность · q качество · r q/p · мышью выделить · y копировать",
+	" · / search · Enter empty search to clear": " · / поиск · Enter с пустым текстом — очистить поиск",
+	"search: none (cleared)":                    "поиск: нет (очищен)",
+	"filter: none (cleared)":                    "фильтр: нет (очищен)",
+	"none (cleared)":                            "нет (очищен)",
+	"none":                                      "нет",
+	"filter: ":                                  "фильтр: ",
 
 	"Columns (Space toggle, Enter apply, Esc cancel)": "Столбцы (Space переключить, Enter применить, Esc отмена)",
 
@@ -620,9 +628,21 @@ func (m tuiModel) keyMatches(context, action, key string) bool {
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return m.updateSelection(msg)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clampDetailOffset()
+	case tuiClipboardResultMsg:
+		if msg.token != m.clipboardToken {
+			return m, nil
+		}
+		m.clipboardPending = false
+		if msg.err != nil {
+			m.status = "copy failed: " + msg.err.Error()
+		} else {
+			m.status = "copied selection"
+		}
 	case tuiTickMsg:
 		if m.interval <= 0 {
 			return m, nil
@@ -724,6 +744,12 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m.inputKey(msg)
 	}
 	key := tuiCommandKey(msg)
+	if key == "y" && m.selection.active {
+		return m, m.copyActiveSelection()
+	}
+	if m.selection.active {
+		m.clearSelection()
+	}
 	originalKey := key
 	// x is a hardcoded, always-on universal exit — not part of the
 	// customizable keymap — so it is checked here before any of the
@@ -1697,6 +1723,10 @@ func (m *tuiModel) togglePending(col tuiColumn) {
 }
 
 func (m tuiModel) View() string {
+	return tuiRenderSelection(m.baseView(), m.selection)
+}
+
+func (m tuiModel) baseView() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
@@ -1794,7 +1824,7 @@ func (m tuiModel) View() string {
 	if m.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := m.t("↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p")
+	hints := m.t("↑↓ navigate · o settings · R refresh · x quit · f filter · p availability · q quality · r q/p · mouse drag select · y copy")
 	if m.search != "" {
 		hints += m.t(" · / search · Enter empty search to clear")
 	}
@@ -3044,6 +3074,7 @@ No task-fit classification is shown as n/a.
 
 Refresh and finish
 \tR\trefresh\trefresh local data now. Auto-refresh uses --refresh-interval; 0 disables it.
+\tmouse drag\tselection\tselect any visible text; y copies the selection again.
 \tx / Ctrl-C\texit\texit the TUI.
 \tEsc\tclose\tclose help.
 \tEsc\tback\treturn to the list from the current overlay.
@@ -3282,6 +3313,7 @@ const tuiHelpSectionHotkeysBodyRU = `Хоткеи
 
 Обновление и завершение
 \tR\tобновление\tобновить локальные данные сейчас. Автообновление использует --refresh-interval; 0 отключает его.
+\tmouse drag\tвыделение\tвыделить любой видимый текст; y повторно копирует выделение.
 \tx / Ctrl-C\tвыход\tвыйти из TUI.
 \tEsc\tзакрытие\tзакрыть help.
 \tEsc\tназад\tвернуться к списку из текущего оверлея.
