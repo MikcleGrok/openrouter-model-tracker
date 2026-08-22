@@ -41,6 +41,37 @@ func TestTUIMouseDragCopiesVisibleTextAsync(t *testing.T) {
 	}
 }
 
+func TestTUIMouseReleaseOutsideVisibleTextCopiesClampedRangeWithoutToast(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.width, m.height = 40, 4
+	m.clipboardWrite = func(text string) error {
+		if text != "OpenRouter models" {
+			t.Fatalf("clipboard payload = %q, want the visible range", text)
+		}
+		return nil
+	}
+	updated, _ := m.Update(tea.MouseMsg{X: 0, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	updated, _ = updated.(tuiModel).Update(tea.MouseMsg{X: 999, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion})
+	updated, cmd := updated.(tuiModel).Update(tea.MouseMsg{X: 999, Y: 0, Button: tea.MouseButtonNone, Action: tea.MouseActionRelease})
+	value := updated.(tuiModel)
+	if cmd == nil || value.status == "selection ended outside visible text" || !value.selection.active {
+		t.Fatalf("outside release was not safely clamped: cmd=%v status=%q selection=%+v", cmd != nil, value.status, value.selection)
+	}
+	result := cmd().(tuiClipboardResultMsg)
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+}
+
+func TestTUISelectionCopiesFullVisibleRowAndUnicodeCells(t *testing.T) {
+	if got := tuiSelectionText([]string{"界🙂model  "}, tuiSelectionPoint{0, 0}, tuiSelectionPoint{0, ansi.StringWidth("界🙂model")}); got != "界🙂model" {
+		t.Fatalf("full visible Unicode row = %q", got)
+	}
+	if got := tuiSelectionText([]string{"name...  "}, tuiSelectionPoint{0, 0}, tuiSelectionPoint{0, ansi.StringWidth("name...")}); got != "name..." {
+		t.Fatalf("visible truncation marker = %q", got)
+	}
+}
+
 func TestTUIMousePressRejectsShortLineEndAndEmptyLine(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.selection.frame = []string{"abc", ""}

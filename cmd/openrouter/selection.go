@@ -54,6 +54,15 @@ func (m tuiModel) selectionPoint(x, y int) (tuiSelectionPoint, bool) {
 	return m.selectionPointInFrame(m.selection.frame, x, y, true)
 }
 
+func (m tuiModel) clampedSelectionPoint(x, y int) tuiSelectionPoint {
+	if len(m.selection.frame) == 0 {
+		return tuiSelectionPoint{}
+	}
+	y = max(0, min(y, len(m.selection.frame)-1))
+	width := ansi.StringWidth(strings.TrimRight(m.selection.frame[y], " "))
+	return tuiSelectionPoint{line: y, column: max(0, min(x, width))}
+}
+
 func (m tuiModel) selectionStartPoint(frame []string, x, y int) (tuiSelectionPoint, bool) {
 	return m.selectionPointInFrame(frame, x, y, false)
 }
@@ -100,13 +109,11 @@ func (m tuiModel) updateSelection(msg tea.MouseMsg) (tuiModel, tea.Cmd) {
 	if msg.Action != tea.MouseActionRelease || !m.selection.active || (msg.Button != tea.MouseButtonLeft && msg.Button != tea.MouseButtonNone) {
 		return m, nil
 	}
-	if point, ok := m.selectionPoint(msg.X, msg.Y); !ok {
-		m.clearSelection()
-		m.status = "selection ended outside visible text"
-		return m, nil
-	} else {
-		m.selection.end = point
+	point, ok := m.selectionPoint(msg.X, msg.Y)
+	if !ok {
+		point = m.clampedSelectionPoint(msg.X, msg.Y)
 	}
+	m.selection.end = point
 	m.selection.dragging = false
 	return m, m.copyActiveSelection()
 }

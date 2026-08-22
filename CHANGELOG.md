@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Copy the exact visible TUI selection, including Unicode-width cells and visible truncation markers; clamp releases outside a rendered line without showing an internal selection error.
+
+## [1.14.43]
+
+- Restore quiet, readable TUI selection behavior: selection copies the frozen rendered frame, safely clamps release coordinates outside visible text, and preserves OSC52/tmux and clipboard fallbacks.
+
 - Preserve the manual `copyright` classification as a tri-state field for observed model behavior around bypassing protected-content restrictions. Missing values remain `unknown` and are never inferred from the model license.
 
 ## [1.14.42]
