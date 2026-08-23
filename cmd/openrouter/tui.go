@@ -302,7 +302,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	}
 	synchronizedOutput := &tuiSynchronizedWriter{out: out}
 	m.clipboardOutput = synchronizedOutput
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(&tuiFrameWriter{out: synchronizedOutput}))
 	_, err = p.Run()
 	return err
 }
