@@ -5,6 +5,11 @@
 - Continue improving terminal rendering and selection behavior.
 - Return complete TUI frames across view transitions and keep model detail label/value rows independent from list-table geometry.
 
+## [1.14.49]
+
+- Clear the terminal line tail on every TUI renderer write so shorter detail rows cannot retain stale list content across view transitions.
+- Keep selection overlays anchored to the current ANSI-rendered frame while preserving exact detail and benchmark line boundaries.
+
 ## [1.14.48]
 
 - Invalidate mouse selection snapshots when switching TUI views so detail screens cannot inherit list-row styling or stale coordinates.
