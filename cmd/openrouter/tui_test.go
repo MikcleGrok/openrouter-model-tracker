@@ -50,6 +50,32 @@ func TestTUIModelUsesConfiguredRanking(t *testing.T) {
 	}
 }
 
+func TestTUIDetailTransitionRequestsRendererInvalidation(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo model"}})
+	m.width, m.height = 190, 24
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("opening detail did not request renderer invalidation")
+	}
+	if got := fmt.Sprintf("%T", cmd()); got != "tea.clearScreenMsg" {
+		t.Fatalf("detail transition command returned %s, want tea.clearScreenMsg", got)
+	}
+	if got := next.(tuiModel).overlay; got != "detail" {
+		t.Fatalf("detail transition overlay = %q, want detail", got)
+	}
+	if lines := strings.Split(ansi.Strip(next.(tuiModel).View()), "\n"); len(lines) != m.height {
+		t.Fatalf("detail transition frame has %d lines, want %d", len(lines), m.height)
+	}
+
+	next, cmd = next.(tuiModel).Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd == nil {
+		t.Fatal("closing detail did not request renderer invalidation")
+	}
+	if got := next.(tuiModel).overlay; got != "" {
+		t.Fatalf("detail close overlay = %q, want list", got)
+	}
+}
+
 func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	if m.filterSteps.InputCents != 5 || m.filterSteps.OutputCents != 5 {

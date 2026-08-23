@@ -890,6 +890,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 				break
 			}
 			m.closeOverlay()
+			return m, tuiClearScreenCmd()
 		case "up", "k":
 			m.detailOffset = max(0, m.detailOffset-1)
 		case "down", "j":
@@ -1017,6 +1018,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if len(m.visible) > 0 {
 			m.clearSelection()
 			m.overlay, m.detailOffset = "detail", 0
+			return m, tuiClearScreenCmd()
 		}
 	case "q", "r":
 		m.sortKey = map[string]string{"q": "quality", "r": "q/p"}[key]
@@ -1750,6 +1752,8 @@ func (m tuiModel) View() string {
 	}
 	return tuiCompleteFrame(view, m.width, m.height)
 }
+
+func tuiClearScreenCmd() tea.Cmd { return func() tea.Msg { return tea.ClearScreen() } }
 
 // tuiCompleteFrame keeps the alternate-screen TUI independent of renderer
 // leftovers: every state returns exactly one line per terminal row. Empty
