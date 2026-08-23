@@ -5,6 +5,11 @@
 - Continue improving terminal rendering and selection behavior.
 - Return complete TUI frames across view transitions and keep model detail label/value rows independent from list-table geometry.
 
+## [1.14.48]
+
+- Invalidate mouse selection snapshots when switching TUI views so detail screens cannot inherit list-row styling or stale coordinates.
+- Preserve intentional in-app drag selection and exact line-separated clipboard text while keeping complete frames across view transitions.
+
 ## [1.14.47]
 
 - Invalidate mouse selection snapshots when switching TUI views so detail screens cannot inherit list-row styling or stale coordinates.
