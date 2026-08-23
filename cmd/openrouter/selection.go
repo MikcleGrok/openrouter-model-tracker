@@ -40,17 +40,7 @@ type tuiSynchronizedWriter struct {
 	out io.Writer
 }
 
-type tuiFrameWriter struct {
-	out io.Writer
-}
-
-func (w *tuiFrameWriter) Write(p []byte) (int, error) {
-	frame := strings.ReplaceAll(string(p), "\n", ansi.EraseLineRight+"\n") + ansi.EraseLineRight
-	if _, err := io.WriteString(w.out, frame); err != nil {
-		return 0, err
-	}
-	return len(p), nil
-}
+func tuiRendererOutput(out io.Writer) io.Writer { return &tuiSynchronizedWriter{out: out} }
 
 func (w *tuiSynchronizedWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()

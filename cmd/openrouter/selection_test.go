@@ -140,16 +140,15 @@ func TestTUISynchronizedWriterSerializesWholeWrites(t *testing.T) {
 	}
 }
 
-func TestTUIFrameWriterClearsRightEdgeWithoutChangingViewText(t *testing.T) {
+func TestTUISynchronizedWriterPreservesBubbleTeaRendererStream(t *testing.T) {
 	var output bytes.Buffer
-	w := &tuiFrameWriter{out: &output}
-	view := "detail line\nsecond line"
-	if _, err := w.Write([]byte(view)); err != nil {
+	w := tuiRendererOutput(&output)
+	stream := "\x1b[H\rdetail line\x1b[K\r\nsecond line\x1b[K\x1b[2;1H"
+	if _, err := w.Write([]byte(stream)); err != nil {
 		t.Fatal(err)
 	}
-	got := output.String()
-	if ansi.Strip(got) != view || !strings.Contains(got, ansi.EraseLineRight+"\n") || !strings.HasSuffix(got, ansi.EraseLineRight) {
-		t.Fatalf("frame transport = %q", got)
+	if got := output.String(); got != stream {
+		t.Fatalf("renderer stream was rewritten: got %q, want %q", got, stream)
 	}
 }
 

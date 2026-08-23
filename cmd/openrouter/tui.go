@@ -300,9 +300,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if width, height := tuiTerminalSize(out); width > 0 && height > 0 {
 		m.width, m.height = width, height
 	}
-	synchronizedOutput := &tuiSynchronizedWriter{out: out}
+	synchronizedOutput := tuiRendererOutput(out)
 	m.clipboardOutput = synchronizedOutput
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(&tuiFrameWriter{out: synchronizedOutput}))
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
 	_, err = p.Run()
 	return err
 }
