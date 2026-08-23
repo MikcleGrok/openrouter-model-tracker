@@ -140,6 +140,19 @@ func TestTUISynchronizedWriterSerializesWholeWrites(t *testing.T) {
 	}
 }
 
+func TestTUIFrameWriterClearsRightEdgeWithoutChangingViewText(t *testing.T) {
+	var output bytes.Buffer
+	w := &tuiFrameWriter{out: &output}
+	view := "detail line\nsecond line"
+	if _, err := w.Write([]byte(view)); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	if ansi.Strip(got) != view || !strings.Contains(got, ansi.EraseLineRight+"\n") || !strings.HasSuffix(got, ansi.EraseLineRight) {
+		t.Fatalf("frame transport = %q", got)
+	}
+}
+
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
@@ -187,6 +200,18 @@ func TestTUISelectionIsNotAppliedAfterViewTransition(t *testing.T) {
 	m = updated.(tuiModel)
 	if m.selection.active {
 		t.Fatal("closing detail restored stale list selection")
+	}
+}
+
+func TestTUISelectionOverlayPreservesCurrentANSIFrame(t *testing.T) {
+	selection := tuiSelection{active: true, context: "main\x00", anchor: tuiSelectionPoint{0, 0}, end: tuiSelectionPoint{0, 5}, frame: []string{"stale"}}
+	rendered := "\x1b[31mcurrent text\x1b[0m"
+	got := tuiRenderSelection(rendered, selection)
+	if plain := ansi.Strip(got); plain != "current text" {
+		t.Fatalf("selection changed current frame text: %q", plain)
+	}
+	if !strings.Contains(got, "\x1b[31m") || !strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("selection lost current ANSI context: %q", got)
 	}
 }
 

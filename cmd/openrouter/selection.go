@@ -40,6 +40,18 @@ type tuiSynchronizedWriter struct {
 	out io.Writer
 }
 
+type tuiFrameWriter struct {
+	out io.Writer
+}
+
+func (w *tuiFrameWriter) Write(p []byte) (int, error) {
+	frame := strings.ReplaceAll(string(p), "\n", ansi.EraseLineRight+"\n") + ansi.EraseLineRight
+	if _, err := io.WriteString(w.out, frame); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 func (w *tuiSynchronizedWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -216,7 +228,9 @@ func tuiRenderSelection(rendered string, selection tuiSelection) string {
 		a, b = b, a
 	}
 	for line := a.line; line <= b.line && line < len(lines) && line < len(selection.frame); line++ {
-		start, finish := 0, ansi.StringWidth(strings.TrimRight(selection.frame[line], " "))
+		current := lines[line]
+		plain := ansi.Strip(current)
+		start, finish := 0, ansi.StringWidth(strings.TrimRight(plain, " "))
 		if line == a.line {
 			start = a.column
 		}
@@ -224,7 +238,7 @@ func tuiRenderSelection(rendered string, selection tuiSelection) string {
 			finish = b.column
 		}
 		if finish > start {
-			lines[line] = ansi.Cut(selection.frame[line], 0, start) + ansi.SelectGraphicRendition(ansi.ReverseAttr) + ansi.Cut(selection.frame[line], start, finish) + ansi.SelectGraphicRendition(ansi.NoReverseAttr) + ansi.Cut(selection.frame[line], finish, ansi.StringWidth(selection.frame[line]))
+			lines[line] = ansi.Cut(current, 0, start) + ansi.SelectGraphicRendition(ansi.ReverseAttr) + ansi.Cut(current, start, finish) + ansi.SelectGraphicRendition(ansi.NoReverseAttr) + ansi.Cut(current, finish, ansi.StringWidth(plain))
 		}
 	}
 	return strings.Join(lines, "\n")
