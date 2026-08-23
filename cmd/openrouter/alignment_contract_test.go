@@ -232,6 +232,112 @@ func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 	}
 }
 
+func TestTUIViewAlwaysReturnsACompleteFrameAcrossTransitions(t *testing.T) {
+	rows := []model.Model{{Slug: "sentinel/model", DisplayName: "Sentinel model", Owner: "Acme", ScoreLabel: "90%"}, {Slug: "second/model", DisplayName: "Second model", Owner: "Beta", ScoreLabel: "80%"}}
+	for _, width := range []int{160, 190, 200} {
+		t.Run("width-"+strconv.Itoa(width), func(t *testing.T) {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+			m.width, m.height = width, 24
+			m.rebuild()
+			list := ansi.Strip(m.View())
+			assertCompleteTUIFrame(t, list, m.width, m.height)
+			if !strings.Contains(list, "Name") || !strings.Contains(list, "Sentinel model") {
+				t.Fatalf("list frame lost header or sentinel row:\n%s", list)
+			}
+
+			m = tuiKey(m, "enter")
+			detail := ansi.Strip(m.View())
+			assertCompleteTUIFrame(t, detail, m.width, m.height)
+			if strings.Contains(detail, "SWE %") || strings.Contains(detail, "sentinel/model |") {
+				t.Fatalf("detail frame retained list header/row:\n%s", detail)
+			}
+			assertStableDetailValueColumn(t, detail)
+
+			m = tuiKey(m, "esc")
+			returned := ansi.Strip(m.View())
+			assertCompleteTUIFrame(t, returned, m.width, m.height)
+			if !strings.Contains(returned, "SWE %") || !strings.Contains(returned, "Sentinel model") {
+				t.Fatalf("return-to-list frame lost list content:\n%s", returned)
+			}
+
+			m = tuiKey(m, "f")
+			assertCompleteTUIFrame(t, ansi.Strip(m.View()), m.width, m.height)
+			m = tuiKey(m, "esc")
+			m = tuiKey(m, "c")
+			assertCompleteTUIFrame(t, ansi.Strip(m.View()), m.width, m.height)
+			m = tuiKey(m, "esc")
+			m = tuiKey(m, "o")
+			assertCompleteTUIFrame(t, ansi.Strip(m.View()), m.width, m.height)
+			m = tuiKey(m, "esc")
+			m = tuiKey(m, "?")
+			assertCompleteTUIFrame(t, ansi.Strip(m.View()), m.width, m.height)
+		})
+	}
+}
+
+func TestTUIViewCompleteFrameCoversEmptyLoadingAndErrorStates(t *testing.T) {
+	states := []struct {
+		name  string
+		setup func(tuiModel) tuiModel
+	}{
+		{"empty", func(m tuiModel) tuiModel { m.visible = nil; return m }},
+		{"loading", func(m tuiModel) tuiModel { m.refreshing = true; return m }},
+		{"error", func(m tuiModel) tuiModel { m.err = "fixture error"; return m }},
+	}
+	for _, state := range states {
+		t.Run(state.name, func(t *testing.T) {
+			m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "sentinel/model", DisplayName: "Sentinel model"}})
+			m.width, m.height = 160, 24
+			m = state.setup(m)
+			assertCompleteTUIFrame(t, ansi.Strip(m.View()), m.width, m.height)
+		})
+	}
+}
+
+func assertCompleteTUIFrame(t *testing.T, view string, width, height int) {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("frame has %d lines, want %d:\n%s", len(lines), height, view)
+	}
+	for i, line := range lines {
+		if tableDisplayWidth(line) > width {
+			t.Fatalf("frame line %d is %d columns wide, want <= %d: %q", i, tableDisplayWidth(line), width, line)
+		}
+	}
+}
+
+func assertStableDetailValueColumn(t *testing.T, view string) {
+	t.Helper()
+	valueColumn := -1
+	for _, line := range strings.Split(view, "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "-- ") || strings.HasPrefix(line, "Detail ") {
+			continue
+		}
+		if strings.HasSuffix(line, ":") {
+			continue
+		}
+		index := strings.IndexByte(line, ':')
+		if index < 0 || strings.HasPrefix(line, "  ") {
+			continue
+		}
+		value := strings.TrimLeft(line[index+1:], " ")
+		valueIndex := strings.Index(line[index+1:], value)
+		column := tableDisplayWidth(line[:index+1+valueIndex])
+		if valueColumn < 0 {
+			valueColumn = column
+		} else if column != valueColumn {
+			t.Fatalf("detail label/value column drifted: got %d after %d in %q", column, valueColumn, line)
+		}
+		if strings.Contains(line, " | ") {
+			t.Fatalf("detail reused list separator: %q", line)
+		}
+	}
+	if valueColumn < 0 {
+		t.Fatal("detail frame contains no label/value rows")
+	}
+}
+
 func equalInts(left, right []int) bool {
 	if len(left) != len(right) {
 		return false
