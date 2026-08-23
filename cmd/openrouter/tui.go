@@ -25,6 +25,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
+	tuirender "github.com/sboborikin/openrouter-model-tracker/internal/tui/render"
 	"golang.org/x/term"
 )
 
@@ -883,7 +884,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.closeOverlay()
 			return m, nil
 		}
-		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)
+		maxOffset := tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
@@ -1750,28 +1751,10 @@ func (m tuiModel) View() string {
 	if m.selection.context == m.selectionContext() {
 		view = tuiRenderSelection(view, m.selection)
 	}
-	return tuiCompleteFrame(view, m.width, m.height)
+	return tuirender.Frame(view, m.width, m.height)
 }
 
 func tuiClearScreenCmd() tea.Cmd { return func() tea.Msg { return tea.ClearScreen() } }
-
-// tuiCompleteFrame keeps the alternate-screen TUI independent of renderer
-// leftovers: every state returns exactly one line per terminal row. Empty
-// lines are intentional; Bubble Tea emits EraseLineRight for them and clears
-// content left by a taller previous view.
-func tuiCompleteFrame(view string, width, height int) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
-	lines := strings.Split(view, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
-}
 
 func (m tuiModel) baseView() string {
 	if m.width <= 0 || m.height <= 0 {
@@ -4554,6 +4537,11 @@ func tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(m model.Model, scoreSource str
 	return max(0, len(tuiDetailLinesWithHistoryAndIconsAndGaps(m, scoreSource, width, time.Now(), history, icons, iconGap, iconGaps))-tuiDetailBodyHeight(height))
 }
 
+func tuiDetailMaxOffsetForLang(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps, lang string) int {
+	lines := tuiDetailLinesForLang(m, scoreSource, width, time.Now(), history, icons, iconGap, iconGaps, lang)
+	return max(0, len(lines)-tuiDetailBodyHeight(height))
+}
+
 func (m *tuiModel) clampDetailOffset() {
 	if m.overlay != "detail" {
 		return
@@ -4563,7 +4551,7 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)))
+	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)))
 }
 
 func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {

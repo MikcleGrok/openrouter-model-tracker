@@ -212,15 +212,10 @@ func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 	if !strings.Contains(configuredView, "Manufacturer: ?") {
 		t.Fatalf("detail did not render configured gap: %q", ansi.Strip(m.View()))
 	}
-	legacy := m
-	legacy.iconGaps = nil
-	legacy, _ = legacy.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
-	if legacy.detailOffset == 0 {
-		t.Fatalf("legacy detail navigation did not reach a later page: view=%q", ansi.Strip(legacy.View()))
-	}
 	m = tuiKey(m, "G")
-	if m.detailOffset <= legacy.detailOffset {
-		t.Fatalf("configured vendor gap did not increase navigable detail content: configured=%d legacy=%d", m.detailOffset, legacy.detailOffset)
+	wantOffset := tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
+	if m.detailOffset != wantOffset {
+		t.Fatalf("configured detail offset = %d, want rendered max offset %d", m.detailOffset, wantOffset)
 	}
 	lastView := ansi.Strip(m.View())
 	if !strings.Contains(lastView, "FINAL-NOTE") || !strings.Contains(lastView, "Detail ") {

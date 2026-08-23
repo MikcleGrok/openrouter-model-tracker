@@ -76,6 +76,120 @@ func TestTUIDetailTransitionRequestsRendererInvalidation(t *testing.T) {
 	}
 }
 
+func TestTUIDetailScrollAndReturnAlwaysProduceIndependentFrames(t *testing.T) {
+	row := model.Model{Slug: "demo/scroll", DisplayName: "Scroll model", Description: strings.Repeat("long description with unicode модель 🙂 ", 20), Provider: "Provider", Tier: "sonnet"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 48, 8
+	m.rebuild()
+	m = tuiKey(m, "enter")
+	frames := []string{ansi.Strip(m.View())}
+	for _, key := range []string{"j", "j", "j", "k", "j", "G", "g"} {
+		m = tuiKey(m, key)
+		frame := ansi.Strip(m.View())
+		if got := len(strings.Split(frame, "\n")); got != m.height {
+			t.Fatalf("key %q produced %d rows, want %d", key, got, m.height)
+		}
+		if strings.Contains(frame, "Scroll model\nScroll model") || strings.Contains(frame, "Provider: Provider\nProvider: Provider") {
+			t.Fatalf("key %q duplicated detail content:\n%s", key, frame)
+		}
+		frames = append(frames, frame)
+	}
+	if frames[0] == frames[1] || frames[1] == frames[len(frames)-1] {
+		t.Fatal("detail scroll did not produce independent frame state")
+	}
+	m = tuiKey(m, "esc")
+	list := ansi.Strip(m.View())
+	if len(strings.Split(list, "\n")) != m.height || !strings.Contains(list, "OpenRouter models") || !strings.Contains(list, "Provider") || strings.Contains(list, "Detail ") {
+		t.Fatalf("return-to-list frame is stale or incomplete:\n%s", list)
+	}
+	if strings.Contains(list, "long description") {
+		t.Fatal("return-to-list frame retained detail content")
+	}
+}
+
+type tuiRendererHarness struct {
+	width, height int
+	last          []string
+	screen        []string
+	stream        strings.Builder
+}
+
+func (r *tuiRendererHarness) clearScreen() {
+	r.stream.WriteString(ansi.EraseEntireScreen + ansi.CursorHomePosition)
+	r.last = nil
+	for i := range r.screen {
+		r.screen[i] = ""
+	}
+}
+
+func (r *tuiRendererHarness) render(view string) {
+	lines := strings.Split(view, "\n")
+	if len(lines) != r.height {
+		panic(fmt.Sprintf("renderer received %d lines, want %d", len(lines), r.height))
+	}
+	if len(r.screen) != r.height {
+		r.screen = make([]string, r.height)
+	}
+	r.stream.WriteString(ansi.CursorHomePosition)
+	for i, line := range lines {
+		if len(r.last) > i && r.last[i] == line {
+			if i < len(lines)-1 {
+				r.stream.WriteString("\n")
+			}
+			continue
+		}
+		plain := ansi.Strip(line)
+		r.screen[i] = plain
+		r.stream.WriteString(line + ansi.EraseLineRight)
+		if i < len(lines)-1 {
+			r.stream.WriteString("\r\n")
+		}
+	}
+	r.stream.WriteString(ansi.CursorPosition(0, len(lines)))
+	r.last = append([]string(nil), lines...)
+}
+
+func TestTUISequenceMatchesBubbleTeaRendererState(t *testing.T) {
+	row := model.Model{Slug: "demo/renderer", DisplayName: "Renderer model", Description: strings.Repeat("длинное описание 🙂 с https://example.test/модель ", 18), Provider: "Провайдер", Tier: "sonnet"}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 42, 9
+	m.rebuild()
+	r := tuiRendererHarness{width: m.width, height: m.height}
+	r.render(m.View())
+
+	sequence := []string{"enter", "j", "j", "k", "G", "g", "esc", "enter", "esc"}
+	for _, key := range sequence {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		if key == "enter" {
+			msg = tea.KeyMsg{Type: tea.KeyEnter}
+		} else if key == "esc" {
+			msg = tea.KeyMsg{Type: tea.KeyEscape}
+		}
+		next, cmd := m.Update(msg)
+		m = next.(tuiModel)
+		if cmd != nil && (key == "enter" || key == "esc") {
+			cmd()
+			r.clearScreen()
+		}
+		r.render(m.View())
+		want := strings.Split(ansi.Strip(m.View()), "\n")
+		if !reflect.DeepEqual(r.screen, want) {
+			t.Fatalf("key %q left terminal screen different from View:\nscreen=%q\nview=%q\nstream=%q", key, r.screen, want, r.stream.String())
+		}
+		if m.overlay == "detail" {
+			wantOffset := tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
+			if m.detailOffset < 0 || m.detailOffset > wantOffset {
+				t.Fatalf("key %q produced offset %d outside localized rendered range 0..%d", key, m.detailOffset, wantOffset)
+			}
+		} else if strings.Contains(strings.Join(r.screen, "\n"), "длинное описание") {
+			t.Fatalf("key %q left detail content on list screen: %q", key, r.screen)
+		}
+	}
+	if !strings.Contains(r.stream.String(), ansi.EraseLineRight) || !strings.Contains(r.stream.String(), ansi.CursorHomePosition) {
+		t.Fatal("renderer stream did not contain the standard renderer's positioning and right-edge erasure")
+	}
+}
+
 func TestTUIModelUsesFiveCentDefaultPriceSteps(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	if m.filterSteps.InputCents != 5 || m.filterSteps.OutputCents != 5 {
