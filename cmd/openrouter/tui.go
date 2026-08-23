@@ -989,6 +989,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if !m.keyMatches("main", "open_settings", originalKey) {
 			break
 		}
+		m.clearSelection()
 		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
 		if !m.keyMatches("main", "help", originalKey) {
@@ -999,12 +1000,14 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		// It is otherwise identical: fully navigable, and closes the same
 		// way (Esc, or ? again — handled by the overlay == "help" case
 		// above, keyed off help.close, which already includes "?").
+		m.clearSelection()
 		m.overlay = "help"
 		m.setHelpSection(2)
 	case "f1":
 		if !m.keyMatches("main", "full_help", originalKey) {
 			break
 		}
+		m.clearSelection()
 		m.overlay = "help"
 		m.setHelpSection(0)
 	case "enter", "right":
@@ -1012,6 +1015,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			break
 		}
 		if len(m.visible) > 0 {
+			m.clearSelection()
 			m.overlay, m.detailOffset = "detail", 0
 		}
 	case "q", "r":
@@ -1222,6 +1226,7 @@ func (m tuiModel) columnKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			break
 		}
 		m.columns, m.overlay = append([]tuiColumn(nil), m.pendingColumns...), ""
+		m.clearSelection()
 	}
 	return m, nil
 }
@@ -1291,6 +1296,7 @@ func tuiAvailabilityFromFilter(value string) string {
 }
 
 func (m *tuiModel) openFilterEditor() {
+	m.clearSelection()
 	m.overlay = "filter"
 	m.inputMode = ""
 	m.filterCursor = 0
@@ -1738,7 +1744,11 @@ func (m *tuiModel) togglePending(col tuiColumn) {
 }
 
 func (m tuiModel) View() string {
-	return tuiCompleteFrame(tuiRenderSelection(m.baseView(), m.selection), m.width, m.height)
+	view := m.baseView()
+	if m.selection.context == m.selectionContext() {
+		view = tuiRenderSelection(view, m.selection)
+	}
+	return tuiCompleteFrame(view, m.width, m.height)
 }
 
 // tuiCompleteFrame keeps the alternate-screen TUI independent of renderer

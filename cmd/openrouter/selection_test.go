@@ -163,6 +163,42 @@ func TestTUISelectionSurvivesRefreshAndStaleClipboard(t *testing.T) {
 	}
 }
 
+func TestTUISelectionIsNotAppliedAfterViewTransition(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo model", ScoreLabel: "90%"}})
+	m.width, m.height = 190, 24
+	m.selection = tuiSelection{active: true, anchor: tuiSelectionPoint{0, 0}, end: tuiSelectionPoint{0, 5}, context: m.selectionContext(), frame: m.renderedFrame()}
+	m.overlay = "detail"
+	got := m.View()
+	withoutSelection := m
+	withoutSelection.selection = tuiSelection{}
+	want := withoutSelection.View()
+	if got != want {
+		t.Fatalf("stale list selection changed detail frame:\nwith selection:\n%s\nwithout selection:\n%s", got, want)
+	}
+	plain := ansi.Strip(got)
+	if strings.Contains(plain, "SWE %") || !strings.Contains(plain, "SWE-bench Verified") || !strings.Contains(plain, "LMArena") {
+		t.Fatalf("detail frame has incorrect list/detail content:\n%s", plain)
+	}
+	m = newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo model", ScoreLabel: "90%"}})
+	m.width, m.height = 190, 24
+	m.selection = tuiSelection{active: true, anchor: tuiSelectionPoint{0, 0}, end: tuiSelectionPoint{0, 5}, context: m.selectionContext(), frame: m.renderedFrame()}
+	m.overlay = "detail"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tuiModel)
+	if m.selection.active {
+		t.Fatal("closing detail restored stale list selection")
+	}
+}
+
+func TestTUISelectionCopyPreservesDetailLineBoundaries(t *testing.T) {
+	lines := []string{"SWE-bench Verified score (percent):", "  Value: 93.0%", "  Source: https://example.test/score"}
+	got := tuiSelectionText(lines, tuiSelectionPoint{0, 0}, tuiSelectionPoint{2, ansi.StringWidth(lines[2])})
+	want := strings.Join(lines, "\n")
+	if got != want {
+		t.Fatalf("copied detail text = %q, want %q", got, want)
+	}
+}
+
 func TestTUIClipboardSkipsStaleWriteAfterNewCopy(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	writes := []string{}
