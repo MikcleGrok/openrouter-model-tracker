@@ -2425,8 +2425,15 @@ func TestTUIStatusFooterHasBlankLineSeparatorFromTableContent(t *testing.T) {
 	if typingStatusIndex < 1 || typingLines[typingStatusIndex-1] != "" {
 		t.Fatalf("no blank line separates the last table row from the status footer while typing: %q", typingLines)
 	}
-	if got := typingLines[len(typingLines)-1]; got != "/ gpt_" {
-		t.Fatalf("input line = %q, want the search input as the last line", got)
+	inputIndex := -1
+	for i, line := range typingLines {
+		if line == "/ gpt_" {
+			inputIndex = i
+			break
+		}
+	}
+	if inputIndex < 0 || inputIndex <= typingStatusIndex {
+		t.Fatalf("input line = %q, want the search input in the footer", typingLines)
 	}
 }
 

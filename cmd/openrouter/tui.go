@@ -1738,7 +1738,25 @@ func (m *tuiModel) togglePending(col tuiColumn) {
 }
 
 func (m tuiModel) View() string {
-	return tuiRenderSelection(m.baseView(), m.selection)
+	return tuiCompleteFrame(tuiRenderSelection(m.baseView(), m.selection), m.width, m.height)
+}
+
+// tuiCompleteFrame keeps the alternate-screen TUI independent of renderer
+// leftovers: every state returns exactly one line per terminal row. Empty
+// lines are intentional; Bubble Tea emits EraseLineRight for them and clears
+// content left by a taller previous view.
+func tuiCompleteFrame(view string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m tuiModel) baseView() string {
