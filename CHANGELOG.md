@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
-- Bound the TUI's startup background-color terminal query to 2 seconds so a terminal that never answers (or answers unexpectedly) cannot hang `tui` before it renders its first frame, via a locally patched `bubbletea` (`internal/thirdparty/bubbletea-patched`).
 - Continue improving terminal rendering and selection behavior.
 - Return complete TUI frames across view transitions and keep model detail label/value rows independent from list-table geometry.
+
+## [1.14.50]
+
+- Bound the TUI's startup background-color terminal query to 2 seconds so a terminal that never answers (or answers unexpectedly) cannot hang `tui` before it renders its first frame, via a locally patched `bubbletea` (`internal/thirdparty/bubbletea-patched`).
+- Register bash completion for the `omt` binary alias, not just the `openrouter` name.
 
 ## [1.14.49]
 
