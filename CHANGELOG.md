@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Continue improving terminal rendering and selection behavior.
+
+## [1.14.45]
+
+- Initialize the TUI from the actual terminal dimensions so wide viewports render full model names and Claude labels without unused space.
 - Copy the exact visible TUI selection, including Unicode-width cells and visible truncation markers; clamp releases outside a rendered line without showing an internal selection error.
 
 ## [1.14.44]

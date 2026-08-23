@@ -2332,14 +2332,23 @@ func TestTUINameColumnGetsWeightedWidth(t *testing.T) {
 }
 
 func TestTUIWideViewportShowsFullIdentityValues(t *testing.T) {
-	row := model.Model{Slug: "deepseek", DisplayName: "DeepSeek DeepSeeK V3.1 Thinker", Tier: "sonnet"}
-	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
-	m.width, m.height = 160, 10
+	rows := []model.Model{
+		{Slug: "deepseek/deepseek-v3.1-thinker", DisplayName: "DeepSeek DeepSeek V3.1 Thinker", Tier: "sonnet"},
+		{Slug: "openai/gpt-5.6", DisplayName: "OpenAI openai/gpt-5.6", Tier: "opus"},
+		{Slug: "anthropic/claude-opus", DisplayName: "Claude Opus 4.1", Tier: "opus"},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.width, m.height = 200, 10
 	m.columns = []tuiColumn{colName, colClaude}
 	view := m.View()
-	claude := tableClaude(row)
-	if !strings.Contains(view, row.DisplayName) || !strings.Contains(view, claude) {
-		t.Fatalf("wide viewport truncated identity values: %q", view)
+	for _, row := range rows {
+		if !strings.Contains(view, row.DisplayName) || strings.Contains(view, row.DisplayName+"...") {
+			t.Fatalf("wide viewport truncated model name %q: %q", row.DisplayName, view)
+		}
+		claude := tableClaude(row)
+		if !strings.Contains(view, claude) || strings.Contains(view, claude+"...") {
+			t.Fatalf("wide viewport truncated Claude label %q: %q", claude, view)
+		}
 	}
 	header := strings.Split(view, "\n")[2]
 	data := strings.Split(view, "\n")[3]

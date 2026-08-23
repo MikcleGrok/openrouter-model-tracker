@@ -297,11 +297,26 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
 		m.rebuild()
 	}
+	if width, height := tuiTerminalSize(out); width > 0 && height > 0 {
+		m.width, m.height = width, height
+	}
 	synchronizedOutput := &tuiSynchronizedWriter{out: out}
 	m.clipboardOutput = synchronizedOutput
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
 	_, err = p.Run()
 	return err
+}
+
+func tuiTerminalSize(out io.Writer) (int, int) {
+	f, ok := out.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) {
+		return 0, 0
+	}
+	width, height, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return 0, 0
+	}
+	return width, height
 }
 
 // newConfiguredTUIModel builds the tuiModel exactly the way
