@@ -238,6 +238,12 @@ Completion включает команды и flags, в том числе `tui`,
 ```bash
 make help
 make build
+make install
+make upgrade
+make reinstall
+make uninstall
+make verify-install
+make install-smoke
 make test
 make test-unit
 make test-acceptance
@@ -270,6 +276,42 @@ make verify-provenance
 make signature
 make check-docs
 ```
+
+#### Локальный installer
+
+`make install` — канонический local installer для бинарника `openrouter`.
+Сначала `TARGET` (по умолчанию `./cmd/openrouter`) собирается во временный каталог с текущим
+`VERSION`, затем источник проверяется через `--version`, `version` и `--help`,
+копируется во временный файл в том же `BINDIR` и атомарно заменяет
+`$(BINDIR)/openrouter`. Режим executable сохраняется. `PREFIX` и конечный `BINDIR`
+должны быть непустыми абсолютными путями. `PREFIX` по умолчанию равен `/usr/local`;
+если `BINDIR` не задан явно, он равен `$(PREFIX)/bin`. Явный абсолютный `BINDIR`
+является самостоятельным target, не зависит от `PREFIX` и может быть вне него;
+containment относительно `PREFIX` не заявляется. До любых записей выполняются
+path/source/version/help/target checks. На каждый `BINDIR` берётся bounded lock с
+timeout 60 секунд, поэтому concurrent install/upgrade/reinstall сериализуются.
+Все компоненты destination проверяются на symlink traversal по canonical path. Явный
+`VERSION` не является только меткой сборки: несовпадение фактического ответа
+бинарника отклоняется. На exact tag грязный checkout с release VERSION
+отклоняется, чтобы изменённый исходный код не выдавался за release.
+
+`make upgrade` и `make reinstall` вызывают тот же путь установки. Установка также создаёт
+`$(BINDIR)/openrouter.openrouter-owner` mode 600 с фиксированным identifier, точным destination
+и версией. `make uninstall` удаляет binary и marker только при полной валидации marker;
+немаркированный binary (включая Homebrew-managed файл) сохраняется с WARN и exit 0, а
+невалидный или mismatched marker сохраняет оба объекта и завершается ошибкой. Каталог и другие файлы
+не удаляются. `make verify-install` устанавливает и повторяет
+проверку, а `make install-smoke` прогоняет install/upgrade/reinstall,
+отклонение бинарника с неправильной версией, параметризацию пути и uninstall в
+одноразовом временном PREFIX. Local install пишет только в installation target и безопасные
+временные файлы, которые удаляются после завершения; checkout не получает `bin/openrouter`
+от install-flow. Binary заменяется атомарно после preflight; marker обновляется отдельно под lock с rollback при ошибке, где это возможно. Installer не обещает all-at-once visibility пары binary/marker. Homebrew formula находится вне этого checkout и
+остаётся отдельным distribution channel; local installer не вызывает `brew` и
+не зависит от formula. Lock использует уникальный owner token/file и bounded wait 60 секунд;
+cleanup проверяет owner token даже при ошибке его инициализации и не удаляет заменённый foreign lock. Это не устраняет фундаментальное shell TOCTOU
+ограничение между проверкой и операцией.
+Symlink rejection best-effort: lock снижает concurrent race, но shell TOCTOU не может
+защитить от malicious concurrent replacement каталога.
 
 Acceptance-тест версии использует `OPENROUTER_EXPECTED_VERSION`, который `make test` и
 `make release-check` передают из `VERSION`; при прямом запуске `go test ./tests/...` используется
