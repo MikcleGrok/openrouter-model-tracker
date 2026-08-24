@@ -4,7 +4,7 @@ BINARY := $(ROOT)bin/openrouter
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
-GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go'))
+GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go' | while IFS= read -r file; do test -f "$(ROOT)$$file" && printf '%s\n' "$$file"; done))
 
 DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
 TAG_VERSION := $(shell git -C $(ROOT) describe --tags --exact-match 2>/dev/null)

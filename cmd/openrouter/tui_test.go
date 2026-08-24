@@ -26,7 +26,58 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tui/input"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
 )
+
+func detailModelForTest(row model.Model, source string, width int, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps) tuiModel {
+	return tuiModel{models: []model.Model{row}, scoreSource: source, width: width, priceHistory: history, icons: icons, iconGap: gap, iconGaps: gaps}
+}
+func detailLinesForTest(row model.Model, source string, width int, now time.Time) []string {
+	m := detailModelForTest(row, source, width, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps())
+	m.lang = "ru"
+	return m.detailLinesAt(row, now)
+}
+func detailLinesWithHistoryForTest(row model.Model, source string, width int, now time.Time, history *pricehistory.History) []string {
+	m := detailModelForTest(row, source, width, history, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps())
+	m.lang = "ru"
+	return m.detailLinesAt(row, now)
+}
+func detailLinesWithHistoryAndIconsAndGapForTest(row model.Model, source string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, gap int) []string {
+	m := detailModelForTest(row, source, width, history, icons, gap, nil)
+	m.lang = "ru"
+	return m.detailLinesAt(row, now)
+}
+func detailWrappedForTest(value string, width int) []string {
+	value = strings.TrimSpace(plainDetailText(value))
+	if value == "" {
+		return []string{"  n/a"}
+	}
+	lines := output.Wrap(value, max(1, width-2))
+	for i := range lines {
+		lines[i] = "  " + lines[i]
+	}
+	return lines
+}
+func detailLinesWithHistoryAndIconsAndGapsForTest(row model.Model, source string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps) []string {
+	m := detailModelForTest(row, source, width, history, icons, gap, gaps)
+	m.lang = "ru"
+	return m.detailLinesAt(row, now)
+}
+func detailLinesForLangForTest(row model.Model, source string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps, lang string) []string {
+	m := detailModelForTest(row, source, width, history, icons, gap, gaps)
+	m.lang = lang
+	return m.detailLinesAt(row, now)
+}
+func detailMaxOffsetForTest(row model.Model, source string, width, height int) int {
+	return output.MaxOffset(len(detailLinesForTest(row, source, width, time.Now())), max(1, height-2))
+}
+func detailMaxOffsetWithHistoryForTest(row model.Model, source string, width, height int, history *pricehistory.History) int {
+	return output.MaxOffset(len(detailLinesWithHistoryForTest(row, source, width, time.Now(), history)), max(1, height-2))
+}
+func detailMaxOffsetForLangForTest(row model.Model, source string, width, height int, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps, lang string) int {
+	return output.MaxOffset(len(detailLinesForLangForTest(row, source, width, time.Now(), history, icons, gap, gaps, lang)), max(1, height-2))
+}
 
 func TestTUIModelUsesConfiguredRanking(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -107,6 +158,94 @@ func TestTUIDetailScrollAndReturnAlwaysProduceIndependentFrames(t *testing.T) {
 	}
 }
 
+func TestTUISelectionIsInvalidatedByRefreshAndResize(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "alpha", DisplayName: "Alpha"}})
+	m.width, m.height = 80, 10
+	next, _ := m.Update(tea.MouseMsg{X: 1, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = next.(tuiModel)
+	if !m.selection.Active {
+		t.Fatal("mouse press did not create a selection")
+	}
+	m.generation = 1
+	next, _ = m.Update(tuiRefreshMsg{generation: 1, models: m.models, filter: m.filter})
+	m = next.(tuiModel)
+	if m.selection.Active || strings.Contains(m.View(), "\x1b[7m") {
+		t.Fatalf("refresh retained selection: state=%+v view=%q", m.selection, m.View())
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	m = next.(tuiModel)
+	if m.selection.Active {
+		t.Fatalf("resize retained selection: %+v", m.selection)
+	}
+	if _, cmd := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}); cmd != nil {
+		t.Fatal("copy command was created after selection invalidation")
+	}
+}
+
+func TestTUIFrameTokenInvalidatesSelectionForNonMouseChanges(t *testing.T) {
+	base := func() tuiModel {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "alpha", DisplayName: "Alpha"}})
+		m.width, m.height = 80, 10
+		return m
+	}
+	activate := func(t *testing.T, m tuiModel) tuiModel {
+		t.Helper()
+		next, _ := m.Update(tea.MouseMsg{X: 1, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+		m = next.(tuiModel)
+		if !m.selection.Active {
+			t.Fatal("selection was not activated")
+		}
+		return m
+	}
+	assertInvalidated := func(t *testing.T, m tuiModel, before uint64) {
+		t.Helper()
+		if m.frameToken <= before || m.selection.Active || strings.Contains(m.View(), "\x1b[7m") {
+			t.Fatalf("frame token did not invalidate selection: before=%d after=%d state=%+v", before, m.frameToken, m.selection)
+		}
+	}
+
+	t.Run("language toggle", func(t *testing.T) {
+		m := activate(t, base())
+		before := m.frameToken
+		m.toggleLanguage()
+		assertInvalidated(t, m, before)
+	})
+	t.Run("column toggle", func(t *testing.T) {
+		m := activate(t, base())
+		before := m.frameToken
+		m.overlay, m.pendingColumns = "columns", append([]tuiColumn(nil), m.columns...)
+		m.pendingColumns = append(m.pendingColumns, colNote)
+		m, _ = m.columnKey("enter", "enter")
+		assertInvalidated(t, m, before)
+	})
+	t.Run("refresh error", func(t *testing.T) {
+		m := activate(t, base())
+		m.generation, m.refreshing = 1, true
+		before := m.frameToken
+		next, _ := m.Update(tuiRefreshMsg{generation: 1, scoreSourceGeneration: m.scoreSourceGeneration, err: errors.New("offline")})
+		assertInvalidated(t, next.(tuiModel), before)
+	})
+	t.Run("score source error", func(t *testing.T) {
+		m := activate(t, base())
+		m.scoreSourceGeneration, m.scoreSourceLoading = 1, true
+		before := m.frameToken
+		next, _ := m.Update(tuiScoreSourceMsg{generation: 1, source: scoreSourceArena, err: errors.New("missing")})
+		assertInvalidated(t, next.(tuiModel), before)
+	})
+	t.Run("resize", func(t *testing.T) {
+		m := activate(t, base())
+		before := m.frameToken
+		next, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+		assertInvalidated(t, next.(tuiModel), before)
+	})
+	t.Run("overlay transition", func(t *testing.T) {
+		m := activate(t, base())
+		before := m.frameToken
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		assertInvalidated(t, next.(tuiModel), before)
+	})
+}
+
 type tuiRendererHarness struct {
 	width, height int
 	last          []string
@@ -177,7 +316,7 @@ func TestTUISequenceMatchesBubbleTeaRendererState(t *testing.T) {
 			t.Fatalf("key %q left terminal screen different from View:\nscreen=%q\nview=%q\nstream=%q", key, r.screen, want, r.stream.String())
 		}
 		if m.overlay == "detail" {
-			wantOffset := tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
+			wantOffset := detailMaxOffsetForLangForTest(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
 			if m.detailOffset < 0 || m.detailOffset > wantOffset {
 				t.Fatalf("key %q produced offset %d outside localized rendered range 0..%d", key, m.detailOffset, wantOffset)
 			}
@@ -444,9 +583,9 @@ func TestTUISearchEscapeKeepsAppliedQuery(t *testing.T) {
 }
 
 func TestTUIDetailPrioritizesFitPricingAndBenchmarks(t *testing.T) {
-	lines := tuiDetailLines(model.Model{DisplayName: "Model", Slug: "vendor/model", Description: "long description", TaskFit: []string{"implement"}, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, ScoreLabel: "90%"}, scoreSourceSWEBench, 100, time.Unix(0, 0))
+	lines := detailLinesForTest(model.Model{DisplayName: "Model", Slug: "vendor/model", Description: "long description", TaskFit: []string{"implement"}, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, ScoreLabel: "90%"}, scoreSourceSWEBench, 100, time.Unix(0, 0))
 	joined := strings.Join(lines, "\n")
-	if strings.Index(joined, "Task fit:") > strings.Index(joined, "-- Pricing --") || strings.Index(joined, "-- Pricing --") > strings.Index(joined, "-- Benchmarks --") {
+	if strings.Index(joined, "Task fit:") > strings.Index(joined, "-- Цены --") || strings.Index(joined, "-- Цены --") > strings.Index(joined, "-- Бенчмарки --") {
 		t.Fatalf("detail priority order is wrong:\n%s", joined)
 	}
 	if strings.Index(joined, "Описание:") < strings.Index(joined, "-- Benchmarks --") {
@@ -781,8 +920,8 @@ func TestTUIXDiscardsInProgressFilterFieldEditLikeClearDoes(t *testing.T) {
 			m.filterCursor = 7 // Output max — the same field the "c" test above exercises.
 			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
 			got := next.(tuiModel)
-			if cmd != nil {
-				t.Fatalf("%q mid-edit on a filter text field returned a command %v, want nil", test.key, cmd)
+			if cmd == nil || fmt.Sprintf("%T", cmd()) != "tea.clearScreenMsg" {
+				t.Fatalf("%q mid-edit on a filter text field returned command %v, want clear-screen invalidation", test.key, cmd)
 			}
 			if got.overlay != "" {
 				t.Fatalf("%q mid-edit on a filter text field left overlay = %q, want \"\" (closed, same as Esc)", test.key, got.overlay)
@@ -1208,7 +1347,7 @@ func TestTUIHelpRendersConfiguredBindingsByActionGroup(t *testing.T) {
 func TestTUICommandKeySupportsRussianLayout(t *testing.T) {
 	for russian, english := range map[string]string{"й": "q", "с": "c", "р": "h", "П": "G"} {
 		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(russian)}
-		if got := tuiCommandKey(msg); got != english {
+		if got := input.CommandKey(msg); got != english {
 			t.Errorf("tuiCommandKey(%q) = %q, want %q", russian, got, english)
 		}
 	}
@@ -1894,7 +2033,7 @@ func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
 		{"к", "r"}, // U+043A, омоглиф латинской k, но команда — r
 		{"о", "j"}, // U+043E, омоглиф латинской o, но команда — j
 	} {
-		got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
+		got := input.CommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
 		if got != test.want {
 			t.Fatalf("%q normalized to %q, want %q", test.key, got, test.want)
 		}
@@ -1903,7 +2042,7 @@ func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
 		keyType tea.KeyType
 		want    string
 	}{{tea.KeyUp, "up"}, {tea.KeyHome, "home"}, {tea.KeyCtrlC, "ctrl+c"}, {tea.KeyTab, "tab"}, {tea.KeyEscape, "esc"}} {
-		if got := tuiCommandKey(tea.KeyMsg{Type: test.keyType}); got != test.want {
+		if got := input.CommandKey(tea.KeyMsg{Type: test.keyType}); got != test.want {
 			t.Fatalf("special key normalized to %q, want %q", got, test.want)
 		}
 	}
@@ -1911,10 +2050,10 @@ func TestTUICommandKeysPreserveASCIIAliases(t *testing.T) {
 	// как есть — иначе Alt+ч тихо выполняет "x" (quit), хотя Alt+x на
 	// латинской раскладке ничего не делает, и вставка "ч" из буфера обмена
 	// тоже выполняла бы quit вместо того, чтобы остаться текстом.
-	if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Alt: true}); got != "alt+ч" {
+	if got := input.CommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Alt: true}); got != "alt+ч" {
 		t.Fatalf("alt+ч normalized to %q, want %q (must not resolve to the %q alias)", got, "alt+ч", "x")
 	}
-	if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Paste: true}); got != "[ч]" {
+	if got := input.CommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ч"), Paste: true}); got != "[ч]" {
 		t.Fatalf("pasted ч normalized to %q, want %q (must not resolve to the %q alias)", got, "[ч]", "x")
 	}
 }
@@ -2142,7 +2281,7 @@ func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
 	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️    Meta Meta Model" {
 		t.Fatalf("refreshed vendor override = %q, want fixed-slot padding plus three gaps", list)
 	}
-	detail := tuiDetailLinesWithHistoryAndIconsAndGaps(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)
+	detail := detailLinesWithHistoryAndIconsAndGapsForTest(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)
 	if !strings.Contains(strings.Join(detail, "\n"), "Производитель: 🌀   OpenAI") {
 		t.Fatalf("refreshed detail does not use gap 3: %v", detail)
 	}
@@ -2310,7 +2449,7 @@ func TestTUIRefreshReloadsPriceHistoryBeforeClampingDetail(t *testing.T) {
 	if len(m.priceHistory.Observations) != 2 {
 		t.Fatalf("refresh kept stale price history: %+v", m.priceHistory)
 	}
-	want := tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, m.priceHistory)
+	want := detailMaxOffsetWithHistoryForTest(row, m.scoreSource, m.width, m.height, m.priceHistory)
 	if m.detailOffset != want {
 		t.Fatalf("detail offset after history refresh = %d, want %d", m.detailOffset, want)
 	}
@@ -3713,10 +3852,10 @@ func tuiFindRowLine(t *testing.T, view, identity string) string {
 }
 
 func TestTUIWrapTextBreaksOnWordBoundaries(t *testing.T) {
-	got := tuiWrapText("alpha beta gamma delta", 11)
+	got := output.Wrap("alpha beta gamma delta", 11)
 	want := []string{"alpha beta", "gamma delta"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("tuiWrapText = %q, want %q", got, want)
+		t.Fatalf("output.Wrap = %q, want %q", got, want)
 	}
 }
 
@@ -3724,7 +3863,7 @@ func TestTUIWrapTextKeepsEveryLineWithinTheRequestedWidth(t *testing.T) {
 	long := strings.Repeat("supercalifragilistic", 3)
 	for _, width := range []int{1, 2, 3, 5, 12, 40} {
 		for _, value := range []string{long, "короткий текст про одну модель", "a " + long + " b"} {
-			for _, line := range tuiWrapText(value, width) {
+			for _, line := range output.Wrap(value, width) {
 				if lipgloss.Width(line) > width {
 					t.Fatalf("width %d produced a line of width %d: %q", width, lipgloss.Width(line), line)
 				}
@@ -3739,7 +3878,7 @@ func TestTUIWrapTextKeepsEveryLineWithinTheRequestedWidth(t *testing.T) {
 // exactly the way truncateTable's display-width measure exists to avoid.
 func TestTUIWrapTextMeasuresDisplayWidthNotBytes(t *testing.T) {
 	for _, width := range []int{2, 3, 8} {
-		for _, line := range tuiWrapText("界界界界界 界界", width) {
+		for _, line := range output.Wrap("界界界界界 界界", width) {
 			if lipgloss.Width(line) > width {
 				t.Fatalf("width %d produced a wide-rune line of width %d: %q", width, lipgloss.Width(line), line)
 			}
@@ -3751,17 +3890,17 @@ func TestTUIWrapTextMeasuresDisplayWidthNotBytes(t *testing.T) {
 // legitimately be in before the first tea.WindowSizeMsg arrives, and the
 // empty-value case every optional catalogue field can produce.
 func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
-	if got := tuiWrapText("anything", 0); got != nil {
-		t.Fatalf("tuiWrapText at width 0 = %q, want nil", got)
+	if got := output.Wrap("anything", 0); got != nil {
+		t.Fatalf("output.Wrap at width 0 = %q, want nil", got)
 	}
-	if got := tuiWrapText("anything", -5); got != nil {
-		t.Fatalf("tuiWrapText at a negative width = %q, want nil", got)
+	if got := output.Wrap("anything", -5); got != nil {
+		t.Fatalf("output.Wrap at a negative width = %q, want nil", got)
 	}
-	if got := tuiWrapText("", 40); !reflect.DeepEqual(got, []string{""}) {
-		t.Fatalf("tuiWrapText of an empty string = %q, want exactly one empty line", got)
+	if got := output.Wrap("", 40); !reflect.DeepEqual(got, []string{""}) {
+		t.Fatalf("output.Wrap of an empty string = %q, want exactly one empty line", got)
 	}
-	if got := tuiWrapText("one\n\ntwo", 40); !reflect.DeepEqual(got, []string{"one", "", "two"}) {
-		t.Fatalf("tuiWrapText = %q, want the blank line between paragraphs preserved", got)
+	if got := output.Wrap("one\n\ntwo", 40); !reflect.DeepEqual(got, []string{"one", "", "two"}) {
+		t.Fatalf("output.Wrap = %q, want the blank line between paragraphs preserved", got)
 	}
 }
 
@@ -3770,10 +3909,10 @@ func TestTUIWrapTextHandlesDegenerateInput(t *testing.T) {
 // gets extra inter-word spacing so its total display width becomes exactly
 // width, spread as evenly as the gap count allows.
 func TestTUIJustifyLineDistributesExtraSpacesEvenly(t *testing.T) {
-	if got, want := tuiJustifyLine("alpha beta gamma", 20), "alpha   beta   gamma"; got != want {
-		t.Fatalf("tuiJustifyLine = %q, want %q", got, want)
+	if got, want := output.JustifyLine("alpha beta gamma", 20), "alpha   beta   gamma"; got != want {
+		t.Fatalf("output.JustifyLine = %q, want %q", got, want)
 	}
-	if w := tableDisplayWidth(tuiJustifyLine("alpha beta gamma", 20)); w != 20 {
+	if w := tableDisplayWidth(output.JustifyLine("alpha beta gamma", 20)); w != 20 {
 		t.Fatalf("justified line width = %d, want 20", w)
 	}
 }
@@ -3783,10 +3922,10 @@ func TestTUIJustifyLineDistributesExtraSpacesEvenly(t *testing.T) {
 // words: the leftmost gaps absorb the one extra column each, deterministic
 // and reproducible rather than arbitrary.
 func TestTUIJustifyLineDistributesRemainderToLeftmostGaps(t *testing.T) {
-	if got, want := tuiJustifyLine("alpha beta gamma", 19), "alpha   beta  gamma"; got != want {
-		t.Fatalf("tuiJustifyLine = %q, want %q", got, want)
+	if got, want := output.JustifyLine("alpha beta gamma", 19), "alpha   beta  gamma"; got != want {
+		t.Fatalf("output.JustifyLine = %q, want %q", got, want)
 	}
-	if w := tableDisplayWidth(tuiJustifyLine("alpha beta gamma", 19)); w != 19 {
+	if w := tableDisplayWidth(output.JustifyLine("alpha beta gamma", 19)); w != 19 {
 		t.Fatalf("justified line width = %d, want 19", w)
 	}
 }
@@ -3795,11 +3934,11 @@ func TestTUIJustifyLineDistributesRemainderToLeftmostGaps(t *testing.T) {
 // calls out explicitly: a line with only one word has no gap to stretch,
 // so it is returned as-is rather than erroring or panicking.
 func TestTUIJustifyLineLeavesSingleWordUnchanged(t *testing.T) {
-	if got, want := tuiJustifyLine("alpha", 10), "alpha"; got != want {
-		t.Fatalf("tuiJustifyLine(single word) = %q, want %q unchanged", got, want)
+	if got, want := output.JustifyLine("alpha", 10), "alpha"; got != want {
+		t.Fatalf("output.JustifyLine(single word) = %q, want %q unchanged", got, want)
 	}
-	if got, want := tuiJustifyLine("", 10), ""; got != want {
-		t.Fatalf("tuiJustifyLine(empty) = %q, want %q unchanged", got, want)
+	if got, want := output.JustifyLine("", 10), ""; got != want {
+		t.Fatalf("output.JustifyLine(empty) = %q, want %q unchanged", got, want)
 	}
 }
 
@@ -3808,15 +3947,15 @@ func TestTUIJustifyLineLeavesSingleWordUnchanged(t *testing.T) {
 // between words survives untouched.
 func TestTUIJustifyLineNoopWhenAlreadyAtWidth(t *testing.T) {
 	line := "alpha beta"
-	if got, want := tuiJustifyLine(line, tableDisplayWidth(line)), line; got != want {
-		t.Fatalf("tuiJustifyLine(already at width) = %q, want %q unchanged", got, want)
+	if got, want := output.JustifyLine(line, tableDisplayWidth(line)), line; got != want {
+		t.Fatalf("output.JustifyLine(already at width) = %q, want %q unchanged", got, want)
 	}
 }
 
 // TestTUIWrapAndJustifyLeavesTheLastLineRagged is the standard
 // typographic-justify rule this feature exists to implement: every wrapped
 // line of a paragraph is stretched flush to width except the last, which
-// stays exactly as tuiWrapText produced it (including a single-word line
+// stays exactly as output.Wrap produced it (including a single-word line
 // that cannot be stretched at all, mid-paragraph or not).
 func TestTUIWrapAndJustifyLeavesTheLastLineRagged(t *testing.T) {
 	got := tuiWrapAndJustify("alpha beta gamma delta epsilon zeta", 11)
@@ -3895,17 +4034,17 @@ func TestTUIJustifyHelpLinesPreservesBulletMarkerAndIndent(t *testing.T) {
 }
 
 // TestTUIDetailWrappedPreservesParagraphBreaks guards against
-// tuiDetailWrapped's own sanitisation collapsing "\n" to a space before the
-// value ever reaches tuiWrapText's paragraph-splitting branch above — the
+// detailWrappedForTest's own sanitisation collapsing "\n" to a space before the
+// value ever reaches output.Wrap's paragraph-splitting branch above — the
 // trap that made a real multi-paragraph vendor description render as one
 // run-on block on the actual detail screen even though
 // TestTUIWrapTextHandlesDegenerateInput, on the lower-level helper, was
 // green throughout.
 func TestTUIDetailWrappedPreservesParagraphBreaks(t *testing.T) {
-	got := tuiDetailWrapped("first paragraph.\n\nsecond paragraph.", 40)
+	got := detailWrappedForTest("first paragraph.\n\nsecond paragraph.", 40)
 	want := []string{"  first paragraph.", "  ", "  second paragraph."}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("tuiDetailWrapped = %q, want two indented paragraph blocks separated by a blank line: %q", got, want)
+		t.Fatalf("detailWrappedForTest = %q, want two indented paragraph blocks separated by a blank line: %q", got, want)
 	}
 }
 
@@ -3931,7 +4070,7 @@ func tuiDetailTestModel() model.Model {
 // TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels: every value it carries
 // is deliberately ASCII/English, unlike tuiDetailTestModel above whose Note
 // field is genuinely Russian curated prose (out of scope for translation —
-// see tuiDetailWrappedForLang) and whose empty License falls back to the
+// see detailWrappedForTestForLang) and whose empty License falls back to the
 // raw, untranslated OpenWeights value (see tuiDetailLicenseForLang; the
 // "Open weights" line itself does translate its bare "да"/"нет" boolean —
 // see tuiDetailOpenWeightsForLang — but this fixture's own OpenWeights is
@@ -3982,7 +4121,7 @@ func tuiDetailIndex(t *testing.T, lines []string, prefix string) int {
 
 func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
-	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, now)
+	lines := detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 100, now)
 	joined := strings.Join(lines, "\n")
 
 	if lines[0] != "GPT-5.6 Luna (openai/gpt-5.6-luna)" {
@@ -3990,7 +4129,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Производитель: 🌀 OpenAI (C)",
-		"Провайдер: n/a",
+		"Провайдер: н/д",
 		"Лицензия: нет",
 		"Описание:",
 		"Тир: opus",
@@ -4013,7 +4152,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		}
 	}
 
-	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Тир:", "Task fit:", "-- Pricing --", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Дата релиза:", "Описание:", "Заметка:"}
+	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Тир:", "Task fit:", "-- Цены --", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Дата релиза:", "Описание:", "Заметка:"}
 	previous := -1
 	for _, prefix := range order {
 		index := tuiDetailIndex(t, lines, prefix)
@@ -4035,12 +4174,12 @@ func TestTUIDetailPricingShowsOnlyRecordedPriceChanges(t *testing.T) {
 		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"openai/gpt-5.6-luna": base}},
 		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{"openai/gpt-5.6-luna": changed}},
 	}}
-	lines := tuiDetailLinesWithHistory(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now(), history)
+	lines := detailLinesWithHistoryForTest(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now(), history)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "Динамика цен:") || !strings.Contains(joined, "2026-08-02: $0.5/$3, 1000K -> $0.5/$3, 1000K; long-context $1/$4 от 272K+") {
 		t.Fatalf("pricing history is missing the recorded change:\n%s", joined)
 	}
-	withoutHistory := strings.Join(tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now()), "\n")
+	withoutHistory := strings.Join(detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now()), "\n")
 	if strings.Contains(withoutHistory, "Динамика цен:") {
 		t.Fatalf("detail invented pricing history without observations:\n%s", withoutHistory)
 	}
@@ -4052,7 +4191,7 @@ func TestTUIDetailPricingShowsOnlyRecordedPriceChanges(t *testing.T) {
 // screen is the only place that shows both at once, which is allowed
 // precisely because each has its own heading naming its own scale.
 func TestTUIDetailLinesKeepTheTwoScoreSourcesApart(t *testing.T) {
-	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
+	lines := detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
 	swe := tuiDetailIndex(t, lines, "Оценка SWE-bench Verified")
 	arena := tuiDetailIndex(t, lines, "Оценка LMArena")
 	if swe >= arena {
@@ -4077,7 +4216,7 @@ func TestTUIDetailLinesKeepTheTwoScoreSourcesApart(t *testing.T) {
 }
 
 func TestTUIDetailLinesKeepCanonicalTierMetadataWithoutDuplicates(t *testing.T) {
-	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
+	lines := detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 100, time.Now())
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{"Тир: opus", "Claude-референс: ≈ Opus 4.6"} {
 		if strings.Count(joined, want) != 1 {
@@ -4098,7 +4237,7 @@ func TestTUIDetailLinesKeepCanonicalTierMetadataWithoutDuplicates(t *testing.T) 
 // Verified percentage.
 func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 	projected := model.ForScoreSource([]model.Model{tuiDetailTestModel()}, scoreSourceArena)[0]
-	lines := tuiDetailLines(projected, scoreSourceArena, 100, time.Now())
+	lines := detailLinesForTest(projected, scoreSourceArena, 100, time.Now())
 	swe := tuiDetailIndex(t, lines, "Оценка SWE-bench Verified")
 	arena := tuiDetailIndex(t, lines, "Оценка LMArena")
 	if swe >= arena {
@@ -4108,7 +4247,7 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 	if strings.Contains(block, "1453 Elo") || strings.Contains(block, "arena.ai") {
 		t.Fatalf("the arena-mode SWE-bench block carries Arena data:\n%s", block)
 	}
-	if !strings.Contains(block, "n/a") {
+	if !strings.Contains(block, "н/д") {
 		t.Errorf("the arena-mode SWE-bench block must say н/д instead of borrowing the other scale:\n%s", block)
 	}
 	if !strings.Contains(strings.Join(lines[arena:], "\n"), "1453 Elo") {
@@ -4117,9 +4256,9 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 }
 
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
-	lines := tuiDetailLines(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
+	lines := detailLinesForTest(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: ❔", "Провайдер: n/a", "Лицензия: n/a", "Описание:", "Тир: n/a", "Claude-референс: n/a", "Дата релиза: n/a", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: n/a", "Открытые веса: n/a", "Task fit: n/a"} {
+	for _, want := range []string{"Производитель: ❔", "Провайдер: н/д", "Лицензия: н/д", "Описание:", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
@@ -4127,7 +4266,7 @@ func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	if strings.Contains(joined, "Длинный контекст") {
 		t.Errorf("a model without a long-context tier must not get that block at all:\n%s", joined)
 	}
-	if lines[len(lines)-1] != "  n/a" {
+	if lines[len(lines)-1] != "  н/д" {
 		t.Errorf("an empty description = %q, want the placeholder", lines[len(lines)-1])
 	}
 }
@@ -4161,16 +4300,16 @@ func TestTUIDetailAgeUsesRussianPluralForms(t *testing.T) {
 func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	row := tuiDetailTestModel()
 	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
-	narrow := tuiDetailMaxOffset(row, scoreSourceSWEBench, 30, 10)
-	wide := tuiDetailMaxOffset(row, scoreSourceSWEBench, 200, 10)
+	narrow := detailMaxOffsetForTest(row, scoreSourceSWEBench, 30, 10)
+	wide := detailMaxOffsetForTest(row, scoreSourceSWEBench, 200, 10)
 	if narrow <= wide {
 		t.Fatalf("max offset must grow as the screen narrows and the text wraps into more lines: narrow=%d wide=%d", narrow, wide)
 	}
-	if got := tuiDetailMaxOffset(row, scoreSourceSWEBench, 200, 1000); got != 0 {
+	if got := detailMaxOffsetForTest(row, scoreSourceSWEBench, 200, 1000); got != 0 {
 		t.Errorf("max offset on a viewport taller than the content = %d, want 0", got)
 	}
-	lines := tuiDetailLines(row, scoreSourceSWEBench, 30, time.Now())
-	if want := len(lines) - tuiDetailBodyHeight(10); narrow != want {
+	lines := detailLinesForTest(row, scoreSourceSWEBench, 30, time.Now())
+	if want := len(lines) - max(1, 10-2); narrow != want {
 		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
 	}
 }
@@ -4182,7 +4321,7 @@ func TestTUIDetailOffsetClampsAfterRefreshAndResize(t *testing.T) {
 	m.generation = 1
 	next, _ := m.Update(tuiRefreshMsg{generation: 1, scoreSourceGeneration: m.scoreSourceGeneration, models: []model.Model{row}})
 	m = next.(tuiModel)
-	if maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height); m.detailOffset != maxOffset {
+	if maxOffset := detailMaxOffsetForTest(row, m.scoreSource, m.width, m.height); m.detailOffset != maxOffset {
 		t.Fatalf("detail offset after refresh = %d, want %d", m.detailOffset, maxOffset)
 	}
 	next, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 1000})
@@ -4201,17 +4340,17 @@ func TestTUIDetailScrollAccountsForPricingHistory(t *testing.T) {
 		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: base}},
 		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: changed}},
 	}}
-	lines := tuiDetailLinesWithHistory(row, scoreSourceSWEBench, 30, time.Now(), history)
-	want := max(0, len(lines)-tuiDetailBodyHeight(10))
-	if got := tuiDetailMaxOffsetWithHistory(row, scoreSourceSWEBench, 30, 10, history); got != want {
+	lines := detailLinesWithHistoryForTest(row, scoreSourceSWEBench, 30, time.Now(), history)
+	want := max(0, len(lines)-max(1, 10-2))
+	if got := detailMaxOffsetWithHistoryForTest(row, scoreSourceSWEBench, 30, 10, history); got != want {
 		t.Fatalf("history-aware max offset = %d, want %d", got, want)
 	}
 }
 
 func TestTUIDetailGroupsDataAndAlignsWideRows(t *testing.T) {
-	lines := tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 200, time.Now())
+	lines := detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 200, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, marker := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Fit and notes --"} {
+	for _, marker := range []string{"-- Идентичность --", "-- Цены --", "-- Бенчмарки --", "-- Соответствие и заметки --"} {
 		if !strings.Contains(joined, marker) {
 			t.Fatalf("detail view is missing section marker %q:\n%s", marker, joined)
 		}
@@ -4256,7 +4395,7 @@ func TestTUIDetailKeepsPlainContentAtNarrowWidths(t *testing.T) {
 // and pricing block.
 func TestTUIDetailLinesShowBothModelLinks(t *testing.T) {
 	row := tuiDetailTestModel()
-	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	lines := detailLinesForTest(row, scoreSourceSWEBench, 100, time.Now())
 	joined := strings.Join(lines, "\n")
 
 	for _, want := range []string{
@@ -4286,7 +4425,7 @@ func TestTUIDetailLinesShowBothModelLinks(t *testing.T) {
 // point at a 404 and sometimes, worse, at a different variant's page.
 func TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug(t *testing.T) {
 	row := tuiDetailTestModel()
-	lines := tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now())
+	lines := detailLinesForTest(row, scoreSourceSWEBench, 100, time.Now())
 	link := lines[tuiDetailIndex(t, lines, "Страница OpenRouter:")]
 	if want := "Страница OpenRouter: https://openrouter.ai/" + row.CanonicalSlug; link != want {
 		t.Fatalf("link line = %q, want %q", link, want)
@@ -4304,7 +4443,7 @@ func TestTUIDetailLinesBuildTheOpenRouterLinkFromTheCanonicalSlug(t *testing.T) 
 func TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository(t *testing.T) {
 	row := tuiDetailTestModel()
 	row.HuggingFaceID = ""
-	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	joined := strings.Join(detailLinesForTest(row, scoreSourceSWEBench, 100, time.Now()), "\n")
 	if strings.Contains(joined, "HuggingFace") {
 		t.Errorf("a model with no repository must not mention HuggingFace at all, not even as н/д:\n%s", joined)
 	}
@@ -4321,7 +4460,7 @@ func TestTUIDetailLinesOmitTheHuggingFaceLineWithoutARepository(t *testing.T) {
 func TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug(t *testing.T) {
 	row := tuiDetailTestModel()
 	row.CanonicalSlug = ""
-	joined := strings.Join(tuiDetailLines(row, scoreSourceSWEBench, 100, time.Now()), "\n")
+	joined := strings.Join(detailLinesForTest(row, scoreSourceSWEBench, 100, time.Now()), "\n")
 	if !strings.Contains(joined, "Страница OpenRouter: https://openrouter.ai/"+row.Slug) {
 		t.Errorf("an empty canonical slug must fall back to the stable model id URL:\n%s", joined)
 	}
@@ -4329,14 +4468,14 @@ func TestTUIDetailLinesShowThePlaceholderForAMissingCanonicalSlug(t *testing.T) 
 
 // TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine checks that the
 // conditional line is counted by the scrolling maths rather than
-// hardcoded anywhere: tuiDetailMaxOffset derives the limit from the lines
+// hardcoded anywhere: detailMaxOffsetForTest derives the limit from the lines
 // actually built for this model.
 func TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine(t *testing.T) {
 	withRepo := tuiDetailTestModel()
 	without := tuiDetailTestModel()
 	without.HuggingFaceID = ""
-	got := tuiDetailMaxOffset(withRepo, scoreSourceSWEBench, 100, 10)
-	want := tuiDetailMaxOffset(without, scoreSourceSWEBench, 100, 10)
+	got := detailMaxOffsetForTest(withRepo, scoreSourceSWEBench, 100, 10)
+	want := detailMaxOffsetForTest(without, scoreSourceSWEBench, 100, 10)
 	if got != want+1 {
 		t.Fatalf("max offset with a repository = %d, without = %d, want exactly one line of difference", got, want)
 	}
@@ -4393,8 +4532,8 @@ func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 10
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
-	total := len(tuiDetailLines(m.visible[0], m.scoreSource, m.width, time.Now()))
-	body := tuiDetailBodyHeight(m.height)
+	total := len(detailLinesForTest(m.visible[0], m.scoreSource, m.width, time.Now()))
+	body := max(1, m.height-2)
 	if want := fmt.Sprintf("Detail 1-%d/%d · ↑↓ scroll · Esc close", body, total); !strings.HasPrefix(lines[len(lines)-1], want) {
 		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)
 	}
@@ -4467,7 +4606,7 @@ func TestTUIStyleDetailLineNeverTouchesAnAlreadyStyledLine(t *testing.T) {
 // the feature's central invariant: styling adds colour and nothing else.
 func TestTUIStyleDetailLineChangesNoVisibleCharacter(t *testing.T) {
 	tuiForceColorProfile(t)
-	for _, line := range tuiDetailLines(tuiDetailTestModel(), scoreSourceSWEBench, 60, time.Now()) {
+	for _, line := range detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 60, time.Now()) {
 		if got := ansi.Strip(tuiStyleDetailLine(line)); got != line {
 			t.Errorf("styling changed the text of %q into %q", line, got)
 		}
@@ -4476,7 +4615,7 @@ func TestTUIStyleDetailLineChangesNoVisibleCharacter(t *testing.T) {
 
 // TestTUIDetailViewStylingLeavesTheLayoutUntouched is the central test of
 // this feature. The detail screen's whole width arithmetic —
-// tableDisplayWidth, truncateTable, tuiWrapText, plainTableText — is
+// tableDisplayWidth, truncateTable, output.Wrap, plainTableText — is
 // ANSI-unaware: it would count escape bytes as visible columns, cut a
 // line mid-escape and leave "[38;5;87m" on screen as text. The design
 // answer is to style strictly after all of that, as a pass over finished
@@ -4657,7 +4796,7 @@ func TestTUIDetailOverlayScrollsWithinItsBounds(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.width, m.height = 60, 10
 	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
-	maxOffset := tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height)
+	maxOffset := detailMaxOffsetForTest(row, m.scoreSource, m.width, m.height)
 	if maxOffset == 0 {
 		t.Fatal("test setup: the fixture must be taller than the viewport")
 	}
@@ -4706,7 +4845,7 @@ func TestTUIDetailNavigationUsesHistoryAwareBounds(t *testing.T) {
 	}}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.priceHistory, m.width, m.height, m.overlay = history, 60, 10, "detail"
-	maxOffset := tuiDetailMaxOffsetWithHistory(row, m.scoreSource, m.width, m.height, history)
+	maxOffset := detailMaxOffsetWithHistoryForTest(row, m.scoreSource, m.width, m.height, history)
 	for _, msg := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyPgDown}, {Type: tea.KeyEnd}} {
 		m, _ = m.key(msg)
 	}
@@ -4855,11 +4994,12 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 		0x002E: "/", // .
 		0x002C: "?", // ,
 	}
-	if len(tuiLayoutAliases) != len(golden) {
-		t.Fatalf("alias table has %d entries, want the %d golden pairs", len(tuiLayoutAliases), len(golden))
+	aliases := input.LayoutAliases()
+	if len(aliases) != len(golden) {
+		t.Fatalf("alias table has %d entries, want the %d golden pairs", len(aliases), len(golden))
 	}
 	for code, want := range golden {
-		got, ok := tuiLayoutAliases[code]
+		got, ok := aliases[code]
 		if !ok {
 			t.Fatalf("alias table has no entry for U+%04X (%q), want the command %q", code, code, want)
 		}
@@ -4868,7 +5008,7 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 		}
 	}
 	commands := map[string]rune{}
-	for alias, command := range tuiLayoutAliases {
+	for alias, command := range aliases {
 		if alias < utf8.RuneSelf && unicode.IsLetter(alias) {
 			t.Fatalf("alias %q (U+%04X) is an ASCII letter; a Latin letter must never be an alias key", alias, alias)
 		}
@@ -4882,7 +5022,7 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 			t.Fatalf("aliases %q and %q both map to the command %q", previous, alias, command)
 		}
 		commands[command] = alias
-		if got := tuiCommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(command)}); got != command {
+		if got := input.CommandKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(command)}); got != command {
 			t.Fatalf("tuiCommandKey is not idempotent on the command %q: it returned %q", command, got)
 		}
 	}
@@ -4978,7 +5118,7 @@ func tuiShortcutDetailModel(t *testing.T) tuiModel {
 	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.width, m.height = 60, 10
-	if tuiDetailMaxOffset(row, m.scoreSource, m.width, m.height) < 2 {
+	if detailMaxOffsetForTest(row, m.scoreSource, m.width, m.height) < 2 {
 		t.Fatal("test setup: the detail fixture must be at least two lines taller than the viewport")
 	}
 	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
@@ -5091,13 +5231,13 @@ func TestTUIShortcutCasesCoverAllAliases(t *testing.T) {
 		}
 		tested[runes[0]] = true
 	}
-	for alias := range tuiLayoutAliases {
+	for alias := range input.LayoutAliases() {
 		if !tested[alias] {
 			t.Errorf("alias %q (U+%04X) has no case in tuiShortcutCases()", alias, alias)
 		}
 	}
 	for alias := range tested {
-		if _, ok := tuiLayoutAliases[alias]; !ok {
+		if _, ok := input.LayoutAliases()[alias]; !ok {
 			t.Errorf("tuiShortcutCases() exercises russian rune %q (U+%04X), which is not a key in tuiLayoutAliases", alias, alias)
 		}
 	}
@@ -5868,7 +6008,7 @@ func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 }
 
 // TestTUIDetailOverlayEnglishModeTranslatesFieldLabels reproduces the
-// reported bug directly against tuiDetailLinesForLang: with English
+// reported bug directly against detailLinesForLangForTest: with English
 // selected (lang == ""), every field label inside the Identity, Pricing,
 // Benchmarks and Provenance/Fit blocks stayed hardcoded Russian — only the
 // five "-- Section --" headers and the value-side placeholder actually
@@ -5878,7 +6018,7 @@ func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 // here, English text present and the old Russian label text gone.
 func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 	now := time.Unix(1786034890, 0).UTC().AddDate(0, 0, 64)
-	lines := tuiDetailLinesForLang(tuiDetailTestModel(), scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "")
+	lines := detailLinesForLangForTest(tuiDetailTestModel(), scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "")
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"Manufacturer: 🌀 OpenAI (C)",
@@ -5938,7 +6078,7 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 // value-side leaks left behind by the label fix in
 // TestTUIDetailOverlayEnglishModeTranslatesFieldLabels: "Open weights: нет"
 // and "Claude reference: _нужен обзор_" stayed hardcoded Russian in English
-// mode even after PR #34, because both live in tuiDetailLinesForLang's
+// mode even after PR #34, because both live in detailLinesForLangForTest's
 // ForLang chain as raw *values* (notes.yaml curated data), not as one of the
 // field *labels* that fix translated.
 //
@@ -5959,7 +6099,7 @@ func TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues(t *testing.T) {
 	m := tuiDetailTestModel()
 	m.ClaudeRef = notes.NeedsReview // no manual Claude-tier reference note yet
 
-	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	english := strings.Join(detailLinesForLangForTest(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
 	for _, want := range []string{"Open weights: no", "Claude reference: _needs review_"} {
 		if !strings.Contains(english, want) {
 			t.Errorf("English detail lines are missing %q:\n%s", want, english)
@@ -5972,7 +6112,7 @@ func TestTUIDetailOverlayTranslatesOpenWeightsAndClaudeRefValues(t *testing.T) {
 	}
 
 	// Russian mode is unaffected: both values render exactly as before.
-	russian := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
+	russian := strings.Join(detailLinesForLangForTest(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
 	for _, want := range []string{"Открытые веса: нет", "Claude-референс: " + notes.NeedsReview} {
 		if !strings.Contains(russian, want) {
 			t.Errorf("Russian detail lines regressed on %q:\n%s", want, russian)
@@ -5992,7 +6132,7 @@ func TestTUIDetailOverlayLeavesAnnotatedOpenWeightsUntranslated(t *testing.T) {
 	m := tuiDetailTestModel()
 	m.OpenWeights = "да, Apache 2.0"
 
-	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	english := strings.Join(detailLinesForLangForTest(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
 	if !strings.Contains(english, "Open weights: да, Apache 2.0") {
 		t.Errorf("English detail lines should leave the annotated open_weights value untranslated:\n%s", english)
 	}
@@ -6015,7 +6155,7 @@ func TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel(t *testing.T) 
 	m.OpenWeights = notes.NeedsReview // no notes.yaml entry for this model at all
 	m.License = ""                    // unset, so it falls back to OpenWeights
 
-	english := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
+	english := strings.Join(detailLinesForLangForTest(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), ""), "\n")
 	for _, want := range []string{"Open weights: _needs review_", "License: _needs review_"} {
 		if !strings.Contains(english, want) {
 			t.Errorf("English detail lines are missing %q:\n%s", want, english)
@@ -6028,7 +6168,7 @@ func TestTUIDetailOverlayTranslatesOpenWeightsNeedsReviewSentinel(t *testing.T) 
 	}
 
 	// Russian mode is unaffected: both values render exactly as before.
-	russian := strings.Join(tuiDetailLinesForLang(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
+	russian := strings.Join(detailLinesForLangForTest(m, scoreSourceSWEBench, 120, now, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps(), "ru"), "\n")
 	for _, want := range []string{"Открытые веса: " + notes.NeedsReview, "Лицензия: " + notes.NeedsReview} {
 		if !strings.Contains(russian, want) {
 			t.Errorf("Russian detail lines regressed on %q:\n%s", want, russian)

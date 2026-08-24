@@ -213,7 +213,7 @@ func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 		t.Fatalf("detail did not render configured gap: %q", ansi.Strip(m.View()))
 	}
 	m = tuiKey(m, "G")
-	wantOffset := tuiDetailMaxOffsetForLang(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
+	wantOffset := detailMaxOffsetForLangForTest(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
 	if m.detailOffset != wantOffset {
 		t.Fatalf("configured detail offset = %d, want rendered max offset %d", m.detailOffset, wantOffset)
 	}
