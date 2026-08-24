@@ -3,7 +3,11 @@
 ## [Unreleased]
 
 - Continue improving terminal rendering and selection behavior.
-- Return complete TUI frames across view transitions and keep model detail label/value rows independent from list-table geometry.
+
+## [1.15.0]
+
+- Return complete TUI frames across view transitions so detail and list screens cannot retain stale terminal content.
+- Keep model detail label/value rows independent from list-table geometry while preserving selection behavior across rendered frames.
 
 ## [1.14.50]
 

@@ -480,7 +480,7 @@ func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
 			if tui := tuiCellWithIconsAndGap(row, colName, false, scoreSourceDefault, icons, gap); tui != got {
 				t.Fatalf("gap=%d %s TUI bytes = % x, want %x", gap, rowData.name, []byte(tui), []byte(got))
 			}
-			if detail := tuiDetailLinesWithHistoryAndIconsAndGap(row, scoreSourceDefault, 80, time.Unix(0, 0), nil, icons, gap); !strings.Contains(strings.Join(detail, "\n"), "Производитель: "+got[:strings.Index(got, " "+row.DisplayName)]) {
+			if detail := detailLinesWithHistoryAndIconsAndGapForTest(row, scoreSourceDefault, 80, time.Unix(0, 0), nil, icons, gap); !strings.Contains(strings.Join(detail, "\n"), "Производитель: "+got[:strings.Index(got, " "+row.DisplayName)]) {
 				t.Fatalf("gap=%d %s detail does not contain %q", gap, rowData.name, got)
 			}
 		}

@@ -7,12 +7,16 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tui/screen"
+	"github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
 )
 
 func TestAlignmentCLIWidthContractMatrix(t *testing.T) {
@@ -212,15 +216,10 @@ func TestAlignmentDetailGapAndNavigationContract(t *testing.T) {
 	if !strings.Contains(configuredView, "Manufacturer: ?") {
 		t.Fatalf("detail did not render configured gap: %q", ansi.Strip(m.View()))
 	}
-	legacy := m
-	legacy.iconGaps = nil
-	legacy, _ = legacy.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
-	if legacy.detailOffset == 0 {
-		t.Fatalf("legacy detail navigation did not reach a later page: view=%q", ansi.Strip(legacy.View()))
-	}
 	m = tuiKey(m, "G")
-	if m.detailOffset <= legacy.detailOffset {
-		t.Fatalf("configured vendor gap did not increase navigable detail content: configured=%d legacy=%d", m.detailOffset, legacy.detailOffset)
+	wantOffset := detailMaxOffsetForLangForTest(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
+	if m.detailOffset != wantOffset {
+		t.Fatalf("configured detail offset = %d, want rendered max offset %d", m.detailOffset, wantOffset)
 	}
 	lastView := ansi.Strip(m.View())
 	if !strings.Contains(lastView, "FINAL-NOTE") || !strings.Contains(lastView, "Detail ") {
@@ -290,6 +289,57 @@ func TestTUIDetailFrameHasExactIndependentLinesAndClearsRightEdge(t *testing.T) 
 	}
 	if strings.Contains(plain, "SWE %") || strings.Contains(plain, "openai/test |") {
 		t.Fatalf("detail frame retained list content:\n%s", plain)
+	}
+}
+
+func TestTUIDetailAcceptanceFrameKeepsLongBlocksOnOwnedRows(t *testing.T) {
+	row := model.Model{
+		Slug: "provider/model-cjk-🙂", DisplayName: "中文 model with a deliberately long name", Owner: "Acme", Provider: "provider-with-a-long-name", Tier: "sonnet", Context: 128000, InPerM: 1.2, OutPerM: 4.5,
+		Description: strings.Repeat("long description with 中文 and emoji 🙂 ", 12), Note: strings.Repeat("note text ", 8), CanonicalSlug: "provider/model-cjk-🙂", HuggingFaceID: "org/model-with-a-very-long-repository-name", MetadataSourceURL: "https://metadata.example.test/catalogue/provider/model-cjk-🙂",
+		Score: &model.ScoreInfo{Value: 96.2}, ScoreLabel: "96.2%", ArenaScore: &model.ScoreInfo{Value: 1234}, ArenaLabel: "1234", TaskFit: []string{"I", "P", "R"},
+	}
+	history := &pricehistory.History{Observations: []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: {Found: true, InPerM: 1, OutPerM: 4, Context: row.Context}}},
+		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: {Found: true, InPerM: 2, OutPerM: 8, Context: row.Context}}},
+	}}
+	for _, tc := range []struct {
+		lang          string
+		width, height int
+	}{{"", 44, 18}, {"ru", 57, 24}, {"", 160, 30}} {
+		m := detailModelForTest(row, scoreSourceSWEBench, tc.width, history, config.IconConfig{Unknown: "界"}, 1, nil)
+		m.columns = []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}
+		m.lang, m.overlay = tc.lang, "detail"
+		m.height = tc.height
+		m.visible, m.cursor = []model.Model{row}, 0
+		m.screenController = screen.New(nil)
+		var rendered strings.Builder
+		lines := m.detailLines(row)
+		maxOffset := output.Detail(output.DetailData{Width: tc.width, Height: tc.height, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
+		for offset := 0; offset <= maxOffset; offset++ {
+			m.detailOffset = offset
+			viewLines := strings.Split(ansi.Strip(m.View()), "\n")
+			if len(viewLines) != tc.height {
+				t.Fatalf("%s %dx%d offset=%d: rows=%d, want %d", tc.lang, tc.width, tc.height, offset, len(viewLines), tc.height)
+			}
+			for i, line := range viewLines {
+				if tableDisplayWidth(line) > tc.width {
+					t.Fatalf("%s %dx%d row %d width=%d: %q", tc.lang, tc.width, tc.height, i, tableDisplayWidth(line), line)
+				}
+			}
+			rendered.WriteString(strings.Join(viewLines, "\n"))
+			rendered.WriteByte('\n')
+		}
+		historyHeading := "Price history:"
+		if tc.lang == "ru" {
+			historyHeading = "Динамика цен:"
+		}
+		if !strings.Contains(rendered.String(), historyHeading) || !strings.Contains(rendered.String(), "SWE-bench") {
+			t.Fatalf("%s detail omitted acceptance blocks", tc.lang)
+		}
+		m, _ = m.key(tea.KeyMsg{Type: tea.KeyEscape})
+		if got := strings.Split(ansi.Strip(m.View()), "\n"); len(got) != tc.height || m.overlay != "" {
+			t.Fatalf("%s detail-to-list transition corrupted frame", tc.lang)
+		}
 	}
 }
 

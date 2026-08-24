@@ -25,6 +25,11 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
+	tuiclipboard "github.com/sboborikin/openrouter-model-tracker/internal/tui/clipboard"
+	tuiinput "github.com/sboborikin/openrouter-model-tracker/internal/tui/input"
+	tuiscreen "github.com/sboborikin/openrouter-model-tracker/internal/tui/screen"
+	tuioutput "github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
+	tuiselection "github.com/sboborikin/openrouter-model-tracker/internal/tui/selection"
 	"golang.org/x/term"
 )
 
@@ -70,7 +75,7 @@ var (
 	tuiCurrentMatchStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("124"))
 )
 
-// tuiLayoutAliases приводит символ, который физическая клавиша печатает в
+// Russian layout aliases translate the rune printed by a physical key in
 // русской раскладке ЙЦУКЕН, к той же команде, что и её латинский символ в US
 // QWERTY. Таблица статическая и намеренно захардкожена: активная раскладка
 // клавиатуры живёт в оконном менеджере ОС и процессу недоступна, а LANG и
@@ -84,45 +89,6 @@ var (
 // латинских букв сама является хоткеем, поэтому каждая запись несёт кодовую
 // точку и латинскую клавишу-источник. Особенно коварна 'р' -> "h": при беглом
 // чтении выглядит как отображение в "p".
-var tuiLayoutAliases = map[rune]string{
-	'ч': "x", // U+0447, физическая позиция латинской x
-	'л': "k", // U+043B, физическая позиция латинской k
-	'о': "j", // U+043E, физическая позиция латинской j (омоглиф латинской o)
-	'щ': "o", // U+0449, physical position of Latin o
-	'п': "g", // U+043F, физическая позиция латинской g
-	'П': "G", // U+041F, физическая позиция латинской G
-	'р': "h", // U+0440, физическая позиция латинской h (омоглиф латинской p)
-	'д': "l", // U+0434, физическая позиция латинской l
-	'ы': "s", // U+044B, физическая позиция латинской s
-	'Ы': "S", // U+042B, физическая позиция латинской S
-	'ь': "m", // U+044C, физическая позиция латинской m
-	'с': "c", // U+0441, физическая позиция латинской c (омоглиф латинской c)
-	'т': "n", // U+0442, физическая позиция латинской n
-	'а': "f", // U+0430, физическая позиция латинской f (омоглиф латинской a)
-	'й': "q", // U+0439, физическая позиция латинской q
-	'з': "p", // U+0437, физическая позиция латинской p
-	'к': "r", // U+043A, физическая позиция латинской r (омоглиф латинской k)
-	'К': "R", // U+041A, физическая позиция латинской R (омоглиф латинской K)
-	'.': "/", // ЙЦУКЕН печатает точку на клавише US QWERTY со слэшем
-	',': "?", // та же клавиша с Shift
-}
-
-// tuiCommandKey нормализует нажатие в командную строку, подменяя кириллицу
-// раскладочным алиасом. Alt-модификатор и вставка из буфера (bracketed paste)
-// обязаны пройти мимо таблицы алиасов и попасть в msg.String() как есть: сам
-// String() добавляет им префикс "alt+" и оборачивает paste в "[...]" именно
-// затем, чтобы модифицированное или вставленное нажатие никогда не спутали с
-// голой командной клавишей (см. комментарий в key.go bubbletea). Таблица
-// алиасов не должна отбирать эту защиту у пользователей русской раскладки.
-func tuiCommandKey(msg tea.KeyMsg) string {
-	if len(msg.Runes) == 1 && !msg.Alt && !msg.Paste {
-		if command, ok := tuiLayoutAliases[msg.Runes[0]]; ok {
-			return command
-		}
-	}
-	return msg.String()
-}
-
 type tuiRefreshMsg struct {
 	generation            uint64
 	scoreSourceGeneration uint64
@@ -217,12 +183,8 @@ type tuiModel struct {
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
-	selection             tuiSelection
-	clipboardToken        uint64
-	clipboardPending      bool
-	clipboardWrite        func(string) error
-	clipboardState        *tuiClipboardState
-	clipboardOutput       io.Writer
+	selection             tuiselection.State
+	frameToken            uint64
 	// lang selects the TUI's display language: "" (the zero value) means
 	// English, today's only behaviour and the persisted default; "ru" means
 	// Russian. Keeping "" as English rather than adding an explicit
@@ -230,12 +192,13 @@ type tuiModel struct {
 	// without tui_language — render exactly like before this field existed.
 	// Toggled at runtime with l (see the language_toggle keymap action) and
 	// persisted via config.SaveTUILanguage.
-	lang string
+	lang             string
+	screenController *tuiscreen.Controller
 }
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), iconGaps: config.DefaultIconGaps(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), iconGaps: config.DefaultIconGaps(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1, screenController: tuiscreen.New(nil)}
 	m.updatedAt = loadLocalUpdatedAt(dataDir)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -300,9 +263,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if width, height := tuiTerminalSize(out); width > 0 && height > 0 {
 		m.width, m.height = width, height
 	}
-	synchronizedOutput := &tuiSynchronizedWriter{out: out}
-	m.clipboardOutput = synchronizedOutput
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(&tuiFrameWriter{out: synchronizedOutput}))
+	synchronizedOutput := tuiclipboard.NewSynchronized(out)
+	m.screenController.SetWriter(func(text string) error { return tuiclipboard.System(text, synchronizedOutput) })
+	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
 	_, err = p.Run()
 	return err
 }
@@ -349,6 +312,7 @@ func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Opt
 }
 
 func (m *tuiModel) rebuild() {
+	m.invalidateSelection()
 	visible, separator, err := m.buildVisible()
 	if err != nil {
 		m.err = err.Error()
@@ -359,6 +323,24 @@ func (m *tuiModel) rebuild() {
 	m.err = ""
 	m.visible, m.topSeparator = visible, separator
 	m.restoreSelection()
+}
+
+func (m *tuiModel) invalidateSelection() {
+	if m.screenController == nil {
+		return
+	}
+	m.frameToken++
+	m.screenController.SetFrameToken(m.frameToken)
+	m.selection = m.screenController.Selection.Snapshot()
+}
+
+func (m *tuiModel) advanceFrame() {
+	if m.screenController == nil {
+		m.screenController = tuiscreen.New(nil)
+	}
+	m.frameToken++
+	m.screenController.SetFrameToken(m.frameToken)
+	m.selection = m.screenController.Selection.Snapshot()
 }
 
 func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
@@ -531,6 +513,7 @@ func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
 		source = scoreSourceSWEBench
 	}
 	m.status, m.err = m.t("loading ")+source+m.t(" from local snapshot..."), ""
+	m.advanceFrame()
 	m.pendingScoreSource = source
 	return m, m.scoreSourceCmd(source)
 }
@@ -548,7 +531,7 @@ func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
 // content is too large and structural for a flat string table, and the
 // Model Detail overlay has its own *ForLang helper family, since almost
 // all of its labels were already unconditionally Russian before this
-// field existed (see tuiDetailLinesForLang).
+// field existed.
 func (m tuiModel) t(en string) string {
 	if m.lang != "ru" {
 		return en
@@ -641,23 +624,43 @@ func (m tuiModel) keyMatches(context, action, key string) bool {
 	return false
 }
 
+func (m tuiModel) selectionContext() string { return m.overlay + "\x00" + m.inputMode }
+
+func (m tuiModel) renderedFrame() []string { return strings.Split(ansi.Strip(m.baseView()), "\n") }
+
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		return m.updateSelection(msg)
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		m.clampDetailOffset()
-	case tuiClipboardResultMsg:
-		if msg.token != m.clipboardToken {
+	if m.screenController != nil {
+		if token, err, ok := m.screenController.Selection.Result(msg); ok {
+			_ = token
+			if err != nil {
+				m.status = "copy failed: " + err.Error()
+			} else {
+				m.status = "copied selection"
+			}
+			m.advanceFrame()
+			m.selection = m.screenController.Selection.Snapshot()
 			return m, nil
 		}
-		m.clipboardPending = false
-		if msg.err != nil {
-			m.status = "copy failed: " + msg.err.Error()
-		} else {
-			m.status = "copied selection"
+	}
+	if m.screenController == nil {
+		m.screenController = tuiscreen.New(nil)
+	}
+	m.screenController.SetFrameToken(m.frameToken)
+	if event, ok := tuiinput.FromMessage(msg); ok {
+		command, cmd := m.screenController.Handle(event, m.renderedFrame(), m.selectionContext())
+		switch value := command.(type) {
+		case tuiscreen.KeyCommand:
+			return m.key(value)
+		case tuiscreen.ResizeCommand:
+			m.width, m.height = value.Width, value.Height
+			m.advanceFrame()
+			m.clampDetailOffset()
+		case tuiscreen.MouseCommand:
+			m.selection = m.screenController.Selection.Snapshot()
 		}
+		return m, cmd
+	}
+	switch msg := msg.(type) {
 	case tuiTickMsg:
 		if m.interval <= 0 {
 			return m, nil
@@ -668,6 +671,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.generation++
 		m.refreshing = true
+		m.advanceFrame()
 		return m, tea.Batch(m.refreshCmd(), next)
 	case tuiRefreshMsg:
 		if msg.generation != m.generation || msg.scoreSourceGeneration != m.scoreSourceGeneration {
@@ -682,12 +686,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil {
 			m.err = msg.err.Error()
+			m.advanceFrame()
 			return m, nil
 		}
 		m.models, m.err, m.status = msg.models, "", m.t("refreshed")
 		history, err := pricehistory.Load(pricehistory.Path(m.dataDir))
 		if err != nil {
 			m.err = fmt.Sprintf(m.t("price history reload failed: %v"), err)
+			m.advanceFrame()
 			return m, nil
 		}
 		m.priceHistory = history
@@ -722,6 +728,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingScoreSource = ""
 			m.err = fmt.Sprintf(m.t("score source %s: %v"), msg.source, msg.err)
 			m.status = m.t("score source switch failed")
+			m.advanceFrame()
 			return m, nil
 		}
 		m.scoreSourceLoading = false
@@ -730,8 +737,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
 		m.rebuild()
 		m.clampDetailOffset()
-	case tea.KeyMsg:
-		return m.key(msg)
 	}
 	return m, nil
 }
@@ -747,32 +752,64 @@ func (m *tuiModel) closeOverlay() {
 	m.inputMode, m.input = "", ""
 }
 
-func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
+func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
+	msg, ok := tuiKeyCommand(value)
+	if !ok {
+		return m, nil
+	}
+	if m.screenController == nil {
+		m.screenController = tuiscreen.New(nil)
+	}
+	before := m.screenIdentity()
+	next = m
+	defer func() {
+		if next.screenController == nil {
+			return
+		}
+		after := next.screenIdentity()
+		if before != after {
+			next.advanceFrame()
+			if invalidate := next.screenController.Transition(after); invalidate != nil {
+				if cmd == nil {
+					cmd = invalidate
+				} else {
+					cmd = tea.Batch(cmd, invalidate)
+				}
+			}
+		}
+	}()
 	// The universal exit key must never win a race against active text
 	// input: m.inputMode != "" (typing a search or a help search) always
 	// routes to inputKey first, so a literal "x" (or its Cyrillic "ч" alias,
-	// via tuiCommandKey) is inserted into the draft like any other letter —
+	// via the input boundary) is inserted into the draft like any other letter —
 	// e.g. searching for the real model-map.tsv slug "x-ai/grok-4.5" no
 	// longer quits the app the moment "x" is typed. Esc remains the only way
 	// to cancel out of an active text input.
 	if m.inputMode != "" {
 		return m.inputKey(msg)
 	}
-	key := tuiCommandKey(msg)
-	if key == "y" && m.selection.active {
-		return m, m.copyActiveSelection()
+	key := msg.Value
+	if key == "y" && m.selection.Active {
+		if m.screenController == nil {
+			return m, nil
+		}
+		return m, m.screenController.Selection.Copy(m.frameToken)
 	}
-	if m.selection.active {
-		m.clearSelection()
+	m.advanceFrame()
+	if m.selection.Active {
+		if m.screenController != nil {
+			m.screenController.Selection.Clear()
+			m.selection = m.screenController.Selection.Snapshot()
+		}
 	}
 	originalKey := key
 	// x is a hardcoded, always-on universal exit — not part of the
 	// customizable keymap — so it is checked here before any of the
-	// keymap-driven routing below. tuiCommandKey (not raw msg.String())
+	// keymap-driven routing below. The normalized boundary key (not raw input)
 	// makes it Cyrillic-aware: "ч" sits at the physical position of Latin
 	// "x" on a ЙЦУКЕН layout and must close/quit exactly like "x" does,
 	// while still being blocked above whenever text input is active, and
-	// still excluded for Alt/paste (tuiCommandKey never aliases those).
+	// still excluded for Alt/paste (the boundary never aliases those).
 	if key == "x" {
 		if m.overlay != "" {
 			m.closeOverlay()
@@ -781,7 +818,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m, tea.Quit
 	}
 	// language_toggle (l, plus its Cyrillic ЙЦУКЕН-position alias д via
-	// tuiCommandKey) is checked unconditionally here too, the same way x
+	// the input boundary) is checked unconditionally here too, the same way x
 	// is above: it is not gated on m.overlay == "" the way open_settings,
 	// open_details, help and full_help below are, because none of them
 	// share a meaning with l inside any overlay's own switch (checked: no
@@ -883,13 +920,14 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.closeOverlay()
 			return m, nil
 		}
-		maxOffset := tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)
+		maxOffset := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Lines: m.detailLines(row)}).MaxOffset
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
 				break
 			}
 			m.closeOverlay()
+			return m, nil
 		case "up", "k":
 			m.detailOffset = max(0, m.detailOffset-1)
 		case "down", "j":
@@ -917,7 +955,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	switch key {
 	case "ctrl+c":
 		// "x" is handled unconditionally above (translated through
-		// tuiCommandKey, so this covers its Cyrillic "ч" alias too) — it
+		// the input boundary, so this covers its Cyrillic "ч" alias too) — it
 		// never reaches this switch, since m.overlay == "" and m.inputMode
 		// == "" are both already guaranteed by the time control gets here.
 		return m, tea.Quit
@@ -989,7 +1027,8 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		if !m.keyMatches("main", "open_settings", originalKey) {
 			break
 		}
-		m.clearSelection()
+		m.screenController.Selection.Clear()
+		m.selection = m.screenController.Selection.Snapshot()
 		m.overlay, m.settingsCursor = "settings", 0
 	case "?":
 		if !m.keyMatches("main", "help", originalKey) {
@@ -1000,14 +1039,16 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		// It is otherwise identical: fully navigable, and closes the same
 		// way (Esc, or ? again — handled by the overlay == "help" case
 		// above, keyed off help.close, which already includes "?").
-		m.clearSelection()
+		m.screenController.Selection.Clear()
+		m.selection = m.screenController.Selection.Snapshot()
 		m.overlay = "help"
 		m.setHelpSection(2)
 	case "f1":
 		if !m.keyMatches("main", "full_help", originalKey) {
 			break
 		}
-		m.clearSelection()
+		m.screenController.Selection.Clear()
+		m.selection = m.screenController.Selection.Snapshot()
 		m.overlay = "help"
 		m.setHelpSection(0)
 	case "enter", "right":
@@ -1015,8 +1056,10 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			break
 		}
 		if len(m.visible) > 0 {
-			m.clearSelection()
+			m.screenController.Selection.Clear()
+			m.selection = m.screenController.Selection.Snapshot()
 			m.overlay, m.detailOffset = "detail", 0
+			return m, nil
 		}
 	case "q", "r":
 		m.sortKey = map[string]string{"q": "quality", "r": "q/p"}[key]
@@ -1029,6 +1072,7 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			m.generation++
 			m.refreshing = true
 			m.status = m.t("refreshing")
+			m.advanceFrame()
 			return m, m.refreshCmd()
 		}
 	}
@@ -1038,8 +1082,46 @@ func (m tuiModel) key(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m tuiModel) inputKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
-	switch msg.String() {
+func (m tuiModel) screenIdentity() string {
+	if m.overlay == "" {
+		return "list"
+	}
+	return m.overlay
+}
+
+func tuiKeyCommand(value interface{}) (tuiscreen.KeyCommand, bool) {
+	if command, ok := value.(tuiscreen.KeyCommand); ok {
+		return command, true
+	}
+	msg, ok := value.(tea.Msg)
+	if !ok {
+		return tuiscreen.KeyCommand{}, false
+	}
+	event, ok := tuiinput.FromMessage(msg)
+	if !ok || event.Kind != tuiinput.Key {
+		return tuiscreen.KeyCommand{}, false
+	}
+	return tuiscreen.KeyCommand{Value: event.Key.Key, Original: event.Key.Original, Runes: event.Key.Runes}, true
+}
+
+func tuiKeyRunes(value interface{}) []rune {
+	if command, ok := value.(tuiscreen.KeyCommand); ok {
+		return command.Runes
+	}
+	command, ok := tuiKeyCommand(value)
+	if !ok {
+		return nil
+	}
+	return command.Runes
+}
+
+func (m tuiModel) inputKey(value interface{}) (tuiModel, tea.Cmd) {
+	msg, ok := tuiKeyCommand(value)
+	if !ok {
+		return m, nil
+	}
+	m.advanceFrame()
+	switch msg.Value {
 	case "esc":
 		if m.inputMode == "help-search" {
 			m.input = ""
@@ -1168,6 +1250,7 @@ func (m *tuiModel) toggleLanguage() {
 	} else {
 		m.lang = "ru"
 	}
+	m.advanceFrame()
 	if m.configPath == "" {
 		return
 	}
@@ -1226,7 +1309,7 @@ func (m tuiModel) columnKey(key, originalKey string) (tuiModel, tea.Cmd) {
 			break
 		}
 		m.columns, m.overlay = append([]tuiColumn(nil), m.pendingColumns...), ""
-		m.clearSelection()
+		m.advanceFrame()
 	}
 	return m, nil
 }
@@ -1296,7 +1379,10 @@ func tuiAvailabilityFromFilter(value string) string {
 }
 
 func (m *tuiModel) openFilterEditor() {
-	m.clearSelection()
+	if m.screenController != nil {
+		m.screenController.Selection.Clear()
+		m.selection = m.screenController.Selection.Snapshot()
+	}
 	m.overlay = "filter"
 	m.inputMode = ""
 	m.filterCursor = 0
@@ -1307,7 +1393,8 @@ func (m *tuiModel) openFilterEditor() {
 	}
 }
 
-func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
+func (m tuiModel) filterKey(key string, value interface{}) (tuiModel, tea.Cmd) {
+	runes := tuiKeyRunes(value)
 	const filterFields = 11
 	switch key {
 	case "esc":
@@ -1366,9 +1453,9 @@ func (m tuiModel) filterKey(key string, msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "enter":
 		return m.applyFilterDraft()
 	default:
-		if len(msg.Runes) > 0 && m.filterCursor >= 3 {
+		if len(runes) > 0 && m.filterCursor >= 3 {
 			if m.filterCursor != 3 {
-				m.filterDraft.append(m.filterCursor, string(msg.Runes))
+				m.filterDraft.append(m.filterCursor, string(runes))
 			}
 		}
 	}
@@ -1399,7 +1486,7 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 // can read m.lang for the language-aware "cleared" text: applyFilterDraft
 // (its only caller) needs that, and nothing outside this file calls it at
 // a fixed English-only signature the way tuiColumnLabel or the
-// tuiDetailLines* wrapper family are called.
+// the detail mapping helpers are called.
 func (m tuiModel) filterStatusValue(filter string) string {
 	if strings.TrimSpace(filter) == "" {
 		return m.t("none (cleared)")
@@ -1745,28 +1832,23 @@ func (m *tuiModel) togglePending(col tuiColumn) {
 
 func (m tuiModel) View() string {
 	view := m.baseView()
-	if m.selection.context == m.selectionContext() {
-		view = tuiRenderSelection(view, m.selection)
+	if m.screenController != nil {
+		m.screenController.SetFrameToken(m.frameToken)
 	}
-	return tuiCompleteFrame(view, m.width, m.height)
-}
-
-// tuiCompleteFrame keeps the alternate-screen TUI independent of renderer
-// leftovers: every state returns exactly one line per terminal row. Empty
-// lines are intentional; Bubble Tea emits EraseLineRight for them and clears
-// content left by a taller previous view.
-func tuiCompleteFrame(view string, width, height int) string {
-	if width <= 0 || height <= 0 {
-		return ""
+	selectionState := m.selection
+	if m.screenController != nil {
+		selectionState = m.screenController.Selection.Snapshot()
 	}
-	lines := strings.Split(view, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
+	if m.screenController != nil && selectionState.Context == m.selectionContext() {
+		view = m.screenController.Selection.Paint(view, m.selectionContext(), m.frameToken)
 	}
-	for len(lines) < height {
-		lines = append(lines, "")
+	if m.overlay == "detail" {
+		return view
 	}
-	return strings.Join(lines, "\n")
+	if m.screenController == nil {
+		return tuioutput.Frame(view, m.width, m.height)
+	}
+	return tuioutput.Frame(view, m.width, m.height)
 }
 
 func (m tuiModel) baseView() string {
@@ -2075,7 +2157,7 @@ func (m tuiModel) tuiCellWidths(columns []tuiColumn, available int, values []str
 // column has to be at least as wide as whichever label is currently
 // displayed or it would get truncated. There is no English-only sibling
 // here — unlike tuiColumnLabel (which the detail/table tests call
-// directly at its exact 2-argument signature) or the tuiDetailLines*
+// directly at its exact 2-argument signature).
 // wrapper family, nothing outside this file ever called a lang-unaware
 // version of this specific function, so adding one here would only be
 // dead code.
@@ -2232,7 +2314,7 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 // not a change, matching the *ForLang convention used throughout the
 // detail screen. Slug, Claude, Arena Elo, SWE % and Task fit stay English
 // in both languages: Slug and Task fit are terms of art kept English even
-// in Russian prose elsewhere (see tuiDetailLinesForLang and
+// in Russian prose elsewhere.
 // docs/methodology.md's own choice for "Task fit"), and Claude/Arena Elo/
 // SWE % are proper nouns and metric names, not translatable prose.
 func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
@@ -2285,29 +2367,17 @@ func tuiBox(content string, width, height int) string {
 		return ""
 	}
 	lines := strings.Split(content, "\n")
-	if width < 10 || height < 5 {
-		return tuiOverlayPlain(lines, width, height)
-	}
-	innerWidth := max(1, min(width-6, 90))
-	textWidth := max(1, innerWidth-4)
-	contentHeight := height - 4
-	if len(lines) > contentHeight {
-		lines = lines[:contentHeight]
-	}
 	for i := range lines {
-		lines[i] = truncateTable(plainTableText(lines[i]), textWidth)
+		lines[i] = plainTableText(lines[i])
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(innerWidth).Render(strings.Join(lines, "\n"))
+	return tuioutput.Box(lines, width, height)
 }
 
 func tuiOverlayPlain(lines []string, width, height int) string {
-	if len(lines) > height {
-		lines = lines[:height]
-	}
 	for i := range lines {
-		lines[i] = truncateTable(plainTableText(lines[i]), width)
+		lines[i] = plainTableText(lines[i])
 	}
-	return strings.Join(lines, "\n")
+	return tuioutput.Frame(strings.Join(lines, "\n"), width, height)
 }
 
 // tuiHelpView renders the full-screen help overlay. It takes the whole
@@ -2864,12 +2934,57 @@ func (m tuiModel) detailRow() (model.Model, bool) {
 	return m.visible[m.cursor], true
 }
 
+func (m tuiModel) detailLines(row model.Model) []string {
+	return m.detailLinesAt(row, time.Now())
+}
+
+func (m tuiModel) detailLinesAt(row model.Model, now time.Time) []string {
+	license := row.License
+	if strings.TrimSpace(license) == "" {
+		license = row.OpenWeights
+	}
+	license = tuiDetailLicenseForLang(row, m.lang)
+	canonical := row.CanonicalSlug
+	if strings.TrimSpace(canonical) == "" {
+		canonical = row.Slug
+	}
+	data := tuioutput.DetailDTO{DisplayName: row.DisplayName, Slug: row.Slug, Provider: row.Provider, License: license, Tier: row.Tier, ClaudeRef: tuiDetailClaudeRefForLang(row.ClaudeRef, m.lang), OpenWeights: tuiDetailOpenWeightsForLang(row.OpenWeights, m.lang), Description: plainDetailText(row.Description), Note: plainDetailText(tableNote(row)), CanonicalSlug: canonical, HuggingFaceID: row.HuggingFaceID, MetadataSourceURL: row.MetadataSourceURL, ModelURL: row.ModelURL, Context: row.Context, InPerM: row.InPerM, OutPerM: row.OutPerM, Created: row.Created, TaskFit: row.TaskFit, Manufacturer: manufacturerDisplayWithIconsAndGaps(row, m.icons, m.iconGaps, m.iconGap), LongContextPriceLabel: row.LongContextPriceLabel, LongContextInLabel: row.LongContextInLabel, LongContextOutLabel: row.LongContextOutLabel, HasLongContextOverride: row.HasLongContextOverride, LongContextOverrideInPerM: row.LongContextOverrideInPerM, LongContextOverrideOutPerM: row.LongContextOverrideOutPerM, LongContextOverrideMinTokens: row.LongContextOverrideMinTokens}
+	data.SWEBlock = tuiDetailSWEBenchBlockForLang(row, m.scoreSource, m.lang)
+	data.ArenaBlock = tuiDetailArenaBlockForLang(row, m.lang)
+	data.History = tuiDetailPriceHistoryForLang(m.priceHistory, row.Slug, m.lang)
+	return tuioutput.DetailLines(data, now, m.lang, nil, nil, nil, tuiDetailPrices{}, nil)
+}
+
+type tuiDetailPrices struct{}
+
+func (tuiDetailPrices) Context(tokens int) string { return pricing.FormatContext(tokens) }
+func (tuiDetailPrices) Price(value float64) string {
+	if formatted := pricing.FormatDollar(value); formatted != "" {
+		return formatted
+	}
+	return "< $0.01"
+}
+func (tuiDetailPrices) LongContext(data tuioutput.DetailDTO, lang string) (string, string, string) {
+	return tuiDetailLongContext(data, lang)
+}
+func tuiDetailLongContext(data tuioutput.DetailDTO, lang string) (string, string, string) {
+	if !data.HasLongContextOverride {
+		return "", "", ""
+	}
+	prep := "from"
+	if lang == "ru" {
+		prep = "от"
+	}
+	threshold, in, out := pricing.FormatContext(data.LongContextOverrideMinTokens), pricing.FormatDollar(data.LongContextOverrideInPerM), pricing.FormatDollar(data.LongContextOverrideOutPerM)
+	return fmt.Sprintf("%s / %s %s %s+", in, out, prep, threshold), fmt.Sprintf("%s %s %s+", in, prep, threshold), fmt.Sprintf("%s %s %s+", out, prep, threshold)
+}
+
 // tuiDetailView renders the model-detail overlay, mirroring tuiHelpView:
 // build the content lines, apply the offset, slice to the viewport, append
 // a position footer and hand the result to tuiFullscreenText. It differs
 // from the help view in one deliberate way — the footer gets a reserved
 // line instead of being appended past a full viewport and clipped — so
-// what is scrolled and what tuiDetailMaxOffset allows always agree.
+// what is scrolled and what the output boundary allows always agree.
 // Colour is applied by tuiStyleDetail strictly afterwards, to the
 // finished text: nothing styled may ever flow back into the width
 // arithmetic above, none of which is ANSI-aware.
@@ -2877,22 +2992,11 @@ func tuiDetailView(m tuiModel) string {
 	row, ok := m.detailRow()
 	if !ok {
 		if m.lang == "ru" {
-			return tuiFullscreenText("Модель не выбрана · Esc закрыть", m.width, m.height)
+			return tuioutput.Frame("Модель не выбрана · Esc закрыть", m.width, m.height)
 		}
-		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
+		return tuioutput.Frame("Модель не выбрана · Esc close", m.width, m.height)
 	}
-	lines := tuiDetailLinesForLang(row, m.scoreSource, m.width, time.Now(), m.priceHistory, m.icons, m.iconGap, m.iconGaps, m.lang)
-	body := tuiDetailBodyHeight(m.height)
-	offset := max(0, min(m.detailOffset, max(0, len(lines)-body)))
-	end := min(len(lines), offset+body)
-	visible := append([]string(nil), lines[offset:end]...)
-	if len(visible) == 0 {
-		visible = []string{""}
-	}
-	footer := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, len(lines))
-	if m.lang == "ru" {
-		footer = fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, len(lines))
-	}
+	lines := m.detailLines(row)
 	// The footer is state (scroll position), not detail content, and must
 	// not sit flush against the last content line. tuiDetailBodyHeight
 	// already reserves two rows (blank + footer) for exactly this, so the
@@ -2906,12 +3010,13 @@ func tuiDetailView(m tuiModel) string {
 	// skipping the append there would instead leave the page short of
 	// height, and tuiFullscreenText's own trailing pad would then land
 	// after the footer, displacing it from the screen's last line.
-	if len(visible)+2 <= m.height {
-		visible = append(visible, "")
-	}
-	visible = append(visible, footer)
-	view := tuiFullscreenText(strings.Join(visible, "\n"), m.width, m.height)
-	return tuiStyleDetail(view, offset == 0, len(visible)-1)
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
+		if m.lang == "ru" {
+			return fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, total)
+		}
+		return fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, total)
+	}})
+	return tuiStyleDetail(strings.Join(frame.Lines, "\n"), frame.Offset == 0, frame.FooterLine)
 }
 
 // tuiStyleDetail paints the detail screen's finished output. Everything
@@ -3580,91 +3685,15 @@ func tuiBoxLimited(content string, width, height int) string {
 }
 
 func tuiFullscreenText(content string, width, height int) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
 	lines := strings.Split(content, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
-	}
 	for i := range lines {
-		lines[i] = truncateTable(plainTableText(lines[i]), width)
+		lines[i] = plainTableText(lines[i])
 	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
+	return tuioutput.Frame(strings.Join(lines, "\n"), width, height)
 }
 
-// tuiWrapText breaks free-form prose onto lines no wider than width
-// display columns, preserving paragraph breaks. Every other layout
-// primitive in this file truncates instead (truncateTable), which is the
-// right behaviour for a table cell and the wrong one for the vendor
-// description: cutting it at the terminal edge would delete exactly the
-// content the detail screen exists to show. Width is measured with
-// tableDisplayWidth — the same grapheme-aware measure truncateTable uses —
-// so non-ASCII prose cannot overflow. A zero or negative width yields nil
-// rather than a panic: View() can be called before the first
-// tea.WindowSizeMsg sets the terminal size.
-func tuiWrapText(value string, width int) []string {
-	if width <= 0 {
-		return nil
-	}
-	var lines []string
-	for _, paragraph := range strings.Split(value, "\n") {
-		words := strings.Fields(paragraph)
-		if len(words) == 0 {
-			lines = append(lines, "")
-			continue
-		}
-		current := ""
-		for _, word := range words {
-			if tableDisplayWidth(word) > width {
-				if current != "" {
-					lines = append(lines, current)
-				}
-				chunks := tuiWrapWord(word, width)
-				lines = append(lines, chunks[:len(chunks)-1]...)
-				current = chunks[len(chunks)-1]
-				continue
-			}
-			switch {
-			case current == "":
-				current = word
-			case tableDisplayWidth(current)+1+tableDisplayWidth(word) > width:
-				lines = append(lines, current)
-				current = word
-			default:
-				current += " " + word
-			}
-		}
-		lines = append(lines, current)
-	}
-	return lines
-}
-
-// tuiWrapWord cuts a word that cannot fit on one line into width-sized
-// chunks, so a URL or an unbroken identifier still stays inside the
-// viewport. tablePrefix returns an empty prefix when even the first
-// grapheme is wider than the whole line (a two-column glyph at width 1);
-// the chunk is then that one grapheme, which keeps the loop making
-// progress instead of spinning forever.
-func tuiWrapWord(word string, width int) []string {
-	var chunks []string
-	for word != "" {
-		head := tablePrefix(word, width)
-		if head == "" {
-			end, _ := tableCluster(word, 0)
-			head = word[:end]
-		}
-		chunks = append(chunks, head)
-		word = word[len(head):]
-	}
-	return chunks
-}
-
-// tuiJustifyLine pads a single already-wrapped line (its words joined by
-// exactly one space, as tuiWrapText always produces) to width display
+// A justified line pads a single already-wrapped line (its words joined by
+// exactly one space) to width display
 // columns by distributing extra inter-word spacing as evenly as possible —
 // the standard newspaper-column justify rule. A line with fewer than two
 // words has no gap to stretch and is returned unchanged, matching the
@@ -3674,33 +3703,8 @@ func tuiWrapWord(word string, width int) []string {
 // also returned unchanged. Any remainder from an uneven split goes to the
 // leftmost gaps first — deterministic and reproducible rather than
 // alternating or centred, and simplest to reason about.
-func tuiJustifyLine(line string, width int) string {
-	words := strings.Fields(line)
-	if len(words) < 2 {
-		return line
-	}
-	extra := width - tableDisplayWidth(line)
-	if extra <= 0 {
-		return line
-	}
-	gaps := len(words) - 1
-	base, remainder := extra/gaps, extra%gaps
-	var out strings.Builder
-	for i, word := range words {
-		if i > 0 {
-			spaces := 1 + base
-			if i-1 < remainder {
-				spaces++
-			}
-			out.WriteString(strings.Repeat(" ", spaces))
-		}
-		out.WriteString(word)
-	}
-	return out.String()
-}
-
 // tuiWrapAndJustify wraps a single logical paragraph exactly the way
-// tuiWrapText does, then fully justifies every resulting line except the
+// the output wrapper does, then fully justifies every resulting line except the
 // last: the standard convention that only a paragraph's final line (which
 // is usually short) stays ragged, everything above it flush against both
 // edges. value must not itself contain "\n" — this is a per-paragraph
@@ -3708,11 +3712,7 @@ func tuiJustifyLine(line string, width int) string {
 // where one paragraph ends and the next begins; see tuiJustifyHelpLines,
 // which feeds it one already-delimited F1 help paragraph/bullet at a time.
 func tuiWrapAndJustify(value string, width int) []string {
-	lines := tuiWrapText(value, width)
-	for i := 0; i < len(lines)-1; i++ {
-		lines[i] = tuiJustifyLine(lines[i], width)
-	}
-	return lines
+	return tuioutput.Justify(value, width)
 }
 
 // tuiJustifyHelpLinesTabByte is the real tab character (as opposed to the
@@ -3747,29 +3747,7 @@ const tuiJustifyHelpLinesTabByte = "\t"
 // pre-broken source line would otherwise be justified as if it were the
 // whole paragraph.
 func tuiJustifyHelpLines(lines []string, width int) []string {
-	if width <= 0 {
-		return lines
-	}
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		switch {
-		case line == "", strings.Contains(line, `\t`), strings.HasPrefix(line, tuiJustifyHelpLinesTabByte):
-			result = append(result, line)
-		case strings.HasPrefix(line, "- "):
-			const marker, indent = "- ", "  "
-			contentWidth := max(1, width-tableDisplayWidth(marker))
-			for i, wrapped := range tuiWrapAndJustify(line[len(marker):], contentWidth) {
-				if i == 0 {
-					result = append(result, marker+wrapped)
-				} else {
-					result = append(result, indent+wrapped)
-				}
-			}
-		default:
-			result = append(result, tuiWrapAndJustify(line, width)...)
-		}
-	}
-	return result
+	return tuioutput.JustifyLines(lines, width)
 }
 
 const (
@@ -3798,9 +3776,9 @@ const (
 
 // tuiDetailPlaceholderForLang picks tuiDetailPlaceholder's English or
 // Russian text. It exists alongside the plain constant, not instead of it,
-// because tuiDetailValue and its frozen callers (tuiDetailLines and every
+// because the detail value helper and its frozen callers
 // other English-only member of that wrapper family — see the comment on
-// tuiDetailLinesWithHistoryAndIconsAndGaps) must keep returning exactly
+// must keep returning exactly
 // "n/a" unconditionally: those functions and the tests pinned to their
 // exact arities predate the language toggle and must render byte-identical
 // output regardless of it.
@@ -3814,7 +3792,7 @@ func tuiDetailPlaceholderForLang(lang string) string {
 // tuiDetailValue is the detail screen's single rule for an absent value:
 // the placeholder, never a labelled blank. It is always English —
 // see tuiDetailValueForLang for the language-aware sibling that
-// tuiDetailLinesForLang and the Settings overlay actually render with.
+// and the Settings overlay actually render with.
 func tuiDetailValue(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return tuiDetailPlaceholder
@@ -4050,40 +4028,16 @@ func tuiLongContextLabelsForLang(m model.Model, lang string) (combined, in, out 
 	return combined, in, out
 }
 
-// tuiDetailWrapped renders a free-prose block: sanitised, wrapped to the
+// Detail prose is sanitised and wrapped to the
 // screen width, indented by two columns, and replaced by the placeholder
 // when empty. It sanitises with plainDetailText rather than plainTableText
 // so that a real paragraph break in the source value survives into
-// tuiWrapText, which has its own branch to preserve it.
-func tuiDetailWrapped(value string, width int) []string {
-	value = strings.TrimSpace(plainDetailText(value))
-	if value == "" {
-		return []string{"  " + tuiDetailPlaceholder}
-	}
-	wrapped := tuiWrapText(value, max(1, width-2))
-	for i := range wrapped {
-		wrapped[i] = "  " + wrapped[i]
-	}
-	return wrapped
-}
-
-// tuiDetailWrappedForLang is tuiDetailWrapped with a language-aware
+// output wrapper, which has its own branch to preserve it.
+// The language-aware path uses the same output wrapper with a localized
 // placeholder. Translating only the placeholder, never the wrapped prose
 // itself, is deliberate: value is vendor-authored free text (a model's own
 // description or its note), out of scope for translation the same way any
 // other upstream/internal-package string is.
-func tuiDetailWrappedForLang(value string, width int, lang string) []string {
-	value = strings.TrimSpace(plainDetailText(value))
-	if value == "" {
-		return []string{"  " + tuiDetailPlaceholderForLang(lang)}
-	}
-	wrapped := tuiWrapText(value, max(1, width-2))
-	for i := range wrapped {
-		wrapped[i] = "  " + wrapped[i]
-	}
-	return wrapped
-}
-
 // tuiDetailCreated renders the catalogue's publication timestamp in both
 // forms the screen promises: the absolute date, which is stable enough to
 // live in the snapshot, and the age, which is derived from now and
@@ -4300,254 +4254,8 @@ func tuiDetailScoreLinesForLang(info *model.ScoreInfo, label, lang string) []str
 		"  Provenance: "+plainTableText(model.FormatScoreProvenance(info)))
 }
 
-// tuiDetailLines builds the detail screen's content for one model: twelve
-// labelled blocks ordered from identity to ever finer detail, with the
-// vendor description is wrapped near the identity fields so provenance is seen
-// before the longer benchmark and pricing sections.
-// Wrapping happens here, before any scrolling maths, so detailOffset
-// counts the same physical lines the terminal shows. now is a parameter
-// rather than a time.Now() call inside so a test can pin the release age.
-// scoreSource must be the same source m was projected with by
-// model.ForScoreSource; passing a mismatched pair defeats the SWE-bench
-// block's gate against printing Arena data under the wrong heading.
-func tuiDetailLines(m model.Model, scoreSource string, width int, now time.Time) []string {
-	return tuiDetailLinesWithHistory(m, scoreSource, width, now, nil)
-}
-
-func tuiDetailLinesWithHistory(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History) []string {
-	return tuiDetailLinesWithHistoryAndIcons(m, scoreSource, width, now, history, config.DefaultIconConfig())
-}
-
-func tuiDetailLinesWithHistoryAndIcons(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig) []string {
-	return tuiDetailLinesWithHistoryAndIconsAndGaps(m, scoreSource, width, now, history, icons, int(config.DefaultIconGap), config.DefaultIconGaps())
-}
-
-func tuiDetailLinesWithHistoryAndIconsAndGap(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int) []string {
-	return tuiDetailLinesWithHistoryAndIconsAndGaps(m, scoreSource, width, now, history, icons, iconGap, nil)
-}
-
-func tuiDetailLinesWithHistoryAndIconsAndGaps(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps) []string {
-	context := tuiDetailPlaceholder
-	if m.Context > 0 {
-		context = pricing.FormatContext(m.Context)
-	}
-	lines := tuiWrapText(tuiDetailValue(m.DisplayName)+" ("+tuiDetailValue(m.Slug)+")", max(1, width))
-	lines = append(lines,
-		"",
-		"-- Identity --",
-	)
-	manufacturerLine := "Производитель: " + tuiDetailValue(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap))
-	lines = append(lines, tuiWrapWord(manufacturerLine, max(1, width))...)
-	lines = append(lines,
-		"Провайдер: "+tuiDetailValue(m.Provider),
-		"Лицензия: "+tuiDetailLicense(m),
-		"Тир: "+tuiDetailValue(m.Tier),
-		"Claude-референс: "+tuiDetailValue(m.ClaudeRef),
-		"Task fit: "+tuiDetailTaskFit(m),
-	)
-	lines = append(lines,
-		"",
-		"-- Pricing --",
-		"Контекст: "+context+" токенов",
-		"Вход: "+tuiDetailPrice(m.InPerM)+" за M токенов",
-		"Выход: "+tuiDetailPrice(m.OutPerM)+" за M токенов",
-	)
-	// The three long-context labels are precomputed in MergeWithArena and
-	// are all empty when the catalogue reported no override for this slug,
-	// which is why there is no HasOverride flag to consult on model.Model.
-	// The table has never had room for them; this is the only place they
-	// are shown at all.
-	if m.LongContextPriceLabel != "" {
-		lines = append(lines,
-			"Длинный контекст: "+plainTableText(m.LongContextPriceLabel),
-			"  вход: "+plainTableText(m.LongContextInLabel),
-			"  выход: "+plainTableText(m.LongContextOutLabel),
-		)
-	}
-	if historyLines := tuiDetailPriceHistory(history, m.Slug); len(historyLines) > 0 {
-		lines = append(lines, historyLines...)
-	}
-	lines = append(lines, "Открытые веса: "+tuiDetailValue(m.OpenWeights), "")
-	lines = append(lines, "-- Benchmarks --")
-	lines = append(lines, tuiDetailSWEBenchBlock(m, scoreSource)...)
-	lines = append(lines, "")
-	lines = append(lines, tuiDetailArenaBlock(m)...)
-	lines = append(lines, "", "-- Provenance and metadata --", "Дата релиза: "+tuiDetailReleaseDate(m.Created, now), "Страница OpenRouter: "+tuiDetailOpenRouterURL(m))
-	if m.MetadataSourceURL != "" {
-		lines = append(lines, "Источник метаданных: "+tuiDetailValue(m.MetadataSourceURL))
-	}
-	if strings.TrimSpace(m.HuggingFaceID) != "" {
-		lines = append(lines, "Репозиторий HuggingFace: "+tuiDetailURL(tuiHuggingFaceModelURL, m.HuggingFaceID))
-	}
-	lines = append(lines, "Описание:")
-	lines = append(lines, tuiDetailWrapped(m.Description, width)...)
-	lines = append(lines, "", "-- Fit and notes --", "Заметка:")
-	lines = append(lines, tuiDetailWrapped(tableNote(m), width)...)
-	return tuiDetailAlignRows(lines, width)
-}
-
-// tuiDetailLinesForLang is what tuiDetailView actually renders with — the
-// only consumer of the language toggle in the detail screen, alongside the
-// Settings overlay's own use of tuiDetailValueForLang. It mirrors
-// tuiDetailLinesWithHistoryAndIconsAndGaps line for line rather than
-// wrapping it, using the *ForLang siblings throughout: the frozen function
-// and its whole wrapper family (tuiDetailLines/WithHistory/
-// WithHistoryAndIcons/...) must keep rendering in unconditional Russian
-// exactly as before, since tests call those exact arities directly and every
-// field label on this screen was unconditionally Russian before the
-// language toggle existed. This function is the fix for that: every label
-// below — the five "-- Section --" headers, every field label inside them,
-// and every value-side placeholder — now actually varies with lang, via the
-// header/lbl closures. "Task fit:" is the one deliberate exception, left
-// untranslated in both languages, matching docs/methodology.md's own choice
-// to keep that term in English inside Russian prose. Two block helpers this
-// function calls — tuiDetailSWEBenchBlockForLang/tuiDetailArenaBlockForLang,
-// via tuiDetailScoreLinesForLang — carry their own near-duplicate label set
-// for each of the two independent score sources; both are lang-aware too.
-func tuiDetailLinesForLang(m model.Model, scoreSource string, width int, now time.Time, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps, lang string) []string {
-	headers := map[string]string{
-		"-- Identity --":                "-- Идентичность --",
-		"-- Pricing --":                 "-- Цены --",
-		"-- Benchmarks --":              "-- Бенчмарки --",
-		"-- Provenance and metadata --": "-- Происхождение и метаданные --",
-		"-- Fit and notes --":           "-- Соответствие и заметки --",
-	}
-	header := func(en string) string {
-		if lang == "ru" {
-			return headers[en]
-		}
-		return en
-	}
-	// lbl is header's sibling for field labels rather than section
-	// headers: same "look the Russian text up only when lang == ru" shape,
-	// but the two languages are given side by side at the call site
-	// instead of through a shared map, since — unlike the five section
-	// headers — no other function needs to share this particular table.
-	lbl := func(en, ru string) string {
-		if lang == "ru" {
-			return ru
-		}
-		return en
-	}
-	context := tuiDetailPlaceholderForLang(lang)
-	if m.Context > 0 {
-		context = pricing.FormatContext(m.Context)
-	}
-	lines := tuiWrapText(tuiDetailValueForLang(m.DisplayName, lang)+" ("+tuiDetailValueForLang(m.Slug, lang)+")", max(1, width))
-	lines = append(lines,
-		"",
-		header("-- Identity --"),
-	)
-	manufacturerLine := lbl("Manufacturer: ", "Производитель: ") + tuiDetailValueForLang(manufacturerDisplayWithIconsAndGaps(m, icons, iconGaps, iconGap), lang)
-	lines = append(lines, tuiWrapWord(manufacturerLine, max(1, width))...)
-	lines = append(lines,
-		lbl("Provider: ", "Провайдер: ")+tuiDetailValueForLang(m.Provider, lang),
-		lbl("License: ", "Лицензия: ")+tuiDetailLicenseForLang(m, lang),
-		lbl("Tier: ", "Тир: ")+tuiDetailValueForLang(m.Tier, lang),
-		lbl("Claude reference: ", "Claude-референс: ")+tuiDetailClaudeRefForLang(m.ClaudeRef, lang),
-		"Task fit: "+tuiDetailTaskFitForLang(m, lang),
-	)
-	perMTokens := lbl(" per M tokens", " за M токенов")
-	lines = append(lines,
-		"",
-		header("-- Pricing --"),
-		lbl("Context: ", "Контекст: ")+context+lbl(" tokens", " токенов"),
-		lbl("Input: ", "Вход: ")+tuiDetailPrice(m.InPerM)+perMTokens,
-		lbl("Output: ", "Выход: ")+tuiDetailPrice(m.OutPerM)+perMTokens,
-	)
-	if combined, in, out := tuiLongContextLabelsForLang(m, lang); combined != "" {
-		lines = append(lines,
-			lbl("Long context: ", "Длинный контекст: ")+plainTableText(combined),
-			lbl("  input: ", "  вход: ")+plainTableText(in),
-			lbl("  output: ", "  выход: ")+plainTableText(out),
-		)
-	}
-	if historyLines := tuiDetailPriceHistoryForLang(history, m.Slug, lang); len(historyLines) > 0 {
-		lines = append(lines, historyLines...)
-	}
-	lines = append(lines, lbl("Open weights: ", "Открытые веса: ")+tuiDetailOpenWeightsForLang(m.OpenWeights, lang), "")
-	lines = append(lines, header("-- Benchmarks --"))
-	lines = append(lines, tuiDetailSWEBenchBlockForLang(m, scoreSource, lang)...)
-	lines = append(lines, "")
-	lines = append(lines, tuiDetailArenaBlockForLang(m, lang)...)
-	lines = append(lines, "", header("-- Provenance and metadata --"), lbl("Release date: ", "Дата релиза: ")+tuiDetailReleaseDateForLang(m.Created, now, lang), lbl("OpenRouter page: ", "Страница OpenRouter: ")+tuiDetailOpenRouterURLForLang(m, lang))
-	if m.MetadataSourceURL != "" {
-		lines = append(lines, lbl("Metadata source: ", "Источник метаданных: ")+tuiDetailValueForLang(m.MetadataSourceURL, lang))
-	}
-	if strings.TrimSpace(m.HuggingFaceID) != "" {
-		lines = append(lines, lbl("HuggingFace repository: ", "Репозиторий HuggingFace: ")+tuiDetailURLForLang(tuiHuggingFaceModelURL, m.HuggingFaceID, lang))
-	}
-	lines = append(lines, lbl("Description:", "Описание:"))
-	lines = append(lines, tuiDetailWrappedForLang(m.Description, width, lang)...)
-	lines = append(lines, "", header("-- Fit and notes --"), lbl("Note:", "Заметка:"))
-	lines = append(lines, tuiDetailWrappedForLang(tableNote(m), width, lang)...)
-	return tuiDetailAlignRows(lines, width)
-}
-
-// tuiDetailAlignRows keeps the compact label/value form on narrow terminals,
-// but turns the same plain lines into a quiet two-column table when there is
-// room. Padding is inserted after ": " so existing labels and links remain
-// readable, and all of it still happens before ANSI styling.
-func tuiDetailAlignRows(lines []string, width int) []string {
-	if width < 140 {
-		return lines
-	}
-	labelWidth := 0
-	for _, line := range lines {
-		index := strings.Index(line, ": ")
-		if index > 0 && !strings.HasPrefix(line, "  ") {
-			labelWidth = max(labelWidth, tableDisplayWidth(line[:index]))
-		}
-	}
-	if labelWidth == 0 {
-		return lines
-	}
-	result := append([]string(nil), lines...)
-	for i, line := range result {
-		index := strings.Index(line, ": ")
-		if index <= 0 || strings.HasPrefix(line, "  ") {
-			continue
-		}
-		label := line[:index]
-		value := line[index+2:]
-		result[i] = label + ": " + strings.Repeat(" ", labelWidth-tableDisplayWidth(label)) + value
-	}
-	return result
-}
-
-// tuiDetailBodyHeight is how many content lines fit above the footer
-// cluster — a blank separator line plus the position footer, two rows
-// always reserved rather than one, which also keeps tuiDetailMaxOffset and
-// the rendered slice in agreement. The help overlay used to append its
-// footer after already filling the viewport, relying on tuiFullscreenText
-// to clip it when there was no room; the detail screen has always reserved
-// its own line instead (now two), and the help overlay's own
-// helpViewportHeight follows the same reservation discipline.
-func tuiDetailBodyHeight(height int) int { return max(1, height-2) }
-
-// tuiDetailMaxOffset is the detail screen's answer to tuiHelpMaxOffset.
-// Unlike the help document, this content is not a constant: its length
-// depends on the model, on the active score source and on the terminal
-// width the description wraps at, so the maximum is computed from the
-// lines actually built for this model rather than from a fixed document.
-func tuiDetailMaxOffset(m model.Model, scoreSource string, width, height int) int {
-	return tuiDetailMaxOffsetWithHistory(m, scoreSource, width, height, nil)
-}
-
-func tuiDetailMaxOffsetWithHistory(m model.Model, scoreSource string, width, height int, history *pricehistory.History) int {
-	return tuiDetailMaxOffsetWithHistoryAndIcons(m, scoreSource, width, height, history, config.DefaultIconConfig())
-}
-
-func tuiDetailMaxOffsetWithHistoryAndIcons(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig) int {
-	return tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(m, scoreSource, width, height, history, icons, int(config.DefaultIconGap), config.DefaultIconGaps())
-}
-
-func tuiDetailMaxOffsetWithHistoryAndIconsAndGap(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig, iconGap int) int {
-	return tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(m, scoreSource, width, height, history, icons, iconGap, nil)
-}
-
-func tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(m model.Model, scoreSource string, width, height int, history *pricehistory.History, icons config.IconConfig, iconGap int, iconGaps config.IconGaps) int {
-	return max(0, len(tuiDetailLinesWithHistoryAndIconsAndGaps(m, scoreSource, width, time.Now(), history, icons, iconGap, iconGaps))-tuiDetailBodyHeight(height))
+func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
+	return tuiCellWithIcons(m, col, note, scoreSource, config.DefaultIconConfig())
 }
 
 func (m *tuiModel) clampDetailOffset() {
@@ -4559,11 +4267,9 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	m.detailOffset = max(0, min(m.detailOffset, tuiDetailMaxOffsetWithHistoryAndIconsAndGaps(row, m.scoreSource, m.width, m.height, m.priceHistory, m.icons, m.iconGap, m.iconGaps)))
-}
-
-func tuiCell(m model.Model, col tuiColumn, note bool, scoreSource string) string {
-	return tuiCellWithIcons(m, col, note, scoreSource, config.DefaultIconConfig())
+	lines := m.detailLines(row)
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines})
+	m.detailOffset = frame.Offset
 }
 
 func tuiCellWithIcons(m model.Model, col tuiColumn, note bool, scoreSource string, icons config.IconConfig) string {

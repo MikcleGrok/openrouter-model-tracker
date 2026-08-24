@@ -853,7 +853,7 @@ func plainTableText(value string) string {
 // does — markdown markers stripped, pipes replaced, control runes (raw ANSI
 // escapes, tabs, carriage returns, and the like) neutralised — except it
 // keeps a real newline alive instead of collapsing it to a space. It exists
-// for the TUI detail screen, where tuiWrapText's paragraph-splitting branch
+// for the TUI detail screen, where the output wrapper's paragraph-splitting branch
 // needs to actually see a "\n\n" to preserve it; plainTableText itself stays
 // untouched because table cells are genuinely one line and must keep
 // collapsing newlines.
