@@ -313,19 +313,20 @@ func TestTUIDetailAcceptanceFrameKeepsLongBlocksOnOwnedRows(t *testing.T) {
 		m.visible, m.cursor = []model.Model{row}, 0
 		m.screenController = screen.New(nil)
 		var rendered strings.Builder
-		maxOffset := output.MaxOffset(len(m.detailLines(row)), max(1, tc.height-2))
+		lines := m.detailLines(row)
+		maxOffset := output.Detail(output.DetailData{Width: tc.width, Height: tc.height, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
 		for offset := 0; offset <= maxOffset; offset++ {
 			m.detailOffset = offset
-			lines := strings.Split(ansi.Strip(m.View()), "\n")
-			if len(lines) != tc.height {
-				t.Fatalf("%s %dx%d offset=%d: rows=%d, want %d", tc.lang, tc.width, tc.height, offset, len(lines), tc.height)
+			viewLines := strings.Split(ansi.Strip(m.View()), "\n")
+			if len(viewLines) != tc.height {
+				t.Fatalf("%s %dx%d offset=%d: rows=%d, want %d", tc.lang, tc.width, tc.height, offset, len(viewLines), tc.height)
 			}
-			for i, line := range lines {
+			for i, line := range viewLines {
 				if tableDisplayWidth(line) > tc.width {
 					t.Fatalf("%s %dx%d row %d width=%d: %q", tc.lang, tc.width, tc.height, i, tableDisplayWidth(line), line)
 				}
 			}
-			rendered.WriteString(strings.Join(lines, "\n"))
+			rendered.WriteString(strings.Join(viewLines, "\n"))
 			rendered.WriteByte('\n')
 		}
 		historyHeading := "Price history:"

@@ -920,7 +920,7 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.closeOverlay()
 			return m, nil
 		}
-		maxOffset := tuioutput.MaxOffset(len(m.detailLines(row)), max(1, m.height-2))
+		maxOffset := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Lines: m.detailLines(row)}).MaxOffset
 		switch key {
 		case "esc", "left", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
@@ -1841,6 +1841,9 @@ func (m tuiModel) View() string {
 	}
 	if m.screenController != nil && selectionState.Context == m.selectionContext() {
 		view = m.screenController.Selection.Paint(view, m.selectionContext(), m.frameToken)
+	}
+	if m.overlay == "detail" {
+		return view
 	}
 	if m.screenController == nil {
 		return tuioutput.Frame(view, m.width, m.height)
@@ -2945,11 +2948,11 @@ func (m tuiModel) detailLinesAt(row model.Model, now time.Time) []string {
 	if strings.TrimSpace(canonical) == "" {
 		canonical = row.Slug
 	}
-	data := tuioutput.DetailDTO{DisplayName: row.DisplayName, Slug: row.Slug, Provider: row.Provider, License: license, Tier: row.Tier, ClaudeRef: tuiDetailClaudeRefForLang(row.ClaudeRef, m.lang), OpenWeights: tuiDetailOpenWeightsForLang(row.OpenWeights, m.lang), Description: plainDetailText(row.Description), Note: plainDetailText(tableNote(row)), CanonicalSlug: canonical, HuggingFaceID: row.HuggingFaceID, MetadataSourceURL: row.MetadataSourceURL, Context: row.Context, InPerM: row.InPerM, OutPerM: row.OutPerM, Created: row.Created, TaskFit: row.TaskFit, Manufacturer: manufacturerDisplayWithIconsAndGaps(row, m.icons, m.iconGaps, m.iconGap), LongContextPriceLabel: row.LongContextPriceLabel, LongContextInLabel: row.LongContextInLabel, LongContextOutLabel: row.LongContextOutLabel, HasLongContextOverride: row.HasLongContextOverride, LongContextOverrideInPerM: row.LongContextOverrideInPerM, LongContextOverrideOutPerM: row.LongContextOverrideOutPerM, LongContextOverrideMinTokens: row.LongContextOverrideMinTokens}
+	data := tuioutput.DetailDTO{DisplayName: row.DisplayName, Slug: row.Slug, Provider: row.Provider, License: license, Tier: row.Tier, ClaudeRef: tuiDetailClaudeRefForLang(row.ClaudeRef, m.lang), OpenWeights: tuiDetailOpenWeightsForLang(row.OpenWeights, m.lang), Description: plainDetailText(row.Description), Note: plainDetailText(tableNote(row)), CanonicalSlug: canonical, HuggingFaceID: row.HuggingFaceID, MetadataSourceURL: row.MetadataSourceURL, ModelURL: row.ModelURL, Context: row.Context, InPerM: row.InPerM, OutPerM: row.OutPerM, Created: row.Created, TaskFit: row.TaskFit, Manufacturer: manufacturerDisplayWithIconsAndGaps(row, m.icons, m.iconGaps, m.iconGap), LongContextPriceLabel: row.LongContextPriceLabel, LongContextInLabel: row.LongContextInLabel, LongContextOutLabel: row.LongContextOutLabel, HasLongContextOverride: row.HasLongContextOverride, LongContextOverrideInPerM: row.LongContextOverrideInPerM, LongContextOverrideOutPerM: row.LongContextOverrideOutPerM, LongContextOverrideMinTokens: row.LongContextOverrideMinTokens}
 	data.SWEBlock = tuiDetailSWEBenchBlockForLang(row, m.scoreSource, m.lang)
 	data.ArenaBlock = tuiDetailArenaBlockForLang(row, m.lang)
 	data.History = tuiDetailPriceHistoryForLang(m.priceHistory, row.Slug, m.lang)
-	return tuioutput.DetailLines(data, m.width, now, m.lang, nil, nil, nil, tuiDetailPrices{}, nil)
+	return tuioutput.DetailLines(data, now, m.lang, nil, nil, nil, tuiDetailPrices{}, nil)
 }
 
 type tuiDetailPrices struct{}
@@ -2989,9 +2992,9 @@ func tuiDetailView(m tuiModel) string {
 	row, ok := m.detailRow()
 	if !ok {
 		if m.lang == "ru" {
-			return tuiFullscreenText("Модель не выбрана · Esc закрыть", m.width, m.height)
+			return tuioutput.Frame("Модель не выбрана · Esc закрыть", m.width, m.height)
 		}
-		return tuiFullscreenText("Модель не выбрана · Esc close", m.width, m.height)
+		return tuioutput.Frame("Модель не выбрана · Esc close", m.width, m.height)
 	}
 	lines := m.detailLines(row)
 	// The footer is state (scroll position), not detail content, and must
@@ -3007,14 +3010,13 @@ func tuiDetailView(m tuiModel) string {
 	// skipping the append there would instead leave the page short of
 	// height, and tuiFullscreenText's own trailing pad would then land
 	// after the footer, displacing it from the screen's last line.
-	composed := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
 		if m.lang == "ru" {
 			return fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, total)
 		}
 		return fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, total)
 	}})
-	view := tuiFullscreenText(strings.Join(composed.Lines, "\n"), m.width, m.height)
-	return tuiStyleDetail(view, composed.Offset == 0, composed.FooterLine)
+	return tuiStyleDetail(strings.Join(frame.Lines, "\n"), frame.Offset == 0, frame.FooterLine)
 }
 
 // tuiStyleDetail paints the detail screen's finished output. Everything
@@ -4266,7 +4268,7 @@ func (m *tuiModel) clampDetailOffset() {
 		return
 	}
 	lines := m.detailLines(row)
-	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines)})
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines})
 	m.detailOffset = frame.Offset
 }
 

@@ -117,7 +117,19 @@ func wrapSafeLine(value string, width int) []string {
 	if ansi.StringWidth(value) <= width {
 		return []string{value}
 	}
-	return Wrap(value, width)
+	indent := value[:len(value)-len(strings.TrimLeft(value, " "))]
+	content := strings.TrimLeft(value, " ")
+	wrapped := Wrap(content, max(1, width-ansi.StringWidth(indent)))
+	for i := range wrapped {
+		wrapped[i] = indent + wrapped[i]
+	}
+	return wrapped
+}
+
+func splitEscapedLines(value string) []string {
+	value = strings.ReplaceAll(value, `\n`, "\n")
+	value = strings.ReplaceAll(value, `\r`, "\r")
+	return strings.Split(value, "\n")
 }
 
 func decodeRune(value string) (rune, int) {

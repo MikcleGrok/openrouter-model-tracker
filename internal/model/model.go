@@ -281,9 +281,9 @@ func FormatScoreProvenance(info *ScoreInfo) string {
 		return NormalizeMissingLabels(s)
 	}
 	if info == nil {
-		return "raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a"
+		return "raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a; configured_identity=n/a; canonical_id=n/a; release_variant=n/a; model_variant=n/a; reasoning=n/a; provenance=n/a"
 	}
-	return fmt.Sprintf("raw=%s; metric=%s; unit=%s; variant=%s; identity=%s; checked=%s; source=%s; uncertainty=%s; sample=%s; harness=%s; scaffold=%s; provider=%s; configuration=%s", strconv.FormatFloat(info.Value, 'f', -1, 64), value(info.Metric), value(info.Unit), value(info.VariantMeasured), value(info.IdentityStatus), value(info.Checked), value(info.SourceURL), value(info.Uncertainty), value(info.SampleSize), value(info.Harness), value(info.Scaffold), value(info.Provider), value(info.Configuration))
+	return fmt.Sprintf("raw=%s; metric=%s; unit=%s; variant=%s; identity=%s; checked=%s; source=%s; uncertainty=%s; sample=%s; harness=%s; scaffold=%s; provider=%s; configuration=%s; configured_identity=%s; canonical_id=%s; release_variant=%s; model_variant=%s; reasoning=%s; provenance=%s", strconv.FormatFloat(info.Value, 'f', -1, 64), value(info.Metric), value(info.Unit), value(info.VariantMeasured), value(info.IdentityStatus), value(info.Checked), value(info.SourceURL), value(info.Uncertainty), value(info.SampleSize), value(info.Harness), value(info.Scaffold), value(info.Provider), value(info.Configuration), value(info.ConfiguredIdentity), value(info.CanonicalID), value(info.ReleaseVariant), value(info.ModelVariant), value(info.Reasoning), value(info.Provenance))
 }
 
 // Merge builds the rendered rows with the SWE-bench column only. It stays

@@ -95,26 +95,15 @@ func Detail(data DetailData) DetailFrame {
 	if data.Width <= 0 || data.Height <= 0 {
 		return DetailFrame{}
 	}
-	physicalLines := physicalizeLines(data.Lines, data.Width)
-	physicalRegions := physicalizeRegions(data.Regions, data.Width)
+	semantic := alignDetailRows(data.Lines, data.Width)
+	physicalLines, physicalOwners := detailPhysicalLines(semantic, data.Regions, data.Width)
 	bodyHeight := max(1, data.Height-2)
 	maxOffset := MaxOffset(len(physicalLines), bodyHeight)
 	offset := min(max(0, data.Offset), maxOffset)
-	viewport := Viewport(physicalLines, offset, data.Width, bodyHeight)
-	if len(physicalRegions) > 0 {
-		visibleRegions := sliceRegions(physicalRegions, offset, bodyHeight)
-		viewport = Compose(data.Width, bodyHeight, visibleRegions...).Lines
-	} else {
-		viewport = Compose(data.Width, bodyHeight, Region{Name: "detail", Lines: viewport}).Lines
-	}
+	viewport := append([]string(nil), physicalLines[offset:min(len(physicalLines), offset+bodyHeight)]...)
 	contentCount := min(bodyHeight, max(0, len(physicalLines)-offset))
 	visible := append([]string(nil), viewport[:contentCount]...)
-	owners := make([]string, len(visible))
-	if len(physicalRegions) > 0 {
-		owners = Compose(data.Width, bodyHeight, sliceRegions(physicalRegions, offset, bodyHeight)...).Owners[:contentCount]
-	} else {
-		owners = Compose(data.Width, bodyHeight, Region{Name: "detail", Lines: viewport}).Owners[:contentCount]
-	}
+	owners := append([]string(nil), physicalOwners[offset:offset+contentCount]...)
 	if len(visible) == 0 {
 		visible = []string{""}
 		owners = []string{"detail"}
@@ -127,12 +116,9 @@ func Detail(data DetailData) DetailFrame {
 	if data.FooterFunc != nil {
 		footer = data.FooterFunc(offset, offset+contentCount, len(physicalLines))
 	}
-	visible = append(visible, footer)
+	visible = append(visible, fitDetailLine(normalizeLine(footer), data.Width))
 	owners = append(owners, "footer")
 	footerLine := len(visible) - 1
-	for i := range visible {
-		visible[i] = ansi.Truncate(visible[i], data.Width, "")
-	}
 	for len(visible) < data.Height {
 		visible = append(visible, "")
 		owners = append(owners, "empty")
@@ -144,53 +130,16 @@ func Detail(data DetailData) DetailFrame {
 	return DetailFrame{Lines: visible, Owners: owners, Offset: offset, MaxOffset: maxOffset, FooterLine: footerLine}
 }
 
-func physicalizeLines(lines []string, width int) []string {
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		result = append(result, wrapSafeLine(line, width)...)
-	}
-	return result
-}
-
-func physicalizeRegions(regions []Region, width int) []Region {
-	result := make([]Region, 0, len(regions))
-	for _, region := range regions {
-		result = append(result, Region{Name: region.Name, Lines: physicalizeLines(region.Lines, width)})
-	}
-	return result
-}
-
-func sliceRegions(regions []Region, offset, height int) []Region {
-	result := make([]Region, 0, len(regions))
-	row := 0
-	remaining := height
-	for _, region := range regions {
-		if remaining <= 0 {
-			break
-		}
-		start := max(0, offset-row)
-		if start < len(region.Lines) {
-			lines := region.Lines[start:min(len(region.Lines), start+remaining)]
-			result = append(result, Region{Name: region.Name, Lines: lines})
-			remaining -= len(lines)
-		}
-		row += len(region.Lines)
-	}
-	return result
-}
-
-// AlignRows justifies labelled DTO lines without knowing anything about the
-// model domain. Indented lines are prose/details and intentionally stay
-// untouched, matching the legacy detail layout.
-func AlignRows(lines []string, width int) []string {
+func alignDetailRows(lines []string, width int) []string {
 	if width < 140 {
 		return append([]string(nil), lines...)
 	}
 	labelWidth := 0
 	for _, line := range lines {
-		index := strings.Index(line, ": ")
-		if index > 0 && !strings.HasPrefix(line, "  ") {
-			labelWidth = max(labelWidth, ansi.StringWidth(line[:index]))
+		plain := normalizePlainLine(line)
+		index := strings.Index(plain, ": ")
+		if index > 0 && !strings.HasPrefix(plain, "  ") {
+			labelWidth = max(labelWidth, ansi.StringWidth(plain[:index]))
 		}
 	}
 	if labelWidth == 0 {
@@ -198,14 +147,97 @@ func AlignRows(lines []string, width int) []string {
 	}
 	result := append([]string(nil), lines...)
 	for i, line := range result {
-		index := strings.Index(line, ": ")
-		if index <= 0 || strings.HasPrefix(line, "  ") {
+		plain := normalizePlainLine(line)
+		index := strings.Index(plain, ": ")
+		if index <= 0 || strings.HasPrefix(plain, "  ") {
 			continue
 		}
-		label := line[:index]
-		result[i] = label + ": " + strings.Repeat(" ", labelWidth-ansi.StringWidth(label)) + line[index+2:]
+		label := plain[:index]
+		result[i] = label + ": " + strings.Repeat(" ", labelWidth-ansi.StringWidth(label)) + plain[index+2:]
 	}
 	return result
+}
+
+func fitDetailLine(value string, width int) string {
+	if ansi.StringWidth(value) <= width {
+		return value
+	}
+	var result strings.Builder
+	used := 0
+	for _, r := range ansi.Strip(value) {
+		cellWidth := ansi.StringWidth(string(r))
+		if cellWidth == 0 {
+			continue
+		}
+		if used+cellWidth > width {
+			break
+		}
+		result.WriteRune(r)
+		used += cellWidth
+	}
+	return result.String()
+}
+
+func detailPhysicalLines(lines []string, regions []Region, width int) ([]string, []string) {
+	physical := make([]string, 0, len(lines))
+	owners := make([]string, 0, len(lines))
+	regionIndex, regionLine := 0, 0
+	for _, logical := range lines {
+		owner := "detail"
+		if len(regions) > 0 && regionIndex < len(regions) {
+			owner = regions[regionIndex].Name
+		}
+		paragraphs := splitEscapedLines(logical)
+		indent := ""
+		if strings.HasPrefix(logical, "  ") {
+			indent = "  "
+		}
+		for index, paragraph := range paragraphs {
+			paragraph = sanitizeDetailLine(paragraph)
+			if index > 0 {
+				paragraph = indent + paragraph
+			}
+			wrapped := wrapSafeLine(paragraph, width)
+			for i := range wrapped {
+				wrapped[i] = fitDetailLine(wrapped[i], width)
+			}
+			physical = append(physical, wrapped...)
+			for range wrapped {
+				owners = append(owners, owner)
+			}
+		}
+		if len(regions) > 0 {
+			regionLine++
+			if regionIndex < len(regions) && regionLine >= len(regions[regionIndex].Lines) {
+				regionIndex++
+				regionLine = 0
+			}
+		}
+	}
+	return physical, owners
+}
+
+func sanitizeDetailLine(value string) string {
+	return normalizePlainLine(value)
+}
+
+func normalizePlainLine(value string) string {
+	var out strings.Builder
+	for i := 0; i < len(value); {
+		if value[i] != '\x1b' {
+			r, size := decodeRune(value[i:])
+			if r < 0x20 || r == 0x7f {
+				out.WriteByte(' ')
+			} else {
+				out.WriteString(value[i : i+size])
+			}
+			i += size
+			continue
+		}
+		_, next, _ := escapeSequence(value, i)
+		i = next
+	}
+	return out.String()
 }
 
 func Wrap(value string, width int) []string {

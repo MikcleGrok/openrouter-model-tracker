@@ -163,6 +163,39 @@ func TestTUIDetailScrollAndReturnAlwaysProduceIndependentFrames(t *testing.T) {
 	}
 }
 
+func TestTUIDetailViewPreservesProductionFieldsAsPlainRows(t *testing.T) {
+	row := model.Model{
+		Slug: "acme/model", DisplayName: "Acme Model", Provider: "Acme", License: "Apache-2.0", Tier: "sonnet",
+		ClaudeRef: "≈ Sonnet", OpenWeights: "yes", Context: 128000, InPerM: 0.5, OutPerM: 2,
+		TaskFit: []string{"implement", "audit"}, Description: "first paragraph\\nsecond paragraph", Note: "release note\\nwith provenance",
+		CanonicalSlug: "acme/model", MetadataSourceURL: "https://meta.example/model", HuggingFaceID: "acme/model",
+		Score: &model.ScoreInfo{Value: 91.2, Metric: "SWE-bench Verified", Unit: "%", VariantMeasured: "acme/model", SourceURL: "https://bench.example/score", Checked: "2026-08-20"},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.width, m.height = 100, 80
+	m.rebuild()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	view := ansi.Strip(m.View())
+	if strings.Contains(view, `\n`) || strings.Contains(view, "\x1b]8;") {
+		t.Fatalf("detail view retained terminal payload: %q", view)
+	}
+	for _, want := range []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "Claude reference: ≈ Sonnet", "Task fit: implement + audit", "Context: 128K tokens", "Input: $0.50 per M tokens", "Output: $2.00 per M tokens", "Open weights: yes", "Source: https://bench.example/score", "Metadata source: https://meta.example/model", "Description:", "  first paragraph", "  second paragraph"} {
+		if strings.Count(view, want) != 1 {
+			t.Fatalf("detail field %q count in view = %d\n%s", want, strings.Count(view, want), view)
+		}
+	}
+	order := []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --"}
+	previous := -1
+	for _, marker := range order {
+		index := strings.Index(view, marker)
+		if index <= previous {
+			t.Fatalf("detail marker %q out of order after %q\n%s", marker, order[max(0, len(order)-1)], view)
+		}
+		previous = index
+	}
+}
+
 func TestTUISelectionIsInvalidatedByRefreshAndResize(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "alpha", DisplayName: "Alpha"}})
 	m.width, m.height = 80, 10
@@ -4355,7 +4388,10 @@ func TestTUIDetailScrollAccountsForPricingHistory(t *testing.T) {
 }
 
 func TestTUIDetailGroupsDataAndAlignsWideRows(t *testing.T) {
-	lines := detailLinesForTest(tuiDetailTestModel(), scoreSourceSWEBench, 200, time.Now())
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
+	m.overlay, m.width, m.height = "detail", 200, 80
+	m.lang = "ru"
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	joined := strings.Join(lines, "\n")
 	for _, marker := range []string{"-- Идентичность --", "-- Цены --", "-- Бенчмарки --", "-- Соответствие и заметки --"} {
 		if !strings.Contains(joined, marker) {
@@ -4539,7 +4575,7 @@ func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 10
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
-	total := len(detailLinesForTest(m.visible[0], m.scoreSource, m.width, time.Now()))
+	total := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: detailLinesForTest(m.visible[0], m.scoreSource, m.width, time.Now())}).MaxOffset + max(1, m.height-2)
 	body := max(1, m.height-2)
 	if want := fmt.Sprintf("Detail 1-%d/%d · ↑↓ scroll · Esc close", body, total); !strings.HasPrefix(lines[len(lines)-1], want) {
 		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)

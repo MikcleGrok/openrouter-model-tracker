@@ -118,3 +118,62 @@ func TestBoxUsesDTOLinesAndClearsUnusedRows(t *testing.T) {
 		t.Fatalf("narrow box rows = %#v", got)
 	}
 }
+
+func TestDetailDecodesEscapedNewlinesAndSanitizesTerminalPayloads(t *testing.T) {
+	frame := Detail(DetailData{Width: 40, Height: 12, Lines: []string{
+		"Provider: Acme\\nLicense: Apache-2.0",
+		"Source: https://example.test/a\\nnext",
+		"Unsafe: \x1b]8;;https://evil.test\x07visible\x1b]8;;\x07",
+	}})
+	joined := strings.Join(frame.Lines, "\n")
+	if strings.Contains(joined, `\n`) || strings.Contains(joined, "\x1b") {
+		t.Fatalf("detail retained escaped/control payload: %q", joined)
+	}
+	if !strings.Contains(joined, "Provider: Acme\nLicense: Apache-2.0") || !strings.Contains(joined, "Source: https://example.test/a\nnext") {
+		t.Fatalf("detail did not preserve logical fields as rows: %q", joined)
+	}
+}
+
+func TestDetailAdversarialPhysicalBoundaryKeepsOwnersAndGridExact(t *testing.T) {
+	lines := []string{
+		"Boundary: " + strings.Repeat("x", 10) + `\n界🙂tail`,
+		"  " + strings.Repeat("unique-note-", 5) + "\rnext",
+		"Source: https://example.test/" + strings.Repeat("segment/", 8),
+	}
+	regions := []Region{{Name: "identity", Lines: lines[:1]}, {Name: "long-text", Lines: lines[1:]}}
+	frame := Detail(DetailData{Width: 16, Height: 20, Lines: lines, Regions: regions, Footer: "footer"})
+	if len(frame.Lines) != 20 || len(frame.Owners) != len(frame.Lines) {
+		t.Fatalf("frame dimensions = %d/%d", len(frame.Lines), len(frame.Owners))
+	}
+	for i, line := range frame.Lines {
+		if ansi.StringWidth(ansi.Strip(line)) > 16 {
+			t.Fatalf("row %d exceeds width: %q", i, line)
+		}
+		if frame.Owners[i] == "" {
+			t.Fatalf("row %d has no owner", i)
+		}
+	}
+	joined := strings.Join(frame.Lines, "\n")
+	compact := strings.ReplaceAll(joined, "\n", "")
+	for _, want := range []string{"Boundary:", "界🙂tail", "unique-note-", "https://example.test/"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("physical grid lost %q: %q", want, joined)
+		}
+	}
+	short := Detail(DetailData{Width: 16, Height: 12, Lines: []string{"short"}, Footer: "footer"})
+	if short.FooterLine != 2 || strings.TrimSpace(short.Lines[3]) != "" {
+		t.Fatalf("long-to-short frame retained stale rows: %#v", short.Lines)
+	}
+}
+
+func TestDetailRemovesMixedControlPayloadsFromVisibleBaseText(t *testing.T) {
+	frame := Detail(DetailData{Width: 32, Height: 10, Lines: []string{
+		"Provider: before\x1b[31mred\x1b[0m\rnext",
+		"Link: \x1b]8;;https://evil.test\aVISIBLE\x1b]8;;\a",
+		"CSI: \x1b[2Cvalue\x1b[K",
+	}})
+	visible := strings.Join(frame.Lines, "\n")
+	if strings.ContainsAny(visible, "\x1b\x00\x01\x07\x0b\x0c\x0d") || strings.Contains(visible, `\n`) {
+		t.Fatalf("visible base text retained control payload: %q", visible)
+	}
+}

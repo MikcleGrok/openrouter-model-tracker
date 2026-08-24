@@ -4,19 +4,17 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // DetailLabels contains the localized chrome of the detail screen. Values in
 // DetailDTO are model data; labels are the only text selected by language.
 type DetailLabels struct {
-	Identity, Pricing, Benchmarks, Provenance, FitNotes                                      string
-	Manufacturer, Provider, License, Tier, ClaudeReference, TaskFit                          string
-	Context, Input, Output, LongContext, LongContextInput, LongContextOutput                 string
-	OpenWeights, ReleaseDate, OpenRouterPage, MetadataSource, HuggingFace, Description, Note string
-	SWE, Arena, Detail, Scroll, Close, Tokens, PerMTokens                                    string
-	Placeholder, ArenaNote, ReleaseNote                                                      string
+	Identity, Pricing, Benchmarks, Provenance, FitNotes                                                 string
+	Manufacturer, Provider, License, Tier, ClaudeReference, TaskFit                                     string
+	Context, Input, Output, LongContext, LongContextInput, LongContextOutput                            string
+	OpenWeights, ReleaseDate, OpenRouterPage, ModelPage, MetadataSource, HuggingFace, Description, Note string
+	SWE, Arena, Detail, Scroll, Close, Tokens, PerMTokens                                               string
+	Placeholder, ArenaNote, ReleaseNote                                                                 string
 }
 
 type DetailLocalizer interface {
@@ -39,19 +37,19 @@ type DetailScoreProvider interface {
 // DetailDTO is the model-independent input to the detail logical-line
 // builder. It intentionally contains no application model types.
 type DetailDTO struct {
-	DisplayName, Slug, Provider, License, Tier, ClaudeRef, OpenWeights string
-	Description, Note, CanonicalSlug, HuggingFaceID, MetadataSourceURL string
-	Manufacturer                                                       string
-	Context                                                            int
-	InPerM, OutPerM                                                    float64
-	Created                                                            int64
-	TaskFit                                                            []string
-	LongContextPriceLabel, LongContextInLabel, LongContextOutLabel     string
-	HasLongContextOverride                                             bool
-	LongContextOverrideInPerM, LongContextOverrideOutPerM              float64
-	LongContextOverrideMinTokens                                       int
-	SWEBlock, ArenaBlock                                               []string
-	History                                                            []string
+	DisplayName, Slug, Provider, License, Tier, ClaudeRef, OpenWeights           string
+	Description, Note, CanonicalSlug, HuggingFaceID, MetadataSourceURL, ModelURL string
+	Manufacturer                                                                 string
+	Context                                                                      int
+	InPerM, OutPerM                                                              float64
+	Created                                                                      int64
+	TaskFit                                                                      []string
+	LongContextPriceLabel, LongContextInLabel, LongContextOutLabel               string
+	HasLongContextOverride                                                       bool
+	LongContextOverrideInPerM, LongContextOverrideOutPerM                        float64
+	LongContextOverrideMinTokens                                                 int
+	SWEBlock, ArenaBlock                                                         []string
+	History                                                                      []string
 }
 
 type detailDefaults struct{}
@@ -80,8 +78,8 @@ func (detailDefaults) Arena(data DetailDTO, lang string) []string {
 	return append([]string(nil), data.ArenaBlock...)
 }
 
-// DetailLines builds all physical logical lines before viewport arithmetic.
-func DetailLines(data DetailDTO, width int, now time.Time, lang string, localizer DetailLocalizer, history DetailHistoryProvider, icons DetailIconProvider, prices DetailPriceProvider, scores DetailScoreProvider) []string {
+// DetailLines builds semantic rows. Detail is the only function that turns these rows into physical rows.
+func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLocalizer, history DetailHistoryProvider, icons DetailIconProvider, prices DetailPriceProvider, scores DetailScoreProvider) []string {
 	if localizer == nil {
 		localizer = detailDefaults{}
 	}
@@ -108,14 +106,10 @@ func DetailLines(data DetailDTO, width int, now time.Time, lang string, localize
 	if data.Context > 0 {
 		context = prices.Context(data.Context)
 	}
-	lines := Wrap(value(data.DisplayName)+" ("+value(data.Slug)+")", max(1, width))
+	lines := []string{value(data.DisplayName) + " (" + value(data.Slug) + ")"}
 	lines = append(lines, "", l.Identity)
 	manufacturer := l.Manufacturer + value(icons.Manufacturer(data))
-	if ansi.StringWidth(manufacturer) <= max(1, width) {
-		lines = append(lines, manufacturer)
-	} else {
-		lines = append(lines, Wrap(manufacturer, max(1, width))...)
-	}
+	lines = append(lines, manufacturer)
 	lines = append(lines, l.Provider+value(data.Provider), l.License+value(data.License), l.Tier+value(data.Tier), l.ClaudeReference+value(data.ClaudeRef), l.TaskFit+taskFit(data.TaskFit, l.Placeholder))
 	lines = append(lines, "", l.Pricing, l.Context+context+l.Tokens, l.Input+prices.Price(data.InPerM)+l.PerMTokens, l.Output+prices.Price(data.OutPerM)+l.PerMTokens)
 	if combined, input, output := prices.LongContext(data, lang); combined != "" {
@@ -131,29 +125,27 @@ func DetailLines(data DetailDTO, width int, now time.Time, lang string, localize
 	lines = append(lines, "")
 	lines = append(lines, scores.Arena(data, lang)...)
 	lines = append(lines, "", l.Provenance, l.ReleaseDate+releaseDate(data.Created, now, l), l.OpenRouterPage+"https://openrouter.ai/"+value(data.CanonicalSlug))
+	if strings.TrimSpace(data.ModelURL) != "" {
+		lines = append(lines, l.ModelPage+value(data.ModelURL))
+	}
 	if strings.TrimSpace(data.MetadataSourceURL) != "" {
 		lines = append(lines, l.MetadataSource+value(data.MetadataSourceURL))
 	}
 	if strings.TrimSpace(data.HuggingFaceID) != "" {
 		lines = append(lines, l.HuggingFace+"https://huggingface.co/"+value(data.HuggingFaceID))
 	}
-	lines = append(lines, l.Description)
-	lines = append(lines, wrapped(data.Description, width, l.Placeholder)...)
+	lines = append(lines, l.Description, detailProse(data.Description, l.Placeholder))
 	lines = append(lines, "", l.FitNotes, l.Note)
-	lines = append(lines, wrapped(data.Note, width, l.Placeholder)...)
-	return AlignRows(physicalizeLines(lines, max(1, width)), max(1, width))
+	lines = append(lines, detailProse(data.Note, l.Placeholder))
+	return lines
 }
 
-func wrapped(value string, width int, placeholder string) []string {
+func detailProse(value, placeholder string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return []string{"  " + placeholder}
+		return "  " + placeholder
 	}
-	lines := Wrap(value, max(1, width-2))
-	for i := range lines {
-		lines[i] = "  " + lines[i]
-	}
-	return lines
+	return "  " + value
 }
 func taskFit(values []string, placeholder string) string {
 	if len(values) == 0 {
@@ -221,9 +213,9 @@ func pluralRU(value int, one, few, many string) string {
 }
 func defaultLabels(lang string) DetailLabels {
 	if lang == "ru" {
-		return DetailLabels{Identity: "-- Идентичность --", Pricing: "-- Цены --", Benchmarks: "-- Бенчмарки --", Provenance: "-- Происхождение и метаданные --", FitNotes: "-- Соответствие и заметки --", Manufacturer: "Производитель: ", Provider: "Провайдер: ", License: "Лицензия: ", Tier: "Тир: ", ClaudeReference: "Claude-референс: ", TaskFit: "Task fit: ", Context: "Контекст: ", Input: "Вход: ", Output: "Выход: ", LongContext: "Длинный контекст: ", LongContextInput: "  вход: ", LongContextOutput: "  выход: ", OpenWeights: "Открытые веса: ", ReleaseDate: "Дата релиза: ", OpenRouterPage: "Страница OpenRouter: ", MetadataSource: "Источник метаданных: ", HuggingFace: "Репозиторий HuggingFace: ", Description: "Описание:", Note: "Заметка:", Tokens: " токенов", PerMTokens: " за M токенов", Placeholder: "н/д", ReleaseNote: "; дата создания записи каталога, релиз неизвестен"}
+		return DetailLabels{Identity: "-- Идентичность --", Pricing: "-- Цены --", Benchmarks: "-- Бенчмарки --", Provenance: "-- Происхождение и метаданные --", FitNotes: "-- Соответствие и заметки --", Manufacturer: "Производитель: ", Provider: "Провайдер: ", License: "Лицензия: ", Tier: "Тир: ", ClaudeReference: "Claude-референс: ", TaskFit: "Task fit: ", Context: "Контекст: ", Input: "Вход: ", Output: "Выход: ", LongContext: "Длинный контекст: ", LongContextInput: "  вход: ", LongContextOutput: "  выход: ", OpenWeights: "Открытые веса: ", ReleaseDate: "Дата релиза: ", OpenRouterPage: "Страница OpenRouter: ", ModelPage: "Страница модели: ", MetadataSource: "Источник метаданных: ", HuggingFace: "Репозиторий HuggingFace: ", Description: "Описание:", Note: "Заметка:", Tokens: " токенов", PerMTokens: " за M токенов", Placeholder: "н/д", ReleaseNote: "; дата создания записи каталога, релиз неизвестен"}
 	}
-	return DetailLabels{Identity: "-- Identity --", Pricing: "-- Pricing --", Benchmarks: "-- Benchmarks --", Provenance: "-- Provenance and metadata --", FitNotes: "-- Fit and notes --", Manufacturer: "Manufacturer: ", Provider: "Provider: ", License: "License: ", Tier: "Tier: ", ClaudeReference: "Claude reference: ", TaskFit: "Task fit: ", Context: "Context: ", Input: "Input: ", Output: "Output: ", LongContext: "Long context: ", LongContextInput: "  input: ", LongContextOutput: "  output: ", OpenWeights: "Open weights: ", ReleaseDate: "Release date: ", OpenRouterPage: "OpenRouter page: ", MetadataSource: "Metadata source: ", HuggingFace: "HuggingFace repository: ", Description: "Description:", Note: "Note:", Tokens: " tokens", PerMTokens: " per M tokens", Placeholder: "n/a", ReleaseNote: "; catalogue entry creation date, release date unknown"}
+	return DetailLabels{Identity: "-- Identity --", Pricing: "-- Pricing --", Benchmarks: "-- Benchmarks --", Provenance: "-- Provenance and metadata --", FitNotes: "-- Fit and notes --", Manufacturer: "Manufacturer: ", Provider: "Provider: ", License: "License: ", Tier: "Tier: ", ClaudeReference: "Claude reference: ", TaskFit: "Task fit: ", Context: "Context: ", Input: "Input: ", Output: "Output: ", LongContext: "Long context: ", LongContextInput: "  input: ", LongContextOutput: "  output: ", OpenWeights: "Open weights: ", ReleaseDate: "Release date: ", OpenRouterPage: "OpenRouter page: ", ModelPage: "Model page: ", MetadataSource: "Metadata source: ", HuggingFace: "HuggingFace repository: ", Description: "Description:", Note: "Note:", Tokens: " tokens", PerMTokens: " per M tokens", Placeholder: "n/a", ReleaseNote: "; catalogue entry creation date, release date unknown"}
 }
 func formatContext(tokens int) string  { return fmt.Sprintf("%dK", tokens/1000) }
 func formatPrice(value float64) string { return fmt.Sprintf("$%.4g", value) }
