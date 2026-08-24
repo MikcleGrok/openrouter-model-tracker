@@ -9,7 +9,7 @@ import (
 
 func TestDetailUsesOneLocalizedLineSourceForViewportAndOffset(t *testing.T) {
 	frame := Detail(DetailData{Width: 20, Height: 5, Offset: 99, Lines: []string{"-- Идентичность --", "Производитель: Длинное", "Описание", "Еще одна строка"}, Footer: "Детали"})
-	if frame.MaxOffset != 1 || frame.Offset != 1 || len(frame.Lines) != 5 || frame.FooterLine != 4 {
+	if frame.MaxOffset != 2 || frame.Offset != 2 || len(frame.Lines) != 5 || frame.FooterLine != 4 {
 		t.Fatalf("detail frame = %#v", frame)
 	}
 }
@@ -64,6 +64,21 @@ func TestDetailFrameHasStableRowsAfterLongToShortRender(t *testing.T) {
 	}
 }
 
+func TestDetailFrameReturnsAnOwnerForEveryPhysicalRow(t *testing.T) {
+	frame := Detail(DetailData{Width: 12, Height: 6, Offset: 0, Lines: []string{"-- Pricing --", "A very long value that wraps"}, Regions: []Region{{Name: "pricing", Lines: []string{"-- Pricing --", "A very long value that wraps"}}, {Name: "metadata", Lines: []string{"source"}}}, Footer: "footer"})
+	if len(frame.Lines) != 6 || len(frame.Owners) != 6 {
+		t.Fatalf("frame dimensions = %d/%d", len(frame.Lines), len(frame.Owners))
+	}
+	for i, owner := range frame.Owners {
+		if owner == "" {
+			t.Fatalf("physical row %d has no owner", i)
+		}
+		if ansi.StringWidth(ansi.Strip(frame.Lines[i])) > 12 {
+			t.Fatalf("physical row %d exceeds width: %q", i, frame.Lines[i])
+		}
+	}
+}
+
 func TestFrameKeepsOSC8AndUnicodeWidthBoundaries(t *testing.T) {
 	link := "\x1b]8;;https://example.test\x07界🙂\x1b]8;;\x07"
 	frame := Frame(link+"\nold\nrows", 4, 3)
@@ -73,6 +88,23 @@ func TestFrameKeepsOSC8AndUnicodeWidthBoundaries(t *testing.T) {
 	}
 	if rows[1] != "old" || rows[2] != "rows" {
 		t.Fatalf("frame changed non-overflow rows: %#v", rows)
+	}
+}
+
+func TestFrameWrapsLongDetailValueInsteadOfDroppingIt(t *testing.T) {
+	url := "https://example.test/metadata/" + strings.Repeat("segment-", 12) + "final"
+	detail := Detail(DetailData{Width: 20, Height: 20, Lines: []string{"Metadata source: " + url}})
+	rows := detail.Lines
+	if !strings.Contains(strings.Join(rows, ""), url) {
+		t.Fatalf("long URL was truncated: %#v", rows)
+	}
+	if len(rows) <= 2 {
+		t.Fatalf("long URL did not wrap: %#v", rows)
+	}
+	for i, row := range rows {
+		if ansi.StringWidth(ansi.Strip(row)) > 20 {
+			t.Fatalf("row %d exceeds width: %q", i, row)
+		}
 	}
 }
 

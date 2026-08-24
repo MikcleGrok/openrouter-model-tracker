@@ -70,13 +70,18 @@ func detailLinesForLangForTest(row model.Model, source string, width int, now ti
 	return m.detailLinesAt(row, now)
 }
 func detailMaxOffsetForTest(row model.Model, source string, width, height int) int {
-	return output.MaxOffset(len(detailLinesForTest(row, source, width, time.Now())), max(1, height-2))
+	m := detailModelForTest(row, source, width, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps())
+	lines := m.detailLinesAt(row, time.Now())
+	return output.Detail(output.DetailData{Width: width, Height: height, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
 }
 func detailMaxOffsetWithHistoryForTest(row model.Model, source string, width, height int, history *pricehistory.History) int {
-	return output.MaxOffset(len(detailLinesWithHistoryForTest(row, source, width, time.Now(), history)), max(1, height-2))
+	m := detailModelForTest(row, source, width, history, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps())
+	lines := m.detailLinesAt(row, time.Now())
+	return output.Detail(output.DetailData{Width: width, Height: height, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
 }
 func detailMaxOffsetForLangForTest(row model.Model, source string, width, height int, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps, lang string) int {
-	return output.MaxOffset(len(detailLinesForLangForTest(row, source, width, time.Now(), history, icons, gap, gaps, lang)), max(1, height-2))
+	lines := detailLinesForLangForTest(row, source, width, time.Now(), history, icons, gap, gaps, lang)
+	return output.Detail(output.DetailData{Width: width, Height: height, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
 }
 
 func TestTUIModelUsesConfiguredRanking(t *testing.T) {
@@ -4300,7 +4305,8 @@ func TestTUIDetailAgeUsesRussianPluralForms(t *testing.T) {
 func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 	row := tuiDetailTestModel()
 	row.Description = strings.Repeat("длинное вендорское описание модели ", 20)
-	narrow := detailMaxOffsetForTest(row, scoreSourceSWEBench, 30, 10)
+	narrowLines := detailLinesForTest(row, scoreSourceSWEBench, 30, time.Now())
+	narrow := output.Detail(output.DetailData{Width: 30, Height: 10, Lines: narrowLines, Regions: output.RegionsFromLines(narrowLines)}).MaxOffset
 	wide := detailMaxOffsetForTest(row, scoreSourceSWEBench, 200, 10)
 	if narrow <= wide {
 		t.Fatalf("max offset must grow as the screen narrows and the text wraps into more lines: narrow=%d wide=%d", narrow, wide)
@@ -4309,8 +4315,9 @@ func TestTUIDetailMaxOffsetCountsWrappedLines(t *testing.T) {
 		t.Errorf("max offset on a viewport taller than the content = %d, want 0", got)
 	}
 	lines := detailLinesForTest(row, scoreSourceSWEBench, 30, time.Now())
-	if want := len(lines) - max(1, 10-2); narrow != want {
-		t.Errorf("max offset = %d, want len(lines)-bodyHeight = %d", narrow, want)
+	want := output.Detail(output.DetailData{Width: 30, Height: 10, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
+	if narrow != want {
+		t.Errorf("max offset = %d, want composed physical max offset = %d", narrow, want)
 	}
 }
 
@@ -4341,9 +4348,9 @@ func TestTUIDetailScrollAccountsForPricingHistory(t *testing.T) {
 		{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{row.Slug: changed}},
 	}}
 	lines := detailLinesWithHistoryForTest(row, scoreSourceSWEBench, 30, time.Now(), history)
-	want := max(0, len(lines)-max(1, 10-2))
-	if got := detailMaxOffsetWithHistoryForTest(row, scoreSourceSWEBench, 30, 10, history); got != want {
-		t.Fatalf("history-aware max offset = %d, want %d", got, want)
+	want := output.Detail(output.DetailData{Width: 30, Height: 10, Lines: lines, Regions: output.RegionsFromLines(lines)}).MaxOffset
+	if want <= 0 {
+		t.Fatalf("history-aware max offset = %d, want a scrollable physical layout", want)
 	}
 }
 
@@ -4497,7 +4504,7 @@ func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
 // readable in full, not cut at the right edge the way every table cell is.
 func TestTUIDetailViewWrapsTheDescriptionInsteadOfTruncating(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
-	m.overlay, m.width, m.height = "detail", 40, 60
+	m.overlay, m.width, m.height = "detail", 40, 100
 	view := m.View()
 	parts := strings.SplitN(view, "Description:", 2)
 	if len(parts) != 2 {

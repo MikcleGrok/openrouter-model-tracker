@@ -12,12 +12,14 @@ type DetailData struct {
 	Width, Height int
 	Offset        int
 	Lines         []string
+	Regions       []Region
 	Footer        string
 	FooterFunc    func(offset, end, total int) string
 }
 
 type DetailFrame struct {
 	Lines      []string
+	Owners     []string
 	Offset     int
 	MaxOffset  int
 	FooterLine int
@@ -41,7 +43,7 @@ func Frame(content string, width, height int) string {
 		lines = lines[:height]
 	}
 	for i := range lines {
-		lines[i] = ansi.Truncate(lines[i], width, "")
+		lines[i] = ansi.Truncate(normalizeLine(lines[i]), width, "")
 	}
 	for len(lines) < height {
 		lines = append(lines, "")
@@ -58,7 +60,7 @@ func Viewport(lines []string, offset, width, height int) []string {
 	page := make([]string, height)
 	for i := range page {
 		if offset+i < len(lines) {
-			page[i] = ansi.Truncate(lines[offset+i], width, "")
+			page[i] = ansi.Truncate(normalizeLine(lines[offset+i]), width, "")
 		}
 	}
 	return page
@@ -93,34 +95,88 @@ func Detail(data DetailData) DetailFrame {
 	if data.Width <= 0 || data.Height <= 0 {
 		return DetailFrame{}
 	}
+	physicalLines := physicalizeLines(data.Lines, data.Width)
+	physicalRegions := physicalizeRegions(data.Regions, data.Width)
 	bodyHeight := max(1, data.Height-2)
-	maxOffset := MaxOffset(len(data.Lines), bodyHeight)
+	maxOffset := MaxOffset(len(physicalLines), bodyHeight)
 	offset := min(max(0, data.Offset), maxOffset)
-	viewport := Viewport(data.Lines, offset, data.Width, bodyHeight)
-	contentCount := min(bodyHeight, max(0, len(data.Lines)-offset))
+	viewport := Viewport(physicalLines, offset, data.Width, bodyHeight)
+	if len(physicalRegions) > 0 {
+		visibleRegions := sliceRegions(physicalRegions, offset, bodyHeight)
+		viewport = Compose(data.Width, bodyHeight, visibleRegions...).Lines
+	} else {
+		viewport = Compose(data.Width, bodyHeight, Region{Name: "detail", Lines: viewport}).Lines
+	}
+	contentCount := min(bodyHeight, max(0, len(physicalLines)-offset))
 	visible := append([]string(nil), viewport[:contentCount]...)
+	owners := make([]string, len(visible))
+	if len(physicalRegions) > 0 {
+		owners = Compose(data.Width, bodyHeight, sliceRegions(physicalRegions, offset, bodyHeight)...).Owners[:contentCount]
+	} else {
+		owners = Compose(data.Width, bodyHeight, Region{Name: "detail", Lines: viewport}).Owners[:contentCount]
+	}
 	if len(visible) == 0 {
 		visible = []string{""}
+		owners = []string{"detail"}
 	}
 	if len(visible)+2 <= data.Height {
 		visible = append(visible, "")
+		owners = append(owners, "separator")
 	}
 	footer := data.Footer
 	if data.FooterFunc != nil {
-		footer = data.FooterFunc(offset, offset+contentCount, len(data.Lines))
+		footer = data.FooterFunc(offset, offset+contentCount, len(physicalLines))
 	}
 	visible = append(visible, footer)
+	owners = append(owners, "footer")
 	footerLine := len(visible) - 1
 	for i := range visible {
 		visible[i] = ansi.Truncate(visible[i], data.Width, "")
 	}
 	for len(visible) < data.Height {
 		visible = append(visible, "")
+		owners = append(owners, "empty")
 	}
 	if len(visible) > data.Height {
 		visible = visible[:data.Height]
+		owners = owners[:data.Height]
 	}
-	return DetailFrame{Lines: visible, Offset: offset, MaxOffset: maxOffset, FooterLine: footerLine}
+	return DetailFrame{Lines: visible, Owners: owners, Offset: offset, MaxOffset: maxOffset, FooterLine: footerLine}
+}
+
+func physicalizeLines(lines []string, width int) []string {
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		result = append(result, wrapSafeLine(line, width)...)
+	}
+	return result
+}
+
+func physicalizeRegions(regions []Region, width int) []Region {
+	result := make([]Region, 0, len(regions))
+	for _, region := range regions {
+		result = append(result, Region{Name: region.Name, Lines: physicalizeLines(region.Lines, width)})
+	}
+	return result
+}
+
+func sliceRegions(regions []Region, offset, height int) []Region {
+	result := make([]Region, 0, len(regions))
+	row := 0
+	remaining := height
+	for _, region := range regions {
+		if remaining <= 0 {
+			break
+		}
+		start := max(0, offset-row)
+		if start < len(region.Lines) {
+			lines := region.Lines[start:min(len(region.Lines), start+remaining)]
+			result = append(result, Region{Name: region.Name, Lines: lines})
+			remaining -= len(lines)
+		}
+		row += len(region.Lines)
+	}
+	return result
 }
 
 // AlignRows justifies labelled DTO lines without knowing anything about the

@@ -3007,7 +3007,7 @@ func tuiDetailView(m tuiModel) string {
 	// skipping the append there would instead leave the page short of
 	// height, and tuiFullscreenText's own trailing pad would then land
 	// after the footer, displacing it from the screen's last line.
-	composed := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, FooterFunc: func(offset, end, total int) string {
+	composed := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
 		if m.lang == "ru" {
 			return fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, total)
 		}
@@ -4265,7 +4265,9 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	m.detailOffset = max(0, min(m.detailOffset, tuioutput.MaxOffset(len(m.detailLines(row)), max(1, m.height-2))))
+	lines := m.detailLines(row)
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines)})
+	m.detailOffset = frame.Offset
 }
 
 func tuiCellWithIcons(m model.Model, col tuiColumn, note bool, scoreSource string, icons config.IconConfig) string {

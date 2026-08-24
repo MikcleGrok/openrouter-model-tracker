@@ -141,7 +141,7 @@ func DetailLines(data DetailDTO, width int, now time.Time, lang string, localize
 	lines = append(lines, wrapped(data.Description, width, l.Placeholder)...)
 	lines = append(lines, "", l.FitNotes, l.Note)
 	lines = append(lines, wrapped(data.Note, width, l.Placeholder)...)
-	return AlignRows(lines, width)
+	return AlignRows(physicalizeLines(lines, max(1, width)), max(1, width))
 }
 
 func wrapped(value string, width int, placeholder string) []string {
