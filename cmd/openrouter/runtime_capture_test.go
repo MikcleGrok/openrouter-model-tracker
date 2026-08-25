@@ -164,6 +164,51 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
 	step("overlay закрыт повторно", tableAt(120))
 
+	// Поиск ("/") — единственное найденное реальное пользовательское
+	// действие в этой модели, которое способно укоротить содержимое строки
+	// экрана БЕЗ полного tea.ClearScreen(). Открытие/закрытие любого
+	// оверлея (как detail выше) каждый раз меняет m.screenIdentity() и
+	// потому проходит через Controller.Transition ->
+	// InvalidateOnTransition (internal/tui/screen/controller.go:70), которая
+	// форсирует tea.ClearScreen() на КАЖДОМ таком переключении — ни один из
+	// шагов выше ни разу не добирается до детектора с живым нетронутым
+	// хвостом старого кадра. Набор и бэкспейс в строке поиска, наоборот, не
+	// трогают m.overlay: screenIdentity() остаётся "list" всё время, пока
+	// активен m.inputMode == "search" (см. screenIdentity() и case "/" в
+	// key(), cmd/openrouter/tui.go) — Transition() поэтому не срабатывает,
+	// и укорачивание строки поиска на бэкспейсе доходит до экрана
+	// исключительно через собственную построчную diff/erase-to-end-of-line
+	// логику патченного рендерера (standard_renderer.go flush(): дописывает
+	// ansi.EraseLineRight к каждой укоротившейся строке). Это ровно тот
+	// путь, который detectStaleContent (runtime_session_test.go) существует
+	// проверять: если бы рендерер когда-нибудь перестал дописывать erase к
+	// укоротившейся строке поиска, sess.Frame ниже упал бы с ошибкой раньше,
+	// чем скрипт дошёл бы до собственной проверки содержимого.
+	const searchFull, searchShort = "second-model-lookup", "second"
+	rp.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	step("поиск открыт", func(rows []string) bool {
+		return tableAt(120)(rows) && containsPhysicalRow(rows, "/ _")
+	})
+
+	rp.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(searchFull)})
+	step("текст поиска введён", func(rows []string) bool {
+		return containsPhysicalRow(rows, "/ "+searchFull+"_")
+	})
+
+	// searchFull[len(searchShort):] — вычитаемый хвост "-model-lookup";
+	// range по нему даёт ровно один бэкспейс на руну хвоста (в этой строке
+	// ASCII, так что руна == байт), без ручного подсчёта количества.
+	for range searchFull[len(searchShort):] {
+		rp.Send(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	step("текст поиска укорочен без ClearScreen", func(rows []string) bool {
+		return containsPhysicalRow(rows, "/ "+searchShort+"_") &&
+			!containsPhysicalRow(rows, searchFull[len(searchShort):])
+	})
+
+	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
+	step("поиск закрыт", tableAt(120))
+
 	// Ctrl+C доходит до tuiModel.Update при закрытом оверлее (его закрыл
 	// Escape выше), так что модель не меняется и нового видимого кадра на
 	// этот шаг не рождается — ждать здесь нечего. Что проверял на этом
