@@ -104,6 +104,14 @@ func (s *runtimeSession) Frame(stream string) ([]string, error) {
 // separate "before this frame" snapshot is needed. If that untouched
 // tail is non-blank, it is stale content left over from a previous,
 // longer-lived frame.
+//
+// This bookkeeping is only correct under the harness contract runtime_program_test.go's
+// frameWriter establishes: one renderer Write() call feeds exactly one Frame()
+// call here, in order, unfiltered — so "this frame" above means exactly one
+// flush. Anything that merges or splits writes before they reach Frame() (the
+// concrete way to reintroduce this: teatest's WithANSICompressor(), which
+// fragments a single Write() into one write per rune) would silently break
+// this function's per-row touched-column tracking.
 func detectStaleContent(term *runtimeTerminal) error {
 	for y := 0; y < term.height; y++ {
 		maxTouched := -1

@@ -101,6 +101,13 @@ type runtimeProgram struct {
 // mattering. Callers must therefore never assume "one action, one frame" —
 // see the checkpoint loop in runtime_capture_test.go, which replays every
 // write into a terminal emulator and asserts on the resulting screen.
+//
+// The omission of WithANSICompressor above is load-bearing beyond the
+// fragmentation it avoids for callers: detectStaleContent (runtime_session_test.go)
+// depends on exactly one Write() call reaching exactly one sess.Frame() call,
+// in order, unfiltered, to attribute a frame's touched columns correctly.
+// Reintroducing WithANSICompressor (or anything else that merges/splits
+// writes before they reach Frame()) would silently break that bookkeeping.
 func startRuntimeProgram(t *testing.T, m tuiModel, width, height int) *runtimeProgram {
 	t.Helper()
 	m.width, m.height = width, height

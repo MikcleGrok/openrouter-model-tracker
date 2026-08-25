@@ -203,27 +203,75 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 		rp.Send(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	step("текст поиска укорочен без ClearScreen", func(rows []string) bool {
+		// searchFull[len(searchShort)+1:], а не [len(searchShort):]: символ
+		// сразу после searchShort (тот самый "-") сидит ровно в колонке
+		// нового курсора и потому переписывается новым кадром ("_")
+		// независимо от того, отработал erase-to-EOL или нет — контроль на
+		// нём самом никогда бы не сработал (72e060f). Настоящий утёкший
+		// хвост при сломанном erase-to-EOL начинается со следующего символа.
 		return containsPhysicalRow(rows, "/ "+searchShort+"_") &&
 			!containsPhysicalRow(rows, searchFull[len(searchShort)+1:])
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
-	step("поиск закрыт", tableAt(120))
+	// tableAt(120) само по себе не различает "поиск открыт" и "поиск
+	// закрыт" — оно уже было true во время "поиск открыт" выше (см. ту
+	// проверку: tableAt(120)(rows) && containsPhysicalRow(rows, "/ _")),
+	// потому что строка поиска рисуется НАД той же самой таблицей, а не
+	// вместо неё. Без отдельного условия на отсутствие строки поиска этот
+	// шаг прошёл бы даже если бы Escape не закрывал поиск вовсе — контроль
+	// на "/ " (с пробелом сразу после слэша — именно так строится строка
+	// поиска, "/ " + текст + "_") доказывает, что она действительно ушла с
+	// экрана.
+	step("поиск закрыт", func(rows []string) bool {
+		return tableAt(120)(rows) && !containsPhysicalRow(rows, "/ ")
+	})
 
 	// Ctrl+C доходит до tuiModel.Update при закрытом оверлее (его закрыл
-	// Escape выше), так что модель не меняется и нового видимого кадра на
-	// этот шаг не рождается — ждать здесь нечего. Что проверял на этом
-	// месте исходный тест (teatest WaitFinished + FinalOutput) — это «байты
-	// пути завершения разбираются без ошибки»: Quit подтверждает, что Run()
+	// Escape выше) и возвращает tea.Quit напрямую (case "ctrl+c" в key(),
+	// cmd/openrouter/tui.go) — модель не меняется, так что View() не
+	// перерисовывается заново и нового видимого кадра на этот шаг не
+	// рождается; ждать здесь нечего. Что проверял на этом месте исходный
+	// тест (teatest WaitFinished + FinalOutput) — это «байты пути
+	// завершения разбираются без ошибки»: Quit подтверждает, что Run()
 	// действительно вернулся (shutdown() до этого отрабатывает полностью
 	// синхронно), а DrainRemaining отдаёт всё, что успело записаться
 	// (EraseEntireLine, show cursor, выход из alt-screen, отключение мыши и
-	// bracketed paste). Ни одна из этих последовательностей не пишет в
-	// ячейки, поэтому экран обязан остаться тем же, каким его оставил
-	// последний кадр.
+	// bracketed paste).
+	//
+	// Это НЕ «ни одна из этих последовательностей не пишет в ячейки»:
+	// patched-рендереровский stop()
+	// (internal/thirdparty/bubbletea-patched/standard_renderer.go:115) шлёт
+	// ansi.EraseEntireLine — ESC[2K с mode=2, который по eraseLine(mode=2)
+	// выше стирает СТРОКУ ЦЕЛИКОМ, а не ничего. Стирается ровно одна
+	// строка — та, где курсор оставил последний кадр: flush() в
+	// alt-screen режиме паркует курсор в CursorPosition(0, len(newLines))
+	// после каждой отрисовки (standard_renderer.go), а последний кадр
+	// перед Ctrl+C — полная перерисовка на все 30 строк, так что это
+	// последняя (нижняя) строка экрана. В фикстуре этого теста та строка
+	// уже пустая (нижняя строка списка — вертикальный отступ), так что сам
+	// erase здесь визуально no-op — но проверка не должна опираться на это
+	// совпадение: она должна ловить регресс, при котором erase вообще
+	// перестанет чистить строку, или (что опаснее) начнёт задевать не ту
+	// строку и стирать реальный контент. Отсюда — сравнение экрана
+	// построчно с состоянием до Ctrl+C: каждая строка, КРОМЕ последней,
+	// обязана остаться побайтово той же, а последняя обязана оказаться
+	// пустой.
 	rp.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	rp.Quit(t, stepTimeout)
+	beforeShutdown := append([]string(nil), screen...)
 	shutdown := rp.DrainRemaining()
+	if len(shutdown) == 0 {
+		// shutdown() (standard_renderer.go stop() + restoreTerminalState())
+		// отрабатывает полностью синхронно до возврата Run(), которое уже
+		// подтвердил rp.Quit() выше — так что к этому моменту в канале
+		// frameWriter гарантированно лежат как минимум EraseEntireLine и
+		// "\r" из stop(). Пустой DrainRemaining() здесь значит не «путь
+		// завершения ничего не пишет», а что проверка ниже вообще не
+		// увидела ни одного байта пути завершения и потому не проверяет
+		// ничего — это и есть vacuous pass, который эта проверка исключает.
+		t.Fatalf("завершение программы: DrainRemaining не вернул ни одной записи рендерера — путь завершения не был проверен вообще")
+	}
 	for i, raw := range shutdown {
 		out, err := sess.Frame(raw)
 		if err != nil {
@@ -231,8 +279,20 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 		}
 		screen = out
 	}
-	if !tableAt(120)(screen) {
-		t.Errorf("завершение программы: экран изменился на пути завершения\nэкран:\n%s", strings.Join(screen, "\n"))
+	if len(screen) != len(beforeShutdown) {
+		t.Fatalf("завершение программы: число строк экрана изменилось на пути завершения: было %d, стало %d", len(beforeShutdown), len(screen))
+	}
+	lastRow := len(screen) - 1
+	for y := range screen {
+		if y == lastRow {
+			continue
+		}
+		if screen[y] != beforeShutdown[y] {
+			t.Fatalf("завершение программы: строка %d изменилась на пути завершения, хотя shutdown трогает только последнюю строку экрана\nбыло:  %q\nстало: %q", y, beforeShutdown[y], screen[y])
+		}
+	}
+	if trimmed := strings.TrimRight(screen[lastRow], " "); trimmed != "" {
+		t.Fatalf("завершение программы: ожидали, что EraseEntireLine очистит последнюю строку экрана (%d), но там осталось: %q", lastRow, trimmed)
 	}
 	t.Logf("завершение программы OK: %d записей рендерера", len(shutdown))
 }
