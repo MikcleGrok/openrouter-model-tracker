@@ -29,69 +29,188 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	m.sortKey = "name"
 	m.rebuild()
 
-	// startRuntimeProgram (runtime_program_test.go) drives m the same way
-	// production does — tea.WithAltScreen(), no tea.WithANSICompressor() —
-	// against an in-memory writer, and hands back real per-frame boundaries
-	// instead of a sleep-then-drain guess. Unlike teatest.NewTestModel (which
-	// hardcodes tea.WithANSICompressor() into its internal tea.NewProgram
-	// call with no override), this exercises the exact renderer code path
-	// production takes: tea.WithAltScreen() is a startup option here, not a
-	// runtime message, so there is exactly one initial frame — no separate
-	// "send EnterAltScreen and hope its flush already landed" priming step,
-	// and no risk of that flush silently folding into the first captured one.
-	const frameTimeout = 2 * time.Second
-	rp := startRuntimeProgram(m, 120, 30)
+	const (
+		// stepTimeout — сколько ждём, пока экран придёт в ожидаемое шагом
+		// состояние.
+		stepTimeout = 2 * time.Second
+		// quietPeriod — сколько рендерер должен молчать, чтобы шаг
+		// считался завершённым. Это НЕ способ дождаться кадра: кадр
+		// дожидается детерминированно, по want() ниже. Это дренаж
+		// «хвоста» шага, потому что одно действие законно порождает
+		// больше одной записи: tea.ClearScreen() шлёт ESC[2J/ESC[H
+		// отдельными write() и форсирует repaint, а на старте рендерер
+		// может успеть флашнуть ещё до того, как event loop разберёт
+		// WindowSizeMsg (см. startRuntimeProgram). Недобранная запись
+		// уехала бы в СЛЕДУЮЩИЙ шаг, а через Resize это означало бы
+		// 120-колоночные байты на 90-колоночном экране. Шесть тиков
+		// рендерера при 60fps.
+		quietPeriod = 100 * time.Millisecond
+	)
 
+	// startRuntimeProgram (runtime_program_test.go) драйвит m ровно теми же
+	// опциями, что и прод — tea.WithAltScreen(), tea.WithMouseCellMotion(),
+	// без tea.WithANSICompressor() — в in-memory writer. В отличие от
+	// teatest.NewTestModel (который жёстко зашивает tea.WithANSICompressor()
+	// в свой внутренний tea.NewProgram без возможности переопределить), это
+	// проходит ровно тот путь рендерера, который проходит прод:
+	// tea.WithAltScreen() здесь стартовая опция, а не runtime-сообщение, так
+	// что нет отдельного шага «пошлём EnterAltScreen и понадеемся, что его
+	// flush уже долетел».
+	rp := startRuntimeProgram(t, m, 120, 30)
 	sess := newRuntimeSession(120, 30)
-	check := func(label string, width, height int, chunk string) {
+
+	// screen — текущее состояние сессионного экрана: персистентная сетка
+	// ячеек, которую эмулятор ведёт между кадрами, как настоящий терминал.
+	var screen []string
+
+	// step проигрывает один шаг сценария до проверенного состояния экрана.
+	//
+	// В эмулятор скармливается КАЖДАЯ запись рендерера — управляющие
+	// последовательности наравне с кадрами, в том порядке, в каком они были
+	// записаны, по одному вызову Frame() на каждый вызов Write(), ровно как
+	// их получил бы настоящий терминал. Отдельный Frame() на запись важен:
+	// проверка «повторная запись в ячейку внутри одного кадра» должна
+	// оставаться на границах flush(), а не размазываться по нескольким.
+	//
+	// Условие остановки — want(экран), а не «пришёл первый кадр с видимым
+	// текстом»: рендерер не обязан отдавать ровно один кадр на действие, и
+	// счёт кадров — это ровно то, на чём тест начинает молча проверять не
+	// тот кадр. После совпадения шаг дочитывает хвост до тишины и проверяет
+	// want ещё раз — чтобы совпадение на промежуточном кадре, который
+	// следующая запись тут же отменяет, не проходило как успех.
+	step := func(label string, want func(rows []string) bool) {
 		t.Helper()
-		if len(chunk) == 0 {
-			t.Logf("%s: (пусто — в это окно ничего не флашилось)", label)
-			return
+		deadline := time.Now().Add(stepTimeout)
+		written := 0
+		feed := func(raw string) {
+			written++
+			out, err := sess.Frame(raw)
+			if err != nil {
+				t.Fatalf("%s: запись рендерера #%d не разобралась эмулятором: %v\nбайты: %q", label, written, err, raw)
+			}
+			screen = out
 		}
-		rowsOut, err := sess.Frame(chunk)
-		if err != nil {
-			t.Errorf("%s FAILED at %dx%d: %v", label, width, height, err)
-			return
+		for {
+			raw, ok := rp.NextWrite(time.Until(deadline))
+			if !ok {
+				t.Fatalf("%s: за %s экран так и не пришёл в ожидаемое состояние (%d записей рендерера)\nэкран:\n%s", label, stepTimeout, written, strings.Join(screen, "\n"))
+			}
+			feed(raw)
+			if want(screen) {
+				break
+			}
 		}
-		t.Logf("%s OK at %dx%d, %d строк", label, width, height, len(rowsOut))
+		for {
+			raw, ok := rp.NextWrite(quietPeriod)
+			if !ok {
+				break
+			}
+			feed(raw)
+		}
+		if !want(screen) {
+			t.Fatalf("%s: экран разъехался при дорисовке хвоста шага (%d записей рендерера)\nэкран:\n%s", label, written, strings.Join(screen, "\n"))
+		}
+		t.Logf("%s OK: %d записей рендерера, %d строк, контент до колонки %d", label, written, len(screen), lastContentColumn(screen))
 	}
 
-	check("начальный рендер", 120, 30, rp.NextFrame(t, frameTimeout))
+	// tableAt — главный экран со списком моделей, свёрстанный именно под
+	// ширину width. Проверка ширины здесь не косметика: дефолт модели до
+	// первого WindowSizeMsg — 100 колонок (newTUIModel в tui.go), так что
+	// таблица, обрывающаяся на 100-й колонке в 120-колоночной сессии, —
+	// это не «узкий кадр», а чужой кадр.
+	tableAt := func(width int) func([]string) bool {
+		return func(rows []string) bool {
+			return containsPhysicalRow(rows, "OpenRouter models") &&
+				!containsPhysicalRow(rows, "Esc close") &&
+				contentFillsWidth(rows, width)
+		}
+	}
+	// detailWithFooter — оверлей карточки модели. footer содержит счётчик
+	// видимых строк, который пересчитывается от размера окна, так что он же
+	// служит доказательством, что кадр перевёрстан под текущий размер.
+	detailWithFooter := func(footer string) func([]string) bool {
+		return func(rows []string) bool {
+			return containsPhysicalRow(rows, "Second model (second/model)") &&
+				containsPhysicalRow(rows, footer) &&
+				!containsPhysicalRow(rows, "OpenRouter models")
+		}
+	}
+
+	step("начальный рендер", func(rows []string) bool {
+		// data:unknown — хвост мета-строки длиной ~117 колонок: на 100
+		// колонках она обрезается и этого хвоста на экране нет.
+		return tableAt(120)(rows) && containsPhysicalRow(rows, "data:unknown")
+	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	check("открыт detail", 120, 30, rp.NextFrame(t, frameTimeout))
+	step("открыт detail", detailWithFooter("Detail 1-28/46"))
 
-	rp.Send(tea.WindowSizeMsg{Width: 90, Height: 24})
 	sess.Resize(90, 24)
-	check("resize при открытом detail", 90, 24, rp.NextFrame(t, frameTimeout))
+	rp.Send(tea.WindowSizeMsg{Width: 90, Height: 24})
+	step("resize при открытом detail", detailWithFooter("Detail 1-22/48"))
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
-	check("overlay закрыт", 90, 24, rp.NextFrame(t, frameTimeout))
+	step("overlay закрыт", tableAt(90))
 
-	rp.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	sess.Resize(120, 30)
-	check("resize обратно к исходному размеру", 120, 30, rp.NextFrame(t, frameTimeout))
+	rp.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	step("resize обратно к исходному размеру", func(rows []string) bool {
+		return tableAt(120)(rows) && containsPhysicalRow(rows, "data:unknown")
+	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	check("повторно открыт detail", 120, 30, rp.NextFrame(t, frameTimeout))
+	step("повторно открыт detail", detailWithFooter("Detail 1-28/46"))
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
-	check("overlay закрыт повторно", 120, 30, rp.NextFrame(t, frameTimeout))
+	step("overlay закрыт повторно", tableAt(120))
 
-	// Ctrl+C reaches tuiModel.Update with no overlay open (it was already
-	// closed by the Escape above), so it returns straight to tea.Quit
-	// without changing the model — no new visible content is ever rendered
-	// for this step, so unlike every step above there is no frame to wait
-	// for here via NextFrame. What the original test asserted at this point
-	// (via teatest's WaitFinished + FinalOutput) was simply "whatever bytes
-	// the shutdown path emits parse without error" — Quit confirms Run()
-	// actually returns (shutdown() runs fully synchronously beforehand), and
-	// DrainRemaining collects whatever shutdown-only control sequences
-	// (EraseEntireLine, cursor show, exit-alt-screen, ...) landed in the
-	// meantime, which is the same tolerant "may be content-free" check as
-	// before.
+	// Ctrl+C доходит до tuiModel.Update при закрытом оверлее (его закрыл
+	// Escape выше), так что модель не меняется и нового видимого кадра на
+	// этот шаг не рождается — ждать здесь нечего. Что проверял на этом
+	// месте исходный тест (teatest WaitFinished + FinalOutput) — это «байты
+	// пути завершения разбираются без ошибки»: Quit подтверждает, что Run()
+	// действительно вернулся (shutdown() до этого отрабатывает полностью
+	// синхронно), а DrainRemaining отдаёт всё, что успело записаться
+	// (EraseEntireLine, show cursor, выход из alt-screen, отключение мыши и
+	// bracketed paste). Ни одна из этих последовательностей не пишет в
+	// ячейки, поэтому экран обязан остаться тем же, каким его оставил
+	// последний кадр.
 	rp.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	rp.Quit(t, frameTimeout)
-	check("завершение программы", 120, 30, rp.DrainRemaining())
+	rp.Quit(t, stepTimeout)
+	shutdown := rp.DrainRemaining()
+	for i, raw := range shutdown {
+		out, err := sess.Frame(raw)
+		if err != nil {
+			t.Fatalf("завершение программы: запись рендерера #%d не разобралась эмулятором: %v\nбайты: %q", i+1, err, raw)
+		}
+		screen = out
+	}
+	if !tableAt(120)(screen) {
+		t.Errorf("завершение программы: экран изменился на пути завершения\nэкран:\n%s", strings.Join(screen, "\n"))
+	}
+	t.Logf("завершение программы OK: %d записей рендерера", len(shutdown))
+}
+
+// lastContentColumn возвращает 1-based номер самой правой непустой колонки
+// по всем строкам сетки — то есть фактическую ширину отрисованного кадра на
+// экране. Строки сетки — это ячейки, по руне на ячейку (двухширинная руна
+// занимает — и хранится в — обеих своих ячейках, см. runtimeTerminal.write),
+// так что счёт рун здесь и есть счёт колонок.
+func lastContentColumn(rows []string) int {
+	last := 0
+	for _, row := range rows {
+		if n := len([]rune(strings.TrimRight(row, " "))); n > last {
+			last = n
+		}
+	}
+	return last
+}
+
+// contentFillsWidth проверяет, что кадр свёрстан именно под ширину width:
+// контент не вылезает за неё и при этом доходит почти до неё. Нижняя
+// граница нарочно с запасом — она отделяет «свёрстано под этот размер» от
+// «свёрстано под другой», а не фиксирует конкретную вёрстку колонок.
+func contentFillsWidth(rows []string, width int) bool {
+	last := lastContentColumn(rows)
+	return last <= width && last > width-15
 }
