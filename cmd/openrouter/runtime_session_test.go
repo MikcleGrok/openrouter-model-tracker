@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -11,8 +12,16 @@ import (
 // одного кадра — легитимная перерисовка ячейки в следующем кадре (реальное
 // поведение терминала при частичном redraw) не считается нарушением;
 // повторная запись в ту же ячейку ВНУТРИ одного кадра — считается.
+//
+// poisoned фиксирует первую ошибку Frame: после неё курсор/состояние
+// runtimeTerminal остаются там, где парсинг оборвался (Frame не откатывает
+// изменения), так что дальнейшие вызовы Frame на уже повреждённом состоянии
+// могут привести не к чистой ошибке, а к панике внутри csi()-обработчиков
+// (например eraseLine/eraseDisplay индексируют cells по уже невалидному y).
+// Poisoning превращает это в один понятный отказ вместо каскада и паники.
 type runtimeSession struct {
-	term *runtimeTerminal
+	term     *runtimeTerminal
+	poisoned error
 }
 
 func newRuntimeSession(width, height int) *runtimeSession {
@@ -24,15 +33,37 @@ func newRuntimeSession(width, height int) *runtimeSession {
 	return &runtimeSession{term: t}
 }
 
+// Resize переконфигурирует сессию под новый размер терминала. Реальный
+// resize терминала всегда сопровождается полной перерисовкой (подтверждено
+// эмпирически: каждый захваченный resize-кадр в TestTUIRuntimeCaptureAcrossRealSession
+// начинается с ESC[2J ESC[H), поэтому начать со свежей сетки и курсором в
+// (0,0) корректно моделирует то, что видно на терминале непосредственно
+// перед тем, как в него попадают байты этого кадра.
+//
+// Resize НЕ сбрасывает poisoned: если сессия уже упала, она должна
+// оставаться упавшей и после resize — это осознанно консервативный выбор.
+func (s *runtimeSession) Resize(width, height int) {
+	t := &runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), width: width, height: height}
+	for y := range t.cells {
+		t.cells[y] = []rune(strings.Repeat(" ", width))
+		t.writes[y] = make([]bool, width)
+	}
+	s.term = t
+}
+
 // Frame проверяет один кадр реального вывода рендерера относительно
 // персистентного состояния сессии.
 func (s *runtimeSession) Frame(stream string) ([]string, error) {
+	if s.poisoned != nil {
+		return nil, fmt.Errorf("session already failed, refusing further frames: %w", s.poisoned)
+	}
 	for y := range s.term.writes {
 		for x := range s.term.writes[y] {
 			s.term.writes[y][x] = false
 		}
 	}
 	if err := runtimeFeed(s.term, stream); err != nil {
+		s.poisoned = err
 		return nil, err
 	}
 	rows := make([]string, s.term.height)

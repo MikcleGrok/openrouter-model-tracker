@@ -33,7 +33,17 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 	const tick = 60 * time.Millisecond
-	time.Sleep(tick) // дать первичному WindowSizeMsg-рендеру устояться
+
+	// Production always runs with tea.WithAltScreen() (cmd/openrouter/tui.go),
+	// which routes the patched renderer into a different code path than the
+	// default teatest session: alt-screen mode re-homes the cursor absolutely
+	// every frame (ESC[H + absolute positioning) and never emits relative
+	// CursorUp moves, while non-alt-screen mode does emit CursorUp(n) between
+	// frames. teatest.NewTestModel does not enable alt-screen on its own, so
+	// without this the test would exercise a renderer code path production
+	// never actually takes.
+	tm.Send(tea.EnterAltScreen())
+	time.Sleep(tick) // let the alt-screen entry (and its own repaint) flush before scripting begins
 
 	type frame struct {
 		label         string
@@ -70,6 +80,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 
 	tm.Send(tea.WindowSizeMsg{Width: 90, Height: 24})
 	time.Sleep(tick)
+	sess.Resize(90, 24)
 	check("resize при открытом detail", 90, 24, drain())
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEscape})
@@ -78,6 +89,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 
 	tm.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	time.Sleep(tick)
+	sess.Resize(120, 30)
 	check("resize обратно к исходному размеру", 120, 30, drain())
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
