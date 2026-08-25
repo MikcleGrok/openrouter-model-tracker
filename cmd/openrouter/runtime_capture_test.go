@@ -164,9 +164,10 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
 	step("overlay закрыт повторно", tableAt(120))
 
-	// Поиск ("/") — единственное найденное реальное пользовательское
-	// действие в этой модели, которое способно укоротить содержимое строки
-	// экрана БЕЗ полного tea.ClearScreen(). Открытие/закрытие любого
+	// Поиск ("/") — пример реального пользовательского действия в этой модели,
+	// которое способно укоротить содержимое строки экрана БЕЗ полного
+	// tea.ClearScreen() (help-overlay search typing и in-place list changes
+	// like sort toggles — другие примеры). Открытие/закрытие любого
 	// оверлея (как detail выше) каждый раз меняет m.screenIdentity() и
 	// потому проходит через Controller.Transition ->
 	// InvalidateOnTransition (internal/tui/screen/controller.go:70), которая
@@ -203,7 +204,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	}
 	step("текст поиска укорочен без ClearScreen", func(rows []string) bool {
 		return containsPhysicalRow(rows, "/ "+searchShort+"_") &&
-			!containsPhysicalRow(rows, searchFull[len(searchShort):])
+			!containsPhysicalRow(rows, searchFull[len(searchShort)+1:])
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
