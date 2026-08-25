@@ -335,18 +335,40 @@ func runtimeGrid(stream string, width, height int) ([]string, error) {
 		e.cells[y] = []rune(strings.Repeat(" ", width))
 		e.writes[y] = make([]bool, width)
 	}
+	if err := runtimeFeed(&e, stream); err != nil {
+		return nil, err
+	}
+	if e.osc8Open {
+		return nil, fmt.Errorf("unbalanced OSC8 hyperlink")
+	}
+	if e.y < 0 || e.y >= height || e.x < 0 || e.x > width {
+		return nil, fmt.Errorf("final cursor (%d,%d) outside %dx%d", e.x, e.y, width, height)
+	}
+	rows := make([]string, height)
+	for i := range e.cells {
+		rows[i] = string(e.cells[i])
+	}
+	return rows, nil
+}
+
+// runtimeFeed разбирает поток байт терминала и применяет его к переданному
+// runtimeTerminal, не пересоздавая и не сбрасывая его состояние — так его
+// может использовать и разовый runtimeGrid (создающий свежий терминал на
+// каждый вызов), и сессионный runtimeSession (переиспользующий один и тот
+// же терминал между кадрами).
+func runtimeFeed(e *runtimeTerminal, stream string) error {
 	for i := 0; i < len(stream); {
 		if stream[i] == '\x1b' {
 			next, err := e.escape(stream, i)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			i = next
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(stream[i:])
 		if r == utf8.RuneError && size == 1 {
-			return nil, fmt.Errorf("invalid UTF-8 at byte %d", i)
+			return fmt.Errorf("invalid UTF-8 at byte %d", i)
 		}
 		switch r {
 		case '\n':
@@ -360,23 +382,13 @@ func runtimeGrid(stream string, width, height int) ([]string, error) {
 			w := ansi.StringWidth(string(r))
 			if w > 0 {
 				if err := e.write(r, w); err != nil {
-					return nil, err
+					return err
 				}
 			}
 		}
 		i += size
 	}
-	if e.osc8Open {
-		return nil, fmt.Errorf("unbalanced OSC8 hyperlink")
-	}
-	if e.y < 0 || e.y >= height || e.x < 0 || e.x > width {
-		return nil, fmt.Errorf("final cursor (%d,%d) outside %dx%d", e.x, e.y, width, height)
-	}
-	rows := make([]string, height)
-	for i := range e.cells {
-		rows[i] = string(e.cells[i])
-	}
-	return rows, nil
+	return nil
 }
 
 type runtimeTerminal struct {
@@ -491,6 +503,13 @@ func (e *runtimeTerminal) csi(command byte, p []int) error {
 	case 'K':
 		e.eraseLine(mode)
 	case 'm':
+	case 'h', 'l':
+		// DEC private-mode переключатели (видимость курсора ?25, bracketed
+		// paste ?2004, mouse tracking ?1000/1002/1003/1006, alt-screen
+		// ?1049, ...) не влияют на видимую сетку — обрабатываются как
+		// no-op, чтобы сессионные записи (которые включают
+		// старт/остановку программы, а не только содержимое View()) не
+		// падали на служебных последовательностях.
 	default:
 		return fmt.Errorf("unsupported CSI %q", command)
 	}
@@ -620,4 +639,19 @@ func (m tuiModel) detailRowSlug() string {
 		return ""
 	}
 	return row.Slug
+}
+
+func TestRuntimeGridAcceptsDECPrivateModeSequences(t *testing.T) {
+	// Реальная tea.Program шлёт эти последовательности при старте/остановке
+	// сессии (скрыть/показать курсор, bracketed paste, mouse tracking) —
+	// View() их никогда не производит, поэтому runtimeGrid раньше их не
+	// видел вообще. Реальная tea.Program их шлёт независимо от содержимого.
+	stream := "\x1b[?25l\x1b[?2004hhello\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?25h"
+	rows, err := runtimeGrid(stream, 10, 1)
+	if err != nil {
+		t.Fatalf("runtimeGrid should treat DEC private modes as no-ops, got: %v", err)
+	}
+	if rows[0] != "hello     " {
+		t.Fatalf("expected content preserved around DEC sequences, got %q", rows[0])
+	}
 }
