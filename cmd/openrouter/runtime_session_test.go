@@ -43,15 +43,21 @@ func (s *runtimeSession) Frame(stream string) ([]string, error) {
 }
 
 func TestRuntimeSessionAllowsLegitimateCrossFrameRepaint(t *testing.T) {
-	s := newRuntimeSession(5, 2)
-	if _, err := s.Frame("hi\r\nhi"); err != nil {
+	s := newRuntimeSession(5, 1)
+	if _, err := s.Frame("hi"); err != nil {
 		t.Fatalf("frame 1: %v", err)
 	}
-	// Кадр 2: курсор поднимается на строку вверх и та же ячейка
-	// перезаписывается тем же содержимым — легитимная полная
-	// перерисовка после чего-то вроде resize, не баг.
-	if _, err := s.Frame("\x1b[1Ahi"); err != nil {
+	// Кадр 2: курсор возвращается на начало строки (CSI 2D) и те же самые
+	// ячейки (0,0) и (1,0), уже помеченные как записанные в кадре 1,
+	// перезаписываются снова — легитимная полная перерисовка после
+	// чего-то вроде resize, не баг. Если бы сброс write-bitmap между
+	// кадрами не работал, эта запись упала бы с "duplicate write".
+	rows, err := s.Frame("\x1b[2Dhi")
+	if err != nil {
 		t.Fatalf("frame 2 (legitimate repaint) should not fail, got: %v", err)
+	}
+	if rows[0] != "hi   " {
+		t.Fatalf("expected content preserved after repaint, got %q", rows[0])
 	}
 }
 
