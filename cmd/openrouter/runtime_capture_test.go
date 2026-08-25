@@ -45,10 +45,6 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	tm.Send(tea.EnterAltScreen())
 	time.Sleep(tick) // let the alt-screen entry (and its own repaint) flush before scripting begins
 
-	type frame struct {
-		label         string
-		width, height int
-	}
 	drain := func() []byte {
 		b, err := io.ReadAll(tm.Output())
 		if err != nil {

@@ -520,6 +520,12 @@ func (e *runtimeTerminal) csi(command byte, p []int) error {
 }
 
 func (e *runtimeTerminal) eraseDisplay(mode int) {
+	// e.y/e.x are used here only as comparison bounds, never as direct
+	// indices — the loop below ranges over e.cells/e.cells[y], both of which
+	// are always in-range by construction. So an out-of-bounds e.y (e.g.
+	// after a run of unguarded '\n' advances) cannot make this function
+	// panic; it just degrades gracefully (erases everything or nothing,
+	// depending on mode), unlike eraseLine below.
 	for y := range e.cells {
 		for x := range e.cells[y] {
 			if mode == 2 || mode == 0 && (y > e.y || y == e.y && x >= e.x) || mode == 1 && (y < e.y || y == e.y && x <= e.x) {
@@ -531,6 +537,14 @@ func (e *runtimeTerminal) eraseDisplay(mode int) {
 }
 
 func (e *runtimeTerminal) eraseLine(mode int) {
+	// e.y can be left out of [0, e.height) by a prior operation that itself
+	// carries no bounds check (e.g. a bare '\n' advancing past the last
+	// row). Unlike eraseDisplay, this function indexes e.cells[e.y]
+	// directly, so without this guard an already-invalid e.y turns into a
+	// raw index-out-of-range panic instead of a no-op.
+	if e.y < 0 || e.y >= e.height {
+		return
+	}
 	start, end := 0, e.width
 	if mode == 0 {
 		start = e.x

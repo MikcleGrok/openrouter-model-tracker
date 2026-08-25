@@ -20,6 +20,8 @@ require (
 
 replace github.com/charmbracelet/bubbletea => ./internal/thirdparty/bubbletea-patched
 
+replace github.com/charmbracelet/colorprofile => github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc
+
 require (
 	github.com/aymanbagabas/go-udiff v0.3.1 // indirect
 	github.com/charmbracelet/colorprofile v0.3.2 // indirect
