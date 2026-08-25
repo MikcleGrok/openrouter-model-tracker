@@ -25,10 +25,11 @@ type runtimeSession struct {
 }
 
 func newRuntimeSession(width, height int) *runtimeSession {
-	t := &runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), width: width, height: height}
+	t := &runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), touched: make([][]bool, height), width: width, height: height}
 	for y := range t.cells {
 		t.cells[y] = []rune(strings.Repeat(" ", width))
 		t.writes[y] = make([]bool, width)
+		t.touched[y] = make([]bool, width)
 	}
 	return &runtimeSession{term: t}
 }
@@ -47,10 +48,11 @@ func newRuntimeSession(width, height int) *runtimeSession {
 // Resize НЕ сбрасывает poisoned: если сессия уже упала, она должна
 // оставаться упавшей и после resize — это осознанно консервативный выбор.
 func (s *runtimeSession) Resize(width, height int) {
-	t := &runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), width: width, height: height}
+	t := &runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), touched: make([][]bool, height), width: width, height: height}
 	for y := range t.cells {
 		t.cells[y] = []rune(strings.Repeat(" ", width))
 		t.writes[y] = make([]bool, width)
+		t.touched[y] = make([]bool, width)
 	}
 	s.term = t
 }
@@ -64,9 +66,14 @@ func (s *runtimeSession) Frame(stream string) ([]string, error) {
 	for y := range s.term.writes {
 		for x := range s.term.writes[y] {
 			s.term.writes[y][x] = false
+			s.term.touched[y][x] = false
 		}
 	}
 	if err := runtimeFeed(s.term, stream); err != nil {
+		s.poisoned = err
+		return nil, err
+	}
+	if err := detectStaleContent(s.term); err != nil {
 		s.poisoned = err
 		return nil, err
 	}
@@ -75,6 +82,47 @@ func (s *runtimeSession) Frame(stream string) ([]string, error) {
 		rows[i] = string(s.term.cells[i])
 	}
 	return rows, nil
+}
+
+// detectStaleContent catches the "blurred/duplicated text" symptom this
+// whole test harness exists to eventually police: a line's new content is
+// shorter than what was there before, the renderer writes the new (shorter)
+// content but never erases the vacated tail of the old, longer content, and
+// that tail keeps showing on screen looking like leftover/duplicated
+// glyphs.
+//
+// It runs once per frame, after runtimeFeed has applied every byte of the
+// frame to term. For each row, it finds the highest column touched (written
+// OR erased — see touched's own doc comment on runtimeTerminal) THIS frame.
+// A row nothing touched this frame is not a candidate at all — the
+// renderer's own line-diff legitimately skips repainting an unchanged row
+// (see standard_renderer.go flush()'s canSkip), and that is not a bug.
+// Everything past the highest touched column on a touched row, though,
+// holds whatever cells held before this frame started (by definition of
+// "highest touched column" — nothing this frame reached further right), so
+// checking today's content there directly is correct and sufficient: no
+// separate "before this frame" snapshot is needed. If that untouched
+// tail is non-blank, it is stale content left over from a previous,
+// longer-lived frame.
+func detectStaleContent(term *runtimeTerminal) error {
+	for y := 0; y < term.height; y++ {
+		maxTouched := -1
+		for x := 0; x < term.width; x++ {
+			if term.touched[y][x] {
+				maxTouched = x
+			}
+		}
+		if maxTouched < 0 {
+			continue
+		}
+		for x := maxTouched + 1; x < term.width; x++ {
+			if term.cells[y][x] != ' ' {
+				leftover := strings.TrimRight(string(term.cells[y][x:]), " ")
+				return fmt.Errorf("stale content at (%d,%d): row %d touched only through column %d this frame, but column %d still holds leftover %q from a previous frame", x, y, y, maxTouched, x, leftover)
+			}
+		}
+	}
+	return nil
 }
 
 func TestRuntimeSessionAllowsLegitimateCrossFrameRepaint(t *testing.T) {
@@ -103,5 +151,42 @@ func TestRuntimeSessionCatchesDuplicateWriteWithinOneFrame(t *testing.T) {
 	_, err := s.Frame("ab\x1b[2Dcd")
 	if err == nil {
 		t.Fatal("expected duplicate-write error within a single frame, got nil")
+	}
+}
+
+func TestRuntimeSessionAllowsShrinkWithEraseToEndOfLine(t *testing.T) {
+	s := newRuntimeSession(6, 1)
+	if _, err := s.Frame("hello!"); err != nil {
+		t.Fatalf("frame 1: %v", err)
+	}
+	// Кадр 2: курсор возвращается на начало строки, пишет более короткий
+	// текст ("hi" вместо "hello!") и явно стирает освободившийся хвост
+	// через CSI K — ровно то, что делает патченный рендерер на каждой
+	// укоротившейся строке (standard_renderer.go flush(): дописывает
+	// ansi.EraseLineRight, когда новая строка короче ширины терминала).
+	// Легитимная перерисовка — detectStaleContent не должен её зафлагать.
+	rows, err := s.Frame("\x1b[6Dhi\x1b[K")
+	if err != nil {
+		t.Fatalf("frame 2 (shrink with erase-to-end) should not fail, got: %v", err)
+	}
+	if rows[0] != "hi    " {
+		t.Fatalf("expected shrunk content with the vacated tail erased, got %q", rows[0])
+	}
+}
+
+func TestRuntimeSessionCatchesStaleContentAfterShrinkWithoutErase(t *testing.T) {
+	s := newRuntimeSession(6, 1)
+	if _, err := s.Frame("hello!"); err != nil {
+		t.Fatalf("frame 1: %v", err)
+	}
+	// Кадр 2: курсор возвращается на начало строки и пишет "hi" — короче
+	// прежнего "hello!" — но НЕ стирает хвост. "llo!" остаётся видимым
+	// после "hi": это и есть баг detectStaleContent обязан ловить.
+	_, err := s.Frame("\x1b[6Dhi")
+	if err == nil {
+		t.Fatal("expected a stale-content error for the un-erased leftover tail, got nil")
+	}
+	if !strings.Contains(err.Error(), "stale content") || !strings.Contains(err.Error(), "(2,0)") {
+		t.Fatalf("expected error identifying stale content at row/column (2,0), got: %v", err)
 	}
 }

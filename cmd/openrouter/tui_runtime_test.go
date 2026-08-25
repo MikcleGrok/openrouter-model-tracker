@@ -330,10 +330,11 @@ func runtimeGrid(stream string, width, height int) ([]string, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("invalid terminal size %dx%d", width, height)
 	}
-	e := runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), width: width, height: height}
+	e := runtimeTerminal{cells: make([][]rune, height), writes: make([][]bool, height), touched: make([][]bool, height), width: width, height: height}
 	for y := range e.cells {
 		e.cells[y] = []rune(strings.Repeat(" ", width))
 		e.writes[y] = make([]bool, width)
+		e.touched[y] = make([]bool, width)
 	}
 	if err := runtimeFeed(&e, stream); err != nil {
 		return nil, err
@@ -392,8 +393,21 @@ func runtimeFeed(e *runtimeTerminal, stream string) error {
 }
 
 type runtimeTerminal struct {
-	cells         [][]rune
-	writes        [][]bool
+	cells [][]rune
+	// writes tracks cells written to WITHIN the current frame, reset at the
+	// start of every Frame() (runtime_session_test.go) — it exists solely
+	// to catch a same-frame duplicate write (see write() below) and is
+	// deliberately NOT set by eraseLine/eraseDisplay: an erase-then-write
+	// into the same cell is a legitimate redraw, not a duplicate.
+	writes [][]bool
+	// touched tracks every cell WRITTEN or ERASED within the current frame
+	// — a separate bitmap from writes, reset alongside it in Frame(). Unlike
+	// writes, both write() and eraseLine/eraseDisplay set it, because it
+	// answers a different question: "did this frame touch this cell at
+	// all" (used by detectStaleContent below to find, per row, how far a
+	// frame's redraw actually reached) rather than "was this cell written
+	// twice without an intervening erase".
+	touched       [][]bool
 	width, height int
 	x, y          int
 	osc8Open      bool
@@ -408,6 +422,7 @@ func (e *runtimeTerminal) write(r rune, width int) error {
 			return fmt.Errorf("duplicate write at (%d,%d)", e.x+offset, e.y)
 		}
 		e.writes[e.y][e.x+offset] = true
+		e.touched[e.y][e.x+offset] = true
 		e.cells[e.y][e.x+offset] = r
 	}
 	e.x += width
@@ -531,6 +546,7 @@ func (e *runtimeTerminal) eraseDisplay(mode int) {
 			if mode == 2 || mode == 0 && (y > e.y || y == e.y && x >= e.x) || mode == 1 && (y < e.y || y == e.y && x <= e.x) {
 				e.cells[y][x] = ' '
 				e.writes[y][x] = false
+				e.touched[y][x] = true
 			}
 		}
 	}
@@ -555,6 +571,7 @@ func (e *runtimeTerminal) eraseLine(mode int) {
 	for x := start; x < end && x < e.width; x++ {
 		e.cells[e.y][x] = ' '
 		e.writes[e.y][x] = false
+		e.touched[e.y][x] = true
 	}
 }
 
