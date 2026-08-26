@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/sboborikin/openrouter-model-tracker/internal/termwidth"
 )
 
 type DetailData struct {
@@ -35,11 +34,6 @@ func MaxOffset(lineCount, height int) int { return max(0, lineCount-max(1, heigh
 // physical rows and truncates each row by display width, including ANSI text.
 // Bubble Tea receives the complete frame and can therefore clear stale rows
 // without a private writer or an incremental screen cache.
-//
-// Display width here means internal/termwidth, the same oracle the layout
-// above it and the renderer's erase-line decision below it use. A frame whose
-// width contract were measured differently from either would be the drift the
-// whole package guards against.
 func Frame(content string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -49,7 +43,7 @@ func Frame(content string, width, height int) string {
 		lines = lines[:height]
 	}
 	for i := range lines {
-		lines[i] = termwidth.Truncate(normalizeLine(lines[i]), width)
+		lines[i] = ansi.Truncate(normalizeLine(lines[i]), width, "")
 	}
 	for len(lines) < height {
 		lines = append(lines, "")
@@ -66,7 +60,7 @@ func Viewport(lines []string, offset, width, height int) []string {
 	page := make([]string, height)
 	for i := range page {
 		if offset+i < len(lines) {
-			page[i] = termwidth.Truncate(normalizeLine(lines[offset+i]), width)
+			page[i] = ansi.Truncate(normalizeLine(lines[offset+i]), width, "")
 		}
 	}
 	return page
@@ -145,7 +139,7 @@ func alignDetailRows(lines []string, width int) []string {
 		plain := normalizePlainLine(line)
 		index := strings.Index(plain, ": ")
 		if index > 0 && !strings.HasPrefix(plain, "  ") {
-			labelWidth = max(labelWidth, termwidth.String(plain[:index]))
+			labelWidth = max(labelWidth, ansi.StringWidth(plain[:index]))
 		}
 	}
 	if labelWidth == 0 {
@@ -159,19 +153,19 @@ func alignDetailRows(lines []string, width int) []string {
 			continue
 		}
 		label := plain[:index]
-		result[i] = label + ": " + strings.Repeat(" ", labelWidth-termwidth.String(label)) + plain[index+2:]
+		result[i] = label + ": " + strings.Repeat(" ", labelWidth-ansi.StringWidth(label)) + plain[index+2:]
 	}
 	return result
 }
 
 func fitDetailLine(value string, width int) string {
-	if termwidth.String(value) <= width {
+	if ansi.StringWidth(value) <= width {
 		return value
 	}
 	var result strings.Builder
 	used := 0
 	for _, r := range ansi.Strip(value) {
-		cellWidth := termwidth.String(string(r))
+		cellWidth := ansi.StringWidth(string(r))
 		if cellWidth == 0 {
 			continue
 		}
@@ -259,7 +253,7 @@ func Wrap(value string, width int) []string {
 		}
 		current := ""
 		for _, word := range words {
-			if termwidth.String(word) > width {
+			if ansi.StringWidth(word) > width {
 				if current != "" {
 					lines = append(lines, current)
 				}
@@ -270,7 +264,7 @@ func Wrap(value string, width int) []string {
 			}
 			if current == "" {
 				current = word
-			} else if termwidth.String(current)+1+termwidth.String(word) > width {
+			} else if ansi.StringWidth(current)+1+ansi.StringWidth(word) > width {
 				lines = append(lines, current)
 				current = word
 			} else {
@@ -327,7 +321,7 @@ func justifyLine(line string, width int) string {
 	if len(words) < 2 {
 		return line
 	}
-	extra := width - termwidth.String(line)
+	extra := width - ansi.StringWidth(line)
 	if extra <= 0 {
 		return line
 	}
