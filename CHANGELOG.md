@@ -4,6 +4,10 @@
 
 - Continue improving terminal rendering and selection behavior.
 
+## [1.16.2]
+
+- Fix the default Meta, MiniMax, and Mistral manufacturer icons so their table column aligns like every other row — these three had the opposite problem from v1.16.1's fix: width libraries claimed 2 cells, but real terminals render them only 1 cell wide. If your `config.yaml` pins a custom icon for `meta`, `minimax`, or `mistral`, remove that override to pick up the new default.
+
 ## [1.16.1]
 
 - Fix the default z.ai, NVIDIA, and Xiaomi manufacturer icons so their table column aligns like every other row, instead of only on terminals that happen to render those glyphs narrow. If your `config.yaml` pins a custom icon for `z.ai`, `nvidia`, or `xiaomi`, remove that override to pick up the new default.
