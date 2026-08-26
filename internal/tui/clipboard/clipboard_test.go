@@ -190,6 +190,11 @@ func TestSynchronizedSerializesWritesOnEveryWrappingPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := &overlapRecorder{}
 			w := NewSynchronized(tc.out(recorder))
+			if tc.name == "terminal file" {
+				if _, ok := w.(term.File); !ok {
+					t.Fatal("expected NewSynchronized to return a term.File-satisfying wrapper when wrapping a term.File")
+				}
+			}
 			var wg sync.WaitGroup
 			for i := 0; i < writers; i++ {
 				wg.Add(1)
