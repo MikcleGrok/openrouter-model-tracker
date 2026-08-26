@@ -23,11 +23,13 @@ const (
 )
 
 // modernPictographFloor is the first codepoint of the Miscellaneous Symbols and
-// Pictographs block. Every emoji added from that block upward is
+// Pictographs block. Most emoji added from that block upward carry
 // Emoji_Presentation=Yes and East_Asian_Width=Wide by default, with no
-// variation selector needed to say so \u2014 which is why every default icon at or
-// above it has never been reported as misaligned, and every icon that ever was
-// reported sat below it.
+// variation selector needed. However, being at or above this floor is necessary
+// but not sufficient for correct rendering: some sub-blocks above it lack these
+// properties, and reporting the floor alone would understate the constraint.
+// See TestDefaultManufacturerIconsAreSingleModernPictographs for the full set of
+// conditions an icon must satisfy.
 const modernPictographFloor = 0x1F300
 
 // defaultIconValues is every icon this program ships as a default: one per

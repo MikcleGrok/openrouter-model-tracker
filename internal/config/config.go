@@ -52,8 +52,10 @@ type IconConfig struct {
 // selector. Below that range emoji presentation is not a property of the
 // codepoint, so a terminal with no glyph for it in the monospace face falls
 // back to an emoji font and paints two cells where every width table reports
-// one — which misaligns the whole column. That is what "Ⓜ️" (meta), "♟️"
-// (minimax) and "🌪️" (mistral) did here, and "Ⓩ"/"Ⓝ"/"ⓧ" before them.
+// one — which misaligns the whole column. The earlier "Ⓩ"/"Ⓝ"/"ⓧ" did this.
+// For "Ⓜ️" (meta), "♟️" (minimax) and "🌪️" (mistral), the mismatch direction
+// was opposite: width libraries claimed 2 cells, but the real terminal renders
+// them only 1 cell wide, still misaligning the column.
 // TestDefaultManufacturerIconsAreSingleModernPictographs enforces it.
 var defaultManufacturerIcons = map[string]string{
 	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "🔵",
