@@ -78,3 +78,21 @@ go build -o bin/openrouter ./cmd/openrouter
 ## Документация
 
 Локальная разработка, полный список команд, Makefile-таргеты, релиз-процесс и файлы, которые правятся руками, — в [docs/reference.md](docs/reference.md).
+
+## Локальный release и external signing
+
+Канонический локальный flow не требует `COSIGN_PRIVATE_KEY`: `make release-check`
+и `make release-local` проверяют сборку, checksum, SBOM и локальные артефакты.
+`PROVENANCE_PROFILE=local` (значение по умолчанию) и `candidate` печатают короткий
+`NOT APPLICABLE`, завершаются с кодом 0 и не вызывают `cosign`, не создают
+signed/provenance или published evidence.
+
+Подписывание и публикация относятся к отдельному внешнему профилю:
+`PROVENANCE_PROFILE=external` (также принимается `published`). Он fail-closed:
+без cosign, public key или полного набора evidence команда завершается с
+ненулевым кодом. Read-only verification не требует `COSIGN_PRIVATE_KEY`;
+приватный ключ нужен только для `make sign` и `make attest`. Оба профиля
+проходят один и тот же полный verification path, включая `cmd/evidencecheck`.
+`codesign` identity `uni-release-selfsign` не является cosign
+ключом, secret `openrouter-model-tracker/cosign-key` не создаётся. Тег
+`v1.14.37` этим профилем не объявляется подписанным и не перепривязывается.

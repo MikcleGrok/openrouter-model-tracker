@@ -29,9 +29,17 @@
   channel: exact tag/version/commit, clean checkout, локальную formula, установленную
   версию, оба варианта CLI version и `brew test`. Источник formula намеренно `file://`;
   это не доказательство GitHub publication, подписи или provenance.
-- `make verify-provenance` и `make signature` являются честными локальными
-  NO-OP: в checkout нет CI builder, published artifact или signing identity для
-  проверки. Они не утверждают provenance или подпись опубликованного объекта.
+- `make verify-provenance` и `make signature` по умолчанию работают в
+  `PROVENANCE_PROFILE=local`: печатают `NOT APPLICABLE`, завершаются с кодом 0,
+  не вызывают cosign и не создают signed/provenance evidence. `candidate` имеет
+  ту же семантику для pre-tag gate.
+- `PROVENANCE_PROFILE=external` (алиас `published`) является отдельным будущим
+  или внешним profile публикации. Read-only verification требует committed
+  public key, signed evidence и `cmd/evidencecheck`, но не требует
+  `COSIGN_PRIVATE_KEY`; приватный ключ нужен только для `make sign` и
+  `make attest`. Оба профиля проходят одинаковый полный verification path и
+  fail-closed при отсутствии любого обязательного bundle. `codesign` identity
+  не используется как cosign key.
 
 Инструменты не скачиваются автоматически. Версии scanner, источник базы и
 политика severity должны быть закреплены в CI/release-профиле до публикации.

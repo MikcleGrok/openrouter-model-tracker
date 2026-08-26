@@ -284,8 +284,15 @@ Makefile является единственным публичным интер
 Dependency evidence использует строгую схему v2: статусы `blocked`, `error`,
 `partial` и `passed` не смешиваются, а запись содержит findings, policy decision,
 digest входных файлов, metadata инструментов/базы и native outputs.
-`verify-provenance` и `signature` имеют явный локальный NO-OP, потому что
-репозиторий не публикует артефакты и не содержит CI builder или signing identity.
+`verify-provenance` и `signature` по умолчанию используют `PROVENANCE_PROFILE=local`:
+это явный `NOT APPLICABLE` с кодом 0 без вызова cosign и без signed/provenance
+evidence. `candidate` сохраняет ту же семантику для pre-tag gate. Для отдельной
+публикации можно явно выбрать `PROVENANCE_PROFILE=external` (алиас `published`);
+оба профиля проходят одинаковый полный verification path, включая
+`cmd/evidencecheck`, и завершаются fail-closed при отсутствии public key или
+evidence. Read-only verification не требует `COSIGN_PRIVATE_KEY`; он нужен
+только для `sign` и `attest`. Локальный flow не использует `codesign` identity
+как cosign key и не создаёт secret `openrouter-model-tracker/cosign-key`.
 Подробный scope находится в `docs/security.md`.
 
 `openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный
