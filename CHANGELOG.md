@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Migrate only an executable Homebrew-owned stale `omt` symlink from
+  `../Cellar/openrouter/<numeric-version>/bin/omt` to the managed `omt ->
+  openrouter` alias. Regular files, directories, foreign symlinks, and dangling
+  symlinks remain protected; install smoke coverage exercises migration and
+  foreign-symlink preservation.
 - Add a local-only Makefile installer with symlink-safe atomic binary install,
   upgrade/reinstall aliases, temporary build artifacts, safe uninstall, version
   verification, and deterministic disposable-prefix smoke coverage; Homebrew

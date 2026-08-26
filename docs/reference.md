@@ -57,6 +57,24 @@ immutable revision formula до любой reinstall. Stable install не исп
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
 
+### Имена установки
+
+Локальный installer имеет один canonical executable: `$(BINDIR)/openrouter`.
+`$(BINDIR)/omt` всегда является управляемым symlink на этот canonical путь;
+оба имени проходят одинаковые exact `--version`, `version` и `--help` проверки.
+Замена binary и alias выполняется под одним lock после успешного preflight.
+
+Migration contract для существующего `omt` консервативен: принимается symlink с
+target `$(BINDIR)/openrouter` (или relative `openrouter`), а также только
+исполняемый Homebrew-owned target вида `../Cellar/openrouter/<числовая-версия>/bin/omt`
+(либо такой же абсолютный target внутри prefix, содержащего `BINDIR/bin`). Это
+явный predicate для миграции старого Homebrew alias, а не принятие произвольных
+symlink; regular file, directory, foreign symlink и dangling symlink считаются
+unmanaged, install завершается ошибкой и сохраняет объект. `uninstall` удаляет
+только managed symlink и canonical binary с валидным marker; mismatched или
+unmanaged `omt` сохраняется. После миграции alias становится `omt -> openrouter`,
+поэтому оба имени запускают один binary и проходят одинаковые exact checks.
+
 ## Onboarding record
 
 | Поле | Значение |

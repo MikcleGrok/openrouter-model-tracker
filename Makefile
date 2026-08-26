@@ -5,6 +5,7 @@ TARGET ?= ./cmd/openrouter
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 INSTALL_PATH := $(BINDIR)/openrouter
+ALIAS_PATH := $(BINDIR)/omt
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
@@ -178,7 +179,7 @@ check-package:
 	@printf '%s\n' 'NO-OP: package and formula templates are maintained outside this checkout.'
 
 install reinstall upgrade: check-install-paths check-version
-	@set -eu; temp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/openrouter-install-build.XXXXXX")"; trap 'rm -rf "$$temp_dir"' EXIT HUP INT TERM; temp_binary="$$temp_dir/openrouter"; cd "$(ROOT)" && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o "$$temp_binary" "$(TARGET)"; "$(ROOT)scripts/install.sh" install "$$temp_binary" "$(INSTALL_PATH)" "$(VERSION)"
+	@set -eu; temp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/openrouter-install-build.XXXXXX")"; trap 'rm -rf "$$temp_dir"' EXIT HUP INT TERM; temp_binary="$$temp_dir/openrouter"; cd "$(ROOT)" && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o "$$temp_binary" "$(TARGET)"; "$(ROOT)scripts/install.sh" install "$$temp_binary" "$(INSTALL_PATH)" "$(VERSION)" "$(ALIAS_PATH)"
 
 check-install-paths:
 	@test -n "$(PREFIX)" || { printf '%s\n' 'PREFIX must not be empty'; exit 2; }
@@ -187,13 +188,10 @@ check-install-paths:
 	@case "$(BINDIR)" in /*) ;; *) printf '%s\n' 'BINDIR must be an absolute path: $(BINDIR)' >&2; exit 2 ;; esac
 
 uninstall: check-install-paths
-	@$(ROOT)scripts/install.sh uninstall "$(INSTALL_PATH)"
+	@$(ROOT)scripts/install.sh uninstall "$(INSTALL_PATH)" "$(ALIAS_PATH)"
 
 verify-install: install
-	@installed="$(INSTALL_PATH)"; actual="$$( "$${installed}" --version )"; test "$$actual" = "openrouter version $(VERSION)"
-	@installed="$(INSTALL_PATH)"; actual="$$( "$${installed}" version )"; test "$$actual" = "openrouter $(VERSION)"
-	@installed="$(INSTALL_PATH)"; "$${installed}" --help >/dev/null
-	@printf '%s\n' 'Verified installed CLI: $(INSTALL_PATH) (VERSION=$(VERSION))'
+	@set -eu; test -L "$(ALIAS_PATH)"; test "$$(readlink "$(ALIAS_PATH)")" = "$(INSTALL_PATH)"; for installed in "$(INSTALL_PATH)" "$(ALIAS_PATH)"; do test -x "$$installed"; actual="$$("$$installed" --version)"; test "$$actual" = "openrouter version $(VERSION)"; actual="$$("$$installed" version)"; test "$$actual" = "openrouter $(VERSION)"; "$$installed" --help >/dev/null; done; printf '%s\n' 'Verified installed CLI pair: $(INSTALL_PATH), $(ALIAS_PATH) (VERSION=$(VERSION))'
 
 install-smoke:
 	@GO="$(GO)" $(ROOT)scripts/install_test.sh
