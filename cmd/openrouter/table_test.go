@@ -43,7 +43,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 func TestManufacturerBadgeMappingNormalizesCaseAndWhitespace(t *testing.T) {
 	for _, test := range []struct{ name, badge string }{
 		{" OpenAI  Labs ", "🌀"}, {"ANTHROPIC", "🔶"}, {"Google DeepMind", "🌐"},
-		{"Meta AI", "Ⓜ️"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "🌪️"},
+		{"Meta AI", "🔵"}, {"DeepSeek", "🐋"}, {"Qwen", "🌸"}, {"Mistral AI", "💨"},
 		{"xAI", "🚀"}, {"  ", "❔"}, {"Unknown vendor", "❔"},
 	} {
 		if got := manufacturerBadge(test.name); got != test.badge {
@@ -85,7 +85,7 @@ func TestTableDisplayWidthMatchesTerminalIconContract(t *testing.T) {
 		icon string
 		want int
 	}{
-		{"Ⓜ️", 2}, {"🌪️", 2}, {"🌀", 2}, {"🌸", 2}, {"🌐", 2}, {"🐋", 2}, {"❔", 2}, {"🚀", 2},
+		{"🔵", 2}, {"💨", 2}, {"🌀", 2}, {"🌸", 2}, {"🌐", 2}, {"🐋", 2}, {"❔", 2}, {"🚀", 2},
 	} {
 		if got := tableDisplayWidth(test.icon); got != test.want {
 			t.Errorf("tableDisplayWidth(%q) = %d, want independent terminal width %d", test.icon, got, test.want)
@@ -144,7 +144,7 @@ func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T)
 	for _, test := range []struct {
 		name, icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
+		{"Meta", "🔵"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
@@ -183,7 +183,7 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 	for _, test := range []struct {
 		name, icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
+		{"Meta", "🔵"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
@@ -220,7 +220,7 @@ func TestIconGapRenderedBytesAndDisplayPositions(t *testing.T) {
 
 func TestTableRenderersKeepGraphemeAwareColumnBoundaries(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{
-		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸",
+		"meta": "🔵", "mistral": "💨", "openai": "🌀", "qwen": "🌸",
 		"google": "🌐", "unknown": "❔", "xai": "🚀", "deepseek": "🐋",
 	}, Unknown: "❔"}
 	rows := []model.Model{
@@ -262,9 +262,9 @@ func TestManufacturerIconSlotHasOneConfiguredGapAndStableNameStart(t *testing.T)
 	manufacturers := []struct {
 		name, icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
+		{"Meta", "🔵"}, {"Mistral", "💨"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"},
 		{"Google", "🌐"}, {"Unknown", "❔"}, {"xAI", "🚀"}, {"DeepSeek", "🐋"}, {"Xiaomi", "🟠"}, {"NVIDIA", "🟢"},
-		{"Z.ai", "🔷"}, {"MiniMax", "♟️"}, {"Moonshot AI", "🌙"}, {"Tencent", "🐧"},
+		{"Z.ai", "🔷"}, {"MiniMax", "🎲"}, {"Moonshot AI", "🌙"}, {"Tencent", "🐧"},
 	}
 	icons := config.IconConfig{Manufacturers: map[string]string{}, Unknown: "❔"}
 	for _, manufacturer := range manufacturers {
@@ -293,14 +293,14 @@ func TestManufacturerIconSlotHasOneConfiguredGapAndStableNameStart(t *testing.T)
 
 func TestManufacturerStartsAlignForSuppliedIcons(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{
-		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸", "google": "🌐",
+		"meta": "🔵", "mistral": "💨", "openai": "🌀", "qwen": "🌸", "google": "🌐",
 	}, Unknown: "❔"}
 	wantStart := -1
 	for _, test := range []struct {
 		name string
 		icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
+		{"Meta", "🔵"}, {"Mistral", "💨"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
 	} {
 		row := model.Model{DisplayName: test.name + " Model", Owner: test.name}
 		identity := modelIdentityWithIconsAndGap(row, icons, 1)
@@ -323,7 +323,7 @@ func TestManufacturerStartsAlignForSuppliedIcons(t *testing.T) {
 
 func TestTUIFormatterMatchesCLIIdentityAndKeepsColumnBoundaries(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{
-		"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸",
+		"meta": "🔵", "mistral": "💨", "openai": "🌀", "qwen": "🌸",
 		"google": "🌐", "unknown": "❔", "xai": "🚀", "deepseek": "🐋",
 	}, Unknown: "❔"}
 	columns := []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colNote}
@@ -379,8 +379,8 @@ type testIconLayout struct {
 }
 
 var testIconLayouts = map[string]testIconLayout{
-	"Ⓜ️": {slot: "Ⓜ️", bytes: []byte{0xE2, 0x93, 0x82, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
-	"🌪️": {slot: "🌪️", bytes: []byte{0xF0, 0x9F, 0x8C, 0xAA, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
+	"🔵":  {slot: "🔵", bytes: []byte{0xF0, 0x9F, 0x94, 0xB5}, slotWidth: 2, displayWidth: 2},
+	"💨":  {slot: "💨", bytes: []byte{0xF0, 0x9F, 0x92, 0xA8}, slotWidth: 2, displayWidth: 2},
 	"🌀":  {slot: "🌀", bytes: []byte{0xF0, 0x9F, 0x8C, 0x80}, slotWidth: 2, displayWidth: 2},
 	"🌸":  {slot: "🌸", bytes: []byte{0xF0, 0x9F, 0x8C, 0xB8}, slotWidth: 2, displayWidth: 2},
 	"🐋":  {slot: "🐋", bytes: []byte{0xF0, 0x9F, 0x90, 0x8B}, slotWidth: 2, displayWidth: 2},
@@ -392,7 +392,7 @@ var testIconLayouts = map[string]testIconLayout{
 	"🟠":  {slot: "🟠", bytes: []byte{0xF0, 0x9F, 0x9F, 0xA0}, slotWidth: 2, displayWidth: 2},
 	"🟢":  {slot: "🟢", bytes: []byte{0xF0, 0x9F, 0x9F, 0xA2}, slotWidth: 2, displayWidth: 2},
 	"🔷":  {slot: "🔷", bytes: []byte{0xF0, 0x9F, 0x94, 0xB7}, slotWidth: 2, displayWidth: 2},
-	"♟️": {slot: "♟️", bytes: []byte{0xE2, 0x99, 0x9F, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
+	"🎲":  {slot: "🎲", bytes: []byte{0xF0, 0x9F, 0x8E, 0xB2}, slotWidth: 2, displayWidth: 2},
 	"🌙":  {slot: "🌙", bytes: []byte{0xF0, 0x9F, 0x8C, 0x99}, slotWidth: 2, displayWidth: 2},
 	"🐧":  {slot: "🐧", bytes: []byte{0xF0, 0x9F, 0x90, 0xA7}, slotWidth: 2, displayWidth: 2},
 	"x":  {slot: "x ", bytes: []byte{'x', ' '}, slotWidth: 2, displayWidth: 1},
@@ -444,7 +444,7 @@ func TestConfiguredIconGapIsSharedByCLIAndTUI(t *testing.T) {
 		for _, test := range []struct {
 			name, icon string
 		}{
-			{"Meta", "Ⓜ️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
+			{"Meta", "🔵"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Custom", "🛠️"},
 		} {
 			t.Run(fmt.Sprintf("%s/gap-%d", test.name, gap), func(t *testing.T) {
 				icons := config.IconConfig{Manufacturers: map[string]string{strings.ToLower(test.name): test.icon}, Unknown: "❔"}
@@ -476,7 +476,7 @@ func TestDefaultAndCustomIconGapsRenderExactVendorBoundaries(t *testing.T) {
 	rows := []struct {
 		name, icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Google", "🌐"},
+		{"Meta", "🔵"}, {"Mistral", "💨"}, {"OpenAI", "🌀"}, {"Google", "🌐"},
 	}
 	for _, rowData := range rows {
 		row := model.Model{DisplayName: rowData.name + " Model", Owner: rowData.name}
@@ -507,9 +507,9 @@ func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
 	rows := []struct {
 		name, icon string
 	}{
-		{"Meta", "Ⓜ️"}, {"Mistral", "🌪️"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
+		{"Meta", "🔵"}, {"Mistral", "💨"}, {"OpenAI", "🌀"}, {"Qwen", "🌸"}, {"Google", "🌐"},
 	}
-	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️", "mistral": "🌪️", "openai": "🌀", "qwen": "🌸", "google": "🌐", "custom": "x"}, Unknown: "❔"}
+	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "🔵", "mistral": "💨", "openai": "🌀", "qwen": "🌸", "google": "🌐", "custom": "x"}, Unknown: "❔"}
 	for _, gap := range []int{0, 3} {
 		positions := make(map[string]int, len(rows))
 		for _, rowData := range rows {
@@ -541,17 +541,17 @@ func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
 }
 
 func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
-	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
+	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "🔵"}, Unknown: "❔"}
 	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
-	want := "Ⓜ️ Meta Meta Muse Spark 1.1"
+	want := "🔵 Meta Meta Muse Spark 1.1"
 	if got := modelIdentityWithIcons(row, icons); got != want {
 		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
 	}
-	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️ Meta" {
-		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️ Meta")
+	if got := manufacturerDisplayWithIcons(row, icons); got != "🔵 Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "🔵 Meta")
 	}
-	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 1); got != "Ⓜ️ Meta" {
-		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️ Meta")
+	if got := joinTerminalWords("🔵  ", "  Meta", 1); got != "🔵 Meta" {
+		t.Fatalf("joinTerminalWords = %q, want %q", got, "🔵 Meta")
 	}
 }
 
@@ -575,7 +575,7 @@ func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *tes
 		{"google/gemma-4-31b-it", "🌐 Google"},
 		{"openai/gpt-5-mini", "🌀 OpenAI"},
 		{"z-ai/glm-5.2", "🔷 Z.ai"},
-		{"minimax/minimax-m3", "♟️ MiniMax"},
+		{"minimax/minimax-m3", "🎲 MiniMax"},
 		{"moonshotai/kimi-k3", "🌙 Moonshot AI"},
 		{"tencent/hy3", "🐧 Tencent"},
 	} {

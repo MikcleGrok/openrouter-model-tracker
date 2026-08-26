@@ -13,10 +13,24 @@ import (
 )
 
 // variationSelector16 forces emoji presentation on a base character that would
-// otherwise be drawn as text. An icon carrying it has already settled the
-// question this file is about, so it is exempt from the go-runewidth half of
-// the agreement check below.
-const variationSelector16 = '\ufe0f'
+// otherwise be drawn as text; variationSelector15 forces the opposite. Either
+// one in a default icon means the codepoint underneath does not carry emoji
+// presentation on its own \u2014 which is exactly the property this file requires,
+// so both are disqualifying rather than exempting.
+const (
+	variationSelector15 = '\ufe0e'
+	variationSelector16 = '\ufe0f'
+)
+
+// modernPictographFloor is the first codepoint of the Miscellaneous Symbols and
+// Pictographs block. Most emoji added from that block upward carry
+// Emoji_Presentation=Yes and East_Asian_Width=Wide by default, with no
+// variation selector needed. However, being at or above this floor is necessary
+// but not sufficient for correct rendering: some sub-blocks above it lack these
+// properties, and reporting the floor alone would understate the constraint.
+// See TestDefaultManufacturerIconsAreSingleModernPictographs for the full set of
+// conditions an icon must satisfy.
+const modernPictographFloor = 0x1F300
 
 // defaultIconValues is every icon this program ships as a default: one per
 // manufacturer plus the unknown-manufacturer fallback.
@@ -29,8 +43,8 @@ func defaultIconValues() []string {
 	return append(values, icons.Unknown)
 }
 
-func hasVariationSelector16(value string) bool {
-	return strings.ContainsRune(value, variationSelector16)
+func hasVariationSelector(value string) bool {
+	return strings.ContainsRune(value, variationSelector16) || strings.ContainsRune(value, variationSelector15)
 }
 
 // TestDefaultManufacturerIconsAreUnambiguouslyTwoCellsWide is the invariant
@@ -51,10 +65,15 @@ func hasVariationSelector16(value string) bool {
 //   - ansi.StringWidth — the oracle the CLI table, the TUI layout and the
 //     patched renderer all measure with — must say 2, so the icon fills the
 //     manufacturer slot on its own with no compensating padding;
-//   - mattn/go-runewidth must agree, unless the icon settles its presentation
-//     with an explicit variation-selector-16 (the "Ⓜ️" case commit eb5885a
-//     dealt with). Two independent tables agreeing on a bare glyph is what
-//     rules out the font-fallback divergence above.
+//   - mattn/go-runewidth must agree, with no exemption. An earlier revision of
+//     this test let an icon off the go-runewidth hook when it carried an
+//     explicit variation-selector-16, on the theory that the selector settles
+//     the presentation question. It does not settle it on a real terminal, and
+//     that exemption is precisely what let "Ⓜ️" (meta), "♟️" (minimax) and
+//     "🌪️" (mistral) keep shipping until users reported all three misaligned
+//     in both iTerm2 and Terminal.app. Two independent tables agreeing on the
+//     bare glyph is the only thing that rules out the font-fallback divergence
+//     above.
 func TestDefaultManufacturerIconsAreUnambiguouslyTwoCellsWide(t *testing.T) {
 	for _, icon := range defaultIconValues() {
 		t.Run(icon, func(t *testing.T) {
@@ -64,13 +83,87 @@ func TestDefaultManufacturerIconsAreUnambiguouslyTwoCellsWide(t *testing.T) {
 			if got := tableDisplayWidth(icon); got != manufacturerIconSlotWidth {
 				t.Errorf("tableDisplayWidth(%q) = %d, want %d", icon, got, manufacturerIconSlotWidth)
 			}
-			if hasVariationSelector16(icon) {
-				return
-			}
 			if got := runewidth.StringWidth(icon); got != manufacturerIconSlotWidth {
 				t.Errorf("runewidth.StringWidth(%q) = %d, want %d: a bare icon that any width table calls narrow has no Emoji_Presentation to fall back on, so whether a terminal paints it across one cell or two comes down to the font stack — that cannot be a default", icon, got, manufacturerIconSlotWidth)
 			}
 		})
+	}
+}
+
+// TestDefaultManufacturerIconsAreSingleModernPictographs is the structural
+// invariant that closes this bug class instead of one more glyph in it.
+//
+// Three separate releases fixed misaligned manufacturer icons one at a time —
+// "Ⓩ"/"Ⓝ"/"ⓧ" in v1.16.1, then "Ⓜ️"/"♟️"/"🌪️" right after — and each time the
+// fix was a width measurement the program had to believe. It never held,
+// because the divergence is not in any width table: it is in the terminal's
+// font stack, which this program cannot measure and does not get to choose.
+//
+// The property that actually holds is a property of the codepoint. An icon is
+// safe when all three are true, and every icon ever reported broken failed at
+// least one:
+//
+//	(a) exactly one rune, so no joined or combined sequence can be split, or
+//	    measured, or rendered differently by different shapers. All six
+//	    reported icons were two runes, base plus U+FE0F;
+//	(b) at or above U+1F300, the pictograph range where Emoji_Presentation=Yes
+//	    and East_Asian_Width=Wide normally come with the codepoint itself —
+//	    Ⓜ (U+24C2), ♟ (U+265F), Ⓩ (U+24CF), Ⓝ (U+24C3) and ⓧ (U+24E7) all sit
+//	    below it;
+//	(c) no variation selector, because needing one to request emoji
+//	    presentation is the same statement as the codepoint not carrying it —
+//	    and a terminal is free to ignore the request, which is exactly what
+//	    happened.
+//
+// The floor is necessary but not sufficient on its own: a handful of
+// sub-blocks above it are Emoji_Presentation=No anyway, U+1F321..U+1F32C among
+// them, which is where mistral's old 🌪 (U+1F32A) came from. Stripping its
+// U+FE0F would satisfy all three clauses here and still measure one cell.
+// That case is caught by the width-agreement test above, which now requires
+// both tables to say two with no exemption — the two tests are complementary
+// and neither is redundant.
+//
+// Checked here against the manufacturer map only. The unknown-manufacturer
+// fallback "❔" (U+2754) sits below the floor and is covered separately below.
+func TestDefaultManufacturerIconsAreSingleModernPictographs(t *testing.T) {
+	for name, icon := range config.DefaultIconConfig().Manufacturers {
+		t.Run(name, func(t *testing.T) {
+			runes := []rune(icon)
+			if len(runes) != 1 {
+				t.Fatalf("icon %q for %q is %d runes (%U), want exactly 1: a multi-rune icon is a presentation request, not a glyph, and every terminal answers it differently", icon, name, len(runes), runes)
+			}
+			if hasVariationSelector(icon) {
+				t.Errorf("icon %q for %q carries a variation selector: the codepoint underneath has no emoji presentation of its own, so its rendered width is the font stack's decision rather than Unicode's", icon, name)
+			}
+			if runes[0] < modernPictographFloor {
+				t.Errorf("icon %q for %q is U+%04X, below the U+%04X pictograph floor: outside that range Emoji_Presentation and East_Asian_Width are not guaranteed, and a terminal falling back to an emoji font paints the glyph two cells wide while every width table reports one", icon, name, runes[0], modernPictographFloor)
+			}
+		})
+	}
+}
+
+// TestDefaultUnknownIconIsUnambiguouslyWide covers the one default icon that
+// sits below the pictograph floor and is still safe there.
+//
+// "❔" is U+2754 WHITE QUESTION MARK ORNAMENT, one of the handful of pre-U+1F300
+// codepoints that carry Emoji_Presentation=Yes *and* East_Asian_Width=Wide
+// outright. It needs no variation selector, and both width tables call it two
+// cells with no disagreement to resolve — so the reason the floor exists does
+// not apply to it. This test states that explicitly rather than leaving it as
+// an untested hole in the invariant above.
+func TestDefaultUnknownIconIsUnambiguouslyWide(t *testing.T) {
+	icon := config.DefaultIconConfig().Unknown
+	if runes := []rune(icon); len(runes) != 1 {
+		t.Fatalf("unknown icon %q is %d runes (%U), want exactly 1", icon, len(runes), runes)
+	}
+	if hasVariationSelector(icon) {
+		t.Errorf("unknown icon %q carries a variation selector", icon)
+	}
+	if got := ansi.StringWidth(icon); got != manufacturerIconSlotWidth {
+		t.Errorf("ansi.StringWidth(%q) = %d, want %d", icon, got, manufacturerIconSlotWidth)
+	}
+	if got := runewidth.StringWidth(icon); got != manufacturerIconSlotWidth {
+		t.Errorf("runewidth.StringWidth(%q) = %d, want %d: a sub-floor icon earns its exemption only by both tables agreeing it is wide", icon, got, manufacturerIconSlotWidth)
 	}
 }
 
@@ -116,6 +209,42 @@ func TestDefaultIconRowsAlignWithAPlainWideEmojiRow(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestReportedManufacturerIconRowsAlignWithAPlainWideEmojiRow pins the three
+// manufacturers users actually reported — Meta's icon touching its name with no
+// gap, MiniMax's rendering as an unrecognizable thin glyph, Mistral's alongside
+// them — to the reference row, by name rather than by map iteration.
+//
+// TestDefaultIconRowsAlignWithAPlainWideEmojiRow above already sweeps the whole
+// map, but it names nothing: if one of these three regresses, that test reports
+// a subtest keyed by the broken glyph and nothing about which manufacturer it
+// belongs to. This one names them, so the next failure points straight at the
+// reported bug instead of at a codepoint to go look up.
+func TestReportedManufacturerIconRowsAlignWithAPlainWideEmojiRow(t *testing.T) {
+	const referenceIcon = "🌀"
+	icons := config.DefaultIconConfig()
+	rowFor := func(icon string) string {
+		cfg := config.IconConfig{Manufacturers: map[string]string{"acme": icon}, Unknown: "?"}
+		return modelIdentityWithIconsAndGap(model.Model{DisplayName: "Acme Model", Owner: "Acme"}, cfg, 1)
+	}
+	reference := rowFor(referenceIcon)
+	for _, name := range []string{"meta", "minimax", "mistral"} {
+		t.Run(name, func(t *testing.T) {
+			icon := icons.Manufacturers[name]
+			if icon == "" {
+				t.Fatalf("no default icon for %q", name)
+			}
+			got := rowFor(icon)
+			want := strings.Replace(reference, referenceIcon, icon, 1)
+			if got != want {
+				t.Fatalf("%s row bytes % x, want % x: the icon slot compensated for the icon instead of the icon filling it", name, []byte(got), []byte(want))
+			}
+			if got, want := len([]byte(icon)), 4; got != want {
+				t.Fatalf("%s icon %q is %d bytes, want %d: a single unadorned pictograph, not a base plus a presentation selector", name, icon, got, want)
+			}
+		})
 	}
 }
 
