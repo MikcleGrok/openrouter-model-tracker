@@ -56,6 +56,14 @@ type standardRenderer struct {
 	width  int
 	height int
 
+	// pendingResize holds a window size the event loop has delivered but
+	// whose matching frame has not reached write() yet; nil when no resize
+	// is in flight. Guarded by mtx, exactly like width/height themselves.
+	//
+	// PATCHED: no upstream counterpart. See applyPendingResize and the
+	// WindowSizeMsg case in handleMessages.
+	pendingResize *WindowSizeMsg
+
 	// lines explicitly set not to render
 	ignoreLines map[int]struct{}
 }
@@ -298,11 +306,51 @@ func (r *standardRenderer) lastLinesRendered() int {
 	return r.linesRendered
 }
 
+// applyPendingResize adopts a window size staged by handleMessages, together
+// with the repaint that size change forces. The caller must hold r.mtx.
+//
+// PATCHED: no upstream counterpart. See the WindowSizeMsg case in
+// handleMessages and README.md.
+//
+// The only caller is write(), which the event loop invokes exactly once per
+// message, at the end of the very same iteration that staged the size. A
+// staged resize therefore outlives exactly one model.Update+View and never
+// spans two messages, so no code path can be left reading stale dimensions
+// indefinitely. The one exception is a program terminating between the two —
+// which drops the staged size instead of applying it, correctly: a killed
+// program renders no final frame at all, and a graceful one writes its final
+// View() through write() first (tea.go Run), adopting the size on the way.
+//
+// insertTop/insertBottom, the only readers of r.height besides flush(), are
+// driven from handleMessages itself, for message types that stage nothing —
+// so they always observe pendingResize == nil and are unaffected.
+func (r *standardRenderer) applyPendingResize() {
+	if r.pendingResize == nil {
+		return
+	}
+
+	r.width = r.pendingResize.Width
+	r.height = r.pendingResize.Height
+	r.pendingResize = nil
+
+	// The same repaint upstream performs on the size change: the line-diff
+	// cache in lastRender/lastRenderedLines describes the old geometry, so
+	// it cannot be used to skip lines under the new one.
+	r.repaint()
+}
+
 // write writes to the internal buffer. The buffer will be outputted via the
 // ticker which calls flush().
 func (r *standardRenderer) write(s string) {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+
+	// PATCHED (see README.md): adopt a resize staged by this same message's
+	// handleMessages call. Doing it here, under the same lock that installs
+	// the content, is what makes the new dimensions and the frame laid out
+	// for them become visible to the ticker as one atomic step.
+	r.applyPendingResize()
+
 	r.buf.Reset()
 
 	// If an empty string was passed we should clear existing output and
@@ -628,10 +676,31 @@ func (r *standardRenderer) handleMessages(msg Msg) {
 		r.mtx.Unlock()
 
 	case WindowSizeMsg:
+		// PATCHED (see README.md). Upstream assigns r.width/r.height and
+		// calls repaint() right here. That splits handling a resize into two
+		// critical sections — this one, and the write() that installs the
+		// content laid out for the new size — with the model's own Update
+		// running, unlocked, in between (tea.go eventLoop). The ticker
+		// goroutine calls flush() every ~16.67ms under this same mutex, so a
+		// tick landing in that gap paints the previous frame's buffer against
+		// the already-updated dimensions: one torn frame of pre-resize
+		// content, truncated and cropped to the post-resize geometry, at the
+		// wrong screen positions. repaint() here makes that guaranteed rather
+		// than rare, because clearing lastRender is exactly what defeats
+		// flush()'s own "nothing changed" early-out.
+		//
+		// Staging the size instead defers both halves to write(), which
+		// adopts them together with the content computed at that size, under
+		// one lock. The renderer therefore only ever exposes a
+		// (dimensions, content) pair that was actually produced together.
+		//
+		// Locking across Update() instead was rejected: Update is arbitrary
+		// application code, and holding the render mutex for its whole
+		// duration would block the ticker — and every other renderer
+		// operation — for as long as an app wants to take.
 		r.mtx.Lock()
-		r.width = msg.Width
-		r.height = msg.Height
-		r.repaint()
+		size := msg
+		r.pendingResize = &size
 		r.mtx.Unlock()
 
 	case clearScrollAreaMsg:
