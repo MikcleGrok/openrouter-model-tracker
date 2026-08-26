@@ -143,7 +143,7 @@ func TestLoadIconsUsesDefaultsAndCustomOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Icons.Icon(" OpenAI Labs ") != "🧩" || got.Icons.Icon("Anthropic") != "🔶" || got.Icons.Icon("Xiaomi MiMo") != "ⓧ" || got.Icons.Icon("NVIDIA Nemotron") != "Ⓝ" || got.Icons.Icon("Z.ai GLM") != "Ⓩ" || got.Icons.Icon("MiniMax M3") != "♟️" || got.Icons.Icon("Moonshot AI") != "🌙" || got.Icons.Icon("Tencent Hunyuan") != "🐧" || got.Icons.Icon("Unknown") != "❔" {
+	if got.Icons.Icon(" OpenAI Labs ") != "🧩" || got.Icons.Icon("Anthropic") != "🔶" || got.Icons.Icon("Xiaomi MiMo") != "🟠" || got.Icons.Icon("NVIDIA Nemotron") != "🟢" || got.Icons.Icon("Z.ai GLM") != "🔷" || got.Icons.Icon("MiniMax M3") != "♟️" || got.Icons.Icon("Moonshot AI") != "🌙" || got.Icons.Icon("Tencent Hunyuan") != "🐧" || got.Icons.Icon("Unknown") != "❔" {
 		t.Fatalf("icons = %+v", got.Icons)
 	}
 }
@@ -254,7 +254,7 @@ func TestInitTemplateDocumentsIcons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "xiaomi: 'ⓧ'") || !strings.Contains(string(body), "nvidia: 'Ⓝ'") || !strings.Contains(string(body), "z.ai: 'Ⓩ'") || !strings.Contains(string(body), "minimax: '♟️'") || !strings.Contains(string(body), "moonshot: '🌙'") || !strings.Contains(string(body), "tencent: '🐧'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || strings.Contains(string(body), "icon_gaps:") || !strings.Contains(string(body), "unknown: '❔'") {
+	if !strings.Contains(string(body), "manufacturers:") || !strings.Contains(string(body), "meta: 'Ⓜ️'") || !strings.Contains(string(body), "xiaomi: '🟠'") || !strings.Contains(string(body), "nvidia: '🟢'") || !strings.Contains(string(body), "z.ai: '🔷'") || !strings.Contains(string(body), "minimax: '♟️'") || !strings.Contains(string(body), "moonshot: '🌙'") || !strings.Contains(string(body), "tencent: '🐧'") || !strings.Contains(string(body), "name_width: 40") || !strings.Contains(string(body), "icon_gap: 1") || strings.Contains(string(body), "icon_gaps:") || !strings.Contains(string(body), "unknown: '❔'") {
 		t.Fatalf("template does not document icons: %s", body)
 	}
 }
