@@ -132,6 +132,28 @@ func startRuntimeProgram(t *testing.T, m tuiModel, width, height int) *runtimePr
 // WindowSizeMsg is processed.
 func startRuntimeProgramForModel(t *testing.T, m tea.Model, width, height int) *runtimeProgram {
 	t.Helper()
+	rp := launchRuntimeProgram(t, m)
+	rp.Send(tea.WindowSizeMsg{Width: width, Height: height})
+	return rp
+}
+
+// launchRuntimeProgram is startRuntimeProgramForModel without the startup
+// WindowSizeMsg — the production option set, started, and nothing else.
+//
+// It is separate so that the WindowSizeMsg stays a single, visible line rather
+// than being buried in the option set, because it is the harness's one
+// deliberate stand-in for the terminal: production never sends that message
+// itself. A real terminal delivers it because bubbletea's initInput()
+// recognizes the program's output as a term.File and handleResize() then runs
+// checkResize() once at startup and again on every SIGWINCH (see
+// internal/thirdparty/bubbletea-patched/tty_unix.go and tea.go). A test has no
+// tty, so no output value it can construct will ever pass initInput()'s
+// term.IsTerminal() gate — hence the hand-sent message.
+//
+// Tests that need to observe a program which was never told its size (i.e. a
+// renderer left at r.width == 0) call this directly.
+func launchRuntimeProgram(t *testing.T, m tea.Model) *runtimeProgram {
+	t.Helper()
 	fw := newFrameWriter()
 	p := tea.NewProgram(m,
 		tea.WithContext(context.Background()),
@@ -152,7 +174,6 @@ func startRuntimeProgramForModel(t *testing.T, m tea.Model, width, height int) *
 	// of the test binary. stop() runs at most once, so on the happy path
 	// this is a no-op and Quit remains the one that asserts.
 	t.Cleanup(func() { rp.stop(runtimeStopTimeout) })
-	rp.Send(tea.WindowSizeMsg{Width: width, Height: height})
 	return rp
 }
 
