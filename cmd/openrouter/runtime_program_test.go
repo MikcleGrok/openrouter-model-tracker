@@ -7,6 +7,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	tuiclipboard "github.com/sboborikin/openrouter-model-tracker/internal/tui/clipboard"
 )
 
 // runtimeStopTimeout bounds how long the t.Cleanup safety net waits for a
@@ -159,7 +161,13 @@ func launchRuntimeProgram(t *testing.T, m tea.Model) *runtimeProgram {
 		tea.WithContext(context.Background()),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
-		tea.WithOutput(fw),
+		// The production wrapper, not fw directly: tui.go never hands
+		// tea.WithOutput a bare writer, and the harness exists to run what
+		// production runs. fw is not a term.File, so this is a pass-through
+		// here — one Write() in, one Write() out — which is what keeps
+		// frameWriter's one-write-per-frame contract intact, and what would
+		// break loudly if the wrapper ever started buffering or splitting.
+		tea.WithOutput(tuiclipboard.NewSynchronized(fw)),
 		tea.WithInput(nil), // driven entirely via Send(); no real input source
 		tea.WithoutSignals(),
 	)

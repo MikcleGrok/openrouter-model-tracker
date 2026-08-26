@@ -263,6 +263,13 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if width, height := tuiTerminalSize(out); width > 0 && height > 0 {
 		m.width, m.height = width, height
 	}
+	// The renderer and the OSC-52 clipboard write (dispatched from a tea.Cmd
+	// goroutine, below) share this one terminal, so writes to it are
+	// serialized. The wrapper must stay recognizable as a term.File while
+	// doing that: it is what bubbletea's initInput() asserts to decide it has
+	// a terminal, and therefore the only reason the program is ever sent a
+	// WindowSizeMsg — the sole source of both this model's dimensions and the
+	// renderer's own. See internal/tui/clipboard.
 	synchronizedOutput := tuiclipboard.NewSynchronized(out)
 	m.screenController.SetWriter(func(text string) error { return tuiclipboard.System(text, synchronizedOutput) })
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(synchronizedOutput))
