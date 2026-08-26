@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Continue improving terminal rendering and selection behavior.
+
+## [1.16.0]
+
 - Fix the TUI's manufacturer-icon column padding so table rows stay aligned across terminal widths instead of looking blurred or misaligned.
 - Make terminal resizes apply atomically to the frame being drawn, so resizing mid-session no longer leaves stale characters from the previous width on screen.
 - Fix the TUI not detecting the real terminal size in some environments, which froze rendering at zero width/height and left stale trailing text behind whenever lines shrank.
