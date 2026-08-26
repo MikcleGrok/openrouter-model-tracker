@@ -695,11 +695,15 @@ func tableCluster(value string, start int) (int, int) {
 // internal/tui/screen/output.Frame and the renderer (standard_renderer.go)
 // use to decide how much of a line was actually painted. mattn/go-runewidth
 // was used here previously, but it isn't VS16 (emoji-presentation-selector)
-// aware: it reports width 1 for icons like "Ⓜ️" and "🌪️" where ansi (and
-// real terminals rendering the VS16-forced emoji glyph) report 2. That
-// disagreement let table.go pad the manufacturer icon slot for one width
-// while the renderer downstream clipped/erased the line for another,
-// leaving stale content behind on some terminals. ansi.StringWidth already
+// aware: it reports width 1 for a VS16 icon such as the user-configurable
+// "🛠️" where ansi reports 2. That disagreement let table.go pad the
+// manufacturer icon slot for one width while the renderer downstream
+// clipped/erased the line for another, leaving stale content behind on some
+// terminals. Measuring with the renderer's own oracle keeps the two in step
+// whatever a user configures; it is not, however, a guarantee that a terminal
+// paints the glyph at that width, which is why the shipped defaults are
+// restricted to single unadorned pictographs instead (see
+// internal/config.defaultManufacturerIcons). ansi.StringWidth already
 // gets regional-indicator (flag) graphemes right, paired or lone, so no
 // separate override is needed for those here.
 func tableClusterDisplayWidth(cluster string) int {

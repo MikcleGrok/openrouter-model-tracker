@@ -46,10 +46,19 @@ type IconConfig struct {
 	Unknown       string            `yaml:"unknown"`
 }
 
+// defaultManufacturerIcons maps a manufacturer to its badge.
+//
+// Every entry must be a single rune at or above U+1F300 with no variation
+// selector. Below that range emoji presentation is not a property of the
+// codepoint, so a terminal with no glyph for it in the monospace face falls
+// back to an emoji font and paints two cells where every width table reports
+// one — which misaligns the whole column. That is what "Ⓜ️" (meta), "♟️"
+// (minimax) and "🌪️" (mistral) did here, and "Ⓩ"/"Ⓝ"/"ⓧ" before them.
+// TestDefaultManufacturerIconsAreSingleModernPictographs enforces it.
 var defaultManufacturerIcons = map[string]string{
-	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "Ⓜ️",
-	"deepseek": "🐋", "qwen": "🌸", "mistral": "🌪️", "xai": "🚀", "xiaomi": "🟠", "nvidia": "🟢",
-	"z.ai": "🔷", "minimax": "♟️", "moonshot": "🌙", "tencent": "🐧",
+	"openai": "🌀", "anthropic": "🔶", "google": "🌐", "meta": "🔵",
+	"deepseek": "🐋", "qwen": "🌸", "mistral": "💨", "xai": "🚀", "xiaomi": "🟠", "nvidia": "🟢",
+	"z.ai": "🔷", "minimax": "🎲", "moonshot": "🌙", "tencent": "🐧",
 }
 
 const defaultUnknownIcon = "❔"
@@ -437,7 +446,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"default_output: docs/openrouter-model-comparison.md\n" +
 	"default_filter: quality>=75,has-q/p,availability:paid\n" +
 	"icons:\n" +
-	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: 'Ⓜ️', deepseek: '🐋', qwen: '🌸', mistral: '🌪️', xai: '🚀', xiaomi: '🟠', nvidia: '🟢', z.ai: '🔷', minimax: '♟️', moonshot: '🌙', tencent: '🐧'}\n" +
+	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: '🔵', deepseek: '🐋', qwen: '🌸', mistral: '💨', xai: '🚀', xiaomi: '🟠', nvidia: '🟢', z.ai: '🔷', minimax: '🎲', moonshot: '🌙', tencent: '🐧'}\n" +
 	"  unknown: '❔'\n" +
 	"tui_steps: {quality_points: 5, context_tokens: 8192, input_cents: 5, output_cents: 5}\n" +
 	"tui_keymap:\n" +

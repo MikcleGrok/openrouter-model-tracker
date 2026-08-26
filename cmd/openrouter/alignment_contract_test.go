@@ -73,7 +73,9 @@ func TestAlignmentCustomIconContractMatrix(t *testing.T) {
 		{"xiaomi-default", "🟠", "🟠", 2},
 		{"nvidia-default", "🟢", "🟢", 2},
 		{"zai-default", "🔷", "🔷", 2},
-		{"minimax-default", "♟️", "♟️", 2},
+		{"minimax-default", "🎲", "🎲", 2},
+		{"meta-default", "🔵", "🔵", 2},
+		{"mistral-default", "💨", "💨", 2},
 		{"moonshot-default", "🌙", "🌙", 2},
 		{"tencent-default", "🐧", "🐧", 2},
 	}

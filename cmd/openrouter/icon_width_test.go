@@ -102,14 +102,24 @@ func TestDefaultManufacturerIconsAreUnambiguouslyTwoCellsWide(t *testing.T) {
 // least one:
 //
 //	(a) exactly one rune, so no joined or combined sequence can be split, or
-//	    measured, or rendered differently by different shapers;
+//	    measured, or rendered differently by different shapers. All six
+//	    reported icons were two runes, base plus U+FE0F;
 //	(b) at or above U+1F300, the pictograph range where Emoji_Presentation=Yes
-//	    and East_Asian_Width=Wide come with the codepoint — Ⓜ (U+24C2),
-//	    ♟ (U+265F), Ⓩ (U+24CF) and 🌪 (U+1F32A, the one sub-block above the
-//	    floor that is Emoji_Presentation=No) all fail here;
+//	    and East_Asian_Width=Wide normally come with the codepoint itself —
+//	    Ⓜ (U+24C2), ♟ (U+265F), Ⓩ (U+24CF), Ⓝ (U+24C3) and ⓧ (U+24E7) all sit
+//	    below it;
 //	(c) no variation selector, because needing one to request emoji
-//	    presentation is the same statement as (b) failing — and a terminal is
-//	    free to ignore the request, which is exactly what happened.
+//	    presentation is the same statement as the codepoint not carrying it —
+//	    and a terminal is free to ignore the request, which is exactly what
+//	    happened.
+//
+// The floor is necessary but not sufficient on its own: a handful of
+// sub-blocks above it are Emoji_Presentation=No anyway, U+1F321..U+1F32C among
+// them, which is where mistral's old 🌪 (U+1F32A) came from. Stripping its
+// U+FE0F would satisfy all three clauses here and still measure one cell.
+// That case is caught by the width-agreement test above, which now requires
+// both tables to say two with no exemption — the two tests are complementary
+// and neither is redundant.
 //
 // Checked here against the manufacturer map only. The unknown-manufacturer
 // fallback "❔" (U+2754) sits below the floor and is covered separately below.
