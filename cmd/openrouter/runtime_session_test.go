@@ -84,6 +84,17 @@ func (s *runtimeSession) Frame(stream string) ([]string, error) {
 	return rows, nil
 }
 
+// Rows возвращает текущее содержимое экрана сессии, не подавая новый кадр.
+// Нужен там, где отсутствие вывода — сам по себе ожидаемый результат и
+// проверять надо экран, на который ни один кадр не пришёл.
+func (s *runtimeSession) Rows() []string {
+	rows := make([]string, s.term.height)
+	for i := range s.term.cells {
+		rows[i] = string(s.term.cells[i])
+	}
+	return rows
+}
+
 // detectStaleContent catches the "blurred/duplicated text" symptom this
 // whole test harness exists to eventually police: a line's new content is
 // shorter than what was there before, the renderer writes the new (shorter)

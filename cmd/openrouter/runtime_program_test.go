@@ -111,6 +111,27 @@ type runtimeProgram struct {
 func startRuntimeProgram(t *testing.T, m tuiModel, width, height int) *runtimeProgram {
 	t.Helper()
 	m.width, m.height = width, height
+	return startRuntimeProgramForModel(t, m, width, height)
+}
+
+// startRuntimeProgramForModel is startRuntimeProgram's model-agnostic core:
+// the same production option set and the same startup sequence, for any
+// tea.Model rather than the product's own tuiModel.
+//
+// It exists so that tests aimed at the renderer/tea.Program layer itself
+// (renderer_resize_test.go) can drive a minimal synthetic model — one built
+// to make a renderer-level property observable — without either duplicating
+// the option set (which would let the two drift apart, defeating the whole
+// point of the doc comment above) or dragging the product's TUI model into
+// a test that is not about it.
+//
+// Unlike startRuntimeProgram it does not seed m's own size fields: a
+// synthetic model owns its size representation. Callers must construct m
+// already sized width x height, for exactly the reason the comment above
+// gives — a tick can flush the construction-size view before the first
+// WindowSizeMsg is processed.
+func startRuntimeProgramForModel(t *testing.T, m tea.Model, width, height int) *runtimeProgram {
+	t.Helper()
 	fw := newFrameWriter()
 	p := tea.NewProgram(m,
 		tea.WithContext(context.Background()),
