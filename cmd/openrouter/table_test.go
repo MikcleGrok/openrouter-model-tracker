@@ -93,6 +93,53 @@ func TestTableDisplayWidthMatchesTerminalIconContract(t *testing.T) {
 	}
 }
 
+// TestTableDisplayWidthAgreesWithAnsiForDefaultIcons pins table.go's own
+// width oracle (tableDisplayWidth, used to size the manufacturer icon slot)
+// against internal/tui/screen/output's oracle (charmbracelet/x/ansi, backed
+// by uniseg grapheme clusters) for every default manufacturer icon plus the
+// unknown-manufacturer fallback. The two oracles disagreeing on a VS16
+// (emoji-presentation-selector) icon is exactly the bug this test guards:
+// table.go pads the icon slot believing the icon is 1 cell wide while the
+// renderer downstream (Frame/fitDetailLine, standard_renderer.go) measures
+// the same icon as 2 cells wide, so the row's real content and the
+// renderer's belief about what it painted drift apart by one column — and
+// on a terminal that renders the icon at only 1 cell, that drifted column is
+// never erased on any later frame, leaving stale content behind indefinitely.
+func TestTableDisplayWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
+	icons := config.DefaultIconConfig()
+	values := make([]string, 0, len(icons.Manufacturers)+1)
+	for _, icon := range icons.Manufacturers {
+		values = append(values, icon)
+	}
+	values = append(values, icons.Unknown)
+	for _, icon := range values {
+		if got, want := tableDisplayWidth(icon), ansi.StringWidth(icon); got != want {
+			t.Errorf("tableDisplayWidth(%q) = %d, want ansi.StringWidth agreement = %d", icon, got, want)
+		}
+	}
+}
+
+// TestManufacturerIconSlotWidthAgreesWithAnsiForDefaultIcons is closer to the
+// actual user-visible symptom than the raw width-function comparison above:
+// it proves the padded icon slot itself (icon + padding, as produced by
+// manufacturerIconSlot) really occupies manufacturerIconSlotWidth cells under
+// the ansi oracle — the same oracle the renderer uses to decide whether a
+// line fills the terminal width and needs no trailing erase.
+func TestManufacturerIconSlotWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
+	icons := config.DefaultIconConfig()
+	values := make([]string, 0, len(icons.Manufacturers)+1)
+	for _, icon := range icons.Manufacturers {
+		values = append(values, icon)
+	}
+	values = append(values, icons.Unknown)
+	for _, icon := range values {
+		slot := manufacturerIconSlot(icon)
+		if got := ansi.StringWidth(slot); got != manufacturerIconSlotWidth {
+			t.Errorf("manufacturerIconSlot(%q) = %q has ansi width %d, want %d", icon, slot, got, manufacturerIconSlotWidth)
+		}
+	}
+}
+
 func TestModelIdentityUsesOneVisibleSpaceAfterConfiguredEmojiIcons(t *testing.T) {
 	for _, test := range []struct {
 		name, icon string
