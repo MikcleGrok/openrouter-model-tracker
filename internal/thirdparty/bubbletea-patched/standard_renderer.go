@@ -200,7 +200,7 @@ func (r *standardRenderer) flush() {
 	if flushQueuedMessages {
 		// Dump the lines we've queued up for printing.
 		for _, line := range r.queuedMessageLines {
-			if ansi.StringWidth(line) < r.width {
+			if paintedLineWidth(line) < r.width {
 				// We only erase the rest of the line when the line is shorter than
 				// the width of the terminal. When the cursor reaches the end of
 				// the line, any escape sequences that follow will only affect the
@@ -249,7 +249,7 @@ func (r *standardRenderer) flush() {
 			line = ansi.Truncate(line, r.width, "")
 		}
 
-		if ansi.StringWidth(line) < r.width {
+		if paintedLineWidth(line) < r.width {
 			// We only erase the rest of the line when the line is shorter than
 			// the width of the terminal. When the cursor reaches the end of
 			// the line, any escape sequences that follow will only affect the

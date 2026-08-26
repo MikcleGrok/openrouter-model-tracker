@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sboborikin/openrouter-model-tracker/internal/termwidth"
 )
 
 // Region is a vertical, single-owner part of a terminal frame. Lines are
@@ -114,12 +115,12 @@ func wrapSafeLine(value string, width int) []string {
 	if value == "" {
 		return []string{""}
 	}
-	if ansi.StringWidth(value) <= width {
+	if termwidth.String(value) <= width {
 		return []string{value}
 	}
 	indent := value[:len(value)-len(strings.TrimLeft(value, " "))]
 	content := strings.TrimLeft(value, " ")
-	wrapped := Wrap(content, max(1, width-ansi.StringWidth(indent)))
+	wrapped := Wrap(content, max(1, width-termwidth.String(indent)))
 	for i := range wrapped {
 		wrapped[i] = indent + wrapped[i]
 	}

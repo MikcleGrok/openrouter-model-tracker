@@ -15,7 +15,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/pflag"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
@@ -26,6 +25,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
+	"github.com/sboborikin/openrouter-model-tracker/internal/termwidth"
 	tierpkg "github.com/sboborikin/openrouter-model-tracker/internal/tier"
 	"golang.org/x/term"
 )
@@ -691,19 +691,22 @@ func tableCluster(value string, start int) (int, int) {
 }
 
 // tableClusterDisplayWidth measures a single grapheme cluster with
-// charmbracelet/x/ansi's StringWidth (uniseg-based), the same width oracle
-// internal/tui/screen/output.Frame and the renderer (standard_renderer.go)
-// use to decide how much of a line was actually painted. mattn/go-runewidth
-// was used here previously, but it isn't VS16 (emoji-presentation-selector)
-// aware: it reports width 1 for icons like "Ⓜ️" and "🌪️" where ansi (and
-// real terminals rendering the VS16-forced emoji glyph) report 2. That
-// disagreement let table.go pad the manufacturer icon slot for one width
-// while the renderer downstream clipped/erased the line for another,
-// leaving stale content behind on some terminals. ansi.StringWidth already
-// gets regional-indicator (flag) graphemes right, paired or lone, so no
-// separate override is needed for those here.
+// internal/termwidth, the one width oracle this program uses everywhere it
+// has to know how many cells something occupies: here, in
+// internal/tui/screen/output (Frame, wrapping, detail padding) and in the
+// patched renderer's erase-line decision (standard_renderer.go). Any two of
+// those disagreeing is the whole bug class — table.go pads the manufacturer
+// icon slot for one width while the renderer downstream clips or erases the
+// line for another, leaving stale content behind on some terminals.
+//
+// termwidth is charmbracelet/x/ansi's StringWidth (uniseg-based) plus an
+// explicit override; see that package for why the override exists. It
+// subsumes two earlier fixes: mattn/go-runewidth, used here before, isn't
+// VS16 (emoji-presentation-selector) aware and reported width 1 for icons
+// like "Ⓜ️" and "🌪️" that render as 2, and ansi.StringWidth already gets
+// regional-indicator (flag) graphemes right, paired or lone.
 func tableClusterDisplayWidth(cluster string) int {
-	return ansi.StringWidth(cluster)
+	return termwidth.String(cluster)
 }
 
 func tableIsRegionalIndicator(r rune) bool {

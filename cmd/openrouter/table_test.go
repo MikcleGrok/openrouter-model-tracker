@@ -93,19 +93,29 @@ func TestTableDisplayWidthMatchesTerminalIconContract(t *testing.T) {
 	}
 }
 
-// TestTableDisplayWidthAgreesWithAnsiForDefaultIcons pins table.go's own
-// width oracle (tableDisplayWidth, used to size the manufacturer icon slot)
-// against internal/tui/screen/output's oracle (charmbracelet/x/ansi, backed
-// by uniseg grapheme clusters) for every default manufacturer icon plus the
-// unknown-manufacturer fallback. The two oracles disagreeing on a VS16
-// (emoji-presentation-selector) icon is exactly the bug this test guards:
-// table.go pads the icon slot believing the icon is 1 cell wide while the
-// renderer downstream (Frame/fitDetailLine, standard_renderer.go) measures
-// the same icon as 2 cells wide, so the row's real content and the
-// renderer's belief about what it painted drift apart by one column — and
-// on a terminal that renders the icon at only 1 cell, that drifted column is
-// never erased on any later frame, leaving stale content behind indefinitely.
-func TestTableDisplayWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
+// TestDefaultIconsFillTheIconSlotAndDocumentEveryAnsiDisagreement pins
+// table.go's width oracle (tableDisplayWidth, used to size the manufacturer
+// icon slot) for every default manufacturer icon plus the
+// unknown-manufacturer fallback, on two counts.
+//
+// First, every default icon must measure exactly manufacturerIconSlotWidth
+// cells, so the slot needs no padding at all and the manufacturer name starts
+// at the same column whatever icon precedes it.
+//
+// Second, and this is the guard rather than the contract: the oracle is
+// charmbracelet/x/ansi's StringWidth plus a hand-verified override list
+// (internal/termwidth), and an icon may only sit outside ansi's answer if it
+// is on that list. Otherwise the drift this whole area exists to prevent
+// creeps back — table.go pads the slot for one width while the renderer
+// downstream (Frame/fitDetailLine, standard_renderer.go) measures the same
+// icon for another, so the row's real content and the renderer's belief about
+// what it painted disagree by one column, and the drifted column is never
+// erased on any later frame.
+func TestDefaultIconsFillTheIconSlotAndDocumentEveryAnsiDisagreement(t *testing.T) {
+	overridden := map[string]bool{}
+	for _, entry := range bareCircledIcons {
+		overridden[entry.icon] = true
+	}
 	icons := config.DefaultIconConfig()
 	values := make([]string, 0, len(icons.Manufacturers)+1)
 	for _, icon := range icons.Manufacturers {
@@ -113,19 +123,22 @@ func TestTableDisplayWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
 	}
 	values = append(values, icons.Unknown)
 	for _, icon := range values {
-		if got, want := tableDisplayWidth(icon), ansi.StringWidth(icon); got != want {
-			t.Errorf("tableDisplayWidth(%q) = %d, want ansi.StringWidth agreement = %d", icon, got, want)
+		if got := tableDisplayWidth(icon); got != manufacturerIconSlotWidth {
+			t.Errorf("tableDisplayWidth(%q) = %d, want the full icon slot width %d", icon, got, manufacturerIconSlotWidth)
+		}
+		if got, ansiWidth := tableDisplayWidth(icon), ansi.StringWidth(icon); got != ansiWidth && !overridden[icon] {
+			t.Errorf("tableDisplayWidth(%q) = %d but ansi.StringWidth = %d, and %q is not one of the verified font-fallback overrides", icon, got, ansiWidth, icon)
 		}
 	}
 }
 
-// TestManufacturerIconSlotWidthAgreesWithAnsiForDefaultIcons is closer to the
+// TestManufacturerIconSlotFillsTheSlotWidthForDefaultIcons is closer to the
 // actual user-visible symptom than the raw width-function comparison above:
 // it proves the padded icon slot itself (icon + padding, as produced by
 // manufacturerIconSlot) really occupies manufacturerIconSlotWidth cells under
-// the ansi oracle — the same oracle the renderer uses to decide whether a
-// line fills the terminal width and needs no trailing erase.
-func TestManufacturerIconSlotWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
+// the shared oracle — the same one the renderer uses to decide whether a line
+// fills the terminal width and needs no trailing erase.
+func TestManufacturerIconSlotFillsTheSlotWidthForDefaultIcons(t *testing.T) {
 	icons := config.DefaultIconConfig()
 	values := make([]string, 0, len(icons.Manufacturers)+1)
 	for _, icon := range icons.Manufacturers {
@@ -134,8 +147,8 @@ func TestManufacturerIconSlotWidthAgreesWithAnsiForDefaultIcons(t *testing.T) {
 	values = append(values, icons.Unknown)
 	for _, icon := range values {
 		slot := manufacturerIconSlot(icon)
-		if got := ansi.StringWidth(slot); got != manufacturerIconSlotWidth {
-			t.Errorf("manufacturerIconSlot(%q) = %q has ansi width %d, want %d", icon, slot, got, manufacturerIconSlotWidth)
+		if got := tableDisplayWidth(slot); got != manufacturerIconSlotWidth {
+			t.Errorf("manufacturerIconSlot(%q) = %q is %d cells wide, want %d", icon, slot, got, manufacturerIconSlotWidth)
 		}
 	}
 }
@@ -389,9 +402,9 @@ var testIconLayouts = map[string]testIconLayout{
 	"🌐":  {slot: "🌐", bytes: []byte{0xF0, 0x9F, 0x8C, 0x90}, slotWidth: 2, displayWidth: 2},
 	"🚀":  {slot: "🚀", bytes: []byte{0xF0, 0x9F, 0x9A, 0x80}, slotWidth: 2, displayWidth: 2},
 	"🛠️": {slot: "🛠️", bytes: []byte{0xF0, 0x9F, 0x9B, 0xA0, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
-	"ⓧ":  {slot: "ⓧ ", bytes: []byte{0xE2, 0x93, 0xA7, ' '}, slotWidth: 2, displayWidth: 1},
-	"Ⓝ":  {slot: "Ⓝ ", bytes: []byte{0xE2, 0x93, 0x83, ' '}, slotWidth: 2, displayWidth: 1},
-	"Ⓩ":  {slot: "Ⓩ ", bytes: []byte{0xE2, 0x93, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"ⓧ":  {slot: "ⓧ", bytes: []byte{0xE2, 0x93, 0xA7}, slotWidth: 2, displayWidth: 2},
+	"Ⓝ":  {slot: "Ⓝ", bytes: []byte{0xE2, 0x93, 0x83}, slotWidth: 2, displayWidth: 2},
+	"Ⓩ":  {slot: "Ⓩ", bytes: []byte{0xE2, 0x93, 0x8F}, slotWidth: 2, displayWidth: 2},
 	"♟️": {slot: "♟️", bytes: []byte{0xE2, 0x99, 0x9F, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
 	"🌙":  {slot: "🌙", bytes: []byte{0xF0, 0x9F, 0x8C, 0x99}, slotWidth: 2, displayWidth: 2},
 	"🐧":  {slot: "🐧", bytes: []byte{0xF0, 0x9F, 0x90, 0xA7}, slotWidth: 2, displayWidth: 2},
@@ -570,11 +583,11 @@ func TestManufacturerDisplayKeepsUnknownTextAndPrefersArenaOrganization(t *testi
 func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *testing.T) {
 	for _, test := range []struct{ slug, want string }{
 		{"qwen/qwen3.7-flash", "🌸 Qwen"},
-		{"nvidia/nemotron-3-nano-30b-a3b", "Ⓝ  NVIDIA"},
+		{"nvidia/nemotron-3-nano-30b-a3b", "Ⓝ NVIDIA"},
 		{"poolside/laguna-xs-2.1", "❔ Poolside"},
 		{"google/gemma-4-31b-it", "🌐 Google"},
 		{"openai/gpt-5-mini", "🌀 OpenAI"},
-		{"z-ai/glm-5.2", "Ⓩ  Z.ai"},
+		{"z-ai/glm-5.2", "Ⓩ Z.ai"},
 		{"minimax/minimax-m3", "♟️ MiniMax"},
 		{"moonshotai/kimi-k3", "🌙 Moonshot AI"},
 		{"tencent/hy3", "🐧 Tencent"},

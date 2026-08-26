@@ -1,7 +1,8 @@
 Local patch of `github.com/charmbracelet/bubbletea@v1.3.10`.
 
-Two files differ from upstream: `tea_init.go` and `standard_renderer.go`.
-Everything else is verbatim upstream.
+Two files differ from upstream: `tea_init.go` and `standard_renderer.go`,
+and one file is added: `painted_width.go`. Everything else is verbatim
+upstream.
 
 ## `tea_init.go` — bounding the startup terminal query
 
@@ -18,6 +19,47 @@ so program startup is always bounded regardless of what the terminal does.
 
 Remove this replace + directory once upstream bubbletea v2 drops the
 workaround (its own doc comment says so) or ships an equivalent bound.
+
+## `painted_width.go` — measuring a line the way the terminal paints it
+
+`flush()` appends `ansi.EraseLineRight` to a painted line only when it
+believes the line is narrower than the terminal. The guard matters: on a line
+that fills the terminal the cursor ends up in the last cell with wrap pending,
+so an erase issued there wipes the character just painted instead of clearing
+empty space. Upstream measures with `ansi.StringWidth`.
+
+That measure is wrong for a small set of runes, and wrong in the direction the
+guard cannot tolerate. A terminal's cell width is not decided by Unicode alone:
+when the primary monospace face has no glyph for a character, the terminal
+substitutes another font. macOS Terminal.app and iTerm2 both fall back to an
+emoji face for the bare "circled Latin letter" glyphs of the Enclosed
+Alphanumerics block — `Ⓩ`, `Ⓝ`, `ⓧ`, this repo's manufacturer icons for z.ai,
+NVIDIA and Xiaomi — and paint them across two cells. Those characters carry
+neither variation-selector-16 nor the Emoji_Presentation property, so
+East_Asian_Width says Ambiguous and every width table, `ansi` and
+`mattn/go-runewidth` alike, reports 1. No library can be "fixed" here; the
+answer is a property of the font stack, not of the character.
+
+A line those icons fill to the terminal edge is therefore measured one cell
+short, `flush()` believes it has room to spare, and the erase wipes the last
+painted cell of every such row. The host repository's layout code measures
+through `internal/termwidth`, which applies the override, so without this patch
+the renderer and the layout that feeds it disagree by exactly one column on
+those rows.
+
+`painted_width.go` adds `paintedLineWidth`, and `flush()`'s two erase-line
+decisions call it in place of `ansi.StringWidth`. Nothing else in the renderer
+changes: truncation still goes through `ansi.Truncate`, which is deliberate —
+it only ever under-truncates here, and the layout already caps the line.
+
+The rune list duplicates `internal/termwidth` because this directory is its own
+Go module, reached through a `replace` directive, and importing the host
+repository's `internal/` package would invert that dependency. `internal/termwidth`
+is the authoritative list; the two must stay in sync.
+
+Regression test: `TestRendererTreatsBareCircledIconLineAsFullWidth` in
+`cmd/openrouter/icon_width_test.go`, which drives a real `tea.Program` painting
+full-width icon lines and asserts no erase-line-right is appended to them.
 
 ## `standard_renderer.go` — no torn frame on window resize
 
@@ -73,7 +115,7 @@ render nearly identically when the model was constructed at the terminal's
 real size — which this repo's own `runTUIWithRankingConfigCompiled` does via
 `tuiTerminalSize(out)` — though minor differences exist: at `r.width == 0`,
 `flush()` never appends `ansi.EraseLineRight` to lines (it only does so when
-`ansi.StringWidth(line) < r.width`), and at `r.height == 0`, `flush()` does
+`paintedLineWidth(line) < r.width`), and at `r.height == 0`, `flush()` does
 not truncate `newLines` to the last `r.height` lines. Both differences appear
 only in this one startup frame (before adoption) and are invisible with
 `tea.WithAltScreen()` (which clears the screen). Keeping one uniform rule was
