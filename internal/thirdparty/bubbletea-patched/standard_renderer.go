@@ -314,12 +314,12 @@ func (r *standardRenderer) lastLinesRendered() int {
 //
 // The only caller is write(), which the event loop invokes exactly once per
 // message, at the end of the very same iteration that staged the size. A
-// staged resize therefore outlives exactly one model.Update+View and never
-// spans two messages, so no code path can be left reading stale dimensions
-// indefinitely. The one exception is a program terminating between the two —
-// which drops the staged size instead of applying it, correctly: a killed
-// program renders no final frame at all, and a graceful one writes its final
-// View() through write() first (tea.go Run), adopting the size on the way.
+// staged resize therefore never spans more than one model.Update+View cycle,
+// bounded to that single event-loop iteration. The one exception is a program
+// terminating between the two — which drops the staged size instead of applying
+// it, correctly: a killed program renders no final frame at all, and a graceful
+// one writes its final View() through write() first (tea.go Run), adopting the
+// size on the way.
 //
 // insertTop/insertBottom, the only readers of r.height besides flush(), are
 // driven from handleMessages itself, for message types that stage nothing —

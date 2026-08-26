@@ -68,13 +68,17 @@ take.
 The *first* `WindowSizeMsg` is deliberately not special-cased, even though
 the renderer starts at `r.width == r.height == 0`. If a tick lands in that
 one startup gap, upstream paints the construction-size view truncated and
-cropped to the real terminal, whereas this fork paints it unbounded (at
-width 0 `flush()` skips truncation entirely). Both are the same single stale
-frame, healed by the next flush, and the two are byte-identical whenever the
-model was constructed at the terminal's real size — which this repo's own
-`runTUIWithRankingConfigCompiled` does via `tuiTerminalSize(out)`. Keeping
-one uniform rule was preferred over a branch whose only justification is
-that cropping stale content beats wrapping it.
+cropped to the real terminal, whereas this fork paints it unbounded. The two
+render nearly identically when the model was constructed at the terminal's
+real size — which this repo's own `runTUIWithRankingConfigCompiled` does via
+`tuiTerminalSize(out)` — though minor differences exist: at `r.width == 0`,
+`flush()` never appends `ansi.EraseLineRight` to lines (it only does so when
+`ansi.StringWidth(line) < r.width`), and at `r.height == 0`, `flush()` does
+not truncate `newLines` to the last `r.height` lines. Both differences appear
+only in this one startup frame (before adoption) and are invisible with
+`tea.WithAltScreen()` (which clears the screen). Keeping one uniform rule was
+preferred over a branch whose only justification is that cropping stale
+content beats wrapping it.
 
 Regression test: `TestRendererNeverPaintsPreResizeContentAtNewDimensions` in
 `cmd/openrouter/renderer_resize_test.go`, which drives a real `tea.Program`
