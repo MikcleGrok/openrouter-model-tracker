@@ -1,6 +1,10 @@
 GO ?= $(ROOT).builder/local/go-wrapper
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BINARY := $(ROOT)bin/openrouter
+TARGET ?= ./cmd/openrouter
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+INSTALL_PATH := $(BINDIR)/openrouter
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
@@ -9,7 +13,7 @@ GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-st
 DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
 TAG_VERSION := $(shell git -C $(ROOT) describe --tags --exact-match 2>/dev/null)
 TAG_IS_CLEAN := $(shell test -z "$(shell git -C $(ROOT) status --porcelain)" && printf 'yes')
-VERSION ?= $(if $(and $(TAG_VERSION),$(TAG_IS_CLEAN)),$(patsubst v%,%,$(TAG_VERSION)),0.0.0-dev)
+VERSION ?= $(if $(TAG_VERSION),$(patsubst v%,%,$(TAG_VERSION)),0.0.0-dev)
 VERSIONCHECK := $(GO) run ./cmd/versioncheck
 PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 FORMULA_TAG ?=
@@ -39,13 +43,13 @@ GITHUB_RUN_ID ?= local
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package install reinstall upgrade uninstall install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
 
 build: $(BINARY)
 
 $(BINARY): FORCE $(ROOT)Makefile $(GO_FILES) $(ROOT)go.mod $(ROOT)go.sum
 	@mkdir -p $(dir $@)
-	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $@ ./cmd/openrouter
+	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $@ $(TARGET)
 
 FORCE:
 
@@ -64,7 +68,7 @@ test-acceptance: build
 test-all: test-unit test-acceptance sign-flags-check
 
 race:
-	cd $(ROOT) && $(GO) test -race -count=1 ./...
+	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
 
 coverage:
 	cd $(ROOT) && $(GO) test -cover ./...
@@ -173,8 +177,26 @@ manifest: artifact
 check-package:
 	@printf '%s\n' 'NO-OP: package and formula templates are maintained outside this checkout.'
 
-install reinstall upgrade uninstall install-smoke:
-	@printf '%s\n' 'NO-OP: installation and package-manager mutations are outside this repository.'
+install reinstall upgrade: check-install-paths check-version
+	@set -eu; temp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/openrouter-install-build.XXXXXX")"; trap 'rm -rf "$$temp_dir"' EXIT HUP INT TERM; temp_binary="$$temp_dir/openrouter"; cd "$(ROOT)" && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o "$$temp_binary" "$(TARGET)"; "$(ROOT)scripts/install.sh" install "$$temp_binary" "$(INSTALL_PATH)" "$(VERSION)"
+
+check-install-paths:
+	@test -n "$(PREFIX)" || { printf '%s\n' 'PREFIX must not be empty'; exit 2; }
+	@case "$(PREFIX)" in /*) ;; *) printf '%s\n' 'PREFIX must be an absolute path: $(PREFIX)' >&2; exit 2 ;; esac
+	@test -n "$(BINDIR)" || { printf '%s\n' 'BINDIR must not be empty'; exit 2; }
+	@case "$(BINDIR)" in /*) ;; *) printf '%s\n' 'BINDIR must be an absolute path: $(BINDIR)' >&2; exit 2 ;; esac
+
+uninstall: check-install-paths
+	@$(ROOT)scripts/install.sh uninstall "$(INSTALL_PATH)"
+
+verify-install: install
+	@installed="$(INSTALL_PATH)"; actual="$$( "$${installed}" --version )"; test "$$actual" = "openrouter version $(VERSION)"
+	@installed="$(INSTALL_PATH)"; actual="$$( "$${installed}" version )"; test "$$actual" = "openrouter $(VERSION)"
+	@installed="$(INSTALL_PATH)"; "$${installed}" --help >/dev/null
+	@printf '%s\n' 'Verified installed CLI: $(INSTALL_PATH) (VERSION=$(VERSION))'
+
+install-smoke:
+	@GO="$(GO)" $(ROOT)scripts/install_test.sh
 
 smoke: build
 	@cd $(ROOT) && ./bin/openrouter --version >/dev/null && ./bin/openrouter --help >/dev/null
@@ -200,6 +222,7 @@ version:
 check-version:
 	@test -n "$(VERSION)" || { printf '%s\n' 'VERSION must not be empty'; exit 1; }
 	@cd $(ROOT) && $(VERSIONCHECK) --version "$(VERSION)" >/dev/null
+	@if test -n "$(TAG_VERSION)" && test "$(TAG_IS_CLEAN)" != yes && test "$(VERSION)" = "$(patsubst v%,%,$(TAG_VERSION))"; then printf '%s\n' 'exact-tag VERSION is forbidden on a dirty checkout'; git -C $(ROOT) status --short; exit 1; fi
 	@if test -n "$(TAG_VERSION)" && test -z "$$(git -C $(ROOT) status --porcelain)"; then normalized="$$(cd $(ROOT) && $(VERSIONCHECK) "$(TAG_VERSION)")" || exit $$?; test "$$normalized" = "$(VERSION)" || { printf '%s\n' 'VERSION does not match the exact tag'; exit 1; }; fi
 
 check-tag: check-version
@@ -324,10 +347,12 @@ help:
 		'openrouter-launchd-refresh-uninstall Remove the user LaunchAgent' \
 		'openrouter-launchd-refresh-status Show the user LaunchAgent status' \
 		'openrouter-launchd-refresh-start Start the user LaunchAgent now' \
-		'install        NO-OP: installation is external' \
-		'reinstall      NO-OP: installation is external' \
-		'upgrade        NO-OP: installation is external' \
-		'uninstall      NO-OP: installation is external' \
+		'install        Build and atomically install openrouter (PREFIX/BINDIR/VERSION/TARGET)' \
+		'reinstall      Rebuild and install through the canonical local installer' \
+		'upgrade        Rebuild and install through the canonical local installer' \
+		'uninstall      Remove only the managed openrouter executable' \
+		'verify-install Install and verify --version, version, and --help' \
+		'install-smoke  Install into a disposable PREFIX and verify the CLI' \
 		'smoke          Run local CLI smoke checks' \
 		'check-docs     Validate required project documentation' \
 		'check          Run the read-only CLI check against this checkout' \
