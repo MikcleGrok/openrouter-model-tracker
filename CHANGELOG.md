@@ -4,6 +4,10 @@
 
 - Continue improving terminal rendering and selection behavior.
 
+## [1.16.1]
+
+- Fix the default z.ai, NVIDIA, and Xiaomi manufacturer icons so their table column aligns like every other row, instead of only on terminals that happen to render those glyphs narrow. If your `config.yaml` pins a custom icon for `z.ai`, `nvidia`, or `xiaomi`, remove that override to pick up the new default.
+
 ## [1.16.0]
 
 - Fix the TUI's manufacturer-icon column padding so table rows stay aligned across terminal widths instead of looking blurred or misaligned.
