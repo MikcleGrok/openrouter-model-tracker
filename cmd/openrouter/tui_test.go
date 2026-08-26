@@ -2316,7 +2316,7 @@ func TestTUIRefreshReloadsIconGapForListAndDetail(t *testing.T) {
 		t.Fatalf("refreshed list identity = %q, want three gaps", list)
 	}
 	meta := model.Model{DisplayName: "Meta Model", Owner: "Meta"}
-	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️    Meta Meta Model" {
+	if list := tuiCellWithIconsAndGaps(meta, colName, false, scoreSourceDefault, got.icons, got.iconGap, got.iconGaps); list != "Ⓜ️   Meta Meta Model" {
 		t.Fatalf("refreshed vendor override = %q, want fixed-slot padding plus three gaps", list)
 	}
 	detail := detailLinesWithHistoryAndIconsAndGapsForTest(row, scoreSourceDefault, 100, time.Now(), nil, got.icons, got.iconGap, got.iconGaps)

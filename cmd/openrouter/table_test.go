@@ -85,7 +85,7 @@ func TestTableDisplayWidthMatchesTerminalIconContract(t *testing.T) {
 		icon string
 		want int
 	}{
-		{"Ⓜ️", 1}, {"🌪️", 1}, {"🌀", 2}, {"🌸", 2}, {"🌐", 2}, {"🐋", 2}, {"❔", 2}, {"🚀", 2},
+		{"Ⓜ️", 2}, {"🌪️", 2}, {"🌀", 2}, {"🌸", 2}, {"🌐", 2}, {"🐋", 2}, {"❔", 2}, {"🚀", 2},
 	} {
 		if got := tableDisplayWidth(test.icon); got != test.want {
 			t.Errorf("tableDisplayWidth(%q) = %d, want independent terminal width %d", test.icon, got, test.want)
@@ -379,8 +379,8 @@ type testIconLayout struct {
 }
 
 var testIconLayouts = map[string]testIconLayout{
-	"Ⓜ️": {slot: "Ⓜ️ ", bytes: []byte{0xE2, 0x93, 0x82, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
-	"🌪️": {slot: "🌪️ ", bytes: []byte{0xF0, 0x9F, 0x8C, 0xAA, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"Ⓜ️": {slot: "Ⓜ️", bytes: []byte{0xE2, 0x93, 0x82, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
+	"🌪️": {slot: "🌪️", bytes: []byte{0xF0, 0x9F, 0x8C, 0xAA, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
 	"🌀":  {slot: "🌀", bytes: []byte{0xF0, 0x9F, 0x8C, 0x80}, slotWidth: 2, displayWidth: 2},
 	"🌸":  {slot: "🌸", bytes: []byte{0xF0, 0x9F, 0x8C, 0xB8}, slotWidth: 2, displayWidth: 2},
 	"🐋":  {slot: "🐋", bytes: []byte{0xF0, 0x9F, 0x90, 0x8B}, slotWidth: 2, displayWidth: 2},
@@ -388,11 +388,11 @@ var testIconLayouts = map[string]testIconLayout{
 	"🔶":  {slot: "🔶", bytes: []byte{0xF0, 0x9F, 0x94, 0xB6}, slotWidth: 2, displayWidth: 2},
 	"🌐":  {slot: "🌐", bytes: []byte{0xF0, 0x9F, 0x8C, 0x90}, slotWidth: 2, displayWidth: 2},
 	"🚀":  {slot: "🚀", bytes: []byte{0xF0, 0x9F, 0x9A, 0x80}, slotWidth: 2, displayWidth: 2},
-	"🛠️": {slot: "🛠️ ", bytes: []byte{0xF0, 0x9F, 0x9B, 0xA0, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"🛠️": {slot: "🛠️", bytes: []byte{0xF0, 0x9F, 0x9B, 0xA0, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
 	"ⓧ":  {slot: "ⓧ ", bytes: []byte{0xE2, 0x93, 0xA7, ' '}, slotWidth: 2, displayWidth: 1},
 	"Ⓝ":  {slot: "Ⓝ ", bytes: []byte{0xE2, 0x93, 0x83, ' '}, slotWidth: 2, displayWidth: 1},
 	"Ⓩ":  {slot: "Ⓩ ", bytes: []byte{0xE2, 0x93, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
-	"♟️": {slot: "♟️ ", bytes: []byte{0xE2, 0x99, 0x9F, 0xEF, 0xB8, 0x8F, ' '}, slotWidth: 2, displayWidth: 1},
+	"♟️": {slot: "♟️", bytes: []byte{0xE2, 0x99, 0x9F, 0xEF, 0xB8, 0x8F}, slotWidth: 2, displayWidth: 2},
 	"🌙":  {slot: "🌙", bytes: []byte{0xF0, 0x9F, 0x8C, 0x99}, slotWidth: 2, displayWidth: 2},
 	"🐧":  {slot: "🐧", bytes: []byte{0xF0, 0x9F, 0x90, 0xA7}, slotWidth: 2, displayWidth: 2},
 	"x":  {slot: "x ", bytes: []byte{'x', ' '}, slotWidth: 2, displayWidth: 1},
@@ -543,12 +543,12 @@ func TestManufacturerNamesShareFixedIconSlotAcrossRenderers(t *testing.T) {
 func TestModelIdentityNormalizesBoundaryWhitespaceToOneTerminalGap(t *testing.T) {
 	icons := config.IconConfig{Manufacturers: map[string]string{"meta": "Ⓜ️"}, Unknown: "❔"}
 	row := model.Model{DisplayName: "  Meta Muse Spark 1.1", Owner: " Meta "}
-	want := "Ⓜ️  Meta Meta Muse Spark 1.1"
+	want := "Ⓜ️ Meta Meta Muse Spark 1.1"
 	if got := modelIdentityWithIcons(row, icons); got != want {
 		t.Fatalf("normalized identity = %q bytes=% x, want %q bytes=% x", got, []byte(got), want, []byte(want))
 	}
-	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️  Meta" {
-		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️  Meta")
+	if got := manufacturerDisplayWithIcons(row, icons); got != "Ⓜ️ Meta" {
+		t.Fatalf("normalized manufacturer = %q, want %q", got, "Ⓜ️ Meta")
 	}
 	if got := joinTerminalWords("Ⓜ️  ", "  Meta", 1); got != "Ⓜ️ Meta" {
 		t.Fatalf("joinTerminalWords = %q, want %q", got, "Ⓜ️ Meta")
@@ -575,7 +575,7 @@ func TestManufacturerDisplaySkipsNeedsReviewOwnerAndUsesProviderNamespace(t *tes
 		{"google/gemma-4-31b-it", "🌐 Google"},
 		{"openai/gpt-5-mini", "🌀 OpenAI"},
 		{"z-ai/glm-5.2", "Ⓩ  Z.ai"},
-		{"minimax/minimax-m3", "♟️  MiniMax"},
+		{"minimax/minimax-m3", "♟️ MiniMax"},
 		{"moonshotai/kimi-k3", "🌙 Moonshot AI"},
 		{"tencent/hy3", "🐧 Tencent"},
 	} {
@@ -1101,7 +1101,7 @@ func TestTableDisplayWidthHandlesEmojiSequences(t *testing.T) {
 	}
 }
 
-func TestTableDisplayWidthUsesRunewidthForVS16Icons(t *testing.T) {
+func TestTableDisplayWidthUsesAnsiForVS16Icons(t *testing.T) {
 	for _, value := range []string{"A\ufe0f", "1\ufe0f"} {
 		if got := tableDisplayWidth(value); got != 1 {
 			t.Errorf("tableDisplayWidth(%q) = %d, want 1", value, got)
@@ -1111,7 +1111,7 @@ func TestTableDisplayWidthUsesRunewidthForVS16Icons(t *testing.T) {
 		name string
 		want int
 	}{
-		{"OpenAI", 2}, {"Anthropic", 2}, {"Google", 2}, {"Meta", 1}, {"DeepSeek", 2}, {"Qwen", 2}, {"Mistral", 1}, {"xAI", 2}, {"Unknown", 2},
+		{"OpenAI", 2}, {"Anthropic", 2}, {"Google", 2}, {"Meta", 2}, {"DeepSeek", 2}, {"Qwen", 2}, {"Mistral", 2}, {"xAI", 2}, {"Unknown", 2},
 	} {
 		icon := manufacturerBadge(test.name)
 		if got := tableDisplayWidth(icon); got != test.want {

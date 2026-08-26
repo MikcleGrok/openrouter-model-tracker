@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/pflag"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
@@ -690,15 +690,20 @@ func tableCluster(value string, start int) (int, int) {
 	return index, tableClusterDisplayWidth(cluster)
 }
 
+// tableClusterDisplayWidth measures a single grapheme cluster with
+// charmbracelet/x/ansi's StringWidth (uniseg-based), the same width oracle
+// internal/tui/screen/output.Frame and the renderer (standard_renderer.go)
+// use to decide how much of a line was actually painted. mattn/go-runewidth
+// was used here previously, but it isn't VS16 (emoji-presentation-selector)
+// aware: it reports width 1 for icons like "Ⓜ️" and "🌪️" where ansi (and
+// real terminals rendering the VS16-forced emoji glyph) report 2. That
+// disagreement let table.go pad the manufacturer icon slot for one width
+// while the renderer downstream clipped/erased the line for another,
+// leaving stale content behind on some terminals. ansi.StringWidth already
+// gets regional-indicator (flag) graphemes right, paired or lone, so no
+// separate override is needed for those here.
 func tableClusterDisplayWidth(cluster string) int {
-	width := runewidth.StringWidth(cluster)
-	r, _ := utf8.DecodeRuneInString(cluster)
-	if tableIsRegionalIndicator(r) {
-		// runewidth v0.0.16 reports regional-indicator graphemes as one cell,
-		// while terminal flag rendering uses the two-cell flag glyph width.
-		return max(2, width)
-	}
-	return width
+	return ansi.StringWidth(cluster)
 }
 
 func tableIsRegionalIndicator(r rune) bool {
