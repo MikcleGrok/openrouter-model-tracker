@@ -32,6 +32,8 @@ test_failure() {
 
 make -C "$ROOT" install GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="$VERSION" TARGET=./cmd/openrouter
 test -x "$BINDIR/openrouter"
+test -L "$BINDIR/omt"
+test "$(readlink "$BINDIR/omt")" = "$BINDIR/openrouter"
 test "$(stat -c '%a' "$BINDIR/openrouter" 2>/dev/null || stat -f '%Lp' "$BINDIR/openrouter")" = 755
 test "$("$BINDIR/openrouter" --version)" = "openrouter version $VERSION"
 MARKER="$BINDIR/openrouter.openrouter-owner"
@@ -41,6 +43,35 @@ test "$(sed -n '1p' "$MARKER")" = openrouter-installer-marker-v1
 test "$(sed -n '2p' "$MARKER")" = identifier=openrouter-model-tracker
 test "$(sed -n '3p' "$MARKER")" = "destination=$BINDIR/openrouter"
 test "$(sed -n '4p' "$MARKER")" = "version=$VERSION"
+HOMEBREW_CELLAR_BIN="$PREFIX/Cellar/openrouter/1.14.49/bin"
+mkdir -p "$HOMEBREW_CELLAR_BIN"
+cp "$BINDIR/openrouter" "$HOMEBREW_CELLAR_BIN/omt"
+chmod 0755 "$HOMEBREW_CELLAR_BIN/omt"
+rm -f "$BINDIR/omt"
+ln -s ../Cellar/openrouter/1.14.49/bin/omt "$BINDIR/omt"
+make -C "$ROOT" upgrade GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="$VERSION"
+test -L "$BINDIR/omt"
+test "$(readlink "$BINDIR/omt")" = "$BINDIR/openrouter"
+test "$("$BINDIR/omt" --version)" = "openrouter version $VERSION"
+ABSOLUTE_PREFIX="$TEST_ROOT/absolute-homebrew"
+ABSOLUTE_BINDIR="$ABSOLUTE_PREFIX/bin"
+make -C "$ROOT" install GO="$GO_BIN" PREFIX="$ABSOLUTE_PREFIX" BINDIR="$ABSOLUTE_BINDIR" VERSION="$VERSION"
+ABSOLUTE_CELLAR_BIN="$ABSOLUTE_PREFIX/Cellar/openrouter/1.14.49/bin"
+mkdir -p "$ABSOLUTE_CELLAR_BIN"
+cp "$ABSOLUTE_BINDIR/openrouter" "$ABSOLUTE_CELLAR_BIN/omt"
+chmod 0755 "$ABSOLUTE_CELLAR_BIN/omt"
+rm -f "$ABSOLUTE_BINDIR/omt"
+ln -s "$ABSOLUTE_CELLAR_BIN/omt" "$ABSOLUTE_BINDIR/omt"
+make -C "$ROOT" upgrade GO="$GO_BIN" PREFIX="$ABSOLUTE_PREFIX" BINDIR="$ABSOLUTE_BINDIR" VERSION="$VERSION"
+test -L "$ABSOLUTE_BINDIR/omt"
+test "$(readlink "$ABSOLUTE_BINDIR/omt")" = "$ABSOLUTE_BINDIR/openrouter"
+test "$("$ABSOLUTE_BINDIR/omt" --version)" = "openrouter version $VERSION"
+printf '%s\n' unmanaged > "$BINDIR/omt-unmanaged"
+mv "$BINDIR/omt-unmanaged" "$BINDIR/omt"
+test_failure 2 make -C "$ROOT" install GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="$VERSION"
+test "$(cat "$BINDIR/omt")" = unmanaged
+rm -f "$BINDIR/omt"
+ln -s "$BINDIR/openrouter" "$BINDIR/omt"
 
 test_failure 1 "$INSTALLER" install "$BINDIR/openrouter" relative/openrouter "$VERSION"
 test_failure 1 "$INSTALLER" install "$BINDIR/openrouter" "" "$VERSION"
@@ -55,6 +86,24 @@ make -C "$ROOT" upgrade GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="
 make -C "$ROOT" reinstall GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="$VERSION"
 test "$("$BINDIR/openrouter" --version)" = "openrouter version $VERSION"
 test -f "$MARKER"
+test "$("$BINDIR/omt" --version)" = "openrouter version $VERSION"
+test "$("$BINDIR/omt" version)" = "openrouter $VERSION"
+"$BINDIR/omt" --help >/dev/null
+
+canonical_before_mismatched_alias=$(shasum -a 256 "$BINDIR/openrouter")
+marker_before_mismatched_alias=$(shasum -a 256 "$MARKER")
+mkdir -p "$OUTSIDE"
+printf '%s\n' outside-preserved > "$OUTSIDE/mismatched-alias-sentinel"
+ln -sf "$OUTSIDE/stale-openrouter" "$BINDIR/omt"
+test_failure 2 make -C "$ROOT" install GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR" VERSION="$VERSION"
+test -L "$BINDIR/omt"
+test "$(readlink "$BINDIR/omt")" = "$OUTSIDE/stale-openrouter"
+test "$(shasum -a 256 "$BINDIR/openrouter")" = "$canonical_before_mismatched_alias"
+test "$(shasum -a 256 "$MARKER")" = "$marker_before_mismatched_alias"
+test "$(cat "$OUTSIDE/mismatched-alias-sentinel")" = outside-preserved
+test ! -e "$OUTSIDE/stale-openrouter"
+rm -f "$BINDIR/omt"
+ln -s "$BINDIR/openrouter" "$BINDIR/omt"
 
 printf '%s\n' unmarked > "$BINDIR/unmarked"
 test_failure 0 "$INSTALLER" uninstall "$BINDIR/unmarked"
@@ -149,6 +198,14 @@ make -C "$ROOT" install GO="$GO_BIN" PREFIX="$PREFIX_ONLY" BINDIR="$EXPLICIT_BIN
 test -x "$EXPLICIT_BINDIR/openrouter"
 test ! -e "$PREFIX_ONLY/bin/openrouter"
 
+MISMATCH_PREFIX="$TEST_ROOT/mismatch-prefix"
+MISMATCH_BINDIR="$MISMATCH_PREFIX/bin"
+make -C "$ROOT" install GO="$GO_BIN" PREFIX="$MISMATCH_PREFIX" BINDIR="$MISMATCH_BINDIR" VERSION="$VERSION"
+ln -sf "$TEST_ROOT/foreign-openrouter" "$MISMATCH_BINDIR/omt"
+make -C "$ROOT" uninstall GO="$GO_BIN" PREFIX="$MISMATCH_PREFIX" BINDIR="$MISMATCH_BINDIR"
+test ! -e "$MISMATCH_BINDIR/openrouter"
+test "$(readlink "$MISMATCH_BINDIR/omt")" = "$TEST_ROOT/foreign-openrouter"
+
 CONCURRENT_TARGET="$TEST_ROOT/concurrent-target"
 mkdir -p "$CONCURRENT_TARGET"
 BASE_BINARY="$BINDIR/openrouter"
@@ -164,7 +221,7 @@ for i in $(seq 1 48); do
   # shellcheck disable=SC2016
   printf '%s\n' '#!/usr/bin/env bash' 'case "${1:-}" in' "  --version) printf '%s\\n' \"openrouter version $concurrent_version\" ;;" "  version) printf '%s\\n' \"openrouter $concurrent_version\" ;;" '  --help) exit 0 ;;' "  *) exec $BASE_BINARY_QUOTED \"\$@\" ;;" 'esac' > "$concurrent_source"
   chmod 0755 "$concurrent_source"
-  "$INSTALLER" install "$concurrent_source" "$CONCURRENT_TARGET/openrouter" "$concurrent_version" &
+  "$INSTALLER" install "$concurrent_source" "$CONCURRENT_TARGET/openrouter" "$concurrent_version" "$CONCURRENT_TARGET/omt" &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do
@@ -183,6 +240,10 @@ case "$final_short_version" in
 esac
 "$CONCURRENT_TARGET/openrouter" --help >/dev/null
 test -f "$CONCURRENT_TARGET/openrouter.openrouter-owner"
+test -L "$CONCURRENT_TARGET/omt"
+test "$(readlink "$CONCURRENT_TARGET/omt")" = "$CONCURRENT_TARGET/openrouter"
+test "$("$CONCURRENT_TARGET/omt" --version)" = "$final_concurrent_version"
+test "$("$CONCURRENT_TARGET/omt" version)" = "$final_short_version"
 
 LOCK_TARGET="$TEST_ROOT/lock-replacement"
 mkdir -p "$LOCK_TARGET"
@@ -195,7 +256,7 @@ case "${1:-}" in
 esac
 EOF
 chmod 0755 "$TEST_ROOT/slow-source"
-"$INSTALLER" install "$TEST_ROOT/slow-source" "$LOCK_TARGET/openrouter" 9.9.9 &
+"$INSTALLER" install "$TEST_ROOT/slow-source" "$LOCK_TARGET/openrouter" 9.9.9 "$LOCK_TARGET/omt" &
 slow_pid=$!
 while test ! -f "$LOCK_TARGET/.openrouter-install.lock/owner"; do sleep 0.01; done
 replacement_attempts=0
@@ -210,6 +271,8 @@ test "${slow_status:-0}" -eq 0
 test "$("$LOCK_TARGET/openrouter" --version)" = 'openrouter version 9.9.9'
 test "$("$LOCK_TARGET/openrouter" version)" = 'openrouter 9.9.9'
 "$LOCK_TARGET/openrouter" --help >/dev/null
+test -L "$LOCK_TARGET/omt"
+test "$(readlink "$LOCK_TARGET/omt")" = "$LOCK_TARGET/openrouter"
 test -d "$LOCK_TARGET/.openrouter-install.lock"
 test "$(cat "$LOCK_TARGET/.openrouter-install.lock/owner")" = foreign-owner
 rm -rf "$LOCK_TARGET/.openrouter-install.lock"
@@ -220,6 +283,7 @@ test ! -e "$OUTSIDE/bin/openrouter"
 
 make -C "$ROOT" uninstall GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR"
 test ! -e "$BINDIR/openrouter"
+test ! -e "$BINDIR/omt"
 make -C "$ROOT" uninstall GO="$GO_BIN" PREFIX="$PREFIX" BINDIR="$BINDIR"
 test ! -e "$BINDIR/openrouter"
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' "Usage: $0 install SOURCE DEST VERSION" "       $0 uninstall DEST"
+  printf '%s\n' "Usage: $0 install SOURCE DEST VERSION [ALIAS]" "       $0 uninstall DEST [ALIAS]"
 }
 
 fail() {
@@ -29,6 +29,27 @@ check_trusted_symlink() {
       *) fail "destination path contains untrusted symlink: $path -> $resolved" ;;
     esac
   fi
+}
+
+is_homebrew_openrouter_alias() {
+  alias_path=$1
+  alias_target=$2
+  destination_directory=$3
+  homebrew_prefix=${destination_directory%/bin}
+  homebrew_version=
+  case "$alias_target" in
+    ../Cellar/openrouter/*/bin/omt) homebrew_version=${alias_target#../Cellar/openrouter/}; homebrew_version=${homebrew_version%/bin/omt} ;;
+    "$homebrew_prefix"/Cellar/openrouter/*/bin/omt) homebrew_version=${alias_target#"$homebrew_prefix"/Cellar/openrouter/}; homebrew_version=${homebrew_version%/bin/omt} ;;
+    *) return 1 ;;
+  esac
+  case "$homebrew_version" in
+    ''|*[!0-9.]*|.*|*.) return 1 ;;
+  esac
+  case "$alias_target" in
+    /*) resolved_target=$alias_target ;;
+    *) resolved_target=$(dirname "$alias_path")/$alias_target ;;
+  esac
+  test -x "$resolved_target"
 }
 
 command -v stat >/dev/null 2>&1 || fail 'stat is required'
@@ -88,7 +109,7 @@ acquire_lock() {
 
 cleanup() {
   status=$?
-  rm -f "${temporary:-}" "${marker_temporary:-}" "${backup_binary:-}" "${backup_marker:-}" "${removal_binary:-}" "${removal_marker:-}"
+  rm -f "${temporary:-}" "${marker_temporary:-}" "${alias_temporary:-}" "${backup_binary:-}" "${backup_marker:-}" "${backup_alias:-}" "${removal_binary:-}" "${removal_marker:-}" "${removal_alias:-}"
   if test "${lock_acquired:-no}" = yes && test -f "$lock_owner_file" && test "$(cat "$lock_owner_file" 2>/dev/null)" = "$lock_token"; then
     rm -f "$lock_owner_file"
     rmdir "$lock_dir" 2>/dev/null || true
@@ -128,10 +149,11 @@ valid_marker() {
 
 case "${1:-}" in
   install)
-    test "$#" -eq 4 || { usage >&2; exit 2; }
+    test "$#" -ge 4 && test "$#" -le 5 || { usage >&2; exit 2; }
     source=$2
     destination=$3
     expected_version=$4
+    alias=${5:-}
     validate_absolute_path "$destination" destination
     destination_dir=${destination%/*}
     validate_absolute_path "$destination_dir" 'destination directory'
@@ -140,6 +162,20 @@ case "${1:-}" in
     test -n "$expected_version" || fail 'expected version must not be empty'
     test ! -d "$destination" || fail "refusing to replace directory: $destination"
     test ! -L "$destination" || fail "refusing to replace symlink: $destination"
+    if test -n "$alias"; then
+      validate_absolute_path "$alias" alias
+      test "${alias%/*}" = "$destination_dir" || fail "alias must be in the canonical destination directory: $alias"
+      test "$alias" != "$destination" || fail 'alias must differ from canonical destination'
+      if test -L "$alias"; then
+        alias_target=$(readlink "$alias") || fail "cannot read alias symlink: $alias"
+        case "$alias_target" in
+          "$destination"|openrouter) ;;
+          *) is_homebrew_openrouter_alias "$alias" "$alias_target" "$destination_dir" || fail "refusing to replace unmanaged alias symlink: $alias -> $alias_target" ;;
+        esac
+      elif test -e "$alias"; then
+        fail "refusing to replace unmanaged alias: $alias"
+      fi
+    fi
     actual_version=$("$source" --version 2>/dev/null) || fail 'source executable rejected --version'
     test "$actual_version" = "openrouter version $expected_version" || fail "source version mismatch: expected openrouter version $expected_version, got $actual_version"
     actual_short_version=$("$source" version 2>/dev/null) || fail 'source executable rejected version'
@@ -164,26 +200,42 @@ case "${1:-}" in
     backup_binary=$(mktemp "$destination_dir/.${destination##*/}.binary-backup.XXXXXX")
     backup_marker=$(mktemp "$destination_dir/.${destination##*/}.marker-backup.XXXXXX")
     rm -f "$backup_binary" "$backup_marker"
-    if test -e "$destination"; then mv "$destination" "$backup_binary"; fi
+    if test -n "$alias"; then
+      alias_temporary=$(mktemp "$destination_dir/.${alias##*/}.tmp.XXXXXX")
+      rm -f "$alias_temporary"
+      ln -s "$destination" "$alias_temporary"
+      backup_alias=$(mktemp "$destination_dir/.${alias##*/}.backup.XXXXXX")
+      rm -f "$backup_alias"
+    fi
+    if test -e "$destination" || test -L "$destination"; then mv "$destination" "$backup_binary"; fi
     if test -e "$marker"; then mv "$marker" "$backup_marker"; fi
-    if ! mv "$temporary" "$destination" || ! mv "$marker_temporary" "$marker"; then
+    if test -n "$alias" && { test -e "$alias" || test -L "$alias"; }; then mv "$alias" "$backup_alias"; fi
+    if ! { mv "$temporary" "$destination" && mv "$marker_temporary" "$marker" && { test -z "$alias" || mv "$alias_temporary" "$alias"; }; }; then
       rm -f "$destination" "$marker"
       test ! -e "$backup_binary" || mv "$backup_binary" "$destination"
       test ! -e "$backup_marker" || mv "$backup_marker" "$marker"
+      if test -n "$alias"; then rm -f "$alias"; { test ! -e "$backup_alias" && test ! -L "$backup_alias"; } || mv "$backup_alias" "$alias"; fi
       fail 'installation replacement failed; previous binary and marker restored'
     fi
     installed_mode=$(stat -c '%a' "$destination" 2>/dev/null || stat -f '%Lp' "$destination")
     test "$installed_mode" = "$mode" || fail "installed artifact mode changed: expected $mode, got $installed_mode"
-    rm -f "$backup_binary" "$backup_marker"
+    rm -f "$backup_binary" "$backup_marker" "${backup_alias:-}"
     printf '%s\n' "Installed $destination (version $expected_version)"
+    test -z "$alias" || printf '%s\n' "Managed alias $alias -> $destination"
     ;;
   uninstall)
-    test "$#" -eq 2 || { usage >&2; exit 2; }
+    test "$#" -ge 2 && test "$#" -le 3 || { usage >&2; exit 2; }
     destination=$2
+    alias=${3:-}
     validate_absolute_path "$destination" destination
     test "${destination##*/}" != "$destination" || fail "destination must include a file name"
     destination_dir=${destination%/*}
     validate_absolute_path "$destination_dir" 'destination directory'
+    if test -n "$alias"; then
+      validate_absolute_path "$alias" alias
+      test "${alias%/*}" = "$destination_dir" || fail "alias must be in the canonical destination directory: $alias"
+      test "$alias" != "$destination" || fail 'alias must differ from canonical destination'
+    fi
     if test -e "$destination_dir" || test -L "$destination_dir"; then
       ensure_trusted_directory "$destination_dir"
       acquire_lock "$destination_dir"
@@ -205,6 +257,17 @@ case "${1:-}" in
       fail "cannot stage ownership marker removal; preserved $destination and $marker"
     fi
     rm -f "$removal_binary" "$removal_marker"
+    if test -n "$alias"; then
+      if test -L "$alias"; then
+        alias_target=$(readlink "$alias") || fail "cannot read alias symlink: $alias"
+        case "$alias_target" in
+          "$destination"|openrouter) rm -f "$alias" || fail "cannot remove managed alias: $alias" ;;
+          *) is_homebrew_openrouter_alias "$alias" "$alias_target" "$destination_dir" && printf '%s\n' "WARN: preserving Homebrew alias $alias -> $alias_target" || printf '%s\n' "WARN: preserving unmanaged or mismatched alias $alias -> $alias_target" ;;
+        esac
+      elif test -e "$alias"; then
+        printf '%s\n' "WARN: preserving unmanaged alias $alias"
+      fi
+    fi
     printf '%s\n' "PASS: removed managed installation $destination and ownership marker"
     ;;
   --help|-h)

@@ -56,8 +56,8 @@ value-формулой. Полное описание identity-gate, трёх и
 brew install MikcleGrok/openrouter/openrouter-model-tracker
 ```
 
-Ставит бинарник `openrouter-model-tracker` и короткий алиас `omt` — это один и
-тот же бинарник под двумя именами. Обновление до новой версии:
+Homebrew устанавливает canonical `openrouter` и короткий alias `omt` как один
+и тот же executable. Обновление до новой версии:
 
 ```bash
 brew upgrade MikcleGrok/openrouter/openrouter-model-tracker
@@ -72,7 +72,9 @@ cd openrouter-model-tracker
 make install
 ```
 
-По умолчанию бинарник устанавливается как `/usr/local/bin/openrouter`. Каталог
+По умолчанию canonical бинарник устанавливается как `/usr/local/bin/openrouter`,
+а управляемый symlink `/usr/local/bin/omt` указывает на него. Поэтому `omt`
+и `openrouter` всегда имеют одинаковую версию. Каталог
 можно изменить без username-specific путей: `PREFIX` задаёт корень, а при
 отсутствии явного `BINDIR` используется `$PREFIX/bin`. Явный абсолютный
 `BINDIR` является самостоятельным target и может находиться вне `PREFIX`.
@@ -90,12 +92,12 @@ make install-smoke
 ```
 
 `install`, `upgrade` и `reinstall` собирают бинарник во временный каталог и пишут
-только в installation target; временные файлы удаляются после завершения. `PREFIX` и
+canonical binary и alias в один `BINDIR`; временные файлы удаляются после завершения. `PREFIX` и
 конечный `BINDIR` обязательны, непусты и должны быть абсолютными; явный `BINDIR`
 независим от `PREFIX` и может находиться вне него. На один `BINDIR` берётся bounded
 lock, поэтому параллельные установки сериализуются, а ожидание завершается ошибкой
 через 60 секунд. Все проверки source/version/help/target/path выполняются до замены.
-После preflight binary заменяется атомарно, а sidecar marker обновляется отдельно под lock с rollback при ошибке, где это возможно; installer
+После preflight binary и symlink заменяются атомарно под одним lock; alias создаётся только как `omt -> openrouter`. Существующий regular `omt`, directory или symlink на другой объект считается unmanaged: install отклоняется и ничего не удаляет. Для documented migration принимается также только Homebrew-owned symlink вида `../Cellar/openrouter/<числовая-версия>/bin/omt` (или тот же target с абсолютным prefix), если его target исполняемый; произвольные symlink и dangling symlink не принимаются. Sidecar marker обновляется отдельно под lock с rollback при ошибке, где это возможно; installer
 `$(BINDIR)/openrouter.openrouter-owner` имеет mode 600 и содержит identifier, точный destination
 и версию. `uninstall` удаляет binary только при валидном marker с совпадающим destination;
 отсутствующий marker оставляет файл и возвращает WARN с exit 0, невалидный marker оставляет
@@ -104,7 +106,7 @@ lock, поэтому параллельные установки сериали�
 На exact tag грязный checkout с release `VERSION` отклоняется, чтобы изменённый
 исходный код не выдавался за release.
 `uninstall` никогда не удаляет немаркированный или Homebrew-managed файл
-`$(BINDIR)/openrouter`. `install-smoke` использует
+`$(BINDIR)/openrouter` и сохраняет unmanaged/mismatched `omt`. `install-smoke` использует
 временный PREFIX, проверяет `--version`, `version` и `--help`, и не изменяет
 системную установку. Homebrew остаётся отдельным внешним каналом: `make
 verify-release` и `make homebrew-reinstall` проверяют локальный disposable tap,
