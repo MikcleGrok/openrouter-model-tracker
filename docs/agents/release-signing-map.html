@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Карта credential, ключей и проверок для релизных сценариев openrouter-model-tracker">
+  <title>Карта релиза: credential, ключи и проверки</title>
+  <style>
+    :root { --ink:#172226; --muted:#617176; --paper:#f4f1e8; --panel:#fffdf7; --line:#d8d7cd; --app:#267a69; --mac:#8b621f; --cosign:#405aa8; --keychain:#9b4d63; --pipeline:#6f4e92; --danger:#a13d35; --shadow:0 18px 55px rgba(36,48,43,.08); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.55; }
+    body::before { content:""; display:block; height:7px; background:linear-gradient(90deg,var(--app) 0 20%,var(--mac) 20% 40%,var(--cosign) 40% 60%,var(--keychain) 60% 80%,var(--pipeline) 80%); }
+    .wrap { width:min(1180px,calc(100% - 40px)); margin:0 auto; }
+    header { padding:62px 0 42px; display:grid; grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr); gap:44px; align-items:end; }
+    .kicker,.eyebrow { text-transform:uppercase; letter-spacing:.14em; font-size:.72rem; font-weight:800; color:var(--muted); }
+    h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:500; letter-spacing:-.035em; line-height:1.05; margin:0; }
+    h1 { font-size:clamp(3rem,7vw,6.8rem); max-width:850px; }
+    h1 em { color:var(--cosign); font-style:normal; }
+    h2 { font-size:clamp(2rem,4vw,3.35rem); }
+    h3 { font-size:1.35rem; }
+    .dek { font-size:clamp(1.08rem,1.8vw,1.34rem); max-width:700px; margin:25px 0 0; color:#405056; }
+    .context { border-left:3px solid var(--cosign); padding:10px 0 10px 20px; color:var(--muted); font-size:.9rem; }
+    .context strong { display:block; color:var(--ink); font-size:1rem; margin-bottom:8px; }
+    section { padding:44px 0; border-top:1px solid var(--line); }
+    .section-head { display:flex; justify-content:space-between; gap:25px; align-items:end; margin-bottom:25px; }
+    .section-head p { max-width:470px; color:var(--muted); margin:0; }
+    .callout { background:var(--ink); color:#f5f3eb; padding:25px 28px; box-shadow:var(--shadow); display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:start; }
+    .callout .mark { font-size:1.8rem; color:#f1c878; line-height:1; }
+    .callout p { margin:0; }
+     .not-mix { border:1px solid #e1b6ad; border-left:7px solid var(--danger); background:#fff8f5; padding:24px 27px; }
+     .not-mix h2 { color:var(--danger); font-size:2rem; margin-bottom:10px; }
+     .not-mix p { margin:8px 0; }
+     .not-mix h3 { margin:25px 0 8px; color:var(--ink); }
+     .boundary-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin:22px 0; }
+     .boundary-card { padding:19px; background:var(--panel); border:1px solid var(--line); border-top:5px solid var(--lane); }
+     .boundary-card h3 { margin:0 0 10px; color:var(--lane); }
+     .boundary-card p { margin:7px 0; color:#435258; }
+     .boundary-card strong { color:var(--ink); }
+     .comparison { margin-top:22px; overflow-x:auto; border:1px solid var(--line); background:var(--panel); }
+     .comparison table { min-width:720px; }
+     .comparison th:nth-child(2) { color:var(--mac); }
+     .comparison th:nth-child(3) { color:var(--cosign); }
+     .analogy { margin-top:18px; padding:18px 20px; background:#f0eee5; border-left:4px solid var(--pipeline); }
+     .analogy p { margin:5px 0; }
+     .dual-callout { margin-top:18px; background:#e5f1eb; border:1px solid #b8d5c6; padding:18px 20px; color:#245744; }
+     .auth-guide { border:1px solid #c8cbe2; border-left:7px solid var(--cosign); background:#f8f8ff; padding:25px 27px; }
+     .auth-guide h2 { color:var(--cosign); font-size:clamp(2rem,4vw,3.1rem); margin-bottom:12px; }
+     .auth-guide h3 { margin:24px 0 8px; color:var(--ink); }
+     .auth-guide p { margin:8px 0; }
+     .auth-guide ul { margin:8px 0 16px; padding-left:21px; }
+     .auth-table { margin-top:18px; overflow-x:auto; border:1px solid var(--line); background:var(--panel); }
+     .auth-table table { min-width:760px; }
+     .group-flow { display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin:0 0 25px; border:1px solid var(--line); background:var(--ink); color:#f5f3eb; }
+     .group-flow span { position:relative; padding:17px 20px; font-weight:800; }
+     .group-flow span:not(:last-child)::after { content:"→"; position:absolute; right:-8px; top:13px; color:#f1c878; font-size:1.35rem; z-index:1; }
+     .group-flow small { display:block; color:#b9c4c0; font-weight:500; font-size:.78rem; margin-top:3px; }
+     .group-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+     .group-panel { background:var(--panel); border:1px solid var(--line); border-top:6px solid var(--lane); padding:22px; box-shadow:var(--shadow); }
+     .group-panel h3 { color:var(--lane); margin:6px 0 9px; }
+     .group-panel > p { color:#435258; margin:7px 0 16px; }
+     .group-panel dl { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; margin:0 0 17px; font-size:.91rem; }
+     .group-panel dt { color:var(--lane); font-size:.69rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+     .group-panel dd { margin:0; color:#435258; }
+     .object-list { display:flex; flex-wrap:wrap; gap:7px; padding-top:15px; border-top:1px solid var(--line); }
+     .object { border:1px solid var(--line); background:#f6f4ec; }
+     .object summary { cursor:pointer; padding:8px 10px; color:var(--ink); font-weight:800; font-size:.86rem; }
+     .object summary::marker { color:var(--lane); }
+     .object[open] { flex:1 1 100%; }
+     .object p { color:#435258; margin:0; padding:0 11px 10px; font-size:.86rem; }
+     .object strong { color:var(--ink); }
+     .object .label { display:block; color:var(--lane); padding:10px 11px 0; font-size:.65rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    .lane-app { --lane:var(--app); } .lane-mac { --lane:var(--mac); } .lane-cosign { --lane:var(--cosign); } .lane-keychain { --lane:var(--keychain); } .lane-pipeline { --lane:var(--pipeline); }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:rgba(23,34,38,.07); padding:2px 5px; }
+    .scenario-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:24px; }
+    .scenario-tab { appearance:none; border:1px solid var(--lane); color:var(--lane); background:transparent; padding:14px 13px; cursor:pointer; font:inherit; font-weight:800; text-align:left; }
+    .scenario-tab:hover,.scenario-tab:focus-visible,.scenario-tab[aria-pressed="true"] { color:white; background:var(--lane); }
+    button:focus-visible { outline:3px solid #e8b949; outline-offset:3px; }
+    .selected { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; align-items:start; }
+    .selected-info,.matrix { background:var(--panel); border:1px solid var(--line); box-shadow:var(--shadow); }
+    .selected-info { padding:25px; border-top:5px solid var(--lane); }
+    .selected-info h3 { font-size:2rem; margin:8px 0 10px; }
+    .selected-info > p { color:var(--muted); margin:0 0 22px; }
+    .flow { display:grid; gap:11px; }
+    .flow-step { display:grid; grid-template-columns:52px 1fr; gap:13px; padding:15px; border-left:5px solid var(--lane); background:#f6f4ec; }
+    .flow-step .num { color:var(--lane); font-weight:900; letter-spacing:.08em; }
+    .flow-step h4 { margin:0 0 3px; font-size:1rem; }
+    .flow-step p { margin:0; color:#435258; font-size:.9rem; }
+    .matrix { overflow-x:auto; }
+    table { width:100%; min-width:520px; border-collapse:collapse; font-size:.88rem; }
+    th,td { padding:14px 15px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--muted); background:#f0eee5; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; }
+    tr:last-child td { border-bottom:0; }
+    .yes { color:#24604e; font-weight:900; } .no { color:var(--danger); font-weight:800; }
+    .result { margin:18px 0 0; padding:17px; background:#e5f1eb; color:#24604e; font-weight:700; }
+    .fact { display:inline-block; color:#354d99; background:#e6ebff; padding:3px 7px; font-size:.7rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    .hypo { display:inline-block; color:#805d1e; background:#fff0c8; padding:3px 7px; font-size:.7rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    footer { padding:42px 0 70px; color:var(--muted); font-size:.9rem; }
+    footer strong { color:var(--ink); }
+      @media (max-width:900px) { header { grid-template-columns:1fr; gap:25px; } .group-grid { grid-template-columns:1fr; } .selected { grid-template-columns:1fr; } }
+      @media (max-width:620px) { .wrap { width:min(100% - 28px,520px); } header { padding-top:42px; } .group-flow { grid-template-columns:1fr; } .group-flow span { padding:13px 16px; } .group-flow span:not(:last-child)::after { content:"↓"; right:16px; top:auto; bottom:-12px; } .group-grid,.scenario-tabs,.boundary-grid { grid-template-columns:1fr; } .section-head { display:block; } .section-head p { margin-top:12px; } .selected-info { padding:19px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { transition-duration:.01ms !important; animation-duration:.01ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div><div class="kicker">openrouter-model-tracker · карта доверия</div><h1>Релиз — это не одна подпись.<br><em>Это выбор маршрута.</em></h1><p class="dek">Сначала разложим credential, ключи и сертификаты по ролям. Затем выберем один сценарий и проследим только его границы.</p></div>
+      <div class="context"><strong>Контекст снимка</strong><code>v1.14.37</code> уже tagged и не должен быть перепривязан.<br>Self-contained HTML · локальная схема<br><br><span class="fact">факты проекта отмечены</span></div>
+    </header>
+
+    <section id="objects">
+       <div class="section-head"><div><div class="eyebrow">Сначала · четыре роли</div><h2>Объекты собраны по смыслу</h2></div><p>Не девять разрозненных карточек, а четыре границы: право доступа, подпись, доказательства и инструменты.</p></div>
+       <div class="group-flow" aria-label="Логика релизного маршрута"><span>Доступ даёт право<small>получить данные или управлять сервисом</small></span><span>Подпись связывает объект с ключом<small>private key создаёт, public key проверяет</small></span><span>Evidence описывает происхождение<small>что собрали и откуда</small></span><span>Инструменты выполняют и проверяют<small>операции над объектами</small></span></div>
+       <div class="group-grid">
+         <article class="group-panel lane-app"><div class="eyebrow">Группа 01</div><h3>Доступ к данным и системам</h3><p>Разрешают получить данные или управлять сервисом; ничего не подписывают.</p><dl><dt>Что входит</dt><dd>Application/API secret, release-manager credential, Keychain/session access.</dd><dt>Что делает</dt><dd>Аутентифицирует запрос, выдаёт защищённый credential или меняет deploy state.</dd><dt>Чего не делает</dt><dd>Не создаёт и не проверяет cryptographic signature.</dd></dl><div class="object-list"><details class="object lane-app"><summary>Application/API secret</summary><p>Право отправить запрос во внешний API. Значение не показывают и не используют как signing key.</p></details><details class="object lane-pipeline"><summary>Release-manager credential</summary><p>Право читать/менять environment и deploy document. <code>uni-release-cli</code> управляет доставкой, не подписывает artifact.</p></details><details class="object lane-keychain"><summary>Keychain / session access</summary><p>Локальная граница выдачи credential разрешённому helper/consumer. Само хранение не создаёт signature.</p></details></div></article>
+         <article class="group-panel lane-cosign"><div class="eyebrow">Группа 02</div><h3>Криптографическая подпись</h3><p>Private key создаёт signature, public key или certificate проверяет её; macOS codesign и cosign разделены.</p><dl><dt>Что входит</dt><dd>Private key, public key, macOS certificate/identity, signature.</dd><dt>Что делает</dt><dd>Связывает конкретный binary, manifest или evidence с ключом и проверяет целостность.</dd><dt>Чего не делает</dt><dd>Не выдаёт API-доступ и не описывает сам по себе происхождение сборки.</dd></dl><div class="object-list"><details class="object lane-mac"><summary>macOS codesign</summary><p>Certificate/identity и private key в Keychain подписывают Mach-O/app; macOS проверяет code signature.</p></details><details class="object lane-cosign"><summary>cosign</summary><p>Cosign private key подписывает digest/manifest/blob; <code>cosign.pub</code> проверяет signature.</p></details><details class="object lane-mac"><summary>Private key</summary><p>Секретная половина key pair, которая создаёт подпись; никогда не попадает в HTML, репозиторий или лог.</p></details><details class="object lane-cosign"><summary>Public key / certificate</summary><p>Открытая часть для проверки signature и identity; не создаёт подпись.</p></details><details class="object lane-cosign"><summary>Signature</summary><p>Криптографический результат над объектом; не сообщает автоматически, кто и куда его деплоит.</p></details></div></article>
+         <article class="group-panel lane-pipeline"><div class="eyebrow">Группа 03</div><h3>Доказательства сборки и происхождения</h3><p>Описывают, что собрали и откуда; evidence не является самим бинарником.</p><dl><dt>Что входит</dt><dd>Artifact digest/checksum, manifest, SBOM, provenance/attestation, release evidence.</dd><dt>Что делает</dt><dd>Фиксирует digest, source/ref, build steps, dependencies и результаты проверок.</dd><dt>Чего не делает</dt><dd>Не заменяет binary и не становится macOS code signature или API auth.</dd></dl><div class="object-list"><details class="object lane-pipeline"><summary>Digest / checksum</summary><p>Идентификатор содержимого artifact, по которому сверяют неизменность.</p></details><details class="object lane-pipeline"><summary>Manifest / SBOM</summary><p>Описывают состав релиза и зависимости, но не являются binary.</p></details><details class="object lane-pipeline"><summary>Provenance / attestation</summary><p>Свидетельство о source, ref, builder и шагах сборки; доверие появляется после проверки подписи и связей.</p></details><details class="object lane-pipeline"><summary>Release evidence</summary><p>Набор машиночитаемых и human-readable материалов о кандидате и проверках, отдельно от самого artifact.</p></details></div></article>
+         <article class="group-panel lane-keychain"><div class="eyebrow">Группа 04</div><h3>Инструменты маршрута и проверки</h3><p>Программы выполняют операции над объектами, но сами не являются credentials.</p><dl><dt>Что входит</dt><dd><code>secretctl/secretd</code>, <code>codesign</code>, <code>cosign</code>, verifier, <code>uni-release-cli</code>.</dd><dt>Что делает</dt><dd>Получает разрешённый secret, подписывает или проверяет объект, управляет rollout.</dd><dt>Чего не делает</dt><dd>Не превращается в private key, credential или evidence только потому, что участвует в шаге.</dd></dl><div class="object-list"><details class="object lane-keychain"><summary><code>secretctl/secretd</code></summary><p>Проверяет identity/ACL и выдаёт значение разрешённому consumer-у; secret value не публичен.</p></details><details class="object lane-mac"><summary><code>codesign</code></summary><p>Инструмент macOS-подписи и проверки кода, не certificate и не private key.</p></details><details class="object lane-cosign"><summary><code>cosign</code> / verifier</summary><p>Выполняют signing и verify для release objects; не являются ключами.</p></details><details class="object lane-pipeline"><summary><code>uni-release-cli</code></summary><p>Читает и меняет release environment/deploy state; не подписывает artifact.</p></details></div></article>
+       </div>
+     </section>
+
+     <section id="boundary"><div class="not-mix"><h2>Не смешивать: код, ключ и evidence</h2><p><strong>macOS certificate/identity</strong> и <code>codesign</code> защищают сам macOS-код. <strong>Cosign private key</strong> создаёт криптографическую подпись release manifest/blob или evidence. <strong>Release evidence</strong> описывает происхождение и проверки поставки. Это разные слои одной цепочки, а не взаимозаменяемые credential.</p><div class="boundary-grid"><article class="boundary-card lane-mac"><h3>macOS certificate/identity + <code>codesign</code></h3><p><strong>Объект подписи:</strong> Mach-O, macOS app или binary и его code-signature metadata.</p><p><strong>Где ключ:</strong> private key обычно хранится в Keychain и не покидает его. Certificate содержит identity, public key, цепочку доверия и сведения о подписанном разработчике.</p><p><strong>Что проверяет macOS:</strong> код не изменился после подписи, а signature и identity допустимы для запуска или распространения.</p><p><strong>Граница:</strong> это подпись самого кода, а не отчёта о сборке. В нашей истории <code>uni-release-selfsign</code> относится к macOS signing identity/helper authentication, а не к cosign private key.</p></article><article class="boundary-card lane-cosign"><h3>Cosign private key + <code>cosign</code></h3><p><strong>Объект подписи:</strong> release manifest/blob и/или provenance/attestation evidence.</p><p><strong>Как проверяется:</strong> private key создаёт cryptographic signature, а публичный <code>cosign.pub</code> проверяет её.</p><p><strong>Что доказывает:</strong> авторство и целостность подписанного evidence или объекта в рамках доверенного public key.</p><p><strong>Граница:</strong> cosign сам по себе не делает Mach-O подписанным для macOS. Cosign public key не является macOS certificate.</p></article></div><h3>Что такое release evidence</h3><p>Это набор машиночитаемых и human-readable материалов: artifact digest/checksum, manifest, SBOM, build metadata, provenance predicate, signature/attestation bundle и verification result.</p><p>Evidence отвечает на вопросы: что собрали, из какого source/ref, каким процессом, с какими зависимостями, какой digest получился и прошла ли проверка. Оно может описывать binary, но не является встраиваемой code signature и не служит механизмом macOS Gatekeeper.</p><p><strong>Статус v1.14.37:</strong> unsigned local-only release имеет локальное release evidence (например, checksum, manifest и результаты локальных проверок), но это не означает наличия cosign signature или provenance.</p><div class="comparison"><table><thead><tr><th>Вопрос</th><th>macOS codesign</th><th>cosign / release evidence</th></tr></thead><tbody><tr><td><strong>Что подписывается?</strong></td><td>Mach-O/app/binary и его code-signature metadata.</td><td>Cosign подписывает manifest/blob или evidence; evidence описывает artifact и его происхождение.</td></tr><tr><td><strong>Где ключ?</strong></td><td>Private key обычно в macOS Keychain; certificate/public часть может быть опубликована.</td><td>Cosign private key хранится отдельно; verifier использует <code>cosign.pub</code>.</td></tr><tr><td><strong>Что проверяет?</strong></td><td>macOS: неизменность кода и допустимость signature/identity.</td><td>Verifier: целостность evidence, digest и заявленное происхождение в пределах доступных проверок.</td></tr><tr><td><strong>Что получает пользователь/оператор?</strong></td><td>Проверяемый при запуске/распространении подписанный macOS-код.</td><td>Опись поставки, build facts, digest, SBOM, проверки и при наличии cosign signature/attestation.</td></tr><tr><td><strong>Что НЕ доказывает?</strong></td><td>Не доказывает сама по себе полную историю сборки или provenance.</td><td>Не делает Mach-O подписанным для macOS и не заменяет macOS identity.</td></tr></tbody></table></div><div class="analogy"><strong>Упрощённая аналогия:</strong> codesign — печать на самом экземпляре документа/кода, чтобы проверить его при открытии; release evidence — папка с описью происхождения и проверок; cosign — подпись этой описи. Аналогия упрощённая: реальные форматы, политики доверия и точки проверки сложнее.</div><div class="dual-callout"><strong>Обе подписи могут существовать одновременно для одной поставки:</strong> codesign защищает запуск macOS-кода, а cosign/evidence защищают цепочку поставки. Ни одна автоматически не заменяет другую.</div><p>Названия инструментов лишь иллюстрируют маршрут: <code>uni-chat adapter</code>, <code>openrouter-model-tracker</code>, <code>uni-release-cli</code>, <code>secretctl</code>, <code>codesign</code> и <code>cosign</code> не являются взаимозаменяемыми credential.</p></div></section>
+
+      <section id="direct-answers"><div class="not-mix"><h2>Прямые ответы: что доказывает подпись</h2><div class="boundary-grid"><article class="boundary-card lane-cosign"><h3>cosign / release evidence</h3><p>Одна cosign signature доказывает только: конкретный digest/объект подписан владельцем соответствующего cosign private key и не изменился после подписи.</p><p>Release evidence/provenance может дополнительно утверждать: этот digest получен из конкретного source ref/commit, конкретным builder-ом, из конкретных inputs/dependencies. Это доказательство только если evidence подписано, verifier доверяет ключу/builder-у и проверяет все связи.</p><p><strong>Текущий local-only <code>v1.14.37</code>:</strong> есть локальные материалы релиза, но нет подтверждённой cosign signature/provenance. Нельзя утверждать доказанное происхождение из исходников.</p></article><article class="boundary-card lane-mac"><h3>macOS codesign</h3><p>Подтверждает, что этот macOS-бинарник/приложение подписан конкретной macOS signing identity и что подписанные части не изменились после подписи.</p><p>Это не подтверждает, из какого git commit/source он собран, каким CI/build process, с какими dependencies или что он безопасен.</p><p>Certificate/identity связывает подпись с именем/цепочкой доверия, private key создаёт подпись, macOS проверяет её.</p></article></div><div class="comparison"><table><thead><tr><th>Вопрос</th><th>cosign + provenance</th><th>macOS codesign</th></tr></thead><tbody><tr><td>Изменили ли бинарник после подписи?</td><td>Да, для подписанного digest/объекта.</td><td>Да, для подписанных частей.</td></tr><tr><td>Кто подписал?</td><td>Владелец cosign private key.</td><td>Конкретная macOS signing identity.</td></tr><tr><td>Из какого исходного кода собрали?</td><td>Только через подписанное и проверенное provenance.</td><td>Не доказывает.</td></tr><tr><td>Можно ли запускать как доверенный macOS code?</td><td>Нет, cosign это не подтверждает.</td><td>Участвует в проверке macOS.</td></tr><tr><td>Что НЕ доказывается?</td><td>Одной signature недостаточно для source, builder и inputs.</td><td>Git commit/source, CI/build process, dependencies и безопасность.</td></tr></tbody></table></div><div class="analogy"><p><code>source commit -&gt; build -&gt; artifact digest -&gt; signed provenance</code> = происхождение, если trusted/verified.</p><p><code>artifact -&gt; macOS codesign -&gt; macOS verification</code> = целостность и identity для macOS.</p></div></div></section>
+
+      <section id="auth-prompts">
+       <div class="auth-guide">
+         <div class="eyebrow">Локальная аутентификация · без обещаний навсегда</div>
+         <h2>Когда secretd перестаёт спрашивать пароль</h2>
+         <p>У запроса к <code>secretctl/secretd</code> есть две разные границы. Первая — подключение к daemon и доступ к связке ключей или session. Вторая — чтение конкретного secret/module. Успешное прохождение первой границы не означает автоматическое разрешение второй.</p>
+         <h3>Два запроса</h3>
+         <p><strong>Подключение или разблокировка:</strong> локальный контракт описывает проверку peer identity через code signature и доступ к macOS Keychain. Если связка заблокирована, нет GUI-сессии или доступ ещё не подтверждён, macOS может потребовать пароль/подтверждение или вернуть отказ.</p>
+         <p><strong>Конкретный secret/module:</strong> <code>secretctl get &lt;module&gt;</code> — программный путь без интерактивного prompt, но он всё равно проходит registry, identity и ACL. <code>secretctl reveal &lt;module&gt;</code> — отдельный human-only путь: он требует Touch ID или пароля устройства перед выдачей значения. Поэтому два окна могут означать две разные проверки: сначала доступ к Keychain/session, затем разрешение на сам secret.</p>
+         <h3>Когда запросы временно исчезают</h3>
+         <ul>
+           <li>Успешно пройдена нужная аутентификация или подтверждение.</li>
+           <li>Keychain разблокирован и его ACL уже доверяет именно <code>secretctl</code> и <code>secretd</code>; для записей без такого ACL macOS может спрашивать при каждом обращении.</li>
+           <li>Активна session или кэш разрешения, если это предусмотрено конкретной policy. В публичном контракте <code>secretd</code> такой общий кэш не обещан; для артефактов daemon прямо не хранит кэш.</li>
+         </ul>
+         <h3>Когда они вернутся</h3>
+         <p>Подтверждённые причины: блокировка Keychain или отсутствие интерактивной GUI-сессии; отмена или таймаут <code>reveal</code> снова завершают операцию отказом. Logout/revoke, истечение session, перезапуск daemon/agent/машины, изменение policy/module и запуск из другого user/session/context <strong>могут</strong> вернуть запрос или отказ — точный эффект зависит от policy и состояния macOS. Это не гарантия «навсегда без пароля».</p>
+         <h3>Что важно не перепутать</h3>
+         <p>Codesigned <code>secretctl</code> и identity подтверждают подлинность helper/peer и позволяют сопоставить его с policy. Это не обязательно заменяет интерактивную авторизацию пользователя, разблокировку Keychain или подтверждение <code>reveal</code>.</p>
+         <p>Отсутствие запроса не значит, что secret стал публичным: credential всё равно остаётся защищённым Keychain, registry/ACL и выбранным способом доступа. Если <code>openrouter-model-tracker/cosign-key</code> отсутствует как module, разблокировка или повторный пароль его не создадут: результатом будет <code>unknown_module</code>. Нужна регистрация/настройка module, но для этого приложения такой module не нужен.</p>
+         <div class="auth-table">
+           <table><thead><tr><th>Состояние</th><th>Будет ли prompt</th><th>Что делать безопасно</th></tr></thead><tbody>
+             <tr><td>Keychain разблокирован; ACL доверяет <code>secretctl</code>/<code>secretd</code></td><td class="yes">Обычно нет нового Keychain prompt</td><td>Не печатать значение; использовать разрешённый consumer и проверить только статус/код результата.</td></tr>
+             <tr><td><code>secretctl get</code> для зарегистрированного и разрешённого module</td><td class="yes">Не должен требовать интерактивный prompt</td><td>Запускать только из доверенного процесса; не направлять stdout в лог, терминал или transcript.</td></tr>
+             <tr><td><code>secretctl reveal</code></td><td class="no">Да, Touch ID или пароль устройства</td><td>Подтверждать только ожидаемый запрос; отменить при неожиданном module или контексте.</td></tr>
+             <tr><td>Keychain заблокирован или нет GUI-сессии</td><td class="no">Может быть prompt или отказ</td><td>Не отключать защиту и не обходить policy; восстановить безопасную интерактивную сессию.</td></tr>
+             <tr><td>Module отсутствует</td><td class="no">Нет: это не auth-проблема</td><td>Остановиться на <code>unknown_module</code>; запросить регистрацию/настройку, не повторять пароль вслепую.</td></tr>
+           </tbody></table>
+         </div>
+       </div>
+     </section>
+
+     <section id="scenarios">
+      <div class="section-head"><div><div class="eyebrow">Теперь · один выбранный маршрут</div><h2>Выберите сценарий</h2></div><p>Кнопки доступны с клавиатуры. Карта ниже меняется без внешних ресурсов и показывает только участвующие границы.</p></div>
+      <div class="scenario-tabs" role="group" aria-label="Сценарии credential и подписи">
+        <button class="scenario-tab lane-app" type="button" data-scenario="api" aria-pressed="true">1 · uni-chat adapter → внешний API</button>
+        <button class="scenario-tab lane-mac" type="button" data-scenario="codesign" aria-pressed="false">2 · macOS codesign</button>
+        <button class="scenario-tab lane-cosign" type="button" data-scenario="cosign" aria-pressed="false">3 · cosign release signature</button>
+        <button class="scenario-tab lane-pipeline" type="button" data-scenario="attestation" aria-pressed="false">4 · provenance / attestation</button>
+        <button class="scenario-tab lane-app" type="button" data-scenario="local" aria-pressed="false">5 · local-only release v1.14.37</button>
+        <button class="scenario-tab lane-keychain" type="button" data-scenario="deploy" aria-pressed="false">6 · uni-release-cli deploy / QA</button>
+      </div>
+      <div class="selected" aria-live="polite"><article class="selected-info lane-app"><span class="fact" id="status">факт проекта</span><h3 id="scenario-title"></h3><p id="scenario-note"></p><div class="flow" id="scenario-flow"></div><div class="result" id="scenario-result"></div></article><div class="matrix"><table><thead><tr><th>Тип credential / ключа</th><th>Участие</th><th>Роль в выбранном сценарии</th></tr></thead><tbody id="scenario-matrix"></tbody></table></div></div>
+    </section>
+
+    <section id="project-facts"><div class="section-head"><div><div class="eyebrow">Факты проекта и границы</div><h2>Что утверждается точно</h2></div></div><div class="callout"><div class="mark">!</div><p><strong>Факт:</strong> <code>v1.14.37</code> уже tagged и не должен быть rebound или тихо заменён. <strong>Факт:</strong> <code>uni-release-selfsign</code> — macOS identity для codesign/helper authentication, не cosign private key. <strong>Факт:</strong> модуль <code>openrouter-model-tracker/cosign-key</code> в <code>secretd</code> отсутствует и приложению не нужен. <strong>Факт:</strong> <code>uni-release-cli</code> управляет release environments/deploy docs, не artifact signing. Внешняя публикация и внешняя signature не объявляются доказанными этой картой.</p></div></section>
+  </main>
+  <footer class="wrap"><strong>Безопасная граница:</strong> HTML не содержит secrets и не выполняет реальный signing, deploy или доступ к API. Публичные данные, подпись и evidence можно показывать только в пределах их предназначения.</footer>
+  <script>
+    const scenarios = {
+      api: { title:'uni-chat adapter вызывает внешний API', note:'Обобщённый illustrative flow: конкретный adapter и его credential зависят от конфигурации. Release signing keys здесь не участвуют.', steps:[['01','Запрос','Публичные данные и запрос пользователя передаются adapter-у.'],['02','Аутентификация','Adapter использует application/API secret, если внешний API его требует.'],['03','Внешний API','API проверяет credential и возвращает response.'],['04','Результат','Response возвращается приложению; это API operation, не release signing.']], result:'Результат: response внешнего API. Ни binary, ни manifest, ни provenance не подписываются.', rows:[['Application/API secret','yes','Аутентифицирует запрос к внешнему API.'],['Keychain secret','no','Не нужен как release credential.'],['macOS certificate/identity','no','Код не подписывается в этом маршруте.'],['Private key','no','Signing operation отсутствует.'],['Public key','no','Проверять release signature нечего.'],['Signature','no','API response не является release signature.'],['Attestation/provenance','no','Build evidence не формируется.'],['Release-manager credential','no','Deploy не выполняется.']] },
+      codesign: { title:'macOS codesign: binary получает Apple code signature', note:'Фактическая граница проекта: uni-release-selfsign описан как macOS identity для codesign/helper authentication.', steps:[['01','Binary','Берём конкретный macOS binary.'],['02','Keychain','codesign использует private key в Keychain вместе с certificate identity.'],['03','Signature','Создаётся macOS code signature, связанная с certificate.'],['04','OS verify','macOS проверяет signature через certificate/public key.']], result:'Результат: macOS code signature. Cosign key pair и API secret в этом маршруте не участвуют.', rows:[['Application/API secret','no','Доступ к API не является code-signing auth.'],['Keychain secret','yes','Keychain хранит private key/identity material локально.'],['macOS certificate/identity','yes','Определяет Apple signing identity.'],['Private key','yes','Секретно создаёт macOS signature.'],['Public key','yes','Публичная часть certificate участвует в проверке OS.'],['Signature','yes','Подпись binary проверяется macOS.'],['Attestation/provenance','no','Это не supply-chain evidence.'],['Release-manager credential','no','Deploy не выполняется.']] },
+      cosign: { title:'Cosign release signature', note:'Illustrative release-evidence flow: наличие ключа или опубликованной signature не следует из одного имени инструмента.', steps:[['01','Artifact / manifest','Выбираем immutable artifact или manifest и его digest.'],['02','Cosign private key','cosign использует secret private key для создания signature.'],['03','Signature','Signature прикрепляется к release evidence.'],['04','Verify','Verifier использует cosign public key и digest.']], result:'Результат: verifier может подтвердить целостность именно подписанного artifact/manifest.', rows:[['Application/API secret','no','API auth не создаёт release signature.'],['Keychain secret','maybe','Может быть способом безопасно выдать key consumer-у, но не подписывает сам.'],['macOS certificate/identity','no','Apple code-signing identity здесь не подходит.'],['Private key','yes','Cosign private key создаёт signature.'],['Public key','yes','Проверяет signature.'],['Signature','yes','Итог release signing.'],['Attestation/provenance','no','Не обязательно для одной signature.'],['Release-manager credential','no','Deploy не является signing.']] },
+      attestation: { title:'Provenance / attestation', note:'Illustrative evidence flow: attestation описывает build facts и отдельно подписывается cosign key.', steps:[['01','Build facts','Собираем source/ref, build steps, digest и другие проверяемые факты.'],['02','Attestation','Формируем provenance predicate/blob.'],['03','Cosign private key','Подписываем attestation cosign private key.'],['04','Verifier','Проверяем public key и сопоставляем evidence с artifact.']], result:'Результат: подписанное evidence о происхождении build, а не API auth и не macOS code signature.', rows:[['Application/API secret','no','В build evidence не нужен.'],['Keychain secret','maybe','Только возможный безопасный канал выдачи signing key.'],['macOS certificate/identity','no','Не участвует в provenance signature.'],['Private key','yes','Cosign private key подписывает attestation.'],['Public key','yes','Verifier проверяет signature.'],['Signature','yes','Защищает attestation от изменения.'],['Attestation/provenance','yes','Основной объект этого маршрута.'],['Release-manager credential','no','Rollout не входит в attestation.']] },
+       local: { title:'Local-only release v1.14.37', note:'Фактический проектный статус: tag уже существует; его нельзя rebound. Ниже локальная проверка с release evidence, но без публикации и signing key.', steps:[['01','Public source/data','Используем публичный source/data и exact existing tag v1.14.37.'],['02','Build','Собираем artifact локально.'],['03','Evidence','Фиксируем checksum/digest, manifest, SBOM и результаты локальных проверок.'],['04','Local verification','Сверяем artifact, digest, manifest и tag локально.']], result:'Результат: локальное release evidence для проверенного кандидата. Cosign signature и provenance не заявляются, macOS code signature не выполняется.', rows:[['Application/API secret','no','Для local-only release не нужен.'],['Keychain secret','no','Секрет не выдаётся consumer-у.'],['macOS certificate/identity','no','codesign не выполняется.'],['Private key','no','Cosign signing не выполняется.'],['Public key','no','Проверять cosign signature нечего.'],['Signature','no','Локальные checksum/manifest не равны signature.'],['Attestation/provenance','no','Provenance не заявляется; локальное evidence существует отдельно.'],['Release-manager credential','no','Deploy не выполняется.']] },
+      deploy: { title:'uni-release-cli deploy / QA', note:'Фактическая роль инструмента: credential Release Manager управляет environment/deploy document/tag/ref и проверкой rollout. Это не artifact signing.', steps:[['01','Credential','CLI получает release-manager credential через разрешённый локальный helper/session.'],['02','Environment / ref','Читаются environment settings и immutable tag/ref, затем создаётся или выбирается deploy document.'],['03','Rollout / confirmation','После нужного подтверждения выполняется rollout на QA или другое разрешённое окружение.'],['04','ArgoCD check','Проверяется фактический deploy state, commit и health.']], result:'Результат: изменённое состояние доставки и подтверждённый rollout. Binary signing key не нужен.', rows:[['Application/API secret','no','API access не управляет QA rollout.'],['Keychain secret','maybe','Может дать helper доступ к session credential.'],['macOS certificate/identity','no','Deploy не подписывает macOS binary.'],['Private key','no','Artifact signing не выполняется.'],['Public key','no','Release signature не проверяется этим flow.'],['Signature','no','Deploy document не является binary signature.'],['Attestation/provenance','no','Не является обязательным шагом rollout.'],['Release-manager credential','yes','Авторизует чтение/mutation deploy state.']] }
+    };
+     scenarios.codesign.note='Подтверждает подпись конкретной macOS signing identity и неизменность подписанных частей, но не происхождение из git или безопасность.';
+     scenarios.codesign.result='Результат: macOS code signature и проверяемые identity/целостность. Git commit, CI/build process, dependencies и безопасность не доказываются.';
+     scenarios.cosign.note='Одна signature связывает только конкретный digest/объект с владельцем cosign private key и его неизменностью после подписи.';
+     scenarios.cosign.result='Результат: целостность подписанного объекта и key ownership. Происхождение из source доказывает только отдельно подписанное и проверенное provenance.';
+     scenarios.attestation.note='Provenance может связать digest с source ref/commit, builder и inputs/dependencies, но только при подписи и полной проверке связей.';
+     scenarios.attestation.result='Результат: проверяемое происхождение build, если verifier доверяет key/builder и подтверждает каждую связь. Это не macOS code signature.';
+     scenarios.local.note='Фактический статус: tag уже существует; есть локальные материалы релиза, но нет подтверждённой cosign signature/provenance.';
+     scenarios.local.result='Результат: локальные материалы и локальные проверки. Нельзя утверждать доказанное происхождение из исходников: подтверждённые cosign signature/provenance и macOS code signature отсутствуют.';
+     const tabs=[...document.querySelectorAll('.scenario-tab')];
+    const info=document.querySelector('.selected-info');
+    const status=document.querySelector('#status');
+    const title=document.querySelector('#scenario-title');
+    const note=document.querySelector('#scenario-note');
+    const flow=document.querySelector('#scenario-flow');
+    const result=document.querySelector('#scenario-result');
+    const matrix=document.querySelector('#scenario-matrix');
+    function render(key) { const scenario=scenarios[key]; const tab=document.querySelector(`[data-scenario="${key}"]`); info.className=`selected-info ${tab.className.match(/lane-\w+/)[0]}`; status.textContent=key==='local'||key==='codesign'||key==='deploy'?'факт проекта':'иллюстративный сценарий'; status.className=key==='local'||key==='codesign'||key==='deploy'?'fact':'hypo'; title.textContent=scenario.title; note.textContent=scenario.note; flow.innerHTML=scenario.steps.map(step=>`<div class="flow-step"><div class="num">${step[0]}</div><div><h4>${step[1]}</h4><p>${step[2]}</p></div></div>`).join(''); result.textContent=scenario.result; matrix.innerHTML=scenario.rows.map(row=>`<tr><td><strong>${row[0]}</strong></td><td class="${row[1]==='yes'?'yes':row[1]==='no'?'no':''}">${row[1]==='yes'?'УЧАСТВУЕТ':row[1]==='no'?'НЕ УЧАСТВУЕТ':'ВОЗМОЖНО'}</td><td>${row[2]}</td></tr>`).join(''); tabs.forEach(item=>item.setAttribute('aria-pressed',String(item===tab))); }
+    tabs.forEach(tab=>tab.addEventListener('click',()=>render(tab.dataset.scenario)));
+    render('api');
+  </script>
+</body>
+</html>
