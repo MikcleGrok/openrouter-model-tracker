@@ -57,6 +57,24 @@ immutable revision formula до любой reinstall. Stable install не исп
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
 
+### Имена установки
+
+Локальный installer имеет один canonical executable: `$(BINDIR)/openrouter`.
+`$(BINDIR)/omt` всегда является управляемым symlink на этот canonical путь;
+оба имени проходят одинаковые exact `--version`, `version` и `--help` проверки.
+Замена binary и alias выполняется под одним lock после успешного preflight.
+
+Migration contract для существующего `omt` консервативен: принимается symlink с
+target `$(BINDIR)/openrouter` (или relative `openrouter`), а также только
+исполняемый Homebrew-owned target вида `../Cellar/openrouter/<числовая-версия>/bin/omt`
+(либо такой же абсолютный target внутри prefix, содержащего `BINDIR/bin`). Это
+явный predicate для миграции старого Homebrew alias, а не принятие произвольных
+symlink; regular file, directory, foreign symlink и dangling symlink считаются
+unmanaged, install завершается ошибкой и сохраняет объект. `uninstall` удаляет
+только managed symlink и canonical binary с валидным marker; mismatched или
+unmanaged `omt` сохраняется. После миграции alias становится `omt -> openrouter`,
+поэтому оба имени запускают один binary и проходят одинаковые exact checks.
+
 ## Onboarding record
 
 | Поле | Значение |
@@ -241,6 +259,12 @@ Completion включает команды и flags, в том числе `tui`,
 ```bash
 make help
 make build
+make install
+make upgrade
+make reinstall
+make uninstall
+make verify-install
+make install-smoke
 make test
 make test-unit
 make test-acceptance
@@ -274,6 +298,42 @@ make signature
 make check-docs
 ```
 
+#### Локальный installer
+
+`make install` — канонический local installer для бинарника `openrouter`.
+Сначала `TARGET` (по умолчанию `./cmd/openrouter`) собирается во временный каталог с текущим
+`VERSION`, затем источник проверяется через `--version`, `version` и `--help`,
+копируется во временный файл в том же `BINDIR` и атомарно заменяет
+`$(BINDIR)/openrouter`. Режим executable сохраняется. `PREFIX` и конечный `BINDIR`
+должны быть непустыми абсолютными путями. `PREFIX` по умолчанию равен `/usr/local`;
+если `BINDIR` не задан явно, он равен `$(PREFIX)/bin`. Явный абсолютный `BINDIR`
+является самостоятельным target, не зависит от `PREFIX` и может быть вне него;
+containment относительно `PREFIX` не заявляется. До любых записей выполняются
+path/source/version/help/target checks. На каждый `BINDIR` берётся bounded lock с
+timeout 60 секунд, поэтому concurrent install/upgrade/reinstall сериализуются.
+Все компоненты destination проверяются на symlink traversal по canonical path. Явный
+`VERSION` не является только меткой сборки: несовпадение фактического ответа
+бинарника отклоняется. На exact tag грязный checkout с release VERSION
+отклоняется, чтобы изменённый исходный код не выдавался за release.
+
+`make upgrade` и `make reinstall` вызывают тот же путь установки. Установка также создаёт
+`$(BINDIR)/openrouter.openrouter-owner` mode 600 с фиксированным identifier, точным destination
+и версией. `make uninstall` удаляет binary и marker только при полной валидации marker;
+немаркированный binary (включая Homebrew-managed файл) сохраняется с WARN и exit 0, а
+невалидный или mismatched marker сохраняет оба объекта и завершается ошибкой. Каталог и другие файлы
+не удаляются. `make verify-install` устанавливает и повторяет
+проверку, а `make install-smoke` прогоняет install/upgrade/reinstall,
+отклонение бинарника с неправильной версией, параметризацию пути и uninstall в
+одноразовом временном PREFIX. Local install пишет только в installation target и безопасные
+временные файлы, которые удаляются после завершения; checkout не получает `bin/openrouter`
+от install-flow. Binary заменяется атомарно после preflight; marker обновляется отдельно под lock с rollback при ошибке, где это возможно. Installer не обещает all-at-once visibility пары binary/marker. Homebrew formula находится вне этого checkout и
+остаётся отдельным distribution channel; local installer не вызывает `brew` и
+не зависит от formula. Lock использует уникальный owner token/file и bounded wait 60 секунд;
+cleanup проверяет owner token даже при ошибке его инициализации и не удаляет заменённый foreign lock. Это не устраняет фундаментальное shell TOCTOU
+ограничение между проверкой и операцией.
+Symlink rejection best-effort: lock снижает concurrent race, но shell TOCTOU не может
+защитить от malicious concurrent replacement каталога.
+
 Acceptance-тест версии использует `OPENROUTER_EXPECTED_VERSION`, который `make test` и
 `make release-check` передают из `VERSION`; при прямом запуске `go test ./tests/...` используется
 локальное dev-значение `0.0.0-dev`.
@@ -293,8 +353,15 @@ Makefile является единственным публичным интер
 Dependency evidence использует строгую схему v2: статусы `blocked`, `error`,
 `partial` и `passed` не смешиваются, а запись содержит findings, policy decision,
 digest входных файлов, metadata инструментов/базы и native outputs.
-`verify-provenance` и `signature` имеют явный локальный NO-OP, потому что
-репозиторий не публикует артефакты и не содержит CI builder или signing identity.
+`verify-provenance` и `signature` по умолчанию используют `PROVENANCE_PROFILE=local`:
+это явный `NOT APPLICABLE` с кодом 0 без вызова cosign и без signed/provenance
+evidence. `candidate` сохраняет ту же семантику для pre-tag gate. Для отдельной
+публикации можно явно выбрать `PROVENANCE_PROFILE=external` (алиас `published`);
+оба профиля проходят одинаковый полный verification path, включая
+`cmd/evidencecheck`, и завершаются fail-closed при отсутствии public key или
+evidence. Read-only verification не требует `COSIGN_PRIVATE_KEY`; он нужен
+только для `sign` и `attest`. Локальный flow не использует `codesign` identity
+как cosign key и не создаёт secret `openrouter-model-tracker/cosign-key`.
 Подробный scope находится в `docs/security.md`.
 
 `openrouter table` и `make table` читают `model-map.tsv`, `notes.yaml` и последний локальный

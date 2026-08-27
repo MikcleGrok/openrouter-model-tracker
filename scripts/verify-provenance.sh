@@ -34,19 +34,19 @@
 #
 # Both scopes honour PROVENANCE_PROFILE:
 #
-#   candidate  — applicability no-op. Used pre-tag (release-check, PR
+#   local|candidate — applicability no-op. Used by local-only release flows
 #                gates), where no release tag and no signed evidence exist
 #                yet. Always exits 0 and writes an explicit "not-applicable"
 #                evidence record instead of skipping silently or writing a
 #                $PUBLISHED_EVIDENCE that doesn't actually exist yet.
-#   published  — real verification (default). Requires an exact release tag
+#   external|published — real verification. Requires an exact release tag
 #                at HEAD and signed evidence in the .release evidence
 #                directory. Fails closed (BLOCKED + non-zero exit) on any
 #                missing tool, missing file, or mismatch.
 #
 # Required env (set by the Makefile targets of the same name; all have
 # defaults below matching the Makefile's own variables):
-#   PROVENANCE_PROFILE   candidate|published (default: published)
+#   PROVENANCE_PROFILE   local|candidate|external|published (default: local)
 #   TAG_VERSION          exact vMAJOR.MINOR.PATCH tag under test
 #   VERSION              TAG_VERSION without the leading v
 #   COSIGN_PUBLIC_KEY    path to the committed public key (default:
@@ -74,7 +74,11 @@ case "$SCOPE" in
   *) echo "BLOCKED: usage: $0 signature|full" >&2; exit 1 ;;
 esac
 
-PROVENANCE_PROFILE="${PROVENANCE_PROFILE:-published}"
+PROVENANCE_PROFILE="${PROVENANCE_PROFILE:-local}"
+case "$PROVENANCE_PROFILE" in
+  local|candidate|external|published) ;;
+  *) echo "BLOCKED: unknown PROVENANCE_PROFILE '$PROVENANCE_PROFILE' (expected local|candidate|external|published)" >&2; exit 1 ;;
+esac
 EVIDENCE_DIR=".release"
 TAG_VERSION="${TAG_VERSION:-}"
 VERSION="${VERSION:-}"
@@ -95,38 +99,33 @@ prov_out="$EVIDENCE_DIR/provenance-verification.json"
 
 fail_sig() {
   reason="$1"
-  printf '{"schema":"openrouter-model-tracker/signature-verification/v1","profile":"published","status":"blocked","reason":%s,"commit":"%s"}\n' \
-    "$(printf '%s' "$reason" | jq -Rs .)" "$commit" > "$sig_out"
+  printf '{"schema":"openrouter-model-tracker/signature-verification/v1","profile":"%s","status":"blocked","reason":%s,"commit":"%s"}\n' \
+    "$PROVENANCE_PROFILE" "$(printf '%s' "$reason" | jq -Rs .)" "$commit" > "$sig_out"
   echo "BLOCKED: $reason" >&2
   exit 1
 }
 
 fail_prov() {
   reason="$1"
-  printf '{"schema":"openrouter-model-tracker/provenance-verification/v1","profile":"published","status":"blocked","reason":%s,"commit":"%s"}\n' \
-    "$(printf '%s' "$reason" | jq -Rs .)" "$commit" > "$prov_out"
+  printf '{"schema":"openrouter-model-tracker/provenance-verification/v1","profile":"%s","status":"blocked","reason":%s,"commit":"%s"}\n' \
+    "$PROVENANCE_PROFILE" "$(printf '%s' "$reason" | jq -Rs .)" "$commit" > "$prov_out"
   echo "BLOCKED: $reason" >&2
   exit 1
 }
 
 # --- candidate profile: explicit applicability no-op ---------------------
 
-if [ "$PROVENANCE_PROFILE" = "candidate" ]; then
+if [ "$PROVENANCE_PROFILE" = "local" ] || [ "$PROVENANCE_PROFILE" = "candidate" ]; then
   if [ "$SCOPE" = "signature" ]; then
     out="$sig_out"; schema="openrouter-model-tracker/signature-verification/v1"
   else
     out="$prov_out"; schema="openrouter-model-tracker/provenance-verification/v1"
   fi
   cat > "$out" <<EOF
-{"schema":"$schema","profile":"candidate","status":"not-applicable","reason":"no release tag exists yet at this commit; signed evidence is produced by release.yml only after a tag is pushed","commit":"$commit"}
+{"schema":"$schema","profile":"$PROVENANCE_PROFILE","status":"not-applicable","reason":"cosign signing and provenance are external to the local-only release profile","commit":"$commit"}
 EOF
-  echo "PROVENANCE_PROFILE=candidate: $SCOPE check not applicable before a release tag exists (see $out)"
+  echo "NOT APPLICABLE: PROVENANCE_PROFILE=$PROVENANCE_PROFILE disables cosign $SCOPE (see $out)"
   exit 0
-fi
-
-if [ "$PROVENANCE_PROFILE" != "published" ]; then
-  echo "BLOCKED: unknown PROVENANCE_PROFILE '$PROVENANCE_PROFILE' (expected candidate|published)" >&2
-  exit 1
 fi
 
 # --- published profile: real verification --------------------------------
@@ -173,7 +172,7 @@ key_sha256="$(openssl dgst -sha256 -r "$key_used")" || exit $?
 key_sha256="${key_sha256%% *}"
 
 cat > "$sig_out" <<EOF
-{"schema":"openrouter-model-tracker/signature-verification/v1","profile":"published","status":"verified","commit":"$commit","tag":"$TAG_VERSION","manifest":"$RELEASE_MANIFEST","signing_key":"$key_used","signing_key_sha256":"$key_sha256","checks":{"public_key_present":"pass","verify_blob":"pass"},"native_outputs":["$EVIDENCE_DIR/verify-blob.txt"]}
+{"schema":"openrouter-model-tracker/signature-verification/v1","profile":"$PROVENANCE_PROFILE","status":"verified","commit":"$commit","tag":"$TAG_VERSION","manifest":"$RELEASE_MANIFEST","signing_key":"$key_used","signing_key_sha256":"$key_sha256","checks":{"public_key_present":"pass","verify_blob":"pass"},"native_outputs":["$EVIDENCE_DIR/verify-blob.txt"]}
 EOF
 echo "verified: release manifest signature for $TAG_VERSION at $commit (key: $key_used)"
 
@@ -229,7 +228,7 @@ sbom_actual="${sbom_actual%% *}"
 test "$sbom_actual" = "$sbom_expected" || fail_prov "SBOM digest mismatch for $sbom_path: expected $sbom_expected, actual $sbom_actual"
 
 cat > "$prov_out" <<EOF
-{"schema":"openrouter-model-tracker/provenance-verification/v1","profile":"published","status":"verified","commit":"$commit","tag":"$TAG_VERSION","manifest":"$RELEASE_MANIFEST","signing_key":"$key_used","signing_key_sha256":"$key_sha256","checks":{"public_key_present":"pass","verify_blob":"pass","verify_blob_attestation":"pass","manifest_tag":"pass","manifest_commit":"pass","manifest_version":"pass","artifact_digest":"pass","sbom_digest":"pass"},"native_outputs":["$EVIDENCE_DIR/verify-blob.txt","$EVIDENCE_DIR/verify-blob-attestation.txt"]}
+{"schema":"openrouter-model-tracker/provenance-verification/v1","profile":"$PROVENANCE_PROFILE","status":"verified","commit":"$commit","tag":"$TAG_VERSION","manifest":"$RELEASE_MANIFEST","signing_key":"$key_used","signing_key_sha256":"$key_sha256","checks":{"public_key_present":"pass","verify_blob":"pass","verify_blob_attestation":"pass","manifest_tag":"pass","manifest_commit":"pass","manifest_version":"pass","artifact_digest":"pass","sbom_digest":"pass"},"native_outputs":["$EVIDENCE_DIR/verify-blob.txt","$EVIDENCE_DIR/verify-blob-attestation.txt"]}
 EOF
 
 # Existing consumer schema: cmd/evidencecheck --published-evidence already
