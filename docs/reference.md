@@ -163,17 +163,20 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
   tui_keymap:
     main:
       open_settings: o
-      open_details: [enter, right, l]
+      open_details: [enter, right]
+      language_toggle: [l]
       help: ['?']
       full_help: f1
       navigate_up: [up, k]
       navigate_down: [down, j]
       switch_source: space
+      cycle_availability: [p]
+      toggle_layout: [v]
     settings:
       close: [esc, o]
       navigate_up: [up, k]
       navigate_down: [down, j]
-      switch_source: space
+      switch_source: [space, enter]
     detail:
       close: [esc, left, h]
       navigate_up: [up, k]
@@ -181,8 +184,8 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
   ```
 
   Доступны также контексты `help`, `columns` и `filter` с действиями `close`, `full_help`, `navigate_up`, `navigate_down`, `toggle` и `apply` по смыслу контекста. Неизвестные действия/контексты, пустые bindings и повтор одного binding для разных действий в одном контексте дают ошибку конфига. При reload TUI эта секция перечитывается вместе с `default_filter`, `tui_filter` и `tui_steps`; до успешной загрузки snapshot источник оценки не меняется, а Settings показывает pending или ошибку.
-- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
-- `openrouter completion bash` — сгенерировать Bash completion
+- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena] [--ranking=legacy|tier|mixed-utility]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
+- `openrouter completion bash` (`omt completion bash`) — сгенерировать Bash completion
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -681,9 +684,11 @@ describe suffix.
 Пустой список выводится как `n/a` и не означает плохое качество: это означает отсутствие
 классификации.
 
-`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit`, `--slug` и `--score-source`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение Task fit/Note (`n`), ручное обновление (`R`) и справка (`?`). Все односимвольные хоткеи TUI работают и при русской раскладке клавиатуры: клавиша распознаётся по своей физической позиции через явную таблицу соответствия символов, заданную литералами в коде, — ни `locale`, ни `LANG`, ни системные настройки раскладки не читаются, а расширенные keyboard protocol (например Kitty) не используются, поэтому char-level таблица — единственный работающий в этом проекте механизм fallback. Встроенная справка при этом остаётся полностью английской и локализованных подписей клавиш не содержит. Task fit в TUI показывается только компактными кодами. Последнюю колонку нельзя снять. Клавиши `Enter`, `→` или `l` открывают экран деталей выделенной модели — производитель, дата релиза (абсолютная и относительная), тир, контекст, полная цена вместе с длинноконтекстным тарифом, обе оценки отдельными подписанными блоками (SWE-bench Verified в процентах и LMArena в Elo, никогда не смешиваются), task fit, ручная заметка и вендорское описание с переносом по словам; `Esc`, `←` или `h` возвращают к списку на ту же строку, а `↑↓`, `PgUp/PgDown` и `Home/End` внутри экрана прокручивают текст. На экране деталей также показаны ссылка на карточку модели на `openrouter.ai` (строится из `canonical_slug` каталога) и — только у моделей, у которых он есть, — ссылка на репозиторий HuggingFace; подписи полей, заголовки блоков, ссылки и `н/д` выделены цветом, но раскладка при этом не меняется ни на один символ. `--refresh-interval 0` отключает автоматическое обновление, ручное `R` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
+`openrouter tui` открывает интерактивную локальную таблицу из последнего snapshot. Команда работает только в TTY и поддерживает те же сортировки (`name`, `slug`, `context`, `input`, `output`, `price`, `quality`, `q/p`, включая `q`, `p`, `qp`), `--sort`, `--reverse`, `--filter`, `--limit`, `--slug` и `--score-source`, что и `table`. Клавиша `/` выполняет отдельный substring search по Name/Slug, а `f` принимает только structured-фильтры (`paid`, `free`, `scored`, `tier:*`, `quality>=N`, `context>=N`, `input<=N`, `output<=N`); ошибочный structured-фильтр не меняет строки и показывается в status. Также поддерживаются выбор колонок (`c`), переключение Task fit/Note (`n`), ручное обновление (`R`) и справка (`?`). Все односимвольные хоткеи TUI работают и при русской раскладке клавиатуры: клавиша распознаётся по своей физической позиции через явную таблицу соответствия символов, заданную литералами в коде, — ни `locale`, ни `LANG`, ни системные настройки раскладки не читаются, а расширенные keyboard protocol (например Kitty) не используются, поэтому char-level таблица — единственный работающий в этом проекте механизм fallback. Встроенная справка двуязычная (EN+RU) и переключается клавишей `l`. Task fit в TUI показывается только компактными кодами. Последнюю колонку нельзя снять. Клавиши `Enter` или `→` открывают экран деталей выделенной модели — производитель, дата релиза (абсолютная и относительная), тир, контекст, полная цена вместе с длинноконтекстным тарифом, обе оценки отдельными подписанными блоками (SWE-bench Verified в процентах и LMArena в Elo, никогда не смешиваются), task fit, ручная заметка и вендорское описание с переносом по словам; `Esc`, `←` или `h` возвращают к списку на ту же строку, а `↑↓`, `PgUp/PgDown` и `Home/End` внутри экрана прокручивают текст. На экране деталей также показаны ссылка на карточку модели на `openrouter.ai` (строится из `canonical_slug` каталога) и — только у моделей, у которых он есть, — ссылка на репозиторий HuggingFace; подписи полей, заголовки блоков, ссылки и `н/д` выделены цветом, но раскладка при этом не меняется ни на один символ. `--refresh-interval 0` отключает автоматическое обновление, ручное `R` остаётся доступным. Для локального запуска достаточно `data_dir`; `default_output` нужен только для live refresh.
 
-Клавиша `o` открывает окно Settings: в нем можно переключить ranking и score source, отредактировать текущий structured filter и увидеть выбранные колонки. Смена score source читает локальный snapshot и не требует сети. `?` открывает только справку по горячим клавишам, а `F1` — полный help, включая горячие клавиши.
+Клавиша `o` открывает окно Settings: в нем можно переключить ranking и score source, отредактировать текущий structured filter и увидеть выбранные колонки. Смена score source читает локальный snapshot и не требует сети. `?` и `F1` открывают один и тот же секционный help-overlay; `?` сразу показывает секцию `Hotkeys` (2), а `F1` — `Overview` (0).
+
+Основные хоткеи main-контекста: `l` — язык EN/RU; `p` — cycle availability `any→free→paid→any`; `v` — переключить layout `all↔top-paid-free`; `q` — сортировка по quality; `r` — по q/p; `s` — cycle sort; `S` — обратный порядок; `m` — переключить ranking `tier↔mixed`; `n` — переключить последнюю колонку `task-fit↔note`; `R` — ручное обновление; `c` — columns overlay; `f` — filter overlay; `o` — settings overlay; `F1`/`?` — help с 6 секциями `Overview/Score Sources/Hotkeys/Filters/Model Detail/Methodology`; `/` — search. Оверлеи имеют идентификаторы `""` (main list), `detail`, `settings`, `columns`, `filter` и `help`; `/` в main list открывает input-режим `search`, а `/` внутри help — `help-search`.
 
 В structured filter TUI поддерживается `copyright_guardrail:enforces`, `copyright_guardrail:bypasses,unknown` и другие CSV-комбинации этих трех значений. Пустое или отсутствующее значение модели отображается и фильтруется как `unknown`; статус не выводится из `license`.
 
