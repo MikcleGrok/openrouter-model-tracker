@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.16.3]
+
 - Migrate only an executable Homebrew-owned stale `omt` symlink from
   `../Cellar/openrouter/<numeric-version>/bin/omt` to the managed `omt ->
   openrouter` alias. Regular files, directories, foreign symlinks, and dangling
