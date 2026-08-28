@@ -53,14 +53,14 @@ value-формулой. Полное описание identity-gate, трёх и
 Для macOS и Linux — публичный Homebrew tap:
 
 ```bash
-brew install MikcleGrok/openrouter/openrouter-model-tracker
+brew install mikclegrok/tools/openrouter-model-tracker
 ```
 
 Homebrew устанавливает canonical `openrouter` и короткий alias `omt` как один
 и тот же executable. Обновление до новой версии:
 
 ```bash
-brew upgrade MikcleGrok/openrouter/openrouter-model-tracker
+brew upgrade mikclegrok/tools/openrouter-model-tracker
 ```
 
 Без Homebrew, или на других платформах, — штатная локальная установка через
