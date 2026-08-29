@@ -40,6 +40,8 @@ SBOM_FILE := .release/sbom.spdx.json
 PROVENANCE_PROFILE ?= local
 GITHUB_REPOSITORY ?= MikcleGrok/openrouter-model-tracker
 GITHUB_RUN_ID ?= local
+RELEASE_SOURCE_DIR ?= $(ROOT)
+RELEASE_ARTIFACT_DIR ?= $(RELEASE_SOURCE_DIR)/dist/local-release/$(VERSION)
 
 VALID_PROVENANCE_PROFILES := local candidate external published
 ifneq ($(filter $(PROVENANCE_PROFILE),$(VALID_PROVENANCE_PROFILES)),$(PROVENANCE_PROFILE))
@@ -48,7 +50,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -323,6 +325,34 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
 	printf '%s\n' "Local release written to $$out"
 
+release-github-check:
+	@set -eu; \
+		command -v jq >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: jq is required for GitHub release evidence validation' >&2; exit 1; }; \
+		source_dir="$$(cd '$(RELEASE_SOURCE_DIR)' 2>/dev/null && pwd -P)" || { printf '%s\n' 'BLOCKED: RELEASE_SOURCE_DIR is not an accessible directory: $(RELEASE_SOURCE_DIR)' >&2; exit 1; }; \
+		artifact_dir="$$(cd '$(RELEASE_ARTIFACT_DIR)' 2>/dev/null && pwd -P)" || { printf '%s\n' 'BLOCKED: RELEASE_ARTIFACT_DIR is not an accessible directory: $(RELEASE_ARTIFACT_DIR)' >&2; exit 1; }; \
+		tag='$(TAG_VERSION)'; version='$(VERSION)'; test "$$tag" = "v$$version" && printf '%s\n' "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { printf '%s\n' 'BLOCKED: TAG_VERSION must be vX.Y.Z and match VERSION' >&2; exit 1; }; \
+		test -z "$$(git -C "$$source_dir" status --porcelain)" || { printf '%s\n' 'BLOCKED: RELEASE_SOURCE_DIR must be clean' >&2; git -C "$$source_dir" status --short >&2; exit 1; }; \
+		commit="$$(git -C "$$source_dir" rev-parse --verify HEAD)" || { printf '%s\n' 'BLOCKED: cannot resolve source checkout HEAD' >&2; exit 1; }; local_tag="$$(git -C "$$source_dir" rev-parse --verify "$$tag^{commit}")" || { printf '%s\n' "BLOCKED: exact tag $$tag cannot be resolved locally" >&2; exit 1; }; test "$$commit" = "$$local_tag" || { printf '%s\n' "BLOCKED: source checkout is not at exact tag $$tag" >&2; exit 1; }; \
+		remote_tmp="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp"' EXIT; set +e; git -C "$$source_dir" ls-remote origin "refs/tags/$$tag" "refs/tags/$$tag^{}" >"$$remote_tmp/record" 2>"$$remote_tmp/error"; remote_status=$$?; set -e; test $$remote_status -eq 0 -o $$remote_status -eq 2 || { printf '%s\n' "BLOCKED: origin tag lookup failed (network/API error, exit $$remote_status)" >&2; cat "$$remote_tmp/error" >&2; exit 1; }; \
+		direct="$$(awk -v ref="refs/tags/$$tag" '$$2 == ref { print $$1 }' "$$remote_tmp/record")"; peeled="$$(awk -v ref="refs/tags/$$tag^{}" '$$2 == ref { print $$1 }' "$$remote_tmp/record")"; test -n "$$direct" -o -n "$$peeled" || { printf '%s\n' "BLOCKED: exact tag $$tag is missing on origin" >&2; exit 1; }; remote_commit="$$peeled"; test -n "$$remote_commit" || remote_commit="$$direct"; test "$$remote_commit" = "$$commit" || { printf '%s\n' "BLOCKED: origin tag $$tag does not match source commit $$commit" >&2; exit 1; }; \
+		manifest="$$source_dir/.release/release-manifest.json"; signature="$$source_dir/.release/release-manifest.json.sig.bundle.json"; attestation="$$source_dir/.release/release-manifest.json.att.bundle.json"; sbom="$$source_dir/.release/sbom.spdx.json"; dependency_evidence="$$source_dir/.release/dependency-evidence.json"; published_evidence="$$source_dir/.release/published-evidence.json"; \
+		for evidence in "$$manifest" "$$signature" "$$attestation" "$$sbom" "$$dependency_evidence"; do test -s "$$evidence" || { printf '%s\n' "BLOCKED: required release evidence is missing or empty: $$evidence" >&2; exit 1; }; done; \
+		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (.artifacts | length == 1) and (.artifacts[0].path == "bin/openrouter")' "$$manifest" >/dev/null || { printf '%s\n' 'BLOCKED: signed release manifest identity does not match exact tag checkout' >&2; exit 1; }; \
+		cd "$$artifact_dir"; test -s RELEASE_NOTES.md && test -s manifest.json && test -s SHA256SUMS || { printf '%s\n' 'BLOCKED: local release notes, manifest, or checksums are missing' >&2; exit 1; }; \
+		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (.artifacts | length > 0) and ([.artifacts[].artifact] | all(test("^artifacts/[A-Za-z0-9._-]+\\.tar\\.gz$$"))) and ([.artifacts[].artifact] | length == (unique | length)) and ([.artifacts[].sha256] | length == (.artifacts | length)) and ([.artifacts[].sha256] | all(test("^[0-9a-f]{64}$$")))' manifest.json >/dev/null || { printf '%s\n' 'BLOCKED: local release manifest has invalid identity, archive paths, or digests' >&2; exit 1; }; \
+		tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp" "$$tmp_dir"' EXIT; jq -r '.artifacts[] | "\(.sha256)  \(.artifact)"' manifest.json | sort > "$$tmp_dir/manifest"; sort SHA256SUMS > "$$tmp_dir/checksums"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/checksums" || { printf '%s\n' 'BLOCKED: SHA256SUMS differs from release manifest' >&2; exit 1; }; : > "$$tmp_dir/actual"; set -- artifacts/*.tar.gz; test -f "$$1" || { printf '%s\n' 'BLOCKED: no local release archives found' >&2; exit 1; }; for archive; do test -s "$$archive" || { printf '%s\n' "BLOCKED: release archive is missing or empty: $$archive" >&2; exit 1; }; shasum -a 256 "$$archive" >> "$$tmp_dir/actual"; done; sort "$$tmp_dir/actual" > "$$tmp_dir/actual.sorted"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/actual.sorted" || { printf '%s\n' 'BLOCKED: local archive set or digest differs from release manifest' >&2; exit 1; }; shasum -a 256 -c SHA256SUMS >/dev/null || { printf '%s\n' 'BLOCKED: local release archive checksum verification failed' >&2; exit 1; }; \
+		cd "$$source_dir"; PROVENANCE_PROFILE=published TAG_VERSION="$$tag" VERSION="$$version" COSIGN_PUBLIC_KEY="$$source_dir/cosign.pub" RELEASE_MANIFEST="$$manifest" RELEASE_MANIFEST_SIG="$$signature" RELEASE_MANIFEST_ATT="$$attestation" SBOM_FILE="$$sbom" PUBLISHED_EVIDENCE="$$published_evidence" GITHUB_REPOSITORY="$(GITHUB_REPOSITORY)" ./scripts/verify-provenance.sh full >/dev/null; $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$$tag" --commit "$$commit" --version "$$version"; $(GO) run ./cmd/evidencecheck --published-evidence "$$published_evidence" --tag "$$tag" --commit "$$commit" --version "$$version"; \
+		printf '%s\n' "GitHub release evidence verified for $$tag at $$commit"
+
+release-github: release-github-check
+	@set -eu; \
+		source_dir="$$(cd '$(RELEASE_SOURCE_DIR)' && pwd -P)"; artifact_dir="$$(cd '$(RELEASE_ARTIFACT_DIR)' && pwd -P)"; tag='$(TAG_VERSION)'; repository='$(GITHUB_REPOSITORY)'; notes="$$artifact_dir/RELEASE_NOTES.md"; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
+		if gh release view "$$tag" --repo "$$repository" >"$$tmp_dir/release-view.out" 2>"$$tmp_dir/release-view.err"; then printf '%s\n' "BLOCKED: GitHub Release $$tag already exists; refusing duplicate publication" >&2; exit 1; else view_status=$$?; if test $$view_status -eq 1 && grep -Eiq '(^|[^0-9])404([^0-9]|$$)|not found' "$$tmp_dir/release-view.err"; then :; else printf '%s\n' "BLOCKED: GitHub release preflight failed; only confirmed not-found permits create (exit $$view_status)" >&2; cat "$$tmp_dir/release-view.err" >&2; exit 1; fi; fi; \
+		set -- gh release create "$$tag" --repo "$$repository" --title "$$tag" --notes-file "$$notes" --draft=false --prerelease=false "$$source_dir/.release/release-manifest.json" "$$source_dir/.release/release-manifest.json.sig.bundle.json" "$$source_dir/.release/release-manifest.json.att.bundle.json" "$$source_dir/.release/sbom.spdx.json" "$$source_dir/.release/dependency-evidence.json" "$$source_dir/.release/published-evidence.json" "$$source_dir/.release/openrouter.sha256"; \
+		jq -r '.artifacts[].artifact' "$$artifact_dir/manifest.json" > "$$tmp_dir/artifacts"; \
+		while IFS= read -r artifact; do artifact_path="$$artifact_dir/$$artifact"; case "$$artifact" in artifacts/[A-Za-z0-9._-]*.tar.gz) ;; *) printf '%s\n' "BLOCKED: unsafe archive path in local release manifest: $$artifact" >&2; exit 1 ;; esac; case "$$artifact_path" in "$$artifact_dir"/artifacts/*) ;; *) printf '%s\n' "BLOCKED: archive path escapes local release directory: $$artifact" >&2; exit 1 ;; esac; set -- "$$@" "$$artifact_path"; done < "$$tmp_dir/artifacts"; \
+		if test '$(RELEASE_DRY_RUN)' = 1; then printf 'DRY RUN:'; printf ' %s' "$$@"; printf '\n'; else command -v gh >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is required to publish a GitHub Release' >&2; exit 1; }; gh auth status >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is not authenticated; run gh auth login' >&2; exit 1; }; if "$$@"; then :; else if gh release view "$$tag" --repo "$$repository" >/dev/null 2>&1; then printf '%s\n' "BLOCKED: GitHub Release $$tag appeared during publication; refusing duplicate publication" >&2; else printf '%s\n' "BLOCKED: GitHub Release $$tag publication failed" >&2; fi; exit 1; fi; fi
+
 docs check-docs:
 	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md
 	@printf '%s\n' 'Documentation contract passed.'
@@ -389,6 +419,8 @@ help:
 		'release-build  Build with the normalized version from the exact checked-out tag' \
 		'release-local   Run checks and build deterministic local platform archives' \
 		'local-release   Alias for release-local' \
+		'release-github-check Verify exact-tag GitHub release evidence without publishing' \
+		'release-github  Publish an exact-tag GitHub Release (RELEASE_DRY_RUN=1 for command preview)' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
 		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \
