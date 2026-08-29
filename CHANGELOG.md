@@ -1,5 +1,10 @@
 # What's New
 
+## [1.16.4]
+
+- Document installed Bash completion for the local Homebrew formula.
+- Align the TUI Task fit column and preserve Qwen aliases/icons in model configuration.
+
 ## [Unreleased]
 
 - Migrate only an executable Homebrew-owned stale `omt` symlink from
