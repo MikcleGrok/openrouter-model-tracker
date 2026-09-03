@@ -6,9 +6,11 @@ Set Height 480
 Set Theme "Catppuccin Frappe"
 Set Padding 12
 
+Hide
 Type "cd /Users/sergey/projects/tools/openrouter-model-tracker && ./bin/openrouter tui"
 Enter
 Sleep 3s
+Show
 
 Space
 Sleep 2s
