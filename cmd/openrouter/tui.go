@@ -235,6 +235,9 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 	if !tuiIsTTY(out) {
 		return fmt.Errorf("openrouter tui requires a TTY on stdout")
 	}
+	if err := ensureLocalSnapshot(ctx, out, dataDir, opts); err != nil {
+		return err
+	}
 	m, err := newConfiguredTUIModel(ctx, dataDir, opts, interval, sortKey, reverse, filter, limit, showSlug, rankingName, compiled, scoreSource)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -133,6 +134,26 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
 	return model.ForScoreSource(models, source), nil
+}
+
+// ensureLocalSnapshot fetches live data once, the same way the tui's own
+// refresh hotkey does mid-session, when no local snapshot exists yet — so a
+// first run of table/tui never needs a separate "openrouter refresh" step.
+func ensureLocalSnapshot(ctx context.Context, out io.Writer, dataDir string, opts refresh.Options) error {
+	snapshotPath := refresh.SnapshotPath(dataDir)
+	if _, err := os.Stat(snapshotPath); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("table: inspect local snapshot: %w", err)
+	}
+	if opts.OutputPath == "" {
+		return fmt.Errorf("table: no local snapshot yet and no --output/default_output configured to fetch one; run 'openrouter refresh' first")
+	}
+	fmt.Fprintln(out, "📡 Локальный снапшот отсутствует — выполняю первичный refresh...")
+	if _, err := refresh.Run(ctx, opts); err != nil {
+		return fmt.Errorf("table: initial refresh failed: %w", err)
+	}
+	return nil
 }
 
 func snapshotFallbackIdentity(entry refresh.SnapshotEntry) string {

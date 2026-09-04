@@ -378,6 +378,13 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			tableOpts, err := resolveTUIOptions(cfgPath, dataDir, output)
+			if err != nil {
+				return err
+			}
+			if err := ensureLocalSnapshot(cmd.Context(), cmd.OutOrStdout(), dir, tableOpts); err != nil {
+				return err
+			}
 			models, err := loadLocalModelsForSource(dir, tableScoreSource)
 			if err != nil {
 				return err
