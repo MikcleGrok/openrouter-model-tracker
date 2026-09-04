@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+- Auto-refresh model data on first run instead of failing with "run refresh
+  first" when no local snapshot exists yet (`table` and `tui`).
 - Migrate only an executable Homebrew-owned stale `omt` symlink from
   `../Cellar/openrouter/<numeric-version>/bin/omt` to the managed `omt ->
   openrouter` alias. Regular files, directories, foreign symlinks, and dangling
