@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [1.16.6]
+
 - Auto-refresh model data on first run instead of failing with "run refresh
   first" when no local snapshot exists yet (`table` and `tui`).
 - Migrate only an executable Homebrew-owned stale `omt` symlink from
