@@ -52,3 +52,47 @@
 pipe/cron/CI. CLI-пути из config относительны к каталогу самого config-файла;
 Makefile targets всегда нормализуют root checkout через `make -C`/`ROOT` и не
 зависят от cwd вызывающего процесса.
+
+## Ключ подписи релизов
+
+Ключевая пара cosign была ротирована 2026-09-04. Предыдущий приватный ключ
+существовал только в write-only секретах GitHub Actions
+(`OPENROUTER_TRACKER_COSIGN_KEY`, `OPENROUTER_TRACKER_COSIGN_PASSWORD`,
+созданы 2026-08-08) и был безвозвратно утерян — потребляющий их workflow был
+удалён, а перечитать write-only секрет невозможно.
+
+Новый приватный ключ и его пароль хранятся в macOS login Keychain владельца
+(аккаунт `mickle.grok`), а не в CI:
+
+- `cosign.openrouter-model-tracker.private-key` — base64 зашифрованного паролем
+  cosign PEM;
+- `cosign.openrouter-model-tracker.key-password` — пароль к этому ключу.
+
+Получить их вручную:
+
+```sh
+security find-generic-password -s cosign.openrouter-model-tracker.private-key -a mickle.grok -w | openssl base64 -d -A
+security find-generic-password -s cosign.openrouter-model-tracker.key-password  -a mickle.grok -w
+```
+
+Проверить, что ключ в Keychain действительно является приватной половиной
+закоммиченного `cosign.pub`, можно через `make cosign-key-check`. Подписать и
+приложить attestation к релизу, используя ключ и пароль напрямую из Keychain
+(без ручного экспорта в переменные окружения), можно через
+`make cosign-sign-release`.
+
+Дополнительно ключевая пара хранится в холодной резервной копии —
+GPG-зашифрованном архиве в
+`~/Documents/mickle.grok/cosign-key-backup/openrouter-model-tracker/`.
+Пароль к архиву — отдельный секрет, Keychain-item
+`cosign.backup-bundle.passphrase` (аккаунт `mickle.grok`), общий для всех
+резервных копий cosign-ключей этого владельца.
+
+Старый публичный ключ сохранён как `cosign.pub.previous` — именно он
+позволяет `scripts/verify-provenance.sh` (fallback `cosign.pub` →
+`cosign.pub.previous`) по-прежнему проверять релизы, подписанные старым
+ключом: v1.5.0, v1.6.0, v1.7.0, v1.9.0, v1.10.1, v1.11.1, v1.12.1, v1.13.7,
+v1.13.8, v1.13.9, v1.13.10, v1.13.13.
+
+Этот ключ никогда не должен попадать в secret CI/CD-системы (GitHub Actions и
+подобные) — именно так был потерян предыдущий.
