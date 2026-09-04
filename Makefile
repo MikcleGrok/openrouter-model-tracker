@@ -31,6 +31,38 @@ LOCAL_RELEASE_BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 # and stay resolvable after `cd $(ROOT)`.
 COSIGN_PUBLIC_KEY := cosign.pub
 COSIGN_PRIVATE_KEY_REF ?= env://COSIGN_PRIVATE_KEY
+
+# Release-signing key material lives in the macOS login Keychain, not in CI.
+# Retrieve by hand with:
+#   security find-generic-password -s cosign.openrouter-model-tracker.private-key -a mickle.grok -w | openssl base64 -d -A
+#   security find-generic-password -s cosign.openrouter-model-tracker.key-password  -a mickle.grok -w
+COSIGN_KEYCHAIN_KEY_SERVICE      ?= cosign.openrouter-model-tracker.private-key
+COSIGN_KEYCHAIN_PASSWORD_SERVICE ?= cosign.openrouter-model-tracker.key-password
+COSIGN_KEYCHAIN_ACCOUNT          ?= mickle.grok
+
+cosign-key-check:
+	@set -eu; \
+	key="$$(security find-generic-password -s '$(COSIGN_KEYCHAIN_KEY_SERVICE)' -a '$(COSIGN_KEYCHAIN_ACCOUNT)' -w 2>/dev/null | openssl base64 -d -A)" || { \
+	  printf '%s\n' 'FAIL: cosign private key not found in the login Keychain' >&2; \
+	  printf '%s\n' 'HINT: security find-generic-password -s $(COSIGN_KEYCHAIN_KEY_SERVICE) -a $(COSIGN_KEYCHAIN_ACCOUNT) -w | openssl base64 -d -A' >&2; exit 1; }; \
+	pw="$$(security find-generic-password -s '$(COSIGN_KEYCHAIN_PASSWORD_SERVICE)' -a '$(COSIGN_KEYCHAIN_ACCOUNT)' -w 2>/dev/null)" || { \
+	  printf '%s\n' 'FAIL: cosign key password not found in the login Keychain' >&2; exit 1; }; \
+	tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	printf 'cosign-key-check\n' > "$$tmp/probe.txt"; \
+	COSIGN_PASSWORD="$$pw" COSIGN_PRIVATE_KEY="$$key" cosign sign-blob --key env://COSIGN_PRIVATE_KEY \
+	  --yes --tlog-upload=false --use-signing-config=false --bundle "$$tmp/probe.sig.json" "$$tmp/probe.txt" >/dev/null 2>&1 \
+	  || { printf '%s\n' 'FAIL: the stored key could not sign (wrong password, or corrupted PEM)' >&2; exit 1; }; \
+	cosign verify-blob --key '$(COSIGN_PUBLIC_KEY)' --bundle "$$tmp/probe.sig.json" \
+	  --insecure-ignore-tlog=true "$$tmp/probe.txt" >/dev/null 2>&1 \
+	  || { printf '%s\n' 'FAIL: the stored key is NOT the private half of $(COSIGN_PUBLIC_KEY)' >&2; exit 1; }
+	@printf '%s\n' 'PASS: cosign-key-check (Keychain key is the private half of $(COSIGN_PUBLIC_KEY))'
+
+cosign-sign-release:
+	@set -eu; \
+	key="$$(security find-generic-password -s '$(COSIGN_KEYCHAIN_KEY_SERVICE)' -a '$(COSIGN_KEYCHAIN_ACCOUNT)' -w | openssl base64 -d -A)"; \
+	pw="$$(security find-generic-password -s '$(COSIGN_KEYCHAIN_PASSWORD_SERVICE)' -a '$(COSIGN_KEYCHAIN_ACCOUNT)' -w)"; \
+	COSIGN_PRIVATE_KEY="$$key" COSIGN_PASSWORD="$$pw" $(MAKE) --no-print-directory sign attest
+
 RELEASE_MANIFEST := .release/release-manifest.json
 RELEASE_MANIFEST_SIG := .release/release-manifest.json.sig.bundle.json
 RELEASE_MANIFEST_ATT := .release/release-manifest.json.att.bundle.json
@@ -50,7 +82,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -383,6 +415,8 @@ help:
 		'sbom           Generate SPDX SBOM with Syft (required)' \
 		'release-manifest Write and checksum-bind the signed release-manifest.json' \
 		'provenance-predicate Write the SLSA v1 provenance predicate' \
+		'cosign-key-check Verify the Keychain-stored cosign key is the private half of COSIGN_PUBLIC_KEY' \
+		'cosign-sign-release Sign and attest using the cosign key/password from the login Keychain' \
 		'sign           Sign release-manifest.json with the static cosign key (no tlog upload)' \
 		'attest         Attest release-manifest.json with the SLSA predicate (no tlog upload)' \
 		'signature      Verify cosign signature (PROFILE=local|candidate|external|published)' \
