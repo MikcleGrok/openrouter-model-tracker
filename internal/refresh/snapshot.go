@@ -143,10 +143,15 @@ func (s *Snapshot) Save(path string) error {
 	if err != nil {
 		return fmt.Errorf("snapshot: encode: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// docs/reference.md claims model-snapshot.json is git-tracked, but
+	// .gitignore actually excludes it (/model-snapshot.json) and `git
+	// ls-files` confirms it has never been committed: it is local, private
+	// application state like cache/price-history.json, not a shared
+	// artifact, so it gets the same owner-only permissions.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("snapshot: create directory: %w", err)
 	}
-	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
 		return fmt.Errorf("snapshot: write %s: %w", path, err)
 	}
 	return nil

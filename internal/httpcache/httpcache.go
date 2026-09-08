@@ -73,10 +73,10 @@ func (c *Client) Get(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("httpcache: GET %s: response exceeds %d bytes", url, maxResponseBytes)
 	}
 
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("httpcache: create cache dir: %w", err)
 	}
-	if err := os.WriteFile(p, body, 0o644); err != nil {
+	if err := os.WriteFile(p, body, 0o600); err != nil {
 		return nil, fmt.Errorf("httpcache: write cache entry: %w", err)
 	}
 	return body, nil

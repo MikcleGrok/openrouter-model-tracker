@@ -520,7 +520,7 @@ func Init(path, dataDir string) ([]string, error) {
 			}
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("config: create parent directory: %w", err)
 	}
 	created := make([]string, 0, 2)
@@ -530,7 +530,7 @@ func Init(path, dataDir string) ([]string, error) {
 			_ = os.Remove(path)
 		}
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
 		created = append(created, "Already exists: "+path)
 	} else if err != nil {
@@ -584,7 +584,7 @@ func Init(path, dataDir string) ([]string, error) {
 			return nil, fmt.Errorf("config: cache path is not a directory: %s", cachePath)
 		}
 	}
-	if err := os.MkdirAll(cachePath, 0o755); err != nil {
+	if err := os.MkdirAll(cachePath, 0o700); err != nil {
 		rollbackConfig()
 		return nil, fmt.Errorf("config: create cache directory: %w", err)
 	}
@@ -949,7 +949,7 @@ func SaveTUILayout(path, layout string, topN int) error {
 }
 
 func writeYAML(path string, document *yaml.Node) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("config: create parent directory: %w", err)
 	}
 	var out strings.Builder
@@ -962,7 +962,7 @@ func writeYAML(path string, document *yaml.Node) error {
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		return fmt.Errorf("config: chmod temporary file: %w", err)
 	}

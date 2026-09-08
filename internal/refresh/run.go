@@ -314,10 +314,16 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		// Keep a known-good baseline when this refresh could not fetch the catalogue.
 		newSnapshot.CatalogSlugs = append([]string(nil), snap.CatalogSlugs...)
 	}
-	files := []publishFile{{path: opts.OutputPath, data: buf.Bytes()}, {path: snapshotPath, save: func(path string) error { return newSnapshot.Save(path) }}}
+	// opts.OutputPath is the generated Markdown report — a shared artifact
+	// the user opens/reads/publishes — so it keeps the permissive default.
+	// snapshotPath (model-snapshot.json) and historyPath (price-history.json)
+	// are both local, gitignored application state (despite docs/reference.md
+	// claiming the snapshot is git-tracked; .gitignore and `git ls-files` say
+	// otherwise), so both get owner-only permissions.
+	files := []publishFile{{path: opts.OutputPath, data: buf.Bytes()}, {path: snapshotPath, save: func(path string) error { return newSnapshot.Save(path) }, perm: 0o600}}
 	if pricesOK {
 		history.Add(d.now(), prices)
-		files = append(files, publishFile{path: historyPath, save: func(path string) error { return d.saveHistory(history, path) }, errPrefix: "save price history"})
+		files = append(files, publishFile{path: historyPath, save: func(path string) error { return d.saveHistory(history, path) }, errPrefix: "save price history", perm: 0o600})
 	}
 	if err := publish(files, d.rename, d.remove); err != nil {
 		return report, err
@@ -330,6 +336,11 @@ type publishFile struct {
 	data      []byte
 	save      func(string) error
 	errPrefix string
+	// perm is the file's permission bits; zero defaults to 0o644 (the shared,
+	// non-sensitive artifact default used by the generated report and the
+	// git-tracked snapshot). A private state file such as price-history.json
+	// sets 0o600, which also tightens its parent directory creation to 0o700.
+	perm os.FileMode
 }
 
 type publishedFile struct {
@@ -363,7 +374,15 @@ func IsPostCommitCleanupError(err error) bool {
 func publish(files []publishFile, rename func(string, string) error, remove func(string) error) error {
 	prepared := make([]publishedFile, len(files))
 	for i, file := range files {
-		if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
+		filePerm := file.perm
+		if filePerm == 0 {
+			filePerm = 0o644
+		}
+		dirPerm := os.FileMode(0o755)
+		if filePerm == 0o600 {
+			dirPerm = 0o700
+		}
+		if err := os.MkdirAll(filepath.Dir(file.path), dirPerm); err != nil {
 			return preparationError(fmt.Errorf("refresh: create directory: %w", err), prepared, remove)
 		}
 		tmp, err := os.CreateTemp(filepath.Dir(file.path), ".refresh-*.tmp")
@@ -372,7 +391,7 @@ func publish(files []publishFile, rename func(string, string) error, remove func
 		}
 		tmpName := tmp.Name()
 		prepared[i] = publishedFile{publishFile: file, temp: tmpName}
-		if err := tmp.Chmod(0o644); err != nil {
+		if err := tmp.Chmod(filePerm); err != nil {
 			tmp.Close()
 			return preparationError(fmt.Errorf("refresh: chmod temporary file: %w", err), prepared, remove)
 		}

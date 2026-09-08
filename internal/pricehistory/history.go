@@ -90,7 +90,7 @@ func (h *History) Save(path string) error {
 		return fmt.Errorf("price history: encode: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("price history: create directory: %w", err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".price-history-*.tmp")
@@ -99,7 +99,7 @@ func (h *History) Save(path string) error {
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		return fmt.Errorf("price history: chmod temporary file: %w", err)
 	}
