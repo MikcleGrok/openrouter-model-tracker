@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check onboarding-check onboarding-record-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check tag-protection-check tag-protection-record-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check onboarding-check onboarding-record-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check tag-protection-check tag-protection-record-check release-build verify-local-artifact verify-release homebrew-source-check homebrew-source-record-check release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -132,7 +132,7 @@ test-acceptance: build
 # stage is what makes it worth having at all. -race checks data races only;
 # it MUST NOT be read as proof of no memory leak or resource retention
 # (12-test-contract.md, "Тесты удержания памяти и ресурсов").
-test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check onboarding-record-check tag-protection-record-check
+test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check onboarding-record-check tag-protection-record-check homebrew-source-record-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -420,7 +420,14 @@ verify-release: check-tag
 	@cd $(ROOT) && ./scripts/verify-distribution.sh --tag "$(TAG_VERSION)" --version "$(VERSION)" --installed-package openrouter --installed-version "$(VERSION)" --brew-test local/tap/openrouter
 	@cd $(ROOT) && test "$$(openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'Installed CLI --version does not match VERSION'; exit 1; }
 	@cd $(ROOT) && test "$$(openrouter version)" = "openrouter $(VERSION)" || { printf '%s\n' 'Installed CLI version does not match VERSION'; exit 1; }
-	@printf '%s\n' 'Verified local stable Homebrew channel only; no GitHub publication or provenance claim made.'
+	@cd $(ROOT) && ./scripts/verify-homebrew-source.sh --version "$(VERSION)"
+	@printf '%s\n' 'Verified local stable Homebrew channel and canonical published Homebrew source provenance; no GitHub publication or manifest/signature provenance claim made.'
+
+homebrew-source-check:
+	@cd $(ROOT) && ./scripts/verify-homebrew-source.sh --version "$(VERSION)"
+
+homebrew-source-record-check:
+	@$(ROOT)scripts/verify-homebrew-source_test.sh
 
 whats-new:
 	@test -f $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md is missing'; exit 1; }
@@ -566,7 +573,8 @@ help:
 		'release-github-check Verify exact-tag GitHub release evidence without publishing' \
 		'release-github  Publish an exact-tag GitHub Release (RELEASE_DRY_RUN=1 for command preview)' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
-		'verify-release Verify the local stable Homebrew channel read-only' \
+		'verify-release Verify the local stable Homebrew channel and canonical Homebrew source provenance, read-only' \
+		'homebrew-source-check Verify the canonical published Homebrew tap is genuinely installed (VERSION=..., requires brew)' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \
 		'docs           Validate required project documentation' \
 		'clean           Remove only bin/openrouter' \

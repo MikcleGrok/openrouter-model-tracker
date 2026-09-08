@@ -52,10 +52,18 @@
 - `make release-check` не создаёт manifest/checksum и не утверждает опубликованное
   evidence; эти локальные артефакты проверяются только после exact tag через
   `make verify-local-artifact`.
-- `make verify-release` выполняет только read-only проверку локального stable Homebrew
+- `make verify-release` выполняет read-only проверку локального stable Homebrew
   channel: exact tag/version/commit, clean checkout, локальную formula, установленную
   версию, оба варианта CLI version и `brew test`. Источник formula намеренно `file://`;
-  это не доказательство GitHub publication, подписи или provenance.
+  это не доказательство GitHub publication, подписи или provenance. Дополнительно
+  запускает `make homebrew-source-check` — machine-checkable верификацию
+  **канонического опубликованного** Homebrew-канала (`mikclegrok/tools/openrouter-model-tracker`,
+  отдельно от локального disposable tap выше): tap collision, installed receipt,
+  cross-check `brew info --json=v2`/`brew --prefix`/`command -v`/`realpath`/`<binary>
+  version` и evidence `.release/homebrew-source-evidence.json`. Требует `brew` и сеть
+  (host-only exception, см. onboarding record), поэтому не входит в `make check`.
+- `make homebrew-source-check` — та же проверка канонического канала отдельным
+  target'ом (`VERSION=...` обязателен), для запуска без полного `verify-release`.
 - `make verify-provenance` и `make signature` по умолчанию работают в
   `PROVENANCE_PROFILE=local`: печатают `NOT APPLICABLE`, завершаются с кодом 0,
   не вызывают cosign и не создают signed/provenance evidence. `candidate` имеет
@@ -202,13 +210,23 @@ Onboarding record (`README.md`, `channels`) декларирует два реа
    `url`/`sha256` ссылаются на **другой** host и tag: shared-репозиторий
    `github.com/MikcleGrok/tools`, тег с project-namespace
    `openrouter-model-tracker-vX.Y.Z` — тот же паттерн, что у `uni-chat`
-   (`uni-chat-vX.Y.Z` в том же shared repo). Эта formula верифицирована
-   только вручную (нет `Formula/*.rb` файла в этом checkout, поэтому нет
-   входа для `guide-distribution-verify`); синхронизирующий скрипт
-   (внешний, не часть этого репозитория) публикует релиз с другим
-   owner/repo/tag, чем `make release-github` — то есть путь от `git tag` в
-   этом checkout до опубликованного Homebrew asset проходит через ручной
-   внешний шаг, а не через один документированный Makefile-flow.
+   (`uni-chat-vX.Y.Z` в том же shared repo). Source provenance этой formula с
+   2026-09-08 верифицируется machine-checkably через `make homebrew-source-check`
+   (`scripts/verify-homebrew-source.sh`) — не чтением локального `Formula/*.rb`
+   (в этом checkout такого файла нет, поэтому `guide-distribution-verify`'s
+   `formula`-профиль ей не подходит), а прямыми запросами к живому состоянию
+   `brew` (`search`/`list --formula --full-name`/`info --json=v2`/`--prefix`) и
+   cross-check `command -v`/`realpath`/`<binary> version` против
+   резолвнутого keg; evidence — `.release/homebrew-source-evidence.json`.
+   Заодно подтверждён и задокументирован (README.md, «Установка») ещё один
+   факт: canonical-бинарник этой formula называется `openrouter-model-tracker`
+   (алиас `omt`), а не `openrouter`, как ошибочно утверждал README до этой
+   правки, — другое имя, чем у локальной установки через `make install`.
+   Синхронизирующий скрипт (внешний, не часть этого репозитория) публикует
+   релиз с другим owner/repo/tag, чем `make release-github` — то есть путь от
+   `git tag` в этом checkout до опубликованного Homebrew asset проходит через
+   ручной внешний шаг, а не через один документированный Makefile-flow; это
+   расхождение (в отличие от source provenance выше) остаётся неустранённым.
 
 Оба канала реальны и живы — это не выдуманная возможность и не сломанный
 канал, — но их несогласованность (два разных host/tag на один и тот же
