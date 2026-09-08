@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+- Declare this project concurrency-heavy in the onboarding record
+  (`internal/refresh/run.go` runs real goroutines behind a
+  `sync.WaitGroup`) and wire the existing `make race` target into `make
+  test`/`test-all`, where it previously ran nowhere. `-race` checks data
+  races only and is not evidence that goroutines, timers, or other
+  resources are not leaked.
 - Add `make distribution-check` (`scripts/verify-published-assets.sh`,
   `guide-distribution-verify` archive profile), run automatically at the end
   of `make release-local`/`local-release`: verifies the native-platform

@@ -122,7 +122,17 @@ test-unit:
 test-acceptance: build
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -count=1 ./tests/...
 
-test-all: test-unit test-acceptance sign-flags-check provenance-profile-check
+# race is a declared conditional target (onboarding record, `profiles`):
+# internal/refresh/run.go runs real goroutines (parallel benchmark-source
+# fetch behind a sync.WaitGroup), so this project is concurrency-heavy per
+# 05-build-test-docs.md's "Gates" section ("race при concurrency") and
+# 08-security-and-reliability.md's minimal CI sequence. It is part of
+# test-all rather than a separate opt-in step: -race only catches races that
+# actually execute during a run, so gating it the same as every other test
+# stage is what makes it worth having at all. -race checks data races only;
+# it MUST NOT be read as proof of no memory leak or resource retention
+# (12-test-contract.md, "Тесты удержания памяти и ресурсов").
+test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
