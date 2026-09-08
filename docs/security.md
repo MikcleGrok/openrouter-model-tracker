@@ -10,6 +10,15 @@
 
 ## Makefile gates
 
+- `make check` — SCA-freshness staleness gate (guide-tools
+  08-security-and-reliability.md, «Gate по свежести SCA-evidence»), не
+  доменная команда: он читает `.release/dependency-evidence.json` от
+  последнего `make dependency-check`, сверяет input digest с текущими
+  `go.mod`/`go.sum` и требует `scan_status == clean` не старше 30 дней
+  (`SCA_CADENCE_DAYS`). Ничего не сканирует и не требует сети сам по себе;
+  просроченная, отсутствующая или не-`clean` evidence — blocker с точной
+  командой-подсказкой. `make release-check` выполняет ту же проверку повторно
+  как pre-tag ступень. Прежняя доменная проверка каталога — `make cli-check`.
 - `make security` выполняет базовый `go vet` и не заменяет ручной threat-model review.
 - `make secrets-check` ищет tracked private keys и высокоинформативные token patterns.
 - `make dependency-check` запускает `govulncheck` и OSV-Scanner, закреплённые

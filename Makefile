@@ -9,6 +9,10 @@ ALIAS_PATH := $(BINDIR)/omt
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
+# Plain-CLI default per guide-tools 08-security-and-reliability.md, "Зависимости
+# и supply chain": SCA cadence not less often than every 30 days, recorded in
+# the onboarding record (README.md, "SCA cadence").
+SCA_CADENCE_DAYS ?= 30
 GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go' | while IFS= read -r file; do test -f "$(ROOT)$$file" && printf '%s\n' "$$file"; done))
 
 DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
@@ -92,7 +96,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -274,7 +278,20 @@ install-smoke:
 smoke: build
 	@cd $(ROOT) && ./bin/openrouter --version >/dev/null && ./bin/openrouter --help >/dev/null
 
-check: build
+# check is the guide-tools baseline gate (05-build-test-docs.md), not the
+# domain command: it is the canonical embedding point for the SCA-freshness
+# staleness gate (08-security-and-reliability.md, "Gate по свежести
+# SCA-evidence") -- the nearest-to-the-developer, run-earliest-and-most-often
+# target, so a lapsed `make dependency-check` cadence is caught on the next
+# ordinary cycle instead of only at release time. It intentionally does not
+# build or run the binary and needs no network: it only judges whether the
+# *last* dependency-check run is still fresh, digest-matched and clean. The
+# domain "what changed in the OpenRouter catalogue" report this target used
+# to run is `make cli-check` (or `openrouter check` directly).
+check:
+	@$(ROOT)scripts/check-sca-freshness.sh '$(EVIDENCE_DIR)/dependency-evidence.json' '$(SCA_CADENCE_DAYS)'
+
+cli-check: build
 	cd $(ROOT) && $(BINARY) check --data-dir $(DATA_DIR) --output /dev/null
 
 init:
@@ -324,7 +341,7 @@ release-check: check-version build
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@commit="$$(git -C $(ROOT) rev-parse --verify HEAD)" || exit $$?; printf '%s\n' "release candidate: version=$(VERSION) commit=$$commit planned-tag=v$(VERSION)"
 	@cd $(ROOT) && git diff --check
-	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check secrets-check sbom verify-provenance signature check-docs PROVENANCE_PROFILE=candidate
+	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check check secrets-check sbom verify-provenance signature check-docs PROVENANCE_PROFILE=candidate
 	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
 
 release-build: check-tag check-homebrew-formula
@@ -458,7 +475,8 @@ help:
 		'install-smoke  Install into a disposable PREFIX and verify the CLI' \
 		'smoke          Run local CLI smoke checks' \
 		'check-docs     Validate required project documentation' \
-		'check          Run the read-only CLI check against this checkout' \
+		'check          SCA-freshness staleness gate (dependency-check evidence age/digest/status)' \
+		'cli-check      Run the read-only domain CLI check (openrouter check) against this checkout' \
 		'init           Build, initialize, refresh, and open the report on macOS' \
 		'refresh        Refresh data and the generated comparison document' \
 		'history        Show price history for this checkout' \

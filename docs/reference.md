@@ -272,6 +272,7 @@ make test-all
 make vet
 make fmt-check
 make check
+make cli-check
 make history
 make table
 make init
@@ -297,6 +298,21 @@ make verify-provenance
 make signature
 make check-docs
 ```
+
+`make check` — baseline gate из guide-tools 05-build-test-docs.md, а не
+доменная команда: это SCA-freshness staleness gate
+(`scripts/check-sca-freshness.sh`, 08-security-and-reliability.md, «Gate по
+свежести SCA-evidence»). Он читает `.release/dependency-evidence.json`
+(результат последнего `make dependency-check`), сверяет input digest с
+текущими `go.mod`/`go.sum`, проверяет `scan_status == clean` и возраст
+evidence относительно окна каденции (`SCA_CADENCE_DAYS`, по умолчанию 30
+дней) — сам он ничего не сканирует и не требует сети. Отсутствующая,
+устаревшая, не совпадающая по digest или не-`clean` evidence — blocker с
+точной командой-подсказкой (`make dependency-check`), а не тихий пропуск.
+`make release-check` выполняет ту же проверку повторно как pre-tag ступень.
+Прежняя доменная проверка («что изменилось в каталоге OpenRouter с последнего
+`refresh`») осталась ровно той же, но теперь называется `make cli-check`
+(эквивалент прямого `openrouter check --data-dir ...`).
 
 #### Локальный installer
 

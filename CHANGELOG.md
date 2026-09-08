@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+- `make check` is now the guide-tools baseline SCA-freshness staleness gate
+  (dependency-evidence age, digest, and status) instead of the domain
+  catalogue-change report; the previous behavior moved to `make cli-check`
+  (or `openrouter check` directly). `make release-check` re-runs the same
+  freshness check as its pre-tag stage.
 - Create the config directory, cache directories, and local state files
   (`model-snapshot.json`, `cache/price-history.json`, HTTP cache entries) with
   owner-only permissions (`0700`/`0600`) instead of `0755`/`0644`. The
