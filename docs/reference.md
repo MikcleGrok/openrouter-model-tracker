@@ -305,8 +305,9 @@ make check-docs
 свежести SCA-evidence»). Он читает `.release/dependency-evidence.json`
 (результат последнего `make dependency-check`), сверяет input digest с
 текущими `go.mod`/`go.sum`, проверяет `scan_status == clean` и возраст
-evidence относительно окна каденции (`SCA_CADENCE_DAYS`, по умолчанию 30
-дней) — сам он ничего не сканирует и не требует сети. Отсутствующая,
+evidence относительно окна каденции (`SCA_CADENCE_DAYS`, по умолчанию 7 дней —
+publishable profile, а не plain-CLI дефолт в 30 дней, см. onboarding record
+ниже) — сам он ничего не сканирует и не требует сети. Отсутствующая,
 устаревшая, не совпадающая по digest или не-`clean` evidence — blocker с
 точной командой-подсказкой (`make dependency-check`), а не тихий пропуск.
 `make release-check` выполняет ту же проверку повторно как pre-tag ступень.

@@ -9,10 +9,14 @@ ALIAS_PATH := $(BINDIR)/omt
 DATA_DIR := $(ROOT)
 OUTPUT := $(ROOT)docs/openrouter-model-comparison.md
 EVIDENCE_DIR := $(ROOT).release
-# Plain-CLI default per guide-tools 08-security-and-reliability.md, "Зависимости
-# и supply chain": SCA cadence not less often than every 30 days, recorded in
-# the onboarding record (README.md, "SCA cadence").
-SCA_CADENCE_DAYS ?= 30
+# This project is plain CLI/TUI *and* publishable (it ships GitHub Release
+# binaries and a Homebrew asset-channel formula), and guide-tools
+# 08-security-and-reliability.md, "Зависимости и supply chain" requires the
+# stricter weekly cadence for any publishable profile -- the plain-CLI
+# not-less-than-30-days default only applies when nothing stricter is
+# established. Recorded in the onboarding record (docs/reference.md, "SCA
+# cadence").
+SCA_CADENCE_DAYS ?= 7
 GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go' | while IFS= read -r file; do test -f "$(ROOT)$$file" && printf '%s\n' "$$file"; done))
 
 DESCRIBE_VERSION := $(shell git -C $(ROOT) describe --tags --always --dirty)
