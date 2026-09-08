@@ -146,12 +146,12 @@ vet:
 lint: vet
 
 fmt:
-	cd $(ROOT) && gofmt -w $(GO_FILES)
+	@cd $(ROOT) && goroot="$$($(GO) env GOROOT)"; test -n "$$goroot" || { printf '%s\n' 'BLOCKED: could not resolve GOROOT from the pinned toolchain' >&2; exit 1; }; gofmt_bin="$$goroot/bin/gofmt"; test -x "$$gofmt_bin" || { printf '%s\n' "BLOCKED: gofmt not found or not executable at $$gofmt_bin" >&2; exit 1; }; printf '%s\n' "Using gofmt: $$gofmt_bin"; "$$gofmt_bin" -w $(GO_FILES)
 
 format: fmt-check
 
 fmt-check:
-	@cd $(ROOT) && test -z "$$(gofmt -l $(GO_FILES))" || { printf '%s\n' 'Go files need gofmt:'; gofmt -l $(GO_FILES); exit 1; }
+	@cd $(ROOT) && goroot="$$($(GO) env GOROOT)"; test -n "$$goroot" || { printf '%s\n' 'BLOCKED: could not resolve GOROOT from the pinned toolchain' >&2; exit 1; }; gofmt_bin="$$goroot/bin/gofmt"; test -x "$$gofmt_bin" || { printf '%s\n' "BLOCKED: gofmt not found or not executable at $$gofmt_bin" >&2; exit 1; }; printf '%s\n' "Using gofmt: $$gofmt_bin"; out="$$("$$gofmt_bin" -l $(GO_FILES))"; test -z "$$out" || { printf '%s\n' 'Go files need gofmt:'; printf '%s\n' "$$out"; exit 1; }
 
 security:
 	@cd $(ROOT) && $(GO) vet ./... && printf '%s\n' 'Security baseline passed: go vet and repository profile checks.'
