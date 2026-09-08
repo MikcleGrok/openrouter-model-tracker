@@ -489,6 +489,8 @@ release-github: release-github-check
 
 docs check-docs:
 	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md && test -s $(ROOT)LICENSE && test -s $(MAN_PAGE)
+	@grep -q '^## Crosswalk controls$$' $(ROOT)docs/security.md || { printf '%s\n' 'FAIL: docs/security.md is missing the required "## Crosswalk controls" section (08-security-and-reliability.md)' >&2; exit 1; }
+	@awk '/^## Crosswalk controls$$/{f=1;next} f && /^## /{f=0} f && /^\|/{ if ($$0 ~ /^\| *:?-+:? *\|/) { sep=1; next }; if (sep) { rows++; n=split($$0, cells, "|"); for (i=2; i<n; i++) { cell=cells[i]; gsub(/^[ \t]+|[ \t]+$$/, "", cell); if (cell == "") { print "FAIL: docs/security.md Crosswalk controls table has an empty cell on line " NR > "/dev/stderr"; bad=1 } } } } END{ if (bad) exit 1; if (rows < 5) { print "FAIL: docs/security.md Crosswalk controls table has only " rows " data row(s), want at least 5" > "/dev/stderr"; exit 1 }; print "PASS: Crosswalk controls table has " rows " complete data row(s)" }' $(ROOT)docs/security.md
 	@printf '%s\n' 'Documentation contract passed.'
 
 clean:

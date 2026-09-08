@@ -124,6 +124,69 @@ v1.13.8, v1.13.9, v1.13.10, v1.13.13.
 Этот ключ никогда не должен попадать в secret CI/CD-системы (GitHub Actions и
 подобные) — именно так был потерян предыдущий.
 
+## Криптография и TLS
+
+guide-tools 08-security-and-reliability.md requires cryptography to use
+supported libraries and algorithms fixed in the project's own security
+profile, with a cited source/standard, plus verified TLS hostname/chain
+checking and an explicit pinning policy. This section is that fixation, and
+every claim below was verified against this checkout rather than assumed.
+
+**Подпись релизов.** The committed release-signing key is ECDSA over the
+NIST P-256 curve — confirmed live, not assumed, via
+`openssl pkey -pubin -text -noout < cosign.pub` (`ASN1 OID: prime256v1`,
+`NIST CURVE: P-256`); `cosign.pub.previous` (the rotated-out key still used
+to verify older releases, see above) is the same curve. That is
+[NIST FIPS 186-5](https://csrc.nist.gov/pubs/fips/186-5/final) (Digital
+Signature Standard, which specifies ECDSA over NIST curves including P-256).
+`cosign`'s default digest algorithm for this key type is SHA-256, i.e.
+[NIST FIPS 180-4](https://csrc.nist.gov/pubs/fips/180/4/final) (Secure Hash
+Standard).
+
+**Provenance.** Release provenance is an in-toto Statement v1 with predicate
+type SLSA Provenance v1 (`cosign attest-blob --type slsaprovenance1`,
+`Makefile`'s `attest` target), matching
+[SLSA v1.2](https://slsa.dev/spec/v1.2/) — this is a real, already-shipped
+mechanism (guide-tools 08-security-and-reliability.md, "Provenance-предикат"
+section), not an aspirational claim.
+
+**Дайджесты.** SHA-256
+([FIPS 180-4](https://csrc.nist.gov/pubs/fips/180/4/final)) is the only
+digest algorithm this project computes or verifies: `checksums`/`SHA256SUMS`
+(local and local-release artifacts), `input_digest` in dependency-check
+evidence, `sha256` fields in `release-manifest.json` and every evidence
+bundle in `.release/`.
+
+**TLS.** The only outbound HTTPS client this project constructs is
+`internal/httpcache/httpcache.go`'s `&http.Client{Timeout: timeout}` — no
+custom `http.Transport` or `tls.Config`, so it runs on Go's
+`http.DefaultTransport` and `crypto/tls` defaults exactly as shipped by the
+pinned toolchain. `MinVersion` is not set explicitly by this project's code;
+verified against the pinned toolchain itself (`go doc
+crypto/tls.Config.MinVersion` on go1.26.7, the toolchain `.builder/local/
+go-wrapper` selects for this repository at the time of writing): "By
+default, TLS 1.2 is currently used as the minimum" — that is the actual
+floor this client negotiates up from, honestly documented rather than
+guessed, and it satisfies [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)
+(TLS 1.3, which Go's client negotiates when the server supports it) as an
+upper bound. Neither `InsecureSkipVerify` nor any custom
+`VerifyPeerCertificate`/`VerifyConnection` callback is set anywhere in this
+codebase (verified: no match for either identifier), so hostname and
+certificate-chain validation run unmodified against the OS trust store, per
+[RFC 5280](https://www.rfc-editor.org/rfc/rfc5280) (chain/path validation)
+and RFC 8446's own hostname-verification requirements.
+
+**Pinning.** No certificate pinning is applied, as an explicit decision, not
+a silent gap: every endpoint this tool talks to (OpenRouter's public API,
+vals.ai, swebench.com, arena.ai's public JSON endpoints) is a public HTTPS
+service whose CA and leaf certificates rotate on a schedule outside this
+project's control, and pinning them would trade a real availability risk
+(a legitimate rotation breaking every installed copy of this CLI with no
+update path other than a new release) for a threat model — a compromised
+public CA targeting these specific low-value read-only endpoints — this
+project has no better defense against than the standard trust-store
+validation already in place.
+
 ## Известное расхождение: два канала бинарных assets
 
 Onboarding record (`README.md`, `channels`) декларирует два реально
@@ -154,3 +217,38 @@ Onboarding record (`README.md`, `channels`) декларирует два реа
 этого репозитория, либо описать и заскриптовать канонический republish-шаг
 из self-repo релиза в shared-repo asset. Зафиксировано здесь как известный
 факт для следующего пересмотра onboarding record, а не смолчано.
+
+## Crosswalk controls
+
+guide-tools 08-security-and-reliability.md requires a filled crosswalk for
+every control applicable to this project (the standards list there is a
+menu, not a fixed mandatory set — only what actually applies gets a row).
+Each row: `control | source + verified version and exact ID/section title |
+automatic/manual check | evidence/gate | owner`. Per that same rule, an
+ASVS/NIST ID that has not been checked against a pinned version of the
+standard is marked `VERIFY` with the closest exact section title instead of
+a guessed number. Controls this project genuinely does not have (container
+runtime, Docker) live in the onboarding record's `N/A controls/rationale`
+field (README.md) instead of a row here, so as not to duplicate that
+statement.
+
+| Control/практика | Источник и идентификатор/раздел | Проверка | Evidence/gate | Owner |
+| --- | --- | --- | --- | --- |
+| Dependency vulnerability scanning (SCA) | NIST SP 800-218 v1.1 (SSDF), practice family PW (Produce Well-Secured Software), конкретная subpractice `VERIFY` | automatic: `govulncheck` + OSV-Scanner (full-native mode), weekly cadence gate | `make dependency-check`, `make check` (staleness gate), `.release/dependency-evidence.json` | maintainer |
+| Immutable dev-tool pinning (govulncheck/OSV-Scanner/mandoc) | NIST SP 800-218 v1.1 (SSDF), practice family PS (Protect the Software), конкретная subpractice `VERIFY` | automatic: `go tool` resolution from `tools/go.mod`'s own tool directives, never bare `PATH` | `tools/go.mod`, `make dependency-check` | maintainer |
+| Release provenance (source, builder, artifact digest) | [SLSA v1.2](https://slsa.dev/spec/v1.2/), Provenance requirements (fact, not `VERIFY`: `--type slsaprovenance1` is the real predicate type this project emits — see «Криптография и TLS» above) | automatic: `cosign attest-blob` + `cosign verify-blob-attestation` | `make attest`, `make verify-provenance`, `.release/release-manifest.json.att.bundle.json` | maintainer |
+| Signing key custody, algorithm and rotation | Этот файл, раздел «Ключ подписи релизов» и «Криптография и TLS» | manual: owner, Keychain storage, rotation procedure; automatic: `sign-flags-check` (no Rekor upload) | `make cosign-key-check`, `scripts/sign_flags_test.sh`, this file | maintainer |
+| SBOM generation and artifact linkage | SPDX 2.3 (via Syft); this project's own supply-chain profile (this file, «Makefile gates») | automatic: `make sbom` generates from the exact artifact digested into `release-manifest.json` | `make sbom`, `.release/sbom.spdx.json` | maintainer |
+| Secrets scanning of tracked source | NIST SP 800-218 v1.1 (SSDF), practice family PW (Produce Well-Secured Software), конкретная subpractice `VERIFY` | automatic: pattern scan (private-key headers, AWS/GitHub token shapes) + pre-commit hook | `make secrets-check`, `.githooks` (`make install-hooks`) | maintainer |
+| TLS transport security for outbound HTTPS clients | [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446) (TLS 1.3) + [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280) (chain/path validation) | manual: verified once against the pinned Go toolchain's own documented defaults and this codebase's one `http.Client` construction, no automatic re-check | this file, «Криптография и TLS»; `internal/httpcache/httpcache.go` | maintainer |
+| Install/uninstall path scoping (no unowned-file mutation) | Этот файл и README.md's onboarding record, поле `shared-location scoping` | automatic: unmanaged/foreign/mismatched destination preservation checks | `scripts/install_test.sh`, `make install-smoke` | maintainer |
+| Repository tag-protection (no force-update/delete on release tags) | guide-tools 06-release.md, «Repository policy MUST запрещать force-update и delete release tags» | automatic: GitHub repository ruleset lookup via `gh api` | `make tag-protection-check`, `.release/tag-protection-evidence.json` (ruleset `protect-release-tags`, id 22587144) | maintainer |
+| Homebrew asset-channel source provenance | guide-tools 11-distribution-verifier.md, «Acceptance criteria для source provenance» | automatic, run on the maintainer's machine (requires `brew`; not part of `make check`, which stays network/tool-free) | `make homebrew-source-check`, `.release/homebrew-source-evidence.json` | maintainer |
+
+Ни один ряд не закрыт по одной ссылке: у каждого есть и источник с проверенной
+версией, и реальный gate или evidence-файл. Строка про builder identity
+намеренно отсутствует: подпись выполняется статическим cosign-ключом без
+Fulcio/Rekor, так что builder identity криптографически не подтверждается —
+заявлять этот контроль означало бы утверждать то, чего нет (см. «Криптография
+и TLS» выше и `scripts/sign_flags_test.sh`, запрещающий transparency-log
+upload).
