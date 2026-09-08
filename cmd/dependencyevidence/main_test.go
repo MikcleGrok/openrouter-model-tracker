@@ -12,10 +12,11 @@ func TestClassifyDependencyStatuses(t *testing.T) {
 		statuses           map[string]string
 		scanStatus, policy string
 	}{
-		{name: "passed", statuses: map[string]string{"a": "passed", "b": "passed"}, scanStatus: "passed", policy: "allow"},
-		{name: "blocked", statuses: map[string]string{"a": "blocked", "b": "passed"}, scanStatus: "blocked", policy: "blocked"},
+		{name: "clean", statuses: map[string]string{"a": "clean", "b": "clean"}, scanStatus: "clean", policy: "allow"},
+		{name: "findings", statuses: map[string]string{"a": "findings", "b": "clean"}, scanStatus: "findings", policy: "deny"},
 		{name: "error", statuses: map[string]string{"a": "error", "b": "error"}, scanStatus: "error", policy: "deny"},
-		{name: "partial", statuses: map[string]string{"a": "error", "b": "passed"}, scanStatus: "partial", policy: "deny"},
+		{name: "partial", statuses: map[string]string{"a": "error", "b": "clean"}, scanStatus: "partial", policy: "deny"},
+		{name: "error-outranks-findings", statuses: map[string]string{"a": "error", "b": "findings"}, scanStatus: "partial", policy: "deny"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

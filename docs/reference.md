@@ -348,10 +348,13 @@ CI-гейт: функциональные тесты источников исп
 прогон требует отдельного контролируемого окружения.
 
 Makefile является единственным публичным интерфейсом build/test/security/release
-действий и не зависит от текущего каталога. `dependency-check` и `sbom` требуют
-внешние scanners и завершаются ошибкой при их отсутствии; это не скрытые NO-OP.
-Dependency evidence использует строгую схему v2: статусы `blocked`, `error`,
-`partial` и `passed` не смешиваются, а запись содержит findings, policy decision,
+действий и не зависит от текущего каталога. `dependency-check` запускает
+`govulncheck` и `osv-scanner`, закреплённые по точной версии через tool
+directive в `tools/go.mod` (см. заголовок этого файла), а не разрешённые через
+`PATH`; `sbom` по-прежнему требует внешний scanner и завершается ошибкой при
+его отсутствии — это не скрытые NO-OP.
+Dependency evidence использует строгую схему v3: статусы `clean`, `findings`,
+`error` и `partial` не смешиваются, а запись содержит findings, policy decision,
 digest входных файлов, metadata инструментов/базы и native outputs.
 `verify-provenance` и `signature` по умолчанию используют `PROVENANCE_PROFILE=local`:
 это явный `NOT APPLICABLE` с кодом 0 без вызова cosign и без signed/provenance

@@ -12,12 +12,18 @@
 
 - `make security` выполняет базовый `go vet` и не заменяет ручной threat-model review.
 - `make secrets-check` ищет tracked private keys и высокоинформативные token patterns.
-- `make dependency-check` требует установленный `govulncheck` и OSV-Scanner, не
-  изменяет `go.mod`, `go.sum` или dependency graph и сохраняет strict v2 evidence
-  с `scan_status`, `findings`, `policy_decision`, input digest, tool/database
-  metadata и хешированными native outputs в `.release/`. Отсутствие scanner является `blocked`,
-  ошибка сканера — `error`, смешанный результат — `partial`; ни один из них не
-  считается успешным gate.
+- `make dependency-check` запускает `govulncheck` и OSV-Scanner, закреплённые
+  по точной версии через tool directive в `tools/go.mod` (никогда не
+  разрешаются через `PATH`), не изменяет `go.mod`, `go.sum` или dependency
+  graph и сохраняет strict v3 evidence с `scan_status`, `findings`,
+  `policy_decision`, input digest, tool/database metadata и хешированными
+  native outputs в `.release/`. `scan_status` — ровно одно из четырёх
+  значений: `clean` (находок нет), `findings` (сканер нашёл хотя бы одну),
+  `error` (сканер не смог отработать или дал непригодный вывод) или `partial`
+  (часть сканеров ошиблась, часть — нет); это ровно те четыре состояния,
+  которые определяет контракт `make dependency-check` в
+  guide-tools/08-security-and-reliability.md. Успешным gate считается только
+  `clean`.
 - `make sbom` требует Syft и генерирует SPDX JSON в `.release/sbom.spdx.json`.
 - `make checksums` создаёт SHA-256 checksum локального бинарника.
 - `make verify-local-artifact` проверяет строгую схему manifest/checksum, exact tag и

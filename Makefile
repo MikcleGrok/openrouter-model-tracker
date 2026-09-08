@@ -23,6 +23,16 @@ LOCAL_RELEASE_DIR ?= $(ROOT)dist/local-release
 LOCAL_RELEASE_PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 LOCAL_RELEASE_BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# Dev/security tooling pinned by go.mod tool directive in tools/ (see that
+# module's own header comment for why it is a separate module), resolved by
+# `go tool` and never by bare PATH lookup (05-build-test-docs.md, "Версии
+# dev-инструментов").
+GO_TOOLS_DIR := $(ROOT)tools
+GO_TOOL := $(GO) -C $(GO_TOOLS_DIR) tool
+GO_TOOL_VERSION := $(GO) -C $(GO_TOOLS_DIR) list -m -f '{{.Version}}'
+GOVULNCHECK_MODULE := golang.org/x/vuln
+OSV_SCANNER_MODULE := github.com/google/osv-scanner/v2
+
 # Signed release provenance (static cosign key-pair, no Fulcio/Rekor — see
 # ~/projects/tools/guide-tools/.task/go-guide-compliance/signing-design.md
 # §5.5). Evidence file paths are relative-to-root literals (not built from
@@ -130,8 +140,18 @@ security:
 
 dependency-check:
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/govuln-version.txt .release/osv-version.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; toolchain="$$($(GO) --print-toolchain)"; printf '%s\n' "Go toolchain: $$toolchain"; $(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=passed; test $$mod_exit -eq 0 || mod_status=error; govuln_status=blocked; osv_status=blocked; govuln_version=; osv_version=; if command -v govulncheck >/dev/null 2>&1; then GOTOOLCHAIN="$$toolchain" govulncheck -version > .release/govuln-version.txt 2>&1; govuln_version="$$(tr '\n' ' ' < .release/govuln-version.txt)"; GOTOOLCHAIN="$$toolchain" govulncheck ./... > .release/govulncheck.txt 2>&1; test $$? -eq 0 && govuln_status=passed || govuln_status=error; fi; if command -v osv-scanner >/dev/null 2>&1; then osv-scanner --version > .release/osv-version.txt 2>&1; osv_version="$$(tr '\n' ' ' < .release/osv-version.txt)"; GOTOOLCHAIN="$$toolchain" osv-scanner scan source --lockfile go.mod > .release/osv-scanner.txt 2>&1; test $$? -eq 0 && osv_status=passed || osv_status=error; fi; shasum -a 256 go.mod go.sum > .release/module-checksums.txt || exit $$?; input_digest="$$(shasum -a 256 .release/module-checksums.txt)" || exit $$?; input_digest="$${input_digest%% *}"; rm -f .release/module-checksums.txt; $(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
-	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-passed scans are explicit blockers/errors.'
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; \
+	toolchain="$$($(GO) --print-toolchain)"; printf '%s\n' "Go toolchain: $$toolchain"; \
+	$(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=clean; test $$mod_exit -eq 0 || mod_status=error; \
+	govuln_version="$$($(GO_TOOL_VERSION) $(GOVULNCHECK_MODULE) 2>/dev/null)"; \
+	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) govulncheck -C "$(ROOT)" ./... > .release/govulncheck.txt 2>&1; govuln_exit=$$?; \
+	case $$govuln_exit in 0) govuln_status=clean;; 3) govuln_status=findings;; *) govuln_status=error;; esac; \
+	osv_version="$$($(GO_TOOL_VERSION) $(OSV_SCANNER_MODULE) 2>/dev/null)"; \
+	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) osv-scanner scan source --lockfile "$(ROOT)go.mod" > .release/osv-scanner.txt 2>&1; osv_exit=$$?; \
+	case $$osv_exit in 0) osv_status=clean;; 1) osv_status=findings;; *) osv_status=error;; esac; \
+	shasum -a 256 go.mod go.sum > .release/module-checksums.txt || exit $$?; input_digest="$$(shasum -a 256 .release/module-checksums.txt)" || exit $$?; input_digest="$${input_digest%% *}"; rm -f .release/module-checksums.txt; \
+	$(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
+	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-clean scans are explicit findings/errors.'
 
 secrets-check:
 	@cd $(ROOT) && if git grep -n -E -- '-----BEGIN (RSA |EC |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(ghp|github_pat)_[A-Za-z0-9_]+' -- ':!go.sum'; then printf '%s\n' 'Potential secret detected.' >&2; exit 1; fi
@@ -386,7 +406,7 @@ release-github: release-github-check
 		if test '$(RELEASE_DRY_RUN)' = 1; then printf 'DRY RUN:'; printf ' %s' "$$@"; printf '\n'; else command -v gh >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is required to publish a GitHub Release' >&2; exit 1; }; gh auth status >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is not authenticated; run gh auth login' >&2; exit 1; }; if "$$@"; then :; else if gh release view "$$tag" --repo "$$repository" >/dev/null 2>&1; then printf '%s\n' "BLOCKED: GitHub Release $$tag appeared during publication; refusing duplicate publication" >&2; else printf '%s\n' "BLOCKED: GitHub Release $$tag publication failed" >&2; fi; exit 1; fi; fi
 
 docs check-docs:
-	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md
+	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md && test -s $(ROOT)LICENSE
 	@printf '%s\n' 'Documentation contract passed.'
 
 clean:

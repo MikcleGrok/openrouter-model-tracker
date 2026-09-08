@@ -82,7 +82,7 @@ func main() {
 		}
 		nativeOutputs[scanner] = metadata
 	}
-	got := evidence{Schema: "openrouter-model-tracker/dependency-evidence/v2", GeneratedAt: time.Now().UTC().Format(time.RFC3339), Commit: *commit, InputDigest: *inputDigest, ScanStatus: overall, Findings: findings, PolicyDecision: policy, Tools: map[string]tool{"govulncheck": {Status: *govulnStatus, Version: *govulnVersion}, "osv-scanner": {Status: *osvStatus, Version: *osvVersion}}, Database: map[string]databaseEvidence{"govulncheck": {Source: *db}, "osv-scanner": {Source: *db}}, NativeOutputs: nativeOutputs}
+	got := evidence{Schema: "openrouter-model-tracker/dependency-evidence/v3", GeneratedAt: time.Now().UTC().Format(time.RFC3339), Commit: *commit, InputDigest: *inputDigest, ScanStatus: overall, Findings: findings, PolicyDecision: policy, Tools: map[string]tool{"govulncheck": {Status: *govulnStatus, Version: *govulnVersion}, "osv-scanner": {Status: *osvStatus, Version: *osvVersion}}, Database: map[string]databaseEvidence{"govulncheck": {Source: *db}, "osv-scanner": {Source: *db}}, NativeOutputs: nativeOutputs}
 	data, err := json.MarshalIndent(got, "", "  ")
 	if err != nil {
 		fatal(err.Error())
@@ -90,10 +90,10 @@ func main() {
 	if err := os.WriteFile(*output, append(data, '\n'), 0o600); err != nil {
 		fatal(err.Error())
 	}
-	if overall != "passed" {
-		fmt.Fprintf(os.Stderr, "dependency-check policy decision: %s (scan_status=%s); non-passed scanners:\n", policy, overall)
+	if overall != "clean" {
+		fmt.Fprintf(os.Stderr, "dependency-check policy decision: %s (scan_status=%s); non-clean scanners:\n", policy, overall)
 		for _, f := range findings {
-			if f.Status != "passed" {
+			if f.Status != "clean" {
 				fmt.Fprintf(os.Stderr, "  - %s: %s (%s)\n", f.Scanner, f.Status, f.Detail)
 			}
 		}
@@ -118,40 +118,45 @@ func inspectOutput(path string) (outputEvidence, error) {
 	return outputEvidence{Path: filepath.Clean(absolute), Bytes: int64(len(b)), SHA256: hex.EncodeToString(digest[:])}, nil
 }
 
+// classify rolls up per-tool statuses into the house scan_status vocabulary
+// (guide-tools 08-security-and-reliability.md, "Контракт make dependency-check":
+// scan_status is exactly one of clean, findings, error or partial — there is
+// no separate "blocked" or "passed" state at this level). Each per-tool
+// status is itself one of "clean" (ran, zero findings), "findings" (ran,
+// reported at least one real vulnerability) or "error" (crashed, missing, or
+// produced unusable output); a tool that could not run at all — including one
+// that used to be recorded as the local "blocked" state — is "error" here,
+// the same as any other failure to produce usable evidence.
 func classify(statuses map[string]string) (string, string) {
-	overall, policy := "passed", "allow"
-	passed, failed := 0, 0
+	counts := map[string]int{}
 	for _, status := range statuses {
-		if status == "passed" {
-			passed++
-			continue
-		}
-		failed++
-		if status == "blocked" {
-			overall, policy = "blocked", "blocked"
-		} else {
-			if overall != "blocked" {
-				overall = "error"
-			}
-			policy = "deny"
-		}
+		counts[status]++
 	}
-	if passed > 0 && failed > 0 && overall != "blocked" {
-		overall = "partial"
+	switch {
+	case counts["error"] == len(statuses):
+		return "error", "deny"
+	case counts["error"] > 0:
+		return "partial", "deny"
+	case counts["findings"] > 0:
+		// No exceptions registry exists yet (guide-tools "Evidence и
+		// изменяемые базы"), so every finding blocks by default until one is
+		// built; this matches the guide's block-by-default bias for
+		// reachable/unknown-severity findings rather than asserting a
+		// severity classification this tool does not compute.
+		return "findings", "deny"
+	default:
+		return "clean", "allow"
 	}
-	return overall, policy
 }
 
 func statusDetail(status string) string {
 	switch status {
-	case "passed":
-		return "scanner completed successfully"
-	case "blocked":
-		return "scanner executable or required database is unavailable"
-	case "partial":
-		return "scanner produced incomplete evidence"
+	case "clean":
+		return "scanner completed successfully with no findings"
+	case "findings":
+		return "scanner completed successfully and reported findings"
 	default:
-		return "scanner returned an error"
+		return "scanner returned an error, or could not run at all"
 	}
 }
 

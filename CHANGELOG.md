@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+- Create the config directory, cache directories, and local state files
+  (`model-snapshot.json`, `cache/price-history.json`, HTTP cache entries) with
+  owner-only permissions (`0700`/`0600`) instead of `0755`/`0644`. The
+  generated Markdown report keeps its shared, world-readable default.
+- Add an MIT `LICENSE` file.
+- Pin `govulncheck` and `osv-scanner` by exact version via a `tools/go.mod`
+  tool directive instead of resolving them from `PATH`, and distinguish a
+  clean dependency scan from one that actually reported findings: dependency
+  evidence's `scan_status` is now `clean`/`findings`/`error`/`partial` instead
+  of the previous `passed`/`blocked`/`error`/`partial` (schema
+  `dependency-evidence/v3`).
+
 ## [1.16.6]
 
 - Auto-refresh model data on first run instead of failing with "run refresh
