@@ -36,11 +36,28 @@ if [[ -z "$matches" ]]; then
 fi
 
 fail=0
-while IFS= read -r line; do
-  case "$line" in
+while IFS= read -r match; do
+  # A cosign invocation split across a shell line continuation (trailing
+  # `\`) puts `--tlog-upload=false` on a later physical line than the one
+  # `cosign sign-blob|attest-blob --` matched on -- e.g. the cosign-key-check
+  # target's self-test probe. Follow the continuation forward, joining
+  # subsequent physical lines of the same source file, before deciding the
+  # flag is actually missing; a genuinely single-line invocation is
+  # unaffected since the loop below never executes for it.
+  file="${match%%:*}"
+  rest="${match#*:}"
+  lineno="${rest%%:*}"
+  content="${rest#*:}"
+  full="$content"
+  n="$lineno"
+  while [[ "$full" == *'\' ]]; do
+    n=$((n + 1))
+    full="$full"$'\n'"$(sed -n "${n}p" "$file")"
+  done
+  case "$full" in
     *--tlog-upload=false*) ;;
     *)
-      printf 'MISSING --tlog-upload=false: %s\n' "$line" >&2
+      printf 'MISSING --tlog-upload=false: %s\n' "$match" >&2
       fail=1
       ;;
   esac
