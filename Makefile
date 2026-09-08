@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -397,6 +397,10 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 		awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
 	printf '%s\n' "Local release written to $$out"
+	@VERSION='$(VERSION)' TAG='$(TAG_VERSION)' RELEASE_DIR='$(LOCAL_RELEASE_DIR)/$(VERSION)' bash '$(ROOT)scripts/verify-published-assets.sh'
+
+distribution-check:
+	@VERSION='$(VERSION)' TAG='$(TAG_VERSION)' RELEASE_DIR='$(LOCAL_RELEASE_DIR)/$(VERSION)' bash '$(ROOT)scripts/verify-published-assets.sh'
 
 release-github-check:
 	@set -eu; \
@@ -493,8 +497,9 @@ help:
 		'homebrew-reinstall Sync, reinstall, and verify the local Homebrew formula' \
 		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
 		'release-build  Build with the normalized version from the exact checked-out tag' \
-		'release-local   Run checks and build deterministic local platform archives' \
+		'release-local   Run checks, build deterministic local platform archives, and verify distribution metadata' \
 		'local-release   Alias for release-local' \
+		'distribution-check Verify the native-platform local-release archive against guide-distribution-verify (archive profile)' \
 		'release-github-check Verify exact-tag GitHub release evidence without publishing' \
 		'release-github  Publish an exact-tag GitHub Release (RELEASE_DRY_RUN=1 for command preview)' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \

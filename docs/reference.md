@@ -288,6 +288,7 @@ make openrouter-launchd-refresh-start
 make openrouter-launchd-refresh-uninstall
 make release-check VERSION=1.0.0
 make release-local
+make distribution-check
 make verify-release
 make whats-new
 make security
@@ -655,6 +656,20 @@ UTC `built_at`. Каталог локальный и игнорируется Gi
 двигает tags, не меняет remote, не вызывает GitHub/GitLab, `gh`, API, Homebrew,
 signing keys или secrets. Homebrew остаётся отдельным disposable local flow
 через `sync-homebrew-formula` и `homebrew-reinstall`.
+
+После сборки архивов `release-local`/`local-release` автоматически вызывает
+`make distribution-check` — канонический `guide-distribution-verify` в
+`archive` profile (`scripts/verify-published-assets.sh`, thin wrapper по
+11-distribution-verifier.md), а не `formula`/`prebuilt`: у этого checkout нет
+собственного source-build formula файла, а у профиля `prebuilt` есть
+verifier-side ограничение (`--tag` должен одновременно быть строгим SemVer
+и совпадать с tag-сегментом asset URL), которому не удовлетворяет ни один tag
+для shared-repo asset-host паттерна `MikcleGrok/tools` — см. header comment
+самого скрипта и `docs/security.md`, «Известное расхождение». `archive`
+проверяет digest артефакта native платформы против `SHA256SUMS`, exact
+tag/version/commit против `manifest.json` и делает real install smoke в
+disposable prefix (`make install-smoke`). Отдельный вызов: `make
+distribution-check VERSION=1.0.0 TAG=v1.0.0`.
 
 Для проверки на существующем теге:
 

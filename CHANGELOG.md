@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+- Add `make distribution-check` (`scripts/verify-published-assets.sh`,
+  `guide-distribution-verify` archive profile), run automatically at the end
+  of `make release-local`/`local-release`: verifies the native-platform
+  local-release archive's digest, exact tag/version/commit, and a real
+  install smoke, closing the previous gap where nothing validated the
+  published GitHub Release asset channel.
 - `make check` is now the guide-tools baseline SCA-freshness staleness gate
   (dependency-evidence age, digest, and status) instead of the domain
   catalogue-change report; the previous behavior moved to `make cli-check`
