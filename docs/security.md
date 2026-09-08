@@ -33,7 +33,18 @@
   (часть сканеров ошиблась, часть — нет); это ровно те четыре состояния,
   которые определяет контракт `make dependency-check` в
   guide-tools/08-security-and-reliability.md. Успешным gate считается только
-  `clean`.
+  `clean`. OSV-Scanner запускается в full-native режиме: `osv-scanner scan
+  source --lockfile go.mod --data-source native --all-vulns` — `native`
+  вместо дефолтного `deps.dev` (прямые OSV-базы, а не сторонний API) и
+  `--all-vulns` (без фильтрации неважных/невызываемых находок), как того
+  требует guide-tools 08-security-and-reliability.md для этой версии
+  (`github.com/google/osv-scanner/v2 v2.5.1`, закреплена в `tools/go.mod`).
+  Перед каждым запуском gate сам снимает `osv-scanner scan source --help`
+  пиненой версии в `.release/osv-scanner-help.txt` и проверяет, что оба флага
+  там документированы; отсутствие любого из них — hard fail с явным
+  сообщением, а не молчаливый откат на дефолтный режим. `scan_status` этой
+  проверки на 2026-09-08 — `clean` (0 находок с этими флагами); реестра
+  исключений в проекте нет, потому что найти было нечего.
 - `make sbom` требует Syft и генерирует SPDX JSON в `.release/sbom.spdx.json`.
 - `make checksums` создаёт SHA-256 checksum локального бинарника.
 - `make verify-local-artifact` проверяет строгую схему manifest/checksum, exact tag и

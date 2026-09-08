@@ -55,6 +55,7 @@ func main() {
 	osvStatus := flag.String("osv-status", "", "osv-scanner status")
 	osvVersion := flag.String("osv-version", "", "osv-scanner version")
 	db := flag.String("database", "", "scanner database metadata")
+	osvDatabase := flag.String("osv-database", "", "osv-scanner database/invocation metadata; overrides --database for the osv-scanner entry only, so evidence can prove the exact confirmed invocation and flags rather than a generic placeholder shared with govulncheck")
 	govulnOutput := flag.String("govuln-output", "", "govulncheck native output")
 	osvOutput := flag.String("osv-output", "", "osv-scanner native output")
 	output := flag.String("output", "", "evidence output")
@@ -82,7 +83,11 @@ func main() {
 		}
 		nativeOutputs[scanner] = metadata
 	}
-	got := evidence{Schema: "openrouter-model-tracker/dependency-evidence/v3", GeneratedAt: time.Now().UTC().Format(time.RFC3339), Commit: *commit, InputDigest: *inputDigest, ScanStatus: overall, Findings: findings, PolicyDecision: policy, Tools: map[string]tool{"govulncheck": {Status: *govulnStatus, Version: *govulnVersion}, "osv-scanner": {Status: *osvStatus, Version: *osvVersion}}, Database: map[string]databaseEvidence{"govulncheck": {Source: *db}, "osv-scanner": {Source: *db}}, NativeOutputs: nativeOutputs}
+	osvSource := *db
+	if *osvDatabase != "" {
+		osvSource = *osvDatabase
+	}
+	got := evidence{Schema: "openrouter-model-tracker/dependency-evidence/v3", GeneratedAt: time.Now().UTC().Format(time.RFC3339), Commit: *commit, InputDigest: *inputDigest, ScanStatus: overall, Findings: findings, PolicyDecision: policy, Tools: map[string]tool{"govulncheck": {Status: *govulnStatus, Version: *govulnVersion}, "osv-scanner": {Status: *osvStatus, Version: *osvVersion}}, Database: map[string]databaseEvidence{"govulncheck": {Source: *db}, "osv-scanner": {Source: osvSource}}, NativeOutputs: nativeOutputs}
 	data, err := json.MarshalIndent(got, "", "  ")
 	if err != nil {
 		fatal(err.Error())

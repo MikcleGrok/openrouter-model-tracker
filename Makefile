@@ -158,17 +158,20 @@ security:
 
 dependency-check:
 	@mkdir -p $(EVIDENCE_DIR)
-	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; \
+	@cd $(ROOT) && rm -f .release/govulncheck.txt .release/osv-scanner.txt .release/osv-scanner-help.txt .release/dependency-evidence.json; : > .release/govulncheck.txt; : > .release/osv-scanner.txt; set +e; \
 	toolchain="$$($(GO) --print-toolchain)"; printf '%s\n' "Go toolchain: $$toolchain"; \
 	$(GO) mod verify > .release/go-mod-verify.txt 2>&1; mod_exit=$$?; mod_status=clean; test $$mod_exit -eq 0 || mod_status=error; \
 	govuln_version="$$($(GO_TOOL_VERSION) $(GOVULNCHECK_MODULE) 2>/dev/null)"; \
 	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) govulncheck -C "$(ROOT)" ./... > .release/govulncheck.txt 2>&1; govuln_exit=$$?; \
 	case $$govuln_exit in 0) govuln_status=clean;; 3) govuln_status=findings;; *) govuln_status=error;; esac; \
 	osv_version="$$($(GO_TOOL_VERSION) $(OSV_SCANNER_MODULE) 2>/dev/null)"; \
-	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) osv-scanner scan source --lockfile "$(ROOT)go.mod" > .release/osv-scanner.txt 2>&1; osv_exit=$$?; \
+	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) osv-scanner scan source --help > .release/osv-scanner-help.txt 2>&1; \
+	for flag in '--data-source' '--all-vulns'; do grep -Fq -- "$$flag" .release/osv-scanner-help.txt || { printf '%s\n' "BLOCKED: pinned osv-scanner $$osv_version --help does not document $$flag -- guide-tools 08-security-and-reliability.md requires this flag (or a documented equivalent full-native mode, confirmed against this exact version's --help) and forbids silently dropping it; see .release/osv-scanner-help.txt" >&2; exit 1; }; done; \
+	osv_invocation="osv-scanner scan source --lockfile go.mod --data-source native --all-vulns (both flags confirmed present in 'osv-scanner scan source --help' for pinned $$osv_version; see .release/osv-scanner-help.txt)"; \
+	GOTOOLCHAIN="$$toolchain" $(GO_TOOL) osv-scanner scan source --lockfile "$(ROOT)go.mod" --data-source native --all-vulns > .release/osv-scanner.txt 2>&1; osv_exit=$$?; \
 	case $$osv_exit in 0) osv_status=clean;; 1) osv_status=findings;; *) osv_status=error;; esac; \
 	shasum -a 256 go.mod go.sum > .release/module-checksums.txt || exit $$?; input_digest="$$(shasum -a 256 .release/module-checksums.txt)" || exit $$?; input_digest="$${input_digest%% *}"; rm -f .release/module-checksums.txt; \
-	$(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
+	$(GO) run ./cmd/dependencyevidence --output .release/dependency-evidence.json --commit "$$(git rev-parse HEAD)" --input-digest "$$input_digest" --mod-status "$$mod_status" --govuln-status "$$govuln_status" --govuln-version "$$govuln_version" --osv-status "$$osv_status" --osv-version "$$osv_version" --database "scanner-reported databases; see native output" --osv-database "$$osv_invocation" --govuln-output .release/govulncheck.txt --osv-output .release/osv-scanner.txt; evidence_status=$$?; test $$evidence_status -eq 0
 	@printf '%s\n' 'Dependency evidence written to .release/dependency-evidence.json; non-clean scans are explicit findings/errors.'
 
 secrets-check:
