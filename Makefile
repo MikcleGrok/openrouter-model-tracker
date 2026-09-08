@@ -326,8 +326,11 @@ MAN_PAGE := $(ROOT)man/openrouter.1
 man-check:
 	@command -v mandoc >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: mandoc is required to validate the man page' >&2; exit 1; }
 	@mandoc -T lint '$(MAN_PAGE)' 2>&1 | { ! grep -v 'STYLE:'; } || { printf '%s\n' 'FAIL: mandoc lint reported an issue beyond accepted STYLE notes' >&2; exit 1; }
-	@for section in SYNOPSIS OPTIONS COMMANDS EXAMPLES 'EXIT STATUS' VERSION; do grep -q "^\.SH $$section\$$" '$(MAN_PAGE)' || { printf '%s\n' "FAIL: man page missing required section: $$section" >&2; exit 1; }; done
-	@printf '%s\n' 'PASS: man page has all required sections (SYNOPSIS, OPTIONS, COMMANDS, EXAMPLES, EXIT STATUS, VERSION) and lints cleanly'
+	@for section in SYNOPSIS OPTIONS COMMANDS EXAMPLES 'EXIT STATUS' VERSION HOTKEYS; do grep -q "^\.SH $$section\$$" '$(MAN_PAGE)' || { printf '%s\n' "FAIL: man page missing required section: $$section" >&2; exit 1; }; done
+	@entry_count="$$(awk '/^\.SH HOTKEYS$$/{f=1;next} /^\.SH /{f=0} f && /^\.TP$$/{c++} END{print c+0}' '$(MAN_PAGE)')"; \
+	ss_count="$$(awk '/^\.SH HOTKEYS$$/{f=1;next} /^\.SH /{f=0} f && /^\.SS/{c++} END{print c+0}' '$(MAN_PAGE)')"; \
+	if [ "$$entry_count" -gt 12 ] && [ "$$ss_count" -eq 0 ]; then printf '%s\n' "FAIL: HOTKEYS has $$entry_count entries (>12) but no .SS category headers (02-tui.md, flat-listing threshold)" >&2; exit 1; fi
+	@printf '%s\n' 'PASS: man page has all required sections (SYNOPSIS, OPTIONS, COMMANDS, EXAMPLES, EXIT STATUS, VERSION, HOTKEYS) and lints cleanly'
 
 completion-check:
 	@set -eu; \

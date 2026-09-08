@@ -171,41 +171,129 @@ hotkey always refreshes on demand). Default:
 The interactive
 .B tui
 is driven by many context-specific hotkeys (main list, Settings, model
-detail, columns, filter, and help itself). The full, always-current list is
-in the TUI's own help overlay
+detail, columns, filter, and help itself). This section mirrors the TUI's
+own help overlay
 .RB ( ? " or " F1 ,
-six sections: Overview, Score Sources, Hotkeys, Filters, Model Detail,
-Methodology) and in
-.IR docs/reference.md ;
-duplicating all of it here would drift out of sync with the code. The main
-list's most-used bindings:
+Hotkeys section; six sections total: Overview, Score Sources, Hotkeys,
+Filters, Model Detail, Methodology; see also
+.IR docs/reference.md )
+exactly: category names, their order, and the ordered key list within each
+category are the same on both surfaces, and an automated test
+(TestHotkeyConsistency, cmd/openrouter/hotkey_consistency_test.go) fails the
+build if they ever drift apart. Each entry below describes exactly one
+action; where two or more keys are listed together, they are equivalent
+ways to trigger that same one action.
+.SS Navigation
 .TP
-.BR q ", " r
-Sort by quality, or by quality-per-price (Q/P).
+.B Up
+(Settings) Previous Settings field.
 .TP
-.BR s ", " S
-Cycle the sort key; reverse the sort order.
+.B Down
+(Settings) Next Settings field.
+.TP
+.B Esc
+(Settings) Close Settings.
+.TP
+.B Up
+(Model detail) Previous detail field.
+.TP
+.B Down
+(Model detail) Next detail field.
+.TP
+.B Up
+(Help) Scroll help up.
+.TP
+.B Down
+(Help) Scroll help down.
+.TP
+.B Up
+(Columns) Previous column.
+.TP
+.B Down
+(Columns) Next column.
+.TP
+.B Esc
+(Columns) Cancel column selection.
+.TP
+.B Up
+(Filter) Previous filter field.
+.TP
+.B Down
+(Filter) Next filter field.
+.TP
+.B Esc
+(Filter) Cancel filter editing.
+.TP
+.B Up
+(Main list) Previous model; in help, scroll up.
+.TP
+.B Down
+(Main list) Next model; in help, scroll down.
+.TP
+.BR j " / " k
+Move through models; in help, scroll.
+.TP
+.BR Home " / " g
+Jump to the first item.
+.TP
+.BR End " / " G
+Jump to the last item.
+.TP
+.BR PgUp " / " PgDown
+Page through models or help.
+.TP
+.BR Enter ", " Right
+Open the selected model's detail screen.
+.TP
+.BR Esc ", " Left ", or " h
+Close the current screen and return to the list.
+.SS Data/view
+.TP
+.B q
+Sort by quality.
 .TP
 .B p
 Cycle availability: any, free, paid, any.
 .TP
+.B r
+Sort by quality-per-price ratio (Q/P).
+.TP
 .B v
 Toggle layout: all models vs top-paid-free.
 .TP
-.B m
-Toggle ranking: mixed-utility vs tier-priority.
-.TP
-.B n
-Switch the last column between Task fit and Note.
-.TP
 .B l
-Toggle the UI language: English vs Russian.
+Toggle the UI language: English vs Russian; works from any screen.
+.TP
+.B m
+Toggle ranking mode: mixed-utility vs tier-priority.
+.TP
+.B s
+Cycle the sort key.
+.TP
+.B S
+Reverse the sort order.
 .TP
 .B o
 Open Settings (ranking, score source, filter, columns).
 .TP
+.B Down
+(Settings) Move to Score source.
+.TP
+.B Space
+(Main list) Switch score source: SWE\-bench vs Arena.
+.TP
+.B Space
+(Settings) Switch score source: SWE\-bench vs Arena.
+.TP
+.B R
+Refresh local data.
+.TP
 .B c
 Open column selection.
+.TP
+.B n
+Switch the last column between Task fit and Note.
+.SS Filters/settings
 .TP
 .B f
 Edit the structured filter.
@@ -214,22 +302,105 @@ Edit the structured filter.
 Search Name/Slug.
 .TP
 .B Space
-Switch score source: SWE\-bench vs Arena.
+(Columns) Toggle a column.
 .TP
-.BR Enter ", " Right
-Open the selected model's detail screen.
+.B Enter
+(Columns) Apply the column selection.
+.TP
+.B Space
+(Filter) Cycle Tier.
+.TP
+.B Enter
+Apply the current editor.
+.TP
+.B Esc
+Cancel the current editor.
+.SS Task-fit codes
+.TP
+.B I
+implement: write or change production code.
+.TP
+.B P
+plan: define scope, steps, and decisions.
 .TP
 .B R
-Manual refresh.
+research: investigate options, evidence, or behavior.
+.TP
+.B D
+debug: find and fix a defect or failure.
+.TP
+.B A
+audit: inspect quality, safety, or compliance.
+.TP
+.B F
+refactor: improve structure without changing behavior.
+.TP
+.B T
+test: add or improve automated verification.
+.PP
+No task-fit classification is shown as n/a.
+.SS "Refresh and finish"
+.TP
+.B R
+Refresh local data now. Auto-refresh uses
+.BR \-\-refresh\-interval ;
+.B 0
+disables it.
+.TP
+.B "mouse drag"
+Select any visible text;
+.B y
+copies the selection again.
+.TP
+.BR x " / " Ctrl\-C
+Exit the TUI.
+.TP
+.B Esc
+Close help.
+.TP
+.B Esc
+Return to the list from the current overlay.
+.TP
+.B ?
+Close help.
+.TP
+.B F1
+Open full help.
+.SS "Help search"
+.TP
+.B /
+Start a search in this document; type text and press Enter.
+.TP
+.B n
+Go to the next match; search results stay selected.
+.TP
+.B N
+Go to the previous match; search results stay selected.
+.TP
+.BR Up " / " Down
+Scroll this help; they do not change the selected match.
+.TP
+.B "0 matches"
+Searches with no matches are reported explicitly.
+.TP
+.B Esc
+Cancel search.
+.SS General/help
+.TP
+.B Esc
+Close the main view.
+.TP
+.BR x " / " Ctrl\-C
+Exit the TUI.
 .TP
 .B ?
 Open help at the Hotkeys section.
 .TP
-.B F1
-Open help at the Overview section.
+.B ?
+Close help.
 .TP
-.B Esc
-Close the current overlay, or the TUI itself from the main list.
+.B F1
+Open full help.
 .SH EXAMPLES
 .TP
 Refresh local data and regenerate the document:
