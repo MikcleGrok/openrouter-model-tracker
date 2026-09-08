@@ -115,7 +115,7 @@ v1.13.8, v1.13.9, v1.13.10, v1.13.13.
 
 ## Известное расхождение: два канала бинарных assets
 
-Onboarding record (`docs/reference.md`, `channels`) декларирует два реально
+Onboarding record (`README.md`, `channels`) декларирует два реально
 живых канала asset-channel-типа, но с разным происхождением:
 
 1. **Self-repo GitHub Release** — `github.com/MikcleGrok/openrouter-model-tracker`,

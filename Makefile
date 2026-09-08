@@ -14,7 +14,7 @@ EVIDENCE_DIR := $(ROOT).release
 # 08-security-and-reliability.md, "Зависимости и supply chain" requires the
 # stricter weekly cadence for any publishable profile -- the plain-CLI
 # not-less-than-30-days default only applies when nothing stricter is
-# established. Recorded in the onboarding record (docs/reference.md, "SCA
+# established. Recorded in the onboarding record (README.md, "SCA
 # cadence").
 SCA_CADENCE_DAYS ?= 7
 GO_FILES := $(addprefix $(ROOT),$(shell git -C $(ROOT) ls-files -co --exclude-standard '*.go' | while IFS= read -r file; do test -f "$(ROOT)$$file" && printf '%s\n' "$$file"; done))
@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check onboarding-check onboarding-record-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -132,7 +132,7 @@ test-acceptance: build
 # stage is what makes it worth having at all. -race checks data races only;
 # it MUST NOT be read as proof of no memory leak or resource retention
 # (12-test-contract.md, "Тесты удержания памяти и ресурсов").
-test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check
+test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check onboarding-record-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -184,6 +184,9 @@ sign-flags-check:
 
 provenance-profile-check:
 	@$(ROOT)scripts/provenance_profile_test.sh
+
+onboarding-record-check:
+	@$(ROOT)scripts/check-onboarding-record_test.sh
 
 openrouter-launchd-refresh-check:
 	@$(ROOT)scripts/launchd-refresh_test.sh
@@ -303,15 +306,20 @@ smoke: build
 # domain "what changed in the OpenRouter catalogue" report this target used
 # to run is `make cli-check` (or `openrouter check` directly).
 #
-# man-check and completion-check are declared as its prerequisites, per
-# 05-build-test-docs.md's "Классификация дополнительных targets": both MUST
-# be included in `check` and `release-check`, and this is also `check`'s own
-# stated role as an "aggregating baseline target"
+# man-check, completion-check and onboarding-check are declared as its
+# prerequisites, per 05-build-test-docs.md's "Классификация дополнительных
+# targets": all MUST be included in `check` and `release-check`, and this is
+# also `check`'s own stated role as an "aggregating baseline target"
 # (08-security-and-reliability.md, "Gate по свежести SCA-evidence"). They use
 # `go run` rather than `$(BINARY)` so this aggregate still needs no network
 # beyond the local module cache and leaves no persisted build artifact.
-check: man-check completion-check
+# onboarding-check is a pure filesystem/text read (README.md), so it costs
+# nothing extra network- or tool-wise.
+check: man-check completion-check onboarding-check
 	@$(ROOT)scripts/check-sca-freshness.sh '$(EVIDENCE_DIR)/dependency-evidence.json' '$(SCA_CADENCE_DAYS)'
+
+onboarding-check:
+	@$(ROOT)scripts/check-onboarding-record.sh '$(ROOT)README.md' 90
 
 MAN_PAGE := $(ROOT)man/openrouter.1
 
@@ -520,7 +528,8 @@ help:
 		'install-smoke  Install into a disposable PREFIX and verify the CLI' \
 		'smoke          Run local CLI smoke checks' \
 		'check-docs     Validate required project documentation' \
-		'check          SCA-freshness staleness gate (dependency-check evidence age/digest/status); also runs man-check and completion-check' \
+		'check          SCA-freshness staleness gate (dependency-check evidence age/digest/status); also runs man-check, completion-check and onboarding-check' \
+		'onboarding-check Validate the README.md onboarding record is complete and fresh (<=90 days)' \
 		'man-check      Validate man/openrouter.1 has all required sections and lints cleanly' \
 		'completion-check Validate bash_completion output is deterministic, valid Bash, and lists version/bash_completion' \
 		'cli-check      Run the read-only domain CLI check (openrouter check) against this checkout' \

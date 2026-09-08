@@ -31,7 +31,7 @@
 # pattern; this is not a defect in either project's formula.
 #
 # `archive` is the profile this project's self-repo GitHub Release channel
-# (docs/reference.md onboarding record, `channels`) actually satisfies: it
+# (README.md onboarding record, `channels`) actually satisfies: it
 # checks the artifact's own digest against an external checksum manifest,
 # exact tag/version/commit agreement with the release metadata `make
 # release-local` produces, a safe artifact path, and a real install smoke
