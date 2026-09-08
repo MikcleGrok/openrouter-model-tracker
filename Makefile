@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check onboarding-check onboarding-record-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check onboarding-check onboarding-record-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check tag-protection-check tag-protection-record-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -132,7 +132,7 @@ test-acceptance: build
 # stage is what makes it worth having at all. -race checks data races only;
 # it MUST NOT be read as proof of no memory leak or resource retention
 # (12-test-contract.md, "Тесты удержания памяти и ресурсов").
-test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check onboarding-record-check
+test-all: test-unit test-acceptance race sign-flags-check provenance-profile-check onboarding-record-check tag-protection-record-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -190,6 +190,9 @@ provenance-profile-check:
 
 onboarding-record-check:
 	@$(ROOT)scripts/check-onboarding-record_test.sh
+
+tag-protection-record-check:
+	@$(ROOT)scripts/check-tag-protection_test.sh
 
 openrouter-launchd-refresh-check:
 	@$(ROOT)scripts/launchd-refresh_test.sh
@@ -396,8 +399,11 @@ release-check: check-version build
 	@test -z "$$(git -C $(ROOT) status --porcelain)" || { printf '%s\n' 'release candidate checkout must be clean'; git -C $(ROOT) status --short; exit 1; }
 	@commit="$$(git -C $(ROOT) rev-parse --verify HEAD)" || exit $$?; printf '%s\n' "release candidate: version=$(VERSION) commit=$$commit planned-tag=v$(VERSION)"
 	@cd $(ROOT) && git diff --check
-	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check check secrets-check sbom verify-provenance signature check-docs PROVENANCE_PROFILE=candidate
+	$(MAKE) -C $(ROOT) fmt-check test vet security dependency-check check secrets-check sbom verify-provenance signature check-docs tag-protection-check PROVENANCE_PROFILE=candidate
 	@test "$$(cd $(ROOT) && ./bin/openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'candidate binary version does not match VERSION'; exit 1; }
+
+tag-protection-check:
+	@$(ROOT)scripts/check-tag-protection.sh
 
 release-build: check-tag check-homebrew-formula
 	@mkdir -p $(dir $(BINARY))
@@ -550,6 +556,7 @@ help:
 		'sync-homebrew-formula Update the local formula from the exact checked-out tag' \
 		'homebrew-reinstall Sync, reinstall, and verify the local Homebrew formula' \
 		'release-check  Run the non-publishing pre-tag gate (VERSION=...)' \
+		'tag-protection-check Verify the GitHub repository tag-protection ruleset (network, gh required)' \
 		'release-build  Build with the normalized version from the exact checked-out tag' \
 		'release-local   Run checks, build deterministic local platform archives, and verify distribution metadata' \
 		'local-release   Alias for release-local' \
