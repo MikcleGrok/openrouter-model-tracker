@@ -112,3 +112,34 @@ v1.13.8, v1.13.9, v1.13.10, v1.13.13.
 
 Этот ключ никогда не должен попадать в secret CI/CD-системы (GitHub Actions и
 подобные) — именно так был потерян предыдущий.
+
+## Известное расхождение: два канала бинарных assets
+
+Onboarding record (`docs/reference.md`, `channels`) декларирует два реально
+живых канала asset-channel-типа, но с разным происхождением:
+
+1. **Self-repo GitHub Release** — `github.com/MikcleGrok/openrouter-model-tracker`,
+   тег `vMAJOR.MINOR.PATCH`, публикуется через `make release-github` (полный
+   provenance: manifest, signature, attestation, SBOM). Проверяется машинно
+   из этого checkout через `make distribution-check`.
+2. **Homebrew asset-channel formula** `mikclegrok/tools/openrouter-model-tracker`
+   (канонический org tap, precedent — `uni-chat`) — реально установлена и
+   работает (`brew info mikclegrok/tools/openrouter-model-tracker`), но её
+   `url`/`sha256` ссылаются на **другой** host и tag: shared-репозиторий
+   `github.com/MikcleGrok/tools`, тег с project-namespace
+   `openrouter-model-tracker-vX.Y.Z` — тот же паттерн, что у `uni-chat`
+   (`uni-chat-vX.Y.Z` в том же shared repo). Эта formula верифицирована
+   только вручную (нет `Formula/*.rb` файла в этом checkout, поэтому нет
+   входа для `guide-distribution-verify`); синхронизирующий скрипт
+   (внешний, не часть этого репозитория) публикует релиз с другим
+   owner/repo/tag, чем `make release-github` — то есть путь от `git tag` в
+   этом checkout до опубликованного Homebrew asset проходит через ручной
+   внешний шаг, а не через один документированный Makefile-flow.
+
+Оба канала реальны и живы — это не выдуманная возможность и не сломанный
+канал, — но их несогласованность (два разных host/tag на один и тот же
+релиз) не устранена в рамках этой правки: устранение потребовало бы либо
+привести внешний publish-скрипт в соответствие с `GITHUB_REPOSITORY`/`vX.Y.Z`
+этого репозитория, либо описать и заскриптовать канонический republish-шаг
+из self-repo релиза в shared-repo asset. Зафиксировано здесь как известный
+факт для следующего пересмотра onboarding record, а не смолчано.
