@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check man-check completion-check cli-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release distribution-check release-github-check release-github docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -297,13 +297,40 @@ smoke: build
 # staleness gate (08-security-and-reliability.md, "Gate по свежести
 # SCA-evidence") -- the nearest-to-the-developer, run-earliest-and-most-often
 # target, so a lapsed `make dependency-check` cadence is caught on the next
-# ordinary cycle instead of only at release time. It intentionally does not
-# build or run the binary and needs no network: it only judges whether the
+# ordinary cycle instead of only at release time. Its own recipe needs no
+# network and does not build or persist a binary: it only judges whether the
 # *last* dependency-check run is still fresh, digest-matched and clean. The
 # domain "what changed in the OpenRouter catalogue" report this target used
 # to run is `make cli-check` (or `openrouter check` directly).
-check:
+#
+# man-check and completion-check are declared as its prerequisites, per
+# 05-build-test-docs.md's "Классификация дополнительных targets": both MUST
+# be included in `check` and `release-check`, and this is also `check`'s own
+# stated role as an "aggregating baseline target"
+# (08-security-and-reliability.md, "Gate по свежести SCA-evidence"). They use
+# `go run` rather than `$(BINARY)` so this aggregate still needs no network
+# beyond the local module cache and leaves no persisted build artifact.
+check: man-check completion-check
 	@$(ROOT)scripts/check-sca-freshness.sh '$(EVIDENCE_DIR)/dependency-evidence.json' '$(SCA_CADENCE_DAYS)'
+
+MAN_PAGE := $(ROOT)man/openrouter.1
+
+man-check:
+	@command -v mandoc >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: mandoc is required to validate the man page' >&2; exit 1; }
+	@mandoc -T lint '$(MAN_PAGE)' 2>&1 | { ! grep -v 'STYLE:'; } || { printf '%s\n' 'FAIL: mandoc lint reported an issue beyond accepted STYLE notes' >&2; exit 1; }
+	@for section in SYNOPSIS OPTIONS COMMANDS EXAMPLES 'EXIT STATUS' VERSION; do grep -q "^\.SH $$section\$$" '$(MAN_PAGE)' || { printf '%s\n' "FAIL: man page missing required section: $$section" >&2; exit 1; }; done
+	@printf '%s\n' 'PASS: man page has all required sections (SYNOPSIS, OPTIONS, COMMANDS, EXAMPLES, EXIT STATUS, VERSION) and lints cleanly'
+
+completion-check:
+	@set -eu; \
+	out1="$$($(GO) run ./cmd/openrouter bash_completion)"; \
+	out2="$$($(GO) run ./cmd/openrouter bash_completion)"; \
+	test "$$out1" = "$$out2" || { printf '%s\n' 'FAIL: bash_completion output is not deterministic between runs' >&2; exit 1; }; \
+	tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; printf '%s\n' "$$out1" > "$$tmp"; \
+	bash -n "$$tmp" || { printf '%s\n' 'FAIL: bash_completion output has invalid Bash syntax' >&2; exit 1; }; \
+	printf '%s\n' "$$out1" | grep -q 'commands+=("version")' || { printf '%s\n' 'FAIL: bash_completion output does not list the version command' >&2; exit 1; }; \
+	printf '%s\n' "$$out1" | grep -q 'commands+=("bash_completion")' || { printf '%s\n' 'FAIL: bash_completion output does not list the bash_completion command itself' >&2; exit 1; }; \
+	printf '%s\n' 'PASS: bash_completion output is deterministic, valid Bash, and lists version/bash_completion'
 
 cli-check: build
 	cd $(ROOT) && $(BINARY) check --data-dir $(DATA_DIR) --output /dev/null
@@ -441,7 +468,7 @@ release-github: release-github-check
 		if test '$(RELEASE_DRY_RUN)' = 1; then printf 'DRY RUN:'; printf ' %s' "$$@"; printf '\n'; else command -v gh >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is required to publish a GitHub Release' >&2; exit 1; }; gh auth status >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is not authenticated; run gh auth login' >&2; exit 1; }; if "$$@"; then :; else if gh release view "$$tag" --repo "$$repository" >/dev/null 2>&1; then printf '%s\n' "BLOCKED: GitHub Release $$tag appeared during publication; refusing duplicate publication" >&2; else printf '%s\n' "BLOCKED: GitHub Release $$tag publication failed" >&2; fi; exit 1; fi; fi
 
 docs check-docs:
-	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md && test -s $(ROOT)LICENSE
+	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md && test -s $(ROOT)LICENSE && test -s $(MAN_PAGE)
 	@printf '%s\n' 'Documentation contract passed.'
 
 clean:
@@ -493,7 +520,9 @@ help:
 		'install-smoke  Install into a disposable PREFIX and verify the CLI' \
 		'smoke          Run local CLI smoke checks' \
 		'check-docs     Validate required project documentation' \
-		'check          SCA-freshness staleness gate (dependency-check evidence age/digest/status)' \
+		'check          SCA-freshness staleness gate (dependency-check evidence age/digest/status); also runs man-check and completion-check' \
+		'man-check      Validate man/openrouter.1 has all required sections and lints cleanly' \
+		'completion-check Validate bash_completion output is deterministic, valid Bash, and lists version/bash_completion' \
 		'cli-check      Run the read-only domain CLI check (openrouter check) against this checkout' \
 		'init           Build, initialize, refresh, and open the report on macOS' \
 		'refresh        Refresh data and the generated comparison document' \

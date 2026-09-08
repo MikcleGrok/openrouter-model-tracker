@@ -243,6 +243,42 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 	}
 }
 
+// TestHelpShowsVersionFirst proves guide-tools 01-cli.md's requirement that
+// help/--help/-h print the same runtime/build version line as `version`,
+// first, before any other help content -- for the root command and every
+// supported subcommand help surface, not just the root.
+func TestHelpShowsVersionFirst(t *testing.T) {
+	commands := []string{"", "refresh", "check", "history", "table", "tui", "version", "init", "bash_completion"}
+	for _, command := range commands {
+		t.Run(command, func(t *testing.T) {
+			var args []string
+			if command != "" {
+				args = append(args, command)
+			}
+			for _, helpFlag := range []string{"--help", "-h"} {
+				output := executeCLI(t, append(append([]string(nil), args...), helpFlag)...)
+				wantFirstLine := "Version: " + version
+				firstLine, _, _ := strings.Cut(output, "\n")
+				if firstLine != wantFirstLine {
+					t.Errorf("%v %s: first line = %q, want %q\nfull output:\n%s", args, helpFlag, firstLine, wantFirstLine, output)
+				}
+			}
+		})
+	}
+}
+
+// TestBashCompletionCommandListsVersionAndItself proves guide-tools
+// 01-cli.md's requirement that generated completion include `version` and
+// `bash_completion` among the available commands.
+func TestBashCompletionCommandListsVersionAndItself(t *testing.T) {
+	output := executeCLI(t, "bash_completion")
+	for _, want := range []string{"version", "bash_completion"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("bash_completion output does not mention command %q", want)
+		}
+	}
+}
+
 func TestRefreshAliasesPreserveRefreshCommand(t *testing.T) {
 	root := newRootCmd()
 	refresh, _, err := root.Find([]string{"refresh"})

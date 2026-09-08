@@ -1,0 +1,342 @@
+.TH OPENROUTER 1 "2026-09-08" "openrouter" "User Commands"
+.SH NAME
+openrouter \- track OpenRouter model prices and benchmark scores in a local table, TUI, and generated document
+.SH SYNOPSIS
+.B openrouter
+.RI [ command ]
+.RI [ flags ]
+.PP
+.B openrouter
+.RB { \-h | \-\-help }
+.PP
+.B openrouter
+.RB { \-v | \-\-version }
+.SH DESCRIPTION
+.B openrouter
+collects prices and context length from the public OpenRouter API, and quality
+scores from swebench.com, vals.ai and arena.ai, joined through the manual
+.I model\-map.tsv
+mapping, then regenerates a markdown comparison document. Prose annotations
+live in
+.IR notes.yaml ;
+edits made directly to the generated
+.I .md
+file are overwritten on the next
+.B refresh
+run.
+.PP
+Besides the markdown document,
+.B openrouter
+offers two local views of the same data: a plain\-text
+.B table
+for scripting and piping, and an interactive
+.B tui
+for browsing, sorting, filtering, and inspecting individual models.
+.SH COMMANDS
+.TP
+.B refresh
+Fetch fresh data from the network and overwrite the generated document and
+local snapshot. Aliases:
+.BR update ", " up .
+.TP
+.B check
+Report only: new candidate models, removed slugs, and
+.I notes.yaml
+gaps against the local snapshot recorded by the last successful
+.BR refresh .
+Writes nothing. (Not to be confused with the unrelated Makefile
+.B check
+target, which is a dependency-freshness gate for maintainers, not this
+command; the Makefile equivalent of this command is
+.BR "make cli-check" .)
+.TP
+.B table
+Show local model data as a plain\-text table, using the most recent local
+snapshot (from the last
+.B refresh
+or
+.BR check ).
+.TP
+.B tui
+Browse local model data in an interactive terminal table. See
+.B HOTKEYS
+below.
+.TP
+.B history
+Show price history recorded by past
+.B refresh
+runs.
+.TP
+.B init
+Create a user config file and the local cache directory.
+.TP
+.B version
+Print the binary version and exit successfully.
+.TP
+.B completion
+Generate the autocompletion script for the specified shell
+.RB ( bash ", " zsh ", " fish ", or " powershell ).
+.TP
+.B bash_completion
+Print the Bash completion script directly, without going through
+.BR "completion bash" ;
+both generate the identical script from the same command tree.
+.TP
+.BR help ", " \-h ", " \-\-help
+Print usage and exit successfully.
+.SH OPTIONS
+.TP
+.B \-\-config \fIstring\fR
+Path to
+.IR config.yaml .
+Default:
+.IR $HOME/.config/openrouter/config.yaml .
+.TP
+.B \-\-data\-dir \fIstring\fR
+Project directory containing
+.IR model\-map.tsv ", " notes.yaml ", and " cache/ .
+Overrides the value in the config file.
+.TP
+.BR \-h ", " \-\-help
+Help for
+.B openrouter
+or the current subcommand; always prints the running version as its first
+line, before any other help content.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit successfully.
+.PP
+Each subcommand accepts its own additional flags; run
+.B "openrouter <command> --help"
+for the full list. The most commonly used are:
+.TP
+.B \-\-output \fIstring\fR
+.RB ( refresh ", " check )
+Path to the generated markdown document; overrides the config value.
+.TP
+.B \-\-dry\-run
+.RB ( refresh )
+Write nothing: neither the document nor the local snapshot.
+.TP
+.B \-\-model \fIstring\fR ", " \-\-since \fIstring\fR ", " \-\-format \fIstring\fR
+.RB ( history )
+Filter by slug, show observations after an RFC3339 timestamp or
+.IR YYYY\-MM\-DD ,
+and choose
+.B markdown
+(default) or
+.B tsv
+output.
+.TP
+.BR \-s ", " \-\-sort " \fIstring\fR"
+.RB ( table ", " tui )
+Sort by
+.BR name ", " slug ", " context ", " input ", " output ", " price ", " quality " (Q), " q/p " (QP), or " utility ", " P .
+Default:
+.IR utility .
+.TP
+.BR \-R ", " \-\-reverse
+.RB ( table ", " tui )
+Reverse the primary sort order.
+.TP
+.BR \-f ", " \-\-filter " \fIstring\fR"
+.RB ( table ", " tui )
+Structured, comma\-separated filter predicates (repeatable on
+.BR table );
+see the TUI's own
+.B f
+filter editor and its help text for the full predicate grammar.
+.TP
+.B \-\-ranking \fIstring\fR
+.RB ( table ", " tui )
+Ranking mode:
+.BR legacy " (q/p); " tier " or " tier\-priority "; " mixed " or " mixed\-utility .
+Default:
+.IR mixed\-utility .
+.TP
+.B \-\-score\-source \fIstring\fR
+.RB ( table ", " tui )
+Score source for status and ranking:
+.BR swebench " (SWE\-bench Verified) or " arena " (LMArena Elo); the two are never mixed."
+Default:
+.IR swebench .
+.TP
+.B \-\-refresh\-interval \fIduration\fR
+.RB ( tui )
+Automatic live refresh interval; 0 disables it (the
+.B R
+hotkey always refreshes on demand). Default:
+.IR 5m0s .
+.SH HOTKEYS
+The interactive
+.B tui
+is driven by many context-specific hotkeys (main list, Settings, model
+detail, columns, filter, and help itself). The full, always-current list is
+in the TUI's own help overlay
+.RB ( ? " or " F1 ,
+six sections: Overview, Score Sources, Hotkeys, Filters, Model Detail,
+Methodology) and in
+.IR docs/reference.md ;
+duplicating all of it here would drift out of sync with the code. The main
+list's most-used bindings:
+.TP
+.BR q ", " r
+Sort by quality, or by quality-per-price (Q/P).
+.TP
+.BR s ", " S
+Cycle the sort key; reverse the sort order.
+.TP
+.B p
+Cycle availability: any, free, paid, any.
+.TP
+.B v
+Toggle layout: all models vs top-paid-free.
+.TP
+.B m
+Toggle ranking: mixed-utility vs tier-priority.
+.TP
+.B n
+Switch the last column between Task fit and Note.
+.TP
+.B l
+Toggle the UI language: English vs Russian.
+.TP
+.B o
+Open Settings (ranking, score source, filter, columns).
+.TP
+.B c
+Open column selection.
+.TP
+.B f
+Edit the structured filter.
+.TP
+.B /
+Search Name/Slug.
+.TP
+.B Space
+Switch score source: SWE\-bench vs Arena.
+.TP
+.BR Enter ", " Right
+Open the selected model's detail screen.
+.TP
+.B R
+Manual refresh.
+.TP
+.B ?
+Open help at the Hotkeys section.
+.TP
+.B F1
+Open help at the Overview section.
+.TP
+.B Esc
+Close the current overlay, or the TUI itself from the main list.
+.SH EXAMPLES
+.TP
+Refresh local data and regenerate the document:
+.RS
+\fBopenrouter refresh\fR
+.RE
+.TP
+Show the top 10 models by utility as a plain\-text table:
+.RS
+\fBopenrouter table \-\-limit 10\fR
+.RE
+.TP
+Filter to paid models with quality at or above 80, sorted by price:
+.RS
+\fBopenrouter table \-\-filter 'paid,quality>=80' \-\-sort price\fR
+.RE
+.TP
+Browse the data interactively, ranked by LMArena Elo:
+.RS
+\fBopenrouter tui \-\-score\-source arena\fR
+.RE
+.TP
+Show price history for one model as TSV:
+.RS
+\fBopenrouter history \-\-model openai/gpt\-5.6\-luna \-\-format tsv\fR
+.RE
+.SH EXIT STATUS
+.B openrouter
+guarantees only two outcomes, not a documented set of distinct non-zero
+codes:
+.TP
+.B 0
+Success, including
+.BR \-\-help / \-h / help .
+.TP
+.I non\-zero
+Any failure: usage error (unknown command or flag, invalid argument value),
+network or data error, or a write failure. This is a deliberate choice
+(README.md, "Exit codes"), not an omission: distinct exit codes per failure
+class are not part of this CLI's contract.
+.SH FILES
+.TP
+.I $HOME/.config/openrouter/config.yaml
+The user config file, created by
+.BR "openrouter init" .
+Never overwritten automatically after that; edit it directly to change the
+data directory, default output path, TUI keymap, icons, or cache settings.
+Owner-only permissions (mode 0600 file, 0700 directory).
+.TP
+.I <data\-dir>/model\-map.tsv
+Manual mapping from OpenRouter slug to display tier and benchmark\-source
+identifiers. Hand\-maintained.
+.TP
+.I <data\-dir>/notes.yaml
+Prose annotations (display name, free\-text note, task\-fit classification)
+merged into the generated document and the TUI. Hand\-maintained.
+.TP
+.I <data\-dir>/model\-snapshot.json
+The local snapshot of the most recent successful
+.B refresh
+or
+.BR check ,
+read by
+.BR table " and " tui
+so they work offline between refreshes. Local application state, not
+distributed with the tool; owner-only permissions.
+.TP
+.I <data\-dir>/cache/price\-history.json
+Price history recorded on every
+.B refresh
+that has usable price data; read by
+.BR history .
+Owner-only permissions.
+.SH ENVIRONMENT
+.TP
+.B HOME
+Used to resolve the default config path
+.RI ( $HOME/.config/openrouter/config.yaml )
+via the standard user\-home\-directory lookup. Not read by any other part of
+.BR openrouter .
+.TP
+.B COLUMNS
+Fallback terminal width for
+.B table
+output when the terminal size cannot be queried directly (e.g. when stdout
+is not a TTY). If unset or invalid, a built\-in default width is used
+instead.
+.PP
+.B table
+opens
+.B less \-S
+directly for paged output in a TTY (disable with
+.BR \-\-no\-pager );
+this is not driven by
+.BR $PAGER .
+Color output follows the terminal's own capabilities as detected by the
+underlying terminal library; it is not configured through a dedicated
+environment variable by this CLI.
+.SH VERSION
+The version reported by
+.BR "openrouter version" " and " "openrouter --version"
+comes from the running binary's own build metadata (embedded at build time
+via
+.BR "-ldflags -X main.version=..." ),
+never from this man page; this page's own
+.B .TH
+date is updated independently and is not a source of truth for what a given
+installed binary reports.
+.SH SEE ALSO
+.BR less (1)

@@ -85,7 +85,7 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | `modes` | локальная работа без credentials; отсутствие CI (push/PR/schedule) по деliberate local-only design (см. CHANGELOG: workflows добавлены, затем удалены при переходе на local-only release); exact-tag release с GitHub Release и static-key provenance |
 | `channels` | active, machine-verified из этого checkout (`make distribution-check`, `archive` profile, post-tag): GitHub Release binary/evidence в `MikcleGrok/openrouter-model-tracker`, exact `vMAJOR.MINOR.PATCH` tag; active, asset-channel exception (guide-tools/README.md, «Канонический источник бинарников», precedent: `uni-chat`), verified вручную вне этого checkout: канонический Homebrew tap `mikclegrok/tools`, formula `openrouter-model-tracker.rb` — asset-channel Formula (per-platform `url`+`sha256` на immutable release-asset URL, не source `:git` build), фактически установлена и слинкована на машине мейнтейнера (`brew info mikclegrok/tools/openrouter-model-tracker`), версия совпадает с последним релизом; её asset host/tag (`MikcleGrok/tools`, tag `openrouter-model-tracker-vX.Y.Z`) отличается от self-repo GitHub Release channel выше — известное расхождение, см. `docs/security.md`; local-only: disposable source-build tap (`local/homebrew-tap`, `check-homebrew-formula`) для bounded install-flow smoke, не production source; `N/A`: container image |
 | `version source` | release version только из clean checkout на exact `vMAJOR.MINOR.PATCH` tag; обычная сборка использует `git describe`; formula синхронизирует tag и revision |
-| `Makefile targets` | baseline: `check` (SCA-freshness staleness gate), `fmt-check`, `test-unit`, `test-acceptance`, `vet`, `security`, `dependency-check`, `secrets-check`, `sbom`, `check-docs`; conditional: `race` (concurrency-heavy, part of `test-all`); domain: `cli-check`; release: `release-check`, `release-manifest`, `sign`, `attest`, `verify-provenance`, `checksums`, `verify-release`, `distribution-check` |
+| `Makefile targets` | baseline: `check` (SCA-freshness staleness gate), `fmt-check`, `test-unit`, `test-acceptance`, `vet`, `security`, `dependency-check`, `secrets-check`, `sbom`, `check-docs`; conditional: `race` (concurrency-heavy, part of `test-all`); `man-check`, `completion-check` (applicable CLI, part of `check` and `release-check`); domain: `cli-check`; release: `release-check`, `release-manifest`, `sign`, `attest`, `verify-provenance`, `checksums`, `verify-release`, `distribution-check` |
 | `Docker toolchain image` | `N/A`: Docker toolchain не используется и не публикуется |
 | `Docker runtime image` | `N/A`: контейнерный runtime не поставляется |
 | `Docker runtime base image` | `N/A`: отсутствует shipped runtime image |
@@ -205,6 +205,7 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
   Доступны также контексты `help`, `columns` и `filter` с действиями `close`, `full_help`, `navigate_up`, `navigate_down`, `toggle` и `apply` по смыслу контекста. Неизвестные действия/контексты, пустые bindings и повтор одного binding для разных действий в одном контексте дают ошибку конфига. При reload TUI эта секция перечитывается вместе с `default_filter`, `tui_filter` и `tui_steps`; до успешной загрузки snapshot источник оценки не меняется, а Settings показывает pending или ошибку.
 - `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena] [--ranking=legacy|tier|mixed-utility]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter completion bash` (`omt completion bash`) — сгенерировать Bash completion
+- `openrouter bash_completion` — то же самое напрямую, без промежуточной подкоманды `completion`; ровно то имя, которого требует guide-tools 01-cli.md, и единственная команда, которую `make completion-check` реально вызывает
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
 
@@ -273,6 +274,8 @@ make test-all
 make vet
 make fmt-check
 make check
+make man-check
+make completion-check
 make cli-check
 make history
 make table
@@ -316,6 +319,17 @@ publishable profile, а не plain-CLI дефолт в 30 дней, см. onboar
 Прежняя доменная проверка («что изменилось в каталоге OpenRouter с последнего
 `refresh`») осталась ровно той же, но теперь называется `make cli-check`
 (эквивалент прямого `openrouter check --data-dir ...`).
+
+`make check` также запускает `man-check` и `completion-check` как
+prerequisites — оба через `go run`, без сети сверх локального module cache
+и без персистентного бинарника, чтобы не нарушать «check ничего не
+собирает» выше. `man-check` проверяет, что `man/openrouter.1` содержит все
+обязательные секции (`SYNOPSIS`, `OPTIONS`, `COMMANDS`, `EXAMPLES`, `EXIT
+STATUS`, `VERSION`) и линтуется `mandoc` без ошибок/предупреждений строже
+STYLE. `completion-check` проверяет, что `openrouter bash_completion`
+детерминирован между запусками, является валидным Bash-синтаксисом и
+перечисляет команды `version` и `bash_completion` среди доступных
+(guide-tools 01-cli.md, обязательная поверхность CLI).
 
 #### Локальный installer
 

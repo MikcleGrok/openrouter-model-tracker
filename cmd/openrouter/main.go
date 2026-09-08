@@ -224,6 +224,16 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string) (st
 	return b.String(), nil
 }
 
+// versionedLong prefixes a subcommand's long help with the same "Version: X"
+// line the root command and `version`/`--version` show, per guide-tools
+// 01-cli.md: "help и --help/-h MUST печатать первой строкой ту же
+// runtime/build version line ... для root CLI и каждой поддерживаемой
+// subcommand help surface." Cobra falls back to Short when Long is unset, so
+// every subcommand needs an explicit Long to carry this line.
+func versionedLong(short string) string {
+	return fmt.Sprintf("Version: %s\n\n%s", version, short)
+}
+
 func newRootCmd() *cobra.Command {
 	var (
 		cfgPath          string
@@ -285,6 +295,7 @@ func newRootCmd() *cobra.Command {
 		Use:     "refresh",
 		Aliases: []string{"update", "up"},
 		Short:   "Fetch fresh data and overwrite the document",
+		Long:    versionedLong("Fetch fresh data and overwrite the document"),
 		Args:    cobra.NoArgs,
 		RunE:    func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, dryRun) },
 	}
@@ -294,6 +305,7 @@ func newRootCmd() *cobra.Command {
 	checkCmd := &cobra.Command{
 		Use:   "check",
 		Short: "Report only: new candidates, removed slugs, and notes.yaml gaps; write nothing",
+		Long:  versionedLong("Report only: new candidates, removed slugs, and notes.yaml gaps; write nothing"),
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return runRefresh(cmd, true) },
 	}
@@ -303,6 +315,7 @@ func newRootCmd() *cobra.Command {
 	historyCmd := &cobra.Command{
 		Use:   "history",
 		Short: "Show price history",
+		Long:  versionedLong("Show price history"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := resolveDataDir(cfgPath, dataDir)
@@ -328,6 +341,7 @@ func newRootCmd() *cobra.Command {
 	tableCmd := &cobra.Command{
 		Use:                "table",
 		Short:              "Show local model data as a plain-text table",
+		Long:               versionedLong("Show local model data as a plain-text table"),
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
@@ -438,7 +452,8 @@ func newRootCmd() *cobra.Command {
 	var tuiRanking string
 	var tuiScoreSource string
 	tuiCmd := &cobra.Command{
-		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
+		Use: "tui", Short: "Browse local model data in an interactive terminal table",
+		Long: versionedLong("Browse local model data in an interactive terminal table"), Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
@@ -501,6 +516,7 @@ func newRootCmd() *cobra.Command {
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Show the binary version",
+		Long:  versionedLong("Show the binary version"),
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Fprintf(cmd.OutOrStdout(), "openrouter %s\n", version)
@@ -510,6 +526,7 @@ func newRootCmd() *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Create a user config and local cache directory",
+		Long:  versionedLong("Create a user config and local cache directory"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			items, err := config.Init(cfgPath, dataDir)
@@ -523,7 +540,21 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd)
+	// bash_completion is the literal command name guide-tools 01-cli.md
+	// requires ("Команда bash_completion MUST печатать Bash completion...
+	// Generated completion MUST включать version и bash_completion среди
+	// доступных команд"), offline/read-only/exit-0 like Cobra's own
+	// `completion bash` (kept as-is for zsh/fish/powershell and familiarity)
+	// -- both generate the identical script from the same root command tree.
+	bashCompletionCmd := &cobra.Command{
+		Use:   "bash_completion",
+		Short: "Generate the Bash completion script",
+		Long:  versionedLong("Generate the Bash completion script"),
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Root().GenBashCompletion(cmd.OutOrStdout()) },
+	}
+
+	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd, bashCompletionCmd)
 	root.AddCommand(tableCmd)
 	return root
 }

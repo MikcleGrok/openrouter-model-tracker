@@ -144,6 +144,14 @@ lock с уникальным owner token уменьшает concurrent race; cle
 После клонирования полезно выполнить `make install-hooks` — это включает pre-commit
 проверку, которая блокирует коммит приватных ключей и credentials в отслеживаемых файлах.
 
+## Exit codes
+
+`openrouter` гарантирует только `0` (успех, включая `--help`/`-h`/`help`) и
+non-zero (любой отказ — usage-ошибка, сетевая ошибка, ошибка записи и т.д.);
+отдельных документированных кодов для разных классов отказа нет. Это
+осознанный выбор, а не недосмотр: см. man-страницу (`man/openrouter.1`,
+`EXIT STATUS`) и acceptance-тест `TestE2E_InvalidCommandWritesErrorToStderr`.
+
 ## Документация
 
 Локальная разработка, полный список команд, Makefile-таргеты, релиз-процесс и файлы, которые правятся руками, — в [docs/reference.md](docs/reference.md).

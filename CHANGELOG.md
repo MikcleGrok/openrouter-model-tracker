@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+- Add a man page (`man/openrouter.1`: SYNOPSIS, OPTIONS, COMMANDS, EXAMPLES,
+  EXIT STATUS, HOTKEYS, FILES, ENVIRONMENT, VERSION) and `make man-check`/
+  `make completion-check` gates, both wired into `make check` and `make
+  release-check`. Add a top-level `openrouter bash_completion` command
+  (alongside the existing `completion bash`) so generated completion lists
+  both `version` and `bash_completion` as required by guide-tools 01-cli.md.
+  Every subcommand's `--help`/`-h`/`help` now prints the running version as
+  its first line, matching the root command (previously only the root did).
+  Also documented this CLI's exit-code guarantee (0 vs non-zero only, no
+  distinct codes per failure class) in README.md, since writing an honest
+  EXIT STATUS section required stating it somewhere.
 - Declare this project concurrency-heavy in the onboarding record
   (`internal/refresh/run.go` runs real goroutines behind a
   `sync.WaitGroup`) and wire the existing `make race` target into `make
