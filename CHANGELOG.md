@@ -14,6 +14,8 @@
 
 ## [Unreleased]
 
+- Future release changes will be documented here.
+
 ## [1.16.6]
 
 - Auto-refresh model data on first run instead of failing with "run refresh
