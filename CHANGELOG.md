@@ -20,6 +20,10 @@
 
 - Future release changes will be documented here.
 
+## [1.16.10]
+
+- Fix release archive manifest validation so artifact path and digest array checks retain the manifest root object while comparing their lengths and formats.
+
 ## [1.16.6]
 
 - Auto-refresh model data on first run instead of failing with "run refresh
