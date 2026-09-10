@@ -185,6 +185,21 @@ func TestRenderNormalizesLegacyMissingLabelsInMarkdownProvenance(t *testing.T) {
 	}
 }
 
+func TestRenderIncludesUnmappedRowsWithoutRankingIdentity(t *testing.T) {
+	var output bytes.Buffer
+	data := RenderData{UnmappedIntro: "catalog", Unmapped: []model.Model{{Slug: "new/model", DisplayName: "New Model", InPerM: 1, OutPerM: 2, Context: 4096}}}
+	if err := Render(&output, data); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "Актуальные модели без ручного сопоставления") || !strings.Contains(text, "new/model") || !strings.Contains(text, "missing identity") {
+		t.Fatalf("unmapped row missing from Markdown:\n%s", text)
+	}
+	if strings.Contains(text, "| New Model | new/model | 1 | 2 | 4K |  |") {
+		t.Fatalf("unmapped row was rendered as a ranked row")
+	}
+}
+
 func TestClaudeHeadingsUseNamedReferencesAndExactOperators(t *testing.T) {
 	want := map[string]string{
 		"opus":   ">≈ Opus 5",

@@ -176,7 +176,7 @@ func TestTUIDetailViewPreservesProductionFieldsAsPlainRows(t *testing.T) {
 	m.rebuild()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	view := ansi.Strip(m.View())
+	view := allDetailTabsView(t, &m)
 	if strings.Contains(view, `\n`) || strings.Contains(view, "\x1b]8;") {
 		t.Fatalf("detail view retained terminal payload: %q", view)
 	}
@@ -4550,8 +4550,8 @@ func TestTUIDetailMaxOffsetAccountsForTheHuggingFaceLine(t *testing.T) {
 func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 60
-	view := ansi.Strip(m.View())
-	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "SWE-bench Verified score", "93.0%", "LMArena score", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close"} {
+	view := allDetailTabsView(t, &m)
+	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "SWE-bench Verified score", "93.0%", "LMArena score", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close", "tabs"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("detail view is missing %q:\n%s", want, view)
 		}
@@ -4600,7 +4600,7 @@ func TestTUIDetailViewFooterReportsThePosition(t *testing.T) {
 	lines := strings.Split(ansi.Strip(m.View()), "\n")
 	total := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: detailLinesForTest(m.visible[0], m.scoreSource, m.width, time.Now())}).MaxOffset + max(1, m.height-2)
 	body := max(1, m.height-2)
-	if want := fmt.Sprintf("Detail 1-%d/%d · ↑↓ scroll · Esc close", body, total); !strings.HasPrefix(lines[len(lines)-1], want) {
+	if want := detailFooterForLang(0, body, total, m.width, false); !strings.HasPrefix(lines[len(lines)-1], want) {
 		t.Fatalf("footer = %q, want a prefix of %q", lines[len(lines)-1], want)
 	}
 	// The footer reports state, not detail content, and must not sit flush
@@ -4827,11 +4827,7 @@ func TestTUIDetailOverlayOpensAndCloses(t *testing.T) {
 			t.Fatalf("key %v: overlay=%q offset=%d, want the detail overlay at offset 0", msg, m.overlay, m.detailOffset)
 		}
 	}
-	for _, msg := range []tea.KeyMsg{
-		{Type: tea.KeyEscape},
-		{Type: tea.KeyLeft},
-		{Type: tea.KeyRunes, Runes: []rune("h")},
-	} {
+	for _, msg := range []tea.KeyMsg{{Type: tea.KeyEscape}, {Type: tea.KeyRunes, Runes: []rune("h")}} {
 		m := tuiDetailModel(t)
 		m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
 		m.detailOffset = 3
@@ -4839,6 +4835,12 @@ func TestTUIDetailOverlayOpensAndCloses(t *testing.T) {
 		if m.overlay != "" || m.detailOffset != 0 {
 			t.Fatalf("key %v: overlay=%q offset=%d, want the list back with the offset reset", msg, m.overlay, m.detailOffset)
 		}
+	}
+	m := tuiDetailModel(t)
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.key(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.overlay != "detail" || m.detailTab != 0 {
+		t.Fatalf("Left key closed detail or changed first tab: overlay=%q tab=%d", m.overlay, m.detailTab)
 	}
 }
 
@@ -4862,7 +4864,8 @@ func TestTUIDetailOverlayScrollsWithinItsBounds(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.width, m.height = 60, 10
 	m, _ = m.key(tea.KeyMsg{Type: tea.KeyEnter})
-	maxOffset := detailMaxOffsetForTest(row, m.scoreSource, m.width, m.height)
+	m.detailTab, m.detailTabsActive = 3, true
+	maxOffset := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(row)}).MaxOffset
 	if maxOffset == 0 {
 		t.Fatal("test setup: the fixture must be taller than the viewport")
 	}
@@ -4911,7 +4914,8 @@ func TestTUIDetailNavigationUsesHistoryAwareBounds(t *testing.T) {
 	}}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
 	m.priceHistory, m.width, m.height, m.overlay = history, 60, 10, "detail"
-	maxOffset := detailMaxOffsetWithHistoryForTest(row, m.scoreSource, m.width, m.height, history)
+	m.detailTab, m.detailTabsActive = 1, true
+	maxOffset := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(row)}).MaxOffset
 	for _, msg := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyPgDown}, {Type: tea.KeyEnd}} {
 		m, _ = m.key(msg)
 	}
@@ -4948,7 +4952,9 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 	for _, want := range []string{
 		"Model detail view",
 		"Enter or Right opens the detail screen",
-		"Esc, Left or h closes it",
+		"Esc or h closes it",
+		"1-5",
+		"Tab / Shift+Tab",
 		"scroll the detail text",
 		"links to the model's OpenRouter page",
 		"HuggingFace repository",
@@ -5015,7 +5021,7 @@ func TestTUIDetailScreenShowsCatalogueMetadataFromTheSnapshot(t *testing.T) {
 		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
 	}
 
-	view := ansi.Strip(m.View())
+	view := allDetailTabsView(t, &m)
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
 		"Release date: 2026-08-06",
@@ -5386,8 +5392,10 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 		t.Fatalf("overlay = %q, want the detail screen open", m.overlay)
 	}
 
-	view := m.View()
-	plain := ansi.Strip(view)
+	view := allDetailTabsView(t, &m)
+	plain := view
+	m.detailTab, m.detailOffset = 3, 0
+	rendered := m.View()
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
 		"OpenRouter page: https://openrouter.ai/demo/dated-20260804",
@@ -5397,15 +5405,15 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 			t.Errorf("the detail screen built from the snapshot is missing %q:\n%s", want, plain)
 		}
 	}
-	if !strings.Contains(view, tuiLinkStyle.Render("https://openrouter.ai/demo/dated-20260804")) {
-		t.Errorf("the OpenRouter link reached the screen unstyled:\n%s", view)
+	if !strings.Contains(rendered, tuiLinkStyle.Render("https://openrouter.ai/demo/dated-20260804")) {
+		t.Errorf("the OpenRouter link reached the screen unstyled:\n%s", rendered)
 	}
 
 	// The second row has no HuggingFace repository: its line must be absent
 	// entirely rather than present as н/д. The overlay always renders the
 	// row the list highlights, so moving the cursor is all it takes.
 	m.cursor = tuiRowIndex(t, m.visible, "demo/closed")
-	closed := ansi.Strip(m.View())
+	closed := allDetailTabsView(t, &m)
 	if !strings.Contains(closed, "OpenRouter page: https://openrouter.ai/demo/closed-20260804") {
 		t.Errorf("the second row lost its OpenRouter link:\n%s", closed)
 	}
@@ -5423,6 +5431,17 @@ func tuiRowIndex(t *testing.T, rows []model.Model, slug string) int {
 	}
 	t.Fatalf("no row with slug %q in %+v", slug, rows)
 	return -1
+}
+
+func allDetailTabsView(t *testing.T, m *tuiModel) string {
+	t.Helper()
+	var views strings.Builder
+	for tab := 0; tab < detailTabCount; tab++ {
+		m.detailTab, m.detailTabsActive, m.detailOffset = tab, true, 0
+		views.WriteString(ansi.Strip(m.View()))
+		views.WriteByte('\n')
+	}
+	return views.String()
 }
 
 // tuiViewHasPlainLine сообщает, есть ли в выводе отдельная строка,
@@ -5953,7 +5972,7 @@ func TestTUIRussianHelpHotkeysKeepsLiteralKeyNames(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.overlay, m.helpSection, m.width, m.height, m.lang = "help", 2, 120, len(strings.Split(tuiHelpSectionHotkeysBodyRU, "\n"))+8, "ru"
 	view := ansi.Strip(m.View())
-	for _, key := range []string{"space", "esc", "f1", "Esc, Left или h"} {
+	for _, key := range []string{"space", "esc", "f1", "Esc или h", "Left/Right переключают вкладки деталей"} {
 		if !strings.Contains(view, key) {
 			t.Errorf("Russian Hotkeys view lost the literal key name %q:\n%s", key, view)
 		}
@@ -6044,7 +6063,7 @@ func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 	if m.overlay != "detail" {
 		t.Fatalf("test setup: overlay = %q, want \"detail\"", m.overlay)
 	}
-	view := ansi.Strip(m.View())
+	view := allDetailTabsView(t, &m)
 	for _, want := range []string{"-- Идентичность --", "-- Цены --", "-- Бенчмарки --", "-- Происхождение и метаданные --", "-- Соответствие и заметки --", "Провайдер: н/д", "Детали 1-"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Russian Detail overlay is missing %q:\n%s", want, view)
@@ -6060,7 +6079,7 @@ func TestTUIRussianDetailOverlayRendersTranslatedText(t *testing.T) {
 	// before it, the labels stayed Russian ("Провайдер: n/a") even with
 	// English selected.
 	m.lang = ""
-	englishView := ansi.Strip(m.View())
+	englishView := allDetailTabsView(t, &m)
 	for _, want := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --", "Provider: n/a", "Task fit:", "Detail 1-"} {
 		if !strings.Contains(englishView, want) {
 			t.Errorf("English Detail overlay (lang reset) is missing %q:\n%s", want, englishView)
@@ -6272,7 +6291,7 @@ func TestTUIDetailOverlayEnglishModeHasNoCyrillicLabels(t *testing.T) {
 	if m.overlay != "detail" {
 		t.Fatalf("test setup: overlay = %q, want \"detail\"", m.overlay)
 	}
-	view := ansi.Strip(m.View())
+	view := allDetailTabsView(t, &m)
 	if !strings.Contains(view, "Price history:") {
 		t.Fatalf("test setup: price history block did not render:\n%s", view)
 	}

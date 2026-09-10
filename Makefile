@@ -49,8 +49,8 @@ cosign-key-check:
 	  printf '%s\n' 'FAIL: cosign key password not found in the login Keychain' >&2; exit 1; }; \
 	tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
 	printf 'cosign-key-check\n' > "$$tmp/probe.txt"; \
-	COSIGN_PASSWORD="$$pw" COSIGN_PRIVATE_KEY="$$key" cosign sign-blob --key env://COSIGN_PRIVATE_KEY \
-	  --yes --tlog-upload=false --use-signing-config=false --bundle "$$tmp/probe.sig.json" "$$tmp/probe.txt" >/dev/null 2>&1 \
+	COSIGN_PASSWORD="$$pw" COSIGN_PRIVATE_KEY="$$key" cosign sign-blob --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
+	  --yes --use-signing-config=false --bundle "$$tmp/probe.sig.json" "$$tmp/probe.txt" >/dev/null 2>&1 \
 	  || { printf '%s\n' 'FAIL: the stored key could not sign (wrong password, or corrupted PEM)' >&2; exit 1; }; \
 	cosign verify-blob --key '$(COSIGN_PUBLIC_KEY)' --bundle "$$tmp/probe.sig.json" \
 	  --insecure-ignore-tlog=true "$$tmp/probe.txt" >/dev/null 2>&1 \

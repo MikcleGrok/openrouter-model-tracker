@@ -149,6 +149,143 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestRunKeepsCatalogOnlyModelVisibleWithoutBenchmarkIdentity(t *testing.T) {
+	dir := newDataDir(t)
+	d := okDeps()
+	d.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+		return map[string]sources.PriceInfo{
+			"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", Found: true, InPerM: 0.5, OutPerM: 3, Context: 1000000},
+			"openai/gpt-5.7-nova": {Slug: "openai/gpt-5.7-nova", Found: true, Name: "GPT-5.7 Nova", InPerM: 1, OutPerM: 4, Context: 1000000},
+			"minimax/minimax-m3":  {Slug: "minimax/minimax-m3", Found: true, InPerM: 0.3, OutPerM: 1.2, Context: 1000000},
+		}, nil
+	}
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: filepath.Join(t.TempDir(), "doc.md")}, d); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	snapshot, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snapshot.Models["openai/gpt-5.7-nova"]; !ok {
+		t.Fatal("catalog-only model was omitted from snapshot")
+	}
+	if snapshot.Models["openai/gpt-5.7-nova"].Score != nil {
+		t.Fatal("catalog-only model gained benchmark identity")
+	}
+}
+
+func TestRunUsesCatalogUnionForPriceLookupAndKeepsNoPriceRowsVisible(t *testing.T) {
+	dir := newDataDir(t)
+	d := okDeps()
+	d.catalog = func(context.Context) ([]string, error) {
+		return []string{"openai/gpt-5.6-luna", "catalog/no-price", "catalog/second"}, nil
+	}
+	d.prices = func(_ context.Context, requested []string) (map[string]sources.PriceInfo, error) {
+		if !containsAll(requested, []string{"openai/gpt-5.6-luna", "minimax/minimax-m3", "catalog/no-price", "catalog/second"}) {
+			t.Fatalf("price lookup requested %v, want curated and complete catalog union", requested)
+		}
+		return map[string]sources.PriceInfo{
+			"openai/gpt-5.6-luna": {Slug: "openai/gpt-5.6-luna", Found: true, InPerM: 0.5, OutPerM: 3},
+			"minimax/minimax-m3":  {Slug: "minimax/minimax-m3", Found: true, InPerM: 0.3, OutPerM: 1.2},
+			"catalog/no-price":    {Slug: "catalog/no-price", Found: true, Name: "No price"},
+			"catalog/second":      {Slug: "catalog/second", Found: true, InPerM: 1, OutPerM: 2},
+		}, nil
+	}
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: filepath.Join(t.TempDir(), "doc.md")}, d); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := LoadSnapshot(SnapshotPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"catalog/no-price", "catalog/second"} {
+		if _, ok := snapshot.Models[slug]; !ok {
+			t.Errorf("catalog union omitted %q", slug)
+		}
+	}
+}
+
+func TestRunCatalogFailurePreservesFullSnapshotCatalogUnion(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+	seed := &Snapshot{FetchedAt: "2026-08-03", CatalogSlugs: []string{"snapshot/catalog-a", "snapshot/catalog-b"}, Models: map[string]SnapshotEntry{
+		"openai/gpt-5.6-luna": {InPerM: 0.5, OutPerM: 3, Context: 1000000},
+		"minimax/minimax-m3":  {InPerM: 0.3, OutPerM: 1.2, Context: 1000000},
+		"snapshot/catalog-a":  {InPerM: 1, OutPerM: 2, Context: 100000},
+		"snapshot/catalog-b":  {InPerM: 2, OutPerM: 4, Context: 100000},
+	}}
+	if err := seed.Save(SnapshotPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	d := okDeps()
+	d.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalog down") }
+	d.prices = func(_ context.Context, _ []string) (map[string]sources.PriceInfo, error) {
+		return nil, errors.New("prices down")
+	}
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"snapshot/catalog-a", "snapshot/catalog-b"} {
+		if !strings.Contains(string(body), slug) {
+			t.Errorf("document omitted preserved snapshot id %q", slug)
+		}
+	}
+	got, err := LoadSnapshot(SnapshotPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"snapshot/catalog-a", "snapshot/catalog-b"} {
+		if _, ok := got.Models[slug]; !ok {
+			t.Errorf("catalog failure dropped snapshot id %q", slug)
+		}
+	}
+}
+
+func TestRunPriceFailureKeepsSuccessfulCatalogIDsFromSnapshot(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+	seed := &Snapshot{FetchedAt: "2026-08-03", Models: map[string]SnapshotEntry{
+		"openai/gpt-5.6-luna": {InPerM: 0.5, OutPerM: 3, Context: 1000000},
+		"minimax/minimax-m3":  {InPerM: 0.3, OutPerM: 1.2, Context: 1000000},
+		"catalog/new":         {InPerM: 1, OutPerM: 2, Context: 100000},
+	}}
+	if err := seed.Save(SnapshotPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	d := okDeps()
+	d.catalog = func(context.Context) ([]string, error) { return []string{"openai/gpt-5.6-luna", "catalog/new"}, nil }
+	d.prices = func(_ context.Context, _ []string) (map[string]sources.PriceInfo, error) {
+		return nil, errors.New("prices down")
+	}
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "catalog/new") {
+		t.Fatal("price failure dropped catalog ID with snapshot fallback")
+	}
+}
+
+func containsAll(values, wanted []string) bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		set[value] = true
+	}
+	for _, value := range wanted {
+		if !set[value] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestRunSnapshotPathIsIndependentOfCacheDir(t *testing.T) {
 	dir := newDataDir(t)
 	custom := filepath.Join(t.TempDir(), "custom-cache")
@@ -263,6 +400,7 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	}
 
 	broken := okDeps()
+	broken.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalogue unreachable") }
 	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
 		return nil, errors.New("catalogue unreachable")
 	}
@@ -590,6 +728,7 @@ func TestRunDryRunNeverHardFailsEvenWhenNothingCanBeMerged(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
 
 	broken := okDeps()
+	broken.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalogue unreachable") }
 	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
 		return nil, errors.New("catalogue unreachable")
 	}
@@ -625,6 +764,7 @@ func TestRunRefusesToWriteWhenPricesFailWithNoSnapshotFallback(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "openrouter-model-comparison.md")
 
 	broken := okDeps()
+	broken.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalogue unreachable") }
 	broken.prices = func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
 		return nil, errors.New("catalogue unreachable")
 	}
@@ -752,6 +892,15 @@ func TestApplyFallbackKeepsMissingIdentityConservativeAndPreservesCatalogIdentit
 	got = model.Merge(entries, map[string]sources.PriceInfo{"a/model": {Slug: "a/model", Found: true}}, scores, nt)[0]
 	if got.Rankable || got.Score.IdentityStatus != model.IdentityLegacyUnknown {
 		t.Fatalf("missing fallback identity became rankable: score=%+v rankable=%v", got.Score, got.Rankable)
+	}
+}
+
+func TestApplyFallbackPreservesSnapshotCatalogName(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "catalog/model", Tier: "sonnet"}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{"catalog/model": {CatalogName: "Vendor Model", InPerM: 1, OutPerM: 2}}}
+	prices, _, _, _ := applyFallback(entries, nil, false, nil, nil, loadTestNotes(t, "{}"), snap)
+	if got := prices["catalog/model"].Name; got != "Vendor Model" {
+		t.Fatalf("snapshot fallback PriceInfo.Name = %q, want CatalogName", got)
 	}
 }
 

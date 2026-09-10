@@ -155,6 +155,8 @@ type tuiModel struct {
 	helpOffset            int
 	helpSection           int
 	detailOffset          int
+	detailTab             int
+	detailTabsActive      bool
 	helpSearch            string
 	helpMatches           []int
 	helpMatch             int
@@ -394,7 +396,7 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 		_ = sortTableModelsWithRankingAndConfig(freeBase, m.sortKey, m.reverse, m.ranking, compiled)
 		paid, free := make([]model.Model, 0), make([]model.Model, 0)
 		for _, row := range paidBase {
-			if !row.Free {
+			if row.Paid || (!row.Free && !row.NoPrice) {
 				paid = append(paid, row)
 			}
 		}
@@ -930,9 +932,9 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.closeOverlay()
 			return m, nil
 		}
-		maxOffset := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Lines: m.detailLines(row)}).MaxOffset
+		maxOffset := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(row)}).MaxOffset
 		switch key {
-		case "esc", "left", "h":
+		case "esc", "h":
 			if !m.keyMatches("detail", "close", originalKey) {
 				break
 			}
@@ -950,6 +952,26 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.detailOffset = 0
 		case "end", "G":
 			m.detailOffset = maxOffset
+		case "1", "2", "3", "4", "5":
+			m.detailTab = int(key[0] - '1')
+			m.detailTabsActive = true
+			m.detailOffset = 0
+		case "left":
+			m.detailTabsActive = true
+			m.detailTab = max(0, m.detailTab-1)
+			m.detailOffset = 0
+		case "right":
+			m.detailTabsActive = true
+			m.detailTab = min(detailTabCount-1, m.detailTab+1)
+			m.detailOffset = 0
+		case "tab":
+			m.detailTabsActive = true
+			m.detailTab = min(detailTabCount-1, m.detailTab+1)
+			m.detailOffset = 0
+		case "shift+tab":
+			m.detailTabsActive = true
+			m.detailTab = max(0, m.detailTab-1)
+			m.detailOffset = 0
 		}
 		return m, nil
 	}
@@ -1068,7 +1090,7 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 		if len(m.visible) > 0 {
 			m.screenController.Selection.Clear()
 			m.selection = m.screenController.Selection.Snapshot()
-			m.overlay, m.detailOffset = "detail", 0
+			m.overlay, m.detailOffset, m.detailTab, m.detailTabsActive = "detail", 0, 0, true
 			return m, nil
 		}
 	case "q", "r":
@@ -2537,7 +2559,7 @@ func tuiConfiguredHelpLines(lines []string, keymap config.TUIKeymap) []string {
 		`\tDown\tnavigate\t`:               keymap["main"]["navigate_down"],
 		`\tj / k\tmove\t`:                  append(keymap["main"]["navigate_down"], keymap["main"]["navigate_up"]...),
 		`\tEnter / Right\tdetail\t`:        keymap["main"]["open_details"],
-		`\tEsc / Left / h\tclose\t`:        keymap["detail"]["close"],
+		`\tEsc / h\tclose\t`:               keymap["detail"]["close"],
 		`\to\tsettings\topen settings.`:    keymap["main"]["open_settings"],
 		`\tl\tlanguage\t`:                  keymap["main"]["language_toggle"],
 		`\t?\thelp\topen help at Hotkeys.`: keymap["main"]["help"],
@@ -2599,7 +2621,7 @@ func tuiConfiguredHelpLinesRU(lines []string, keymap config.TUIKeymap) []string 
 		`\tUp\tнавигация\t`:                keymap["main"]["navigate_up"],
 		`\tDown\tнавигация\t`:              keymap["main"]["navigate_down"],
 		`\tEnter / Right\tдетали\t`:        keymap["main"]["open_details"],
-		`\tEsc / Left / h\tзакрытие\t`:     keymap["detail"]["close"],
+		`\tEsc / h\tзакрытие\t`:            keymap["detail"]["close"],
 		`\to\tsettings\tоткрыть settings.`: keymap["main"]["open_settings"],
 		`\tl\tязык\t`:                      keymap["main"]["language_toggle"],
 		`\t?\thelp\tоткрыть справку на разделе Хоткеи.`:                                 keymap["main"]["help"],
@@ -2948,6 +2970,105 @@ func (m tuiModel) detailLines(row model.Model) []string {
 	return m.detailLinesAt(row, time.Now())
 }
 
+const detailTabCount = 5
+
+var detailTabTitles = [detailTabCount][2]string{{"Identity", "Идентичность"}, {"Pricing", "Цены"}, {"Benchmarks", "Бенчмарки"}, {"Provenance", "Происхождение"}, {"Fit & Notes", "Соответствие и заметки"}}
+
+func (m tuiModel) detailLinesForTab(row model.Model) []string {
+	lines := m.detailLines(row)
+	if !m.detailTabsActive || m.detailTab < 0 || m.detailTab >= detailTabCount {
+		return lines
+	}
+	result := []string{lines[0]}
+	section := 0
+	for _, line := range lines[1:] {
+		plain := ansi.Strip(line)
+		if strings.Contains(plain, "-- Цены --") || strings.Contains(plain, "-- Pricing --") {
+			section = 1
+		} else if strings.Contains(plain, "-- Бенчмарки --") || strings.Contains(plain, "-- Benchmarks --") {
+			section = 2
+		} else if strings.Contains(plain, "-- Происхождение") || strings.Contains(plain, "-- Provenance") {
+			section = 3
+		} else if strings.Contains(plain, "-- Соответствие") || strings.Contains(plain, "-- Fit and notes --") {
+			section = 4
+		}
+		if section == m.detailTab {
+			result = append(result, line)
+		}
+	}
+	if len(result) == 1 {
+		result = append(result, detailTabTitles[m.detailTab][0]+": "+tuiDetailPlaceholderForLang(m.lang))
+	}
+	return result
+}
+
+func (m tuiModel) detailFrameLines(row model.Model) []string {
+	lines := m.detailLinesForTab(row)
+	if !m.detailTabsActive || len(lines) == 0 {
+		return lines
+	}
+	return append([]string{lines[0], tuiDetailTabBar(m.detailTab, m.lang, m.width), ""}, lines[1:]...)
+}
+
+func detailPriceSeries(history *pricehistory.History, slug, lang string) string {
+	if history == nil || len(history.Observations) == 0 {
+		if lang == "ru" {
+			return "История цен: недоступна (нет наблюдений)"
+		}
+		return "Price history: unavailable (no observations)"
+	}
+	values := make([]string, 0, len(history.Observations))
+	for _, observation := range history.Observations {
+		if price, ok := observation.Prices[slug]; ok && price.Found {
+			values = append(values, fmt.Sprintf("%s $%.4g/$%.4g", observation.ObservedAt.Format("2006-01-02"), price.InPerM, price.OutPerM))
+		}
+	}
+	if len(values) == 0 {
+		if lang == "ru" {
+			return "История цен: недоступна для этой модели"
+		}
+		return "Price history: unavailable for this model"
+	}
+	label := "Price history: "
+	if lang == "ru" {
+		label = "История цен: "
+	}
+	return label + strings.Join(values, " | ")
+}
+
+func detailScoreSeries(history *pricehistory.History, slug, lang string) string {
+	if history == nil || len(history.Observations) == 0 {
+		if lang == "ru" {
+			return "История эффективности: недоступна (нет наблюдений)"
+		}
+		return "Efficiency history: unavailable (no observations)"
+	}
+	values := make([]string, 0, len(history.Observations))
+	for _, observation := range history.Observations {
+		for key, score := range observation.Scores {
+			if !strings.HasPrefix(key, slug+"\x00") {
+				continue
+			}
+			if score.SourceFamily == "arena" || score.Unit == "Elo" {
+				values = append(values, fmt.Sprintf("%s %.0f Elo", observation.ObservedAt.Format("2006-01-02"), score.Value))
+			} else {
+				values = append(values, fmt.Sprintf("%s SWE %.1f%%", observation.ObservedAt.Format("2006-01-02"), score.Value))
+			}
+		}
+	}
+	if len(values) == 0 {
+		if lang == "ru" {
+			return "История эффективности: недоступна для этой модели; Arena хранится как raw Elo"
+		}
+		return "Efficiency history: unavailable for this model; Arena is raw Elo"
+	}
+	label := "Efficiency history: "
+	if lang == "ru" {
+		label = "История эффективности: "
+	}
+	return label + strings.Join(values, " | ")
+}
+
 func (m tuiModel) detailLinesAt(row model.Model, now time.Time) []string {
 	license := row.License
 	if strings.TrimSpace(license) == "" {
@@ -2961,8 +3082,11 @@ func (m tuiModel) detailLinesAt(row model.Model, now time.Time) []string {
 	data := tuioutput.DetailDTO{DisplayName: row.DisplayName, Slug: row.Slug, Provider: row.Provider, License: license, Tier: row.Tier, ClaudeRef: tuiDetailClaudeRefForLang(row.ClaudeRef, m.lang), OpenWeights: tuiDetailOpenWeightsForLang(row.OpenWeights, m.lang), Description: plainDetailText(row.Description), Note: plainDetailText(tableNote(row)), CanonicalSlug: canonical, HuggingFaceID: row.HuggingFaceID, MetadataSourceURL: row.MetadataSourceURL, ModelURL: row.ModelURL, Context: row.Context, InPerM: row.InPerM, OutPerM: row.OutPerM, Created: row.Created, TaskFit: row.TaskFit, Manufacturer: manufacturerDisplayWithIconsAndGaps(row, m.icons, m.iconGaps, m.iconGap), LongContextPriceLabel: row.LongContextPriceLabel, LongContextInLabel: row.LongContextInLabel, LongContextOutLabel: row.LongContextOutLabel, HasLongContextOverride: row.HasLongContextOverride, LongContextOverrideInPerM: row.LongContextOverrideInPerM, LongContextOverrideOutPerM: row.LongContextOverrideOutPerM, LongContextOverrideMinTokens: row.LongContextOverrideMinTokens}
 	data.SWEBlock = tuiDetailSWEBenchBlockForLang(row, m.scoreSource, m.lang)
 	data.ArenaBlock = tuiDetailArenaBlockForLang(row, m.lang)
-	data.History = tuiDetailPriceHistoryForLang(m.priceHistory, row.Slug, m.lang)
-	return tuioutput.DetailLines(data, now, m.lang, nil, nil, nil, tuiDetailPrices{}, nil)
+	data.PriceHistory = tuiDetailPriceHistoryForLang(m.priceHistory, row.Slug, m.lang)
+	if m.detailTabsActive {
+		data.ScoreHistory = tuiDetailScoreHistoryLines(m.priceHistory, row.Slug, m.lang)
+	}
+	return tuioutput.DetailLines(data, now, m.lang, nil, nil, tuiDetailPrices{}, nil)
 }
 
 type tuiDetailPrices struct{}
@@ -3006,7 +3130,7 @@ func tuiDetailView(m tuiModel) string {
 		}
 		return tuioutput.Frame("Модель не выбрана · Esc close", m.width, m.height)
 	}
-	lines := m.detailLines(row)
+	lines := m.detailFrameLines(row)
 	// The footer is state (scroll position), not detail content, and must
 	// not sit flush against the last content line. tuiDetailBodyHeight
 	// already reserves two rows (blank + footer) for exactly this, so the
@@ -3021,12 +3145,26 @@ func tuiDetailView(m tuiModel) string {
 	// height, and tuiFullscreenText's own trailing pad would then land
 	// after the footer, displacing it from the screen's last line.
 	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
-		if m.lang == "ru" {
-			return fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть", offset+1, end, total)
-		}
-		return fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, total)
+		return detailFooterForLang(offset, end, total, m.width, m.lang == "ru")
 	}})
 	return tuiStyleDetail(strings.Join(frame.Lines, "\n"), frame.Offset == 0, frame.FooterLine)
+}
+
+func detailFooterForLang(offset, end, total, width int, ru bool) string {
+	if ru {
+		full := fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть · вкладки 1-5/←→/Tab · h тоже закрывает", offset+1, end, total)
+		short := fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc/h · Tab вкладки", offset+1, end, total)
+		if width > 0 && ansi.StringWidth(full) > width {
+			return short
+		}
+		return full
+	}
+	full := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close · tabs 1-5/Left-Right/Tab · h also closes", offset+1, end, total)
+	short := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc/h · Tab tabs", offset+1, end, total)
+	if width > 0 && ansi.StringWidth(full) > width {
+		return short
+	}
+	return full
 }
 
 // tuiStyleDetail paints the detail screen's finished output. Everything
@@ -3055,6 +3193,40 @@ func tuiStyleDetail(view string, header bool, footer int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func tuiDetailTabBar(active int, lang string, widths ...int) string {
+	if active < 0 || active >= detailTabCount {
+		active = 0
+	}
+	width := 0
+	if len(widths) > 0 {
+		width = widths[0]
+	}
+	activeTitle := detailTabTitles[active][0]
+	if lang == "ru" {
+		activeTitle = detailTabTitles[active][1]
+	}
+	if width > 0 && width < 80 {
+		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+	}
+	parts := make([]string, 0, detailTabCount)
+	for i, titles := range detailTabTitles {
+		title := titles[0]
+		if lang == "ru" {
+			title = titles[1]
+		}
+		part := fmt.Sprintf("[%d %s]", i+1, title)
+		if i == active {
+			part = tuiSelectedStyle.Render(part)
+		}
+		parts = append(parts, part)
+	}
+	bar := strings.Join(parts, " ")
+	if width > 0 && ansi.StringWidth(ansi.Strip(bar)) > width {
+		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+	}
+	return bar
 }
 
 // tuiStyleDetailLine styles one finished line by reading its own plain
@@ -3249,7 +3421,7 @@ Navigation
 \tEnd / G\tjump\tlast item.
 \tPgUp / PgDown\tscroll\tpage through models or help.
 \tEnter / Right\tdetail\topen the model detail screen.
-\tEsc / Left / h\tclose\tEsc, Left or h closes it and returns to the list.
+\tEsc / h\tclose\tEsc or h closes it and returns to the list; Left/Right switch detail tabs.
 
 Data/view
 \tq\tsort\tquality.
@@ -3337,12 +3509,18 @@ The last column stays selected.
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
+The five groups are Identity, Pricing, Benchmarks, Provenance, and Fit & Notes.
+\t1-5\ttabs\tselect Identity, Pricing, Benchmarks, Provenance, or Fit & Notes; resets scroll.
+\tLeft / Right\ttabs\tselect the previous or next tab; resets scroll.
+\tTab / Shift+Tab\ttabs\tselect the next or previous tab; resets scroll.
 \tEnter or Right\tdetail\tEnter or Right opens the detail screen for the highlighted model.
-\tEsc, Left or h\tdetail\tclose it and return to the list with the same cursor.
+\tEsc or h\tdetail\tclose it and return to the list with the same cursor; Left/Right switch tabs.
 \tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
-It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
+The screen opens on the Identity tab and keeps the model header visible above the active tab. It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
+History shows separate input price, output price, SWE score percentage, SWE Q/P, and Arena raw Elo series. Missing observations are gaps; no-history and a metric unavailable for this slug are shown explicitly. Current values are never substituted into a historical series.
+Historical score and Q/P lines state their source and unit explicitly.
 Field labels, block headings, links and missing values are colour-coded; the colours never change the layout.`
 
 // tuiHelpSectionMethodologyBody is the "Methodology" section: the
@@ -3488,7 +3666,7 @@ const tuiHelpSectionHotkeysBodyRU = `Хоткеи
 \tEnd / G\tпереход\tпоследний элемент.
 \tPgUp / PgDown\tпрокрутка\tлистать модели или help постранично.
 \tEnter / Right\tдетали\tоткрыть экран деталей модели.
-\tEsc / Left / h\tзакрытие\tEsc, Left или h закрывает и возвращает к списку.
+\tEsc / h\tзакрытие\tEsc или h закрывает и возвращает к списку; Left/Right переключают вкладки деталей.
 
 Данные/вид
 \tq\tсортировка\tкачество.
@@ -3577,12 +3755,18 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 // tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
 // translation.
 const tuiHelpSectionDetailBodyRU = `Экран деталей модели
+Пять групп: Идентичность, Цены, Бенчмарки, Происхождение, Соответствие и заметки.
+\t1-5\tвкладки\tвыбрать Идентичность, Цены, Бенчмарки, Происхождение или Соответствие и заметки; прокрутка сбрасывается.
+\tLeft / Right\tвкладки\tвыбрать предыдущую или следующую вкладку; прокрутка сбрасывается.
+\tTab / Shift+Tab\tвкладки\tвыбрать следующую или предыдущую вкладку; прокрутка сбрасывается.
 \tEnter или Right\tдетали\tEnter или Right открывает экран деталей для выделенной модели.
-\tEsc, Left или h\tдетали\tзакрыть его и вернуться к списку с тем же курсором.
+\tEsc или h\tдетали\tзакрыть его и вернуться к списку с тем же курсором.
 \tUp/Down или j/k\tпрокрутка\tпрокрутить текст деталей; PgUp/PgDown и Home/End тоже работают.
-Экран показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
+Экран открывается на вкладке «Идентичность» и сохраняет заголовок модели над активной вкладкой. Он показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
 Вендорское описание переносится по ширине терминала, а не обрезается, как ячейка таблицы.
 Экран также содержит ссылку на страницу модели на OpenRouter и, если каталог её знает, — на репозиторий HuggingFace. Ссылки показаны как обычный текст; кликабельных терминальных гиперссылок нет.
+История показывает отдельные ряды входной цены, выходной цены, процента SWE, SWE Q/P и сырого Arena Elo. Отсутствующие наблюдения — это пропуски; отсутствие истории и метрики для этого slug показываются явно. Текущие значения никогда не подставляются в исторический ряд.
+Исторические строки оценки и Q/P явно указывают источник и единицу измерения.
 Подписи полей, заголовки блоков, ссылки и отсутствующие значения выделены цветом; цвет никогда не меняет раскладку.`
 
 // tuiHelpSectionMethodologyBodyRU is tuiHelpSectionMethodologyBody's
@@ -3992,6 +4176,106 @@ func tuiDetailPriceHistoryLines(history *pricehistory.History, slug, lang string
 	return lines
 }
 
+func tuiDetailScoreHistoryLines(history *pricehistory.History, slug, lang string) []string {
+	if history == nil || len(history.Observations) == 0 {
+		if lang == "ru" {
+			return []string{"  История эффективности: нет истории"}
+		}
+		return []string{"  Efficiency history: no history"}
+	}
+	swe, qp, arena := make([]*float64, 0, len(history.Observations)), make([]*float64, 0, len(history.Observations)), make([]*float64, 0, len(history.Observations))
+	var gaps []string
+	var sweSources []string
+	for _, observation := range history.Observations {
+		date := observation.ObservedAt.UTC().Format("2006-01-02")
+		score, hasSWE := observation.Scores[slug+"\x00swebench"]
+		validSWE := hasSWE && score.IdentityStatus == model.IdentityExact && score.Value >= 0 && score.Value <= 100 && !math.IsNaN(score.Value) && !math.IsInf(score.Value, 0)
+		if hasSWE {
+			sweSources = appendUniqueStrings(sweSources, detailScoreSourceLabel(score))
+		}
+		if validSWE {
+			value := score.Value
+			swe = append(swe, &value)
+			if score.QualityPrice != nil && *score.QualityPrice > 0 && !math.IsNaN(*score.QualityPrice) && !math.IsInf(*score.QualityPrice, 0) {
+				qpValue := *score.QualityPrice
+				qp = append(qp, &qpValue)
+			} else {
+				qp = append(qp, nil)
+			}
+		} else {
+			swe = append(swe, nil)
+			qp = append(qp, nil)
+			if hasSWE {
+				gaps = append(gaps, date+" SWE")
+			}
+		}
+		arenaScore, hasArena := observation.Scores[slug+"\x00arena"]
+		validArena := hasArena && arenaScore.SourceFamily == "arena" && arenaScore.IdentityStatus == model.IdentityExact && arenaScore.Value >= 0 && !math.IsNaN(arenaScore.Value) && !math.IsInf(arenaScore.Value, 0)
+		if validArena {
+			value := arenaScore.Value
+			arena = append(arena, &value)
+		} else {
+			arena = append(arena, nil)
+			if len(observation.Scores) > 0 {
+				gaps = append(gaps, date+" Arena")
+			}
+		}
+	}
+	heading, gapLabel := "Efficiency history:", "gaps"
+	if lang == "ru" {
+		heading, gapLabel = "История эффективности:", "пропуски"
+	}
+	sourceLabel := strings.Join(sweSources, "/")
+	if sourceLabel == "" {
+		sourceLabel = "unknown"
+	}
+	scoreLabel, qpLabel, arenaLabel := "SWE score (%)", "SWE Q/P", "Arena raw Elo"
+	if lang == "ru" {
+		scoreLabel, qpLabel, arenaLabel = "Оценка SWE (%)", "Качество/цена SWE", "Сырой Elo LMArena"
+	}
+	lines := []string{heading, "  " + scoreLabel + " [source: " + sourceLabel + "; unit: %] " + detailSparklineGapped(swe), "  " + qpLabel + " [source: derived from " + sourceLabel + "; unit: score% / mixed $/M, 3:1] " + detailSparklineGapped(qp), "  " + arenaLabel + " [source: LMArena; unit: Elo] " + detailSparklineGapped(arena)}
+	if !hasGappedValue(swe) {
+		lines[1] += " (unavailable)"
+	}
+	if !hasGappedValue(qp) {
+		lines[2] += " (unavailable)"
+	}
+	if !hasGappedValue(arena) {
+		lines[3] += " (unavailable)"
+	}
+	if len(gaps) > 0 {
+		lines = append(lines, "  "+gapLabel+": "+strings.Join(gaps, ", "))
+	}
+	return lines
+}
+
+func detailScoreSourceLabel(score pricehistory.Score) string {
+	sourceID := strings.ToLower(strings.TrimSpace(score.SourceID))
+	switch sourceID {
+	case "vals":
+		return "vals.ai"
+	case "swebench":
+		return "swebench.com"
+	}
+	provenance := strings.ToLower(strings.TrimSpace(score.Provenance))
+	switch provenance {
+	case "https://www.vals.ai/benchmarks/swebench", "https://vals.ai":
+		return "vals.ai"
+	case "https://www.swebench.com/":
+		return "swebench.com"
+	}
+	return "unknown"
+}
+
+func appendUniqueStrings(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string {
 	lines := tuiDetailPriceHistoryLines(history, slug, "ru")
 	if len(lines) == 0 {
@@ -4003,7 +4287,23 @@ func tuiDetailPriceHistory(history *pricehistory.History, slug string) []string 
 // tuiDetailPriceHistoryForLang is tuiDetailPriceHistory with a
 // language-aware heading and change-line preposition.
 func tuiDetailPriceHistoryForLang(history *pricehistory.History, slug, lang string) []string {
+	if history == nil || len(history.Observations) == 0 {
+		if lang == "ru" {
+			return []string{"История цен: недоступна (нет наблюдений)"}
+		}
+		return []string{"Price history: unavailable (no observations)"}
+	}
 	lines := tuiDetailPriceHistoryLines(history, slug, lang)
+	priceLines := tuiDetailPriceObservationLines(history, slug, lang)
+	if len(priceLines) == 0 {
+		if lang == "ru" {
+			lines = append(lines, "История цен: недоступна для этой модели")
+		} else {
+			lines = append(lines, "Price history: unavailable for this model")
+		}
+	} else {
+		lines = append(lines, priceLines...)
+	}
 	if len(lines) == 0 {
 		return nil
 	}
@@ -4012,6 +4312,96 @@ func tuiDetailPriceHistoryForLang(history *pricehistory.History, slug, lang stri
 		heading = "Price history:"
 	}
 	return append([]string{heading}, lines...)
+}
+
+func tuiDetailPriceObservationLines(history *pricehistory.History, slug, lang string) []string {
+	if history == nil || len(history.Observations) == 0 {
+		return nil
+	}
+	input, output := make([]*float64, 0, len(history.Observations)), make([]*float64, 0, len(history.Observations))
+	for _, observation := range history.Observations {
+		price, ok := observation.Prices[slug]
+		if ok && price.Found {
+			in, out := price.InPerM, price.OutPerM
+			input = append(input, &in)
+			output = append(output, &out)
+		} else {
+			input = append(input, nil)
+			output = append(output, nil)
+		}
+	}
+	if !hasGappedValue(input) {
+		return nil
+	}
+	heading := "Price series (input/output per M tokens):"
+	if lang == "ru" {
+		heading = "Ряд цен (вход/выход за M токенов):"
+	}
+	lines := []string{heading, "  input  [OpenRouter $/M] " + detailSparklineGapped(input), "  output [OpenRouter $/M] " + detailSparklineGapped(output)}
+	for _, observation := range history.Observations {
+		price, ok := observation.Prices[slug]
+		if !ok || !price.Found {
+			lines = append(lines, "  "+observation.ObservedAt.UTC().Format("2006-01-02")+": gap")
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  %s: input %s / output %s", observation.ObservedAt.UTC().Format("2006-01-02"), tuiDetailPrice(price.InPerM), tuiDetailPrice(price.OutPerM)))
+	}
+	return lines
+}
+
+func detailSparkline(values []float64) string {
+	points := make([]*float64, len(values))
+	for i := range values {
+		points[i] = &values[i]
+	}
+	return detailSparklineGapped(points)
+}
+
+func hasGappedValue(values []*float64) bool {
+	for _, value := range values {
+		if value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func detailSparklineGapped(values []*float64) string {
+	const blocks = "._-:=+#"
+	if !hasGappedValue(values) {
+		return "n/a"
+	}
+	var minValue, maxValue float64
+	haveValue := false
+	for _, value := range values {
+		if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) {
+			continue
+		}
+		if !haveValue {
+			minValue, maxValue = *value, *value
+			haveValue = true
+			continue
+		}
+		if *value < minValue {
+			minValue = *value
+		}
+		if *value > maxValue {
+			maxValue = *value
+		}
+	}
+	var b strings.Builder
+	for _, value := range values {
+		if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) {
+			b.WriteByte('?')
+			continue
+		}
+		index := 0
+		if maxValue > minValue {
+			index = int((*value - minValue) / (maxValue - minValue) * float64(len(blocks)-1))
+		}
+		b.WriteByte(blocks[index])
+	}
+	return b.String()
 }
 
 // tuiLongContextLabelsForLang formats model.Model's long-context override —
@@ -4277,7 +4667,7 @@ func (m *tuiModel) clampDetailOffset() {
 		m.detailOffset = 0
 		return
 	}
-	lines := m.detailLines(row)
+	lines := m.detailFrameLines(row)
 	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines})
 	m.detailOffset = frame.Offset
 }

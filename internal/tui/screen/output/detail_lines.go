@@ -20,9 +20,6 @@ type DetailLabels struct {
 type DetailLocalizer interface {
 	Labels(lang string) DetailLabels
 }
-type DetailHistoryProvider interface {
-	Lines(slug, lang string) []string
-}
 type DetailIconProvider interface{ Manufacturer(data DetailDTO) string }
 type DetailPriceProvider interface {
 	Context(tokens int) string
@@ -49,7 +46,7 @@ type DetailDTO struct {
 	LongContextOverrideInPerM, LongContextOverrideOutPerM                        float64
 	LongContextOverrideMinTokens                                                 int
 	SWEBlock, ArenaBlock                                                         []string
-	History                                                                      []string
+	PriceHistory, ScoreHistory                                                   []string
 }
 
 type detailDefaults struct{}
@@ -79,12 +76,9 @@ func (detailDefaults) Arena(data DetailDTO, lang string) []string {
 }
 
 // DetailLines builds semantic rows. Detail is the only function that turns these rows into physical rows.
-func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLocalizer, history DetailHistoryProvider, icons DetailIconProvider, prices DetailPriceProvider, scores DetailScoreProvider) []string {
+func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLocalizer, icons DetailIconProvider, prices DetailPriceProvider, scores DetailScoreProvider) []string {
 	if localizer == nil {
 		localizer = detailDefaults{}
-	}
-	if history == nil {
-		history = detailDefaults{}
 	}
 	if icons == nil {
 		icons = detailDefaults{}
@@ -115,15 +109,12 @@ func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLoc
 	if combined, input, output := prices.LongContext(data, lang); combined != "" {
 		lines = append(lines, l.LongContext+combined, l.LongContextInput+input, l.LongContextOutput+output)
 	}
-	if historyLines := append([]string(nil), data.History...); len(historyLines) > 0 {
-		lines = append(lines, historyLines...)
-	} else if generated := history.Lines(data.Slug, lang); len(generated) > 0 {
-		lines = append(lines, generated...)
-	}
+	lines = append(lines, data.PriceHistory...)
 	lines = append(lines, l.OpenWeights+value(data.OpenWeights), "", l.Benchmarks)
 	lines = append(lines, scores.SWEBench(data, lang)...)
 	lines = append(lines, "")
 	lines = append(lines, scores.Arena(data, lang)...)
+	lines = append(lines, data.ScoreHistory...)
 	lines = append(lines, "", l.Provenance, l.ReleaseDate+releaseDate(data.Created, now, l), l.OpenRouterPage+"https://openrouter.ai/"+value(data.CanonicalSlug))
 	if strings.TrimSpace(data.ModelURL) != "" {
 		lines = append(lines, l.ModelPage+value(data.ModelURL))

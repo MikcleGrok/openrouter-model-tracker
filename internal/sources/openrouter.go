@@ -21,12 +21,13 @@ var CatalogURL = "https://openrouter.ai/api/v1/models"
 
 // PriceInfo is one model's entry in the OpenRouter catalogue.
 type PriceInfo struct {
-	Slug    string
-	InPerM  float64
-	OutPerM float64
-	Context int
-	Free    bool
-	Found   bool
+	Slug     string
+	InPerM   float64
+	OutPerM  float64
+	Context  int
+	Free     bool
+	Found    bool
+	HasPrice bool
 
 	// Created is the catalogue's publication timestamp (Unix seconds) and
 	// Description is the vendor's prose about the model. They are catalogue
@@ -125,6 +126,9 @@ func fetchCatalog(ctx context.Context, c *httpcache.Client) ([]catalogModel, err
 // rounded to four decimals — the same conversion the retired
 // openrouter-pricing.sh did.
 func perMillion(s string) (float64, error) {
+	if s == "" {
+		return 0, nil
+	}
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return 0, err
@@ -166,6 +170,7 @@ func LookupPrices(ctx context.Context, c *httpcache.Client, slugs []string) (map
 			Context:        m.ContextLength,
 			Free:           m.Pricing.Prompt == "0" && m.Pricing.Completion == "0",
 			Found:          true,
+			HasPrice:       m.Pricing.Prompt != "" || m.Pricing.Completion != "",
 			Created:        m.Created,
 			Description:    m.Description,
 			Name:           m.Name,

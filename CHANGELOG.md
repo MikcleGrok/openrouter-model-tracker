@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+- Add full catalog radar coverage with an unmapped-model fallback so new catalog entries remain visible without curated metadata.
+- Track Claude main models as first-class reference entries alongside catalog model data.
+- Preserve price and efficiency history across refreshes for trend comparisons.
+- Add tabbed Detail TUI navigation for model information and benchmark sections.
+
 ## [1.16.6]
 
 - Auto-refresh model data on first run instead of failing with "run refresh

@@ -104,13 +104,14 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	entries = modelmap.WithCatalog(entries, snapshot.CatalogSlugs)
 	prices := make(map[string]sources.PriceInfo, len(snapshot.Models))
 	scores := make([]sources.ScoreRow, 0, len(snapshot.Models))
 	arena := make([]sources.ScoreRow, 0, len(snapshot.Models))
 	for slug, entry := range snapshot.Models {
 		prices[slug] = sources.PriceInfo{
 			Slug: slug, InPerM: entry.InPerM, OutPerM: entry.OutPerM, Context: entry.Context,
-			Free: entry.InPerM == 0 && entry.OutPerM == 0, Found: true,
+			Free: entry.Free, HasPrice: entry.HasPrice || entry.Free || entry.InPerM > 0 || entry.OutPerM > 0, Found: true,
 			HasOverride: entry.HasOverride, OverrideMinTokens: entry.OverrideMinTokens,
 			OverrideInPerM: entry.OverrideInPerM, OverrideOutPerM: entry.OverrideOutPerM,
 			Created: entry.Created, Description: entry.Description, Name: entry.CatalogName,
@@ -454,7 +455,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 			filter := strings.ToLower(strings.TrimSpace(raw))
 			switch {
 			case filter == "paid":
-				parsed = append(parsed, func(m model.Model) bool { return !m.Free })
+				parsed = append(parsed, func(m model.Model) bool { return m.Paid || (!m.Free && !m.NoPrice) })
 			case filter == "free":
 				parsed = append(parsed, func(m model.Model) bool { return m.Free })
 			case filter == "scored":
@@ -468,7 +469,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				case "free":
 					parsed = append(parsed, func(m model.Model) bool { return m.Free })
 				case "paid":
-					parsed = append(parsed, func(m model.Model) bool { return !m.Free })
+					parsed = append(parsed, func(m model.Model) bool { return m.Paid || (!m.Free && !m.NoPrice) })
 				default:
 					return nil, fmt.Errorf("table: invalid availability %q; allowed values: any, free, paid", availability)
 				}
@@ -764,6 +765,9 @@ func padTableCell(value string, width int) string {
 }
 
 func tableStatus(m model.Model) string {
+	if m.Unmapped {
+		return "unmapped (no benchmark identity)"
+	}
 	status := m.ScoreLabel
 	if status == "" {
 		status = "No score"

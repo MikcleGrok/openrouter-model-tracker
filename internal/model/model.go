@@ -95,11 +95,15 @@ type Model struct {
 	Slug        string
 	DisplayName string
 	Tier        string
+	Unmapped    bool
 
-	InPerM  float64
-	OutPerM float64
-	Context int
-	Free    bool
+	InPerM   float64
+	OutPerM  float64
+	Context  int
+	Free     bool
+	HasPrice bool
+	Paid     bool
+	NoPrice  bool
 
 	// Created is the catalogue's publication timestamp (Unix seconds);
 	// Description is the vendor's prose. Both are carried verbatim from the
@@ -316,14 +320,22 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			continue
 		}
 
+		displayName := nt.DisplayName(e.Slug)
+		if IsPlaceholder(displayName) || strings.TrimSpace(displayName) == "" {
+			displayName = price.Name
+		}
+		if strings.TrimSpace(displayName) == "" {
+			displayName = e.Slug
+		}
 		m := Model{
 			Slug:               e.Slug,
-			DisplayName:        nt.DisplayName(e.Slug),
+			DisplayName:        displayName,
 			Tier:               e.Tier,
 			InPerM:             price.InPerM,
 			OutPerM:            price.OutPerM,
 			Context:            price.Context,
 			Free:               price.Free,
+			HasPrice:           price.HasPrice || price.Free || price.InPerM > 0 || price.OutPerM > 0,
 			Created:            price.Created,
 			Description:        price.Description,
 			CatalogName:        price.Name,
@@ -338,6 +350,9 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			Copyright:          nt.Copyright(e.Slug),
 			CopyrightGuardrail: nt.CopyrightGuardrail(e.Slug),
 		}
+		m.Unmapped = e.Tier == ""
+		m.NoPrice = !m.HasPrice && !m.Free
+		m.Paid = m.HasPrice && !m.Free
 		m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
 		m.InputPrice, m.OutputPrice = m.InPerM, m.OutPerM
 		m.Tokens10In = pricing.Tokens10(m.InPerM)
@@ -583,6 +598,32 @@ func selectRow(rows []sources.ScoreRow, entry modelmap.Entry, price sources.Pric
 	return rows[0], first, true
 }
 
+// SelectedScoreRows applies the same identity-gated, priority-ordered choice
+// used by MergeWithArena. It is shared by history writers so provenance cannot
+// drift from the score visible at runtime.
+func SelectedScoreRows(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow) (selected, selectedArena []sources.ScoreRow) {
+	selectFamily := func(rows []sources.ScoreRow, arenaFamily bool) []sources.ScoreRow {
+		bySlug := make(map[string][]sources.ScoreRow)
+		for _, row := range rows {
+			bySlug[row.Slug] = append(bySlug[row.Slug], row)
+		}
+		out := make([]sources.ScoreRow, 0, len(bySlug))
+		for _, entry := range entries {
+			price, ok := prices[entry.Slug]
+			if !ok || !price.Found {
+				continue
+			}
+			row, identity, has := selectRow(bySlug[entry.Slug], entry, price)
+			if has && (arenaFamily == (sourceFamilyForRow(row) == ScoreSourceArena)) {
+				row.IdentityStatus = identity
+				out = append(out, row)
+			}
+		}
+		return out
+	}
+	return selectFamily(scores, false), selectFamily(arena, true)
+}
+
 func sourceFamilyForRow(row sources.ScoreRow) string {
 	if row.SourceFamily != "" {
 		return row.SourceFamily
@@ -685,7 +726,7 @@ func ForScoreSource(models []Model, source string) []Model {
 				Scaffold:           m.ArenaScore.Scaffold,
 			}
 		}
-		m.QualityPrice, m.QualityPriceLabel, m.HasQualityPrice = m.ArenaQualityPrice, m.ArenaQualityPriceLabel, m.ArenaQualityPriceLabel != "" && m.ArenaRankable && !m.Free && m.MixedPrice > 0 && validScore(m.ArenaNormalized)
+		m.QualityPrice, m.QualityPriceLabel, m.HasQualityPrice = m.ArenaQualityPrice, m.ArenaQualityPriceLabel, m.ArenaQualityPriceLabel != "" && m.ArenaRankable && m.Paid && m.MixedPrice > 0 && validScore(m.ArenaNormalized)
 	}
 	return out
 }

@@ -1,6 +1,7 @@
 package pricehistory
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +55,67 @@ func TestHistoryRetention(t *testing.T) {
 	}
 	if !history.Observations[0].ObservedAt.Equal(time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("oldest observation = %s", history.Observations[0].ObservedAt)
+	}
+}
+
+func TestHistoryStoresLiveScoresAndDerivedSWEQualityPrice(t *testing.T) {
+	history := &History{}
+	history.AddObservation(time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC), map[string]sources.PriceInfo{
+		"openai/model": {Found: true, InPerM: 0.5, OutPerM: 3},
+	}, []sources.ScoreRow{{Slug: "openai/model", SourceFamily: "vals", Metric: sources.MetricSWEBenchVerified, Value: 90, Unit: "%", ConfiguredIdentity: "openai/model", IdentityStatus: "exact_product", SourceURL: "swe"}}, []sources.ScoreRow{{Slug: "openai/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, Unit: "Elo", IdentityStatus: "exact_product", SourceURL: "arena"}})
+	if len(history.Observations) != 1 || len(history.Observations[0].Scores) != 2 {
+		t.Fatalf("scores = %#v", history.Observations[0].Scores)
+	}
+	swe := history.Observations[0].Scores["openai/model\x00swebench"]
+	if swe.SourceID != "vals" || swe.Provenance != "swe" || swe.QualityPrice == nil || swe.Formula == "" {
+		t.Fatalf("SWE observation = %#v", swe)
+	}
+	arena := history.Observations[0].Scores["openai/model\x00arena"]
+	if arena.Value != 1400 || arena.Unit != "Elo" || arena.QualityPrice != nil {
+		t.Fatalf("Arena observation = %#v", arena)
+	}
+}
+
+func TestHistoryQPGateRequiresCanonicalLiveSWEIdentity(t *testing.T) {
+	history := &History{}
+	prices := map[string]sources.PriceInfo{"demo/model": {Found: true, InPerM: 1, OutPerM: 3}}
+	rows := []sources.ScoreRow{
+		{Slug: "demo/model", SourceFamily: "vals", Metric: sources.MetricSWEBenchVerified, Value: 90, IdentityStatus: "exact_product", SourceURL: "vals"},
+	}
+	history.AddObservation(time.Now(), prices, rows, nil)
+	point := history.Observations[0].Scores["demo/model\x00swebench"]
+	if point.SourceID != "vals" || point.QualityPrice == nil {
+		t.Fatalf("canonical vals point = %#v", point)
+	}
+
+	for _, status := range []string{"missing_identity", "legacy_unknown", "observation_only", "variant_mismatch", ""} {
+		point := Score{}
+		h := &History{}
+		h.AddObservation(time.Now(), prices, []sources.ScoreRow{{Slug: "demo/model", SourceFamily: "vals", Metric: sources.MetricSWEBenchVerified, Value: 90, IdentityStatus: status}}, nil)
+		point = h.Observations[0].Scores["demo/model\x00swebench"]
+		if point.QualityPrice != nil {
+			t.Errorf("status %q produced Q/P: %#v", status, point)
+		}
+	}
+}
+
+func TestHistoryArenaRequiresExactFiniteIdentity(t *testing.T) {
+	for _, row := range []sources.ScoreRow{
+		{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: "variant_mismatch"},
+		{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: ""},
+		{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: "observation_only"},
+		{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: "exact_product"},
+		{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: math.NaN(), IdentityStatus: "exact_product"},
+	} {
+		history := &History{}
+		history.AddObservation(time.Now(), map[string]sources.PriceInfo{"demo/model": {Found: true}}, nil, []sources.ScoreRow{row})
+		if row.IdentityStatus == "exact_product" && row.Value == 1400 {
+			if len(history.Observations[0].Scores) != 1 {
+				t.Fatalf("valid Arena row was dropped: %#v", history.Observations[0].Scores)
+			}
+		} else if len(history.Observations[0].Scores) != 0 {
+			t.Errorf("invalid Arena row was stored: %#v", history.Observations[0].Scores)
+		}
 	}
 }
 
