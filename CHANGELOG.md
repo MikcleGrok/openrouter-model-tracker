@@ -12,6 +12,10 @@
 - Preserve price and efficiency history across refreshes for trend comparisons.
 - Add tabbed Detail TUI navigation for model information and benchmark sections.
 
+## [1.16.9]
+
+- Fix release signing with multiline Keychain-backed cosign private keys by validating and passing key material through the shell environment instead of make-expanded recipe text.
+
 ## [Unreleased]
 
 - Future release changes will be documented here.

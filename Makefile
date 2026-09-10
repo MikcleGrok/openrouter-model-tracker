@@ -187,7 +187,7 @@ provenance-predicate: check-tag
 ifeq ($(filter local candidate,$(PROVENANCE_PROFILE)),)
 sign: release-manifest
 	@command -v cosign >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: cosign is required to sign the release manifest'; exit 1; }
-	@test -n "$(COSIGN_PRIVATE_KEY)" || { printf '%s\n' 'BLOCKED: COSIGN_PRIVATE_KEY is required for the external signing profile'; exit 1; }
+	@test -n "$${COSIGN_PRIVATE_KEY:-}" || { printf '%s\n' 'BLOCKED: COSIGN_PRIVATE_KEY is required for the external signing profile'; exit 1; }
 	@test -s $(COSIGN_PUBLIC_KEY) || { printf '%s\n' 'BLOCKED: $(COSIGN_PUBLIC_KEY) is missing; cannot sign without the committed key pair'; exit 1; }
 	cd $(ROOT) && cosign sign-blob --key '$(COSIGN_PRIVATE_KEY_REF)' --yes --tlog-upload=false --use-signing-config=false --bundle $(RELEASE_MANIFEST_SIG) $(RELEASE_MANIFEST)
 	@test -s $(RELEASE_MANIFEST_SIG)
@@ -200,7 +200,7 @@ endif
 ifeq ($(filter local candidate,$(PROVENANCE_PROFILE)),)
 attest: provenance-predicate
 	@command -v cosign >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: cosign is required to attest the release manifest'; exit 1; }
-	@test -n "$(COSIGN_PRIVATE_KEY)" || { printf '%s\n' 'BLOCKED: COSIGN_PRIVATE_KEY is required for the external signing profile'; exit 1; }
+	@test -n "$${COSIGN_PRIVATE_KEY:-}" || { printf '%s\n' 'BLOCKED: COSIGN_PRIVATE_KEY is required for the external signing profile'; exit 1; }
 	@test -s $(RELEASE_MANIFEST) || { printf '%s\n' 'BLOCKED: $(RELEASE_MANIFEST) is missing; run make release-manifest (or make sign) first -- attest MUST NOT regenerate it, or it would attest different content than sign signed'; exit 1; }
 	cd $(ROOT) && cosign attest-blob --predicate $(PROVENANCE_PREDICATE) --type slsaprovenance1 --key '$(COSIGN_PRIVATE_KEY_REF)' --yes --tlog-upload=false --use-signing-config=false --bundle $(RELEASE_MANIFEST_ATT) $(RELEASE_MANIFEST)
 	@test -s $(RELEASE_MANIFEST_ATT)
@@ -211,10 +211,10 @@ attest:
 endif
 
 signature:
-	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PRIVATE_KEY='$(COSIGN_PRIVATE_KEY)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_SIG='$(RELEASE_MANIFEST_SIG)' ./scripts/verify-provenance.sh signature
+	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_SIG='$(RELEASE_MANIFEST_SIG)' ./scripts/verify-provenance.sh signature
 
 verify-provenance: signature
-	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PRIVATE_KEY='$(COSIGN_PRIVATE_KEY)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_ATT='$(RELEASE_MANIFEST_ATT)' BIN='bin/openrouter' SBOM_FILE='$(SBOM_FILE)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' PUBLISHED_EVIDENCE='$(PUBLISHED_EVIDENCE)' ./scripts/verify-provenance.sh full
+	@cd $(ROOT) && PROVENANCE_PROFILE='$(PROVENANCE_PROFILE)' TAG_VERSION='$(TAG_VERSION)' VERSION='$(VERSION)' COSIGN_PUBLIC_KEY='$(COSIGN_PUBLIC_KEY)' RELEASE_MANIFEST='$(RELEASE_MANIFEST)' RELEASE_MANIFEST_ATT='$(RELEASE_MANIFEST_ATT)' BIN='bin/openrouter' SBOM_FILE='$(SBOM_FILE)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' PUBLISHED_EVIDENCE='$(PUBLISHED_EVIDENCE)' ./scripts/verify-provenance.sh full
 ifneq ($(filter external published,$(PROVENANCE_PROFILE)),)
 	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --published-evidence '$(PUBLISHED_EVIDENCE)' --tag '$(TAG_VERSION)' --commit "$$(git rev-parse HEAD)" --version '$(VERSION)'
 endif
