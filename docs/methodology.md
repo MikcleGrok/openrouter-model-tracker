@@ -37,7 +37,12 @@ F1-справки TUI (шестая вкладка, `omt tui` → `F1` → `6`).
   всё равно была сравнима на одной знакомой шкале — «примерно уровня Sonnet»,
   «примерно уровня Haiku».
 
-## Identity gate: доверие только через model-map.tsv
+## Identity gate: benchmark-доверие только через model-map.tsv
+
+Каталог OpenRouter определяет охват радара, а `model-map.tsv` является curated
+метаданными tier и точных benchmark identity, не allowlist. Поэтому unmapped
+модель каталога остаётся видимой с безопасным именем из `catalog_name` или slug,
+но не получает benchmark identity и не участвует в ranking.
 
 Строка с лидерборда никогда не привязывается к модели OpenRouter по похожести
 имён — только через ручную карту `model-map.tsv`, и это единственный путь:

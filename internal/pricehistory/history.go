@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
 
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 const (
-	SchemaVersion   = 1
+	SchemaVersion   = 2
 	MaxObservations = 365
 )
 
@@ -32,6 +34,20 @@ type Price struct {
 type Observation struct {
 	ObservedAt time.Time        `json:"observed_at"`
 	Prices     map[string]Price `json:"prices"`
+	Scores     map[string]Score `json:"scores,omitempty"`
+}
+
+type Score struct {
+	SourceFamily   string    `json:"source_family"`
+	SourceID       string    `json:"source_id"`
+	Metric         string    `json:"metric,omitempty"`
+	IdentityStatus string    `json:"identity_status,omitempty"`
+	Value          float64   `json:"value"`
+	Unit           string    `json:"unit,omitempty"`
+	Provenance     string    `json:"provenance,omitempty"`
+	ObservedAt     time.Time `json:"observed_at"`
+	QualityPrice   *float64  `json:"quality_price,omitempty"`
+	Formula        string    `json:"formula,omitempty"`
 }
 
 type History struct {
@@ -64,7 +80,7 @@ func Load(path string) (*History, error) {
 	if err := json.Unmarshal(body, &h); err != nil {
 		return nil, fmt.Errorf("price history: decode %s: %w", path, err)
 	}
-	if h.SchemaVersion == 0 {
+	if h.SchemaVersion == 0 || h.SchemaVersion == 1 {
 		h.SchemaVersion = SchemaVersion
 	}
 	if h.SchemaVersion != SchemaVersion {
@@ -75,8 +91,41 @@ func Load(path string) (*History, error) {
 }
 
 func (h *History) Add(observedAt time.Time, prices map[string]sources.PriceInfo) {
+	h.AddObservation(observedAt, prices, nil, nil)
+}
+
+func (h *History) AddObservation(observedAt time.Time, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow) {
 	h.SchemaVersion = SchemaVersion
-	h.Observations = append(h.Observations, Observation{ObservedAt: observedAt.UTC(), Prices: FromPrices(prices)})
+	when := observedAt.UTC()
+	observation := Observation{ObservedAt: when, Prices: FromPrices(prices), Scores: map[string]Score{}}
+	for _, row := range append(append([]sources.ScoreRow(nil), scores...), arena...) {
+		family := "swebench"
+		if row.Metric == sources.MetricArenaElo || row.SourceFamily == "arena" {
+			family = "arena"
+		}
+		sourceID := row.SourceFamily
+		if sourceID != "vals" && sourceID != "swebench" && family == "swebench" {
+			sourceID = "swebench"
+		}
+		if family == "arena" && (row.IdentityStatus != "exact_product" || row.Value < 0 || math.IsNaN(row.Value) || math.IsInf(row.Value, 0)) {
+			continue
+		}
+		point := Score{SourceFamily: family, SourceID: sourceID, Metric: row.Metric, IdentityStatus: row.IdentityStatus, Value: row.Value, Unit: row.Unit, Provenance: row.SourceURL, ObservedAt: when}
+		price := prices[row.Slug]
+		if family == "swebench" && row.IdentityStatus == "exact_product" && row.Value >= 0 && row.Value <= 100 && !row.IdentityAmbiguous {
+			mixed := pricing.MixedPrice(price.InPerM, price.OutPerM)
+			if price.Found && mixed > 0 {
+				qualityPrice := pricing.QualityPrice(row.Value, mixed)
+				point.QualityPrice = &qualityPrice
+				point.Formula = "swe_score_pct / mixed_price_3_to_1"
+			}
+		}
+		observation.Scores[row.Slug+"\x00"+family] = point
+	}
+	if len(observation.Scores) == 0 {
+		observation.Scores = nil
+	}
+	h.Observations = append(h.Observations, observation)
 	sort.SliceStable(h.Observations, func(i, j int) bool { return h.Observations[i].ObservedAt.Before(h.Observations[j].ObservedAt) })
 	if len(h.Observations) > MaxObservations {
 		h.Observations = h.Observations[len(h.Observations)-MaxObservations:]

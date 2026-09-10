@@ -41,6 +41,17 @@ func testPrices() map[string]sources.PriceInfo {
 	}
 }
 
+func TestSelectedScoreRowsPreservesRuntimePriorityAndIdentity(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "demo/model", Tier: "sonnet", Names: map[string]string{"vals": "demo/model", "swebench": "Model: demo/model"}}}
+	prices := map[string]sources.PriceInfo{"demo/model": {Slug: "demo/model", Found: true, InPerM: 1, OutPerM: 2}}
+	vals := sources.ScoreRow{Slug: "demo/model", SourceFamily: "vals", ConfiguredIdentity: "demo/model", Metric: sources.MetricSWEBenchVerified, Value: 91, SourceURL: "vals"}
+	swe := sources.ScoreRow{Slug: "demo/model", SourceFamily: "swebench", ConfiguredIdentity: "Model: demo/model", Metric: sources.MetricSWEBenchVerified, Value: 81, SourceURL: "swebench"}
+	selected, _ := SelectedScoreRows(entries, prices, []sources.ScoreRow{vals, swe}, nil)
+	if len(selected) != 1 || selected[0].SourceURL != "vals" || selected[0].ConfiguredIdentity != "demo/model" {
+		t.Fatalf("selected score = %+v, want vals row with its source identity", selected)
+	}
+}
+
 func byslug(models []Model) map[string]Model {
 	out := map[string]Model{}
 	for _, m := range models {

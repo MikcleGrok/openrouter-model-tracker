@@ -183,7 +183,13 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 			mu.Unlock()
 		}
 
-		p, err := d.prices(ctx, modelmap.Slugs(entries))
+		requested := modelmap.Slugs(entries)
+		if err == nil {
+			requested = appendUnique(requested, c...)
+		} else {
+			requested = appendUnique(requested, snapshotCatalogSlugs(snap)...)
+		}
+		p, err := d.prices(ctx, requested)
 		if err != nil {
 			warn("openrouter: цены не получены (%v) — берутся из снимка прошлого прогона", err)
 			return
@@ -233,6 +239,8 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 			}
 		}
 	}
+	liveScores := append([]sources.ScoreRow(nil), scores...)
+	liveArenaScores := append([]sources.ScoreRow(nil), arenaScores...)
 
 	// A source "succeeded" if its rows entry was ever set — even to an empty
 	// slice — since the goroutine only reaches that assignment on a nil error.
@@ -242,12 +250,30 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		sourceOK[s.id] = ok
 	}
 
+	workingCatalog := catalog
+	if !catalogOK {
+		workingCatalog = snapshotCatalogSlugs(snap)
+	}
+	reportEntries := append([]modelmap.Entry(nil), entries...)
+	entries = modelmap.WithCatalog(entries, workingCatalog)
 	today := d.now().Format("2006-01-02")
-	prices, scores, stalePrices, staleScores := applyFallback(entries, prices, pricesOK, scores, sourceOK, nt, snap)
+	priceFallbackEntries := entries
+	if catalogOK {
+		priceFallbackEntries = entriesForCatalog(entries, catalog)
+	}
+	prices, scores, stalePrices, staleScores := applyFallback(priceFallbackEntries, prices, pricesOK, scores, sourceOK, nt, snap)
+	if catalogOK && !pricesOK {
+		for _, slug := range catalog {
+			if _, ok := prices[slug]; !ok {
+				prices[slug] = sources.PriceInfo{Slug: slug, Name: slug, Found: true}
+			}
+		}
+	}
 	arenaScores, staleArena := applyArenaFallback(entries, arenaScores, sourceOK, snap)
 
 	models := model.MergeWithArena(entries, prices, scores, arenaScores, nt)
-	report := BuildReport(entries, catalog, prices, pricesOK, models)
+	liveScores, liveArenaScores = model.SelectedScoreRows(entries, prices, liveScores, liveArenaScores)
+	report := BuildReport(reportEntries, catalog, prices, pricesOK, models)
 	report.PriceChanges = priceChanges(history, prices, pricesOK)
 	if catalogOK && len(snap.CatalogSlugs) > 0 {
 		report.CatalogAdded, report.CatalogRemoved = catalogDelta(snap.CatalogSlugs, catalog)
@@ -284,6 +310,9 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	if !pricesOK {
 		var missing []string
 		for _, e := range entries {
+			if catalogOK && !containsString(catalog, e.Slug) {
+				continue
+			}
 			if _, ok := prices[e.Slug]; !ok {
 				missing = append(missing, e.Slug)
 			}
@@ -316,13 +345,52 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 	files := []publishFile{{path: opts.OutputPath, data: buf.Bytes()}, {path: snapshotPath, save: func(path string) error { return newSnapshot.Save(path) }}}
 	if pricesOK {
-		history.Add(d.now(), prices)
+		history.AddObservation(d.now(), prices, liveScores, liveArenaScores)
 		files = append(files, publishFile{path: historyPath, save: func(path string) error { return d.saveHistory(history, path) }, errPrefix: "save price history"})
 	}
 	if err := publish(files, d.rename, d.remove); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func snapshotCatalogSlugs(snap *Snapshot) []string {
+	if snap == nil {
+		return nil
+	}
+	ids := append([]string(nil), snap.CatalogSlugs...)
+	modelIDs := make([]string, 0, len(snap.Models))
+	for slug := range snap.Models {
+		modelIDs = append(modelIDs, slug)
+	}
+	sort.Strings(modelIDs)
+	for _, slug := range modelIDs {
+		ids = appendUnique(ids, slug)
+	}
+	return ids
+}
+
+func entriesForCatalog(entries []modelmap.Entry, catalog []string) []modelmap.Entry {
+	allowed := make(map[string]bool, len(catalog))
+	for _, slug := range catalog {
+		allowed[slug] = true
+	}
+	result := make([]modelmap.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if allowed[entry.Slug] {
+			result = append(result, entry)
+		}
+	}
+	return result
 }
 
 type publishFile struct {
@@ -501,7 +569,7 @@ func applyFallback(entries []modelmap.Entry, prices map[string]sources.PriceInfo
 			if !ok {
 				continue
 			}
-			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.InPerM == 0 && se.OutPerM == 0, Found: true, Created: se.Created, Description: se.Description, CanonicalSlug: se.CanonicalSlug, HuggingFaceID: se.HuggingFaceID, Provider: se.Provider, ReleaseVariant: se.ReleaseVariant, ModelVariant: se.ModelVariant, Reasoning: se.Reasoning, Configuration: se.Configuration, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
+			prices[e.Slug] = sources.PriceInfo{Slug: e.Slug, InPerM: se.InPerM, OutPerM: se.OutPerM, Context: se.Context, Free: se.Free, HasPrice: se.HasPrice || se.Free || se.InPerM > 0 || se.OutPerM > 0, Found: true, Created: se.Created, Description: se.Description, Name: se.CatalogName, CanonicalSlug: se.CanonicalSlug, HuggingFaceID: se.HuggingFaceID, Provider: se.Provider, ReleaseVariant: se.ReleaseVariant, ModelVariant: se.ModelVariant, Reasoning: se.Reasoning, Configuration: se.Configuration, HasOverride: se.HasOverride, OverrideMinTokens: se.OverrideMinTokens, OverrideInPerM: se.OverrideInPerM, OverrideOutPerM: se.OverrideOutPerM}
 			stalePrices[e.Slug] = true
 		}
 	}
@@ -668,4 +736,18 @@ func markStale(models []model.Model, stalePrices, staleScores, staleArena map[st
 			m.ArenaLabel += " (не удалось проверить на " + date + ")"
 		}
 	}
+}
+
+func appendUnique(values []string, extra ...string) []string {
+	seen := make(map[string]bool, len(values)+len(extra))
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, value := range extra {
+		if value != "" && !seen[value] {
+			values = append(values, value)
+			seen[value] = true
+		}
+	}
+	return values
 }

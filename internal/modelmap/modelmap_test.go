@@ -320,3 +320,14 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		}
 	}
 }
+
+func TestWithCatalogKeepsMapRowsAndAddsUnmappedIDs(t *testing.T) {
+	entries := []Entry{{Slug: "mapped/model", Tier: "sonnet", Names: map[string]string{"vals": "mapped"}}}
+	got := WithCatalog(entries, []string{"mapped/model", "new/model:free", "new/model:batch"})
+	if len(got) != 3 || got[1].Slug != "new/model:free" || got[2].Slug != "new/model:batch" {
+		t.Fatalf("WithCatalog = %#v", got)
+	}
+	if got[1].Tier != "" || len(got[1].Names) != 0 {
+		t.Fatalf("unmapped entry gained curated metadata: %#v", got[1])
+	}
+}

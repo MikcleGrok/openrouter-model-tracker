@@ -129,3 +129,21 @@ func NamesFor(entries []Entry, source string) map[string]string {
 	}
 	return out
 }
+
+// WithCatalog adds current catalogue ids without granting them curated tier or
+// benchmark identity. Existing map entries keep their order and metadata.
+func WithCatalog(entries []Entry, catalog []string) []Entry {
+	seen := make(map[string]bool, len(entries)+len(catalog))
+	out := append([]Entry(nil), entries...)
+	for _, entry := range entries {
+		seen[entry.Slug] = true
+	}
+	for _, slug := range catalog {
+		if slug == "" || seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		out = append(out, Entry{Slug: slug, Names: map[string]string{}})
+	}
+	return out
+}

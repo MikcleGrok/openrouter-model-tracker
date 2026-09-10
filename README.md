@@ -7,8 +7,9 @@ CLI/TUI для сравнения AI-моделей на OpenRouter по кач�
 Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжирует платные
 модели по метрике «качество/цена» и раскладывает их по тирам, ориентированным
 на Claude Opus/Sonnet/Haiku. Сопоставление строк с разных сайтов проходит через
-ручную карту `model-map.tsv` и structured identity gate, а не fuzzy-match по
-имени: нет записи в карте — нет оценки. Данные доступны и в интерактивном TUI,
+ручную curated-карту `model-map.tsv` и structured identity gate, а не fuzzy-match по
+имени: отсутствие записи в карте не скрывает модель каталога и не даёт ей benchmark-оценку.
+Данные доступны и в интерактивном TUI,
 и как plain-text CLI-таблица, и как готовый Markdown-отчёт.
 
 ## Скриншоты
@@ -34,8 +35,8 @@ Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжиру
   скриптов и пайпов.
 - Настраиваемые фильтры, ranking-формула, иконки производителей, хоткеи и шаги
   редактора фильтра — всё через пользовательский `config.yaml`, без пересборки.
-- История цен (`openrouter history`) и отчёт об изменениях каталога (`openrouter
-  check`) поверх того же локального снимка.
+- История цен и live benchmark observations (`openrouter history`) и отчёт об
+  изменениях каталога (`openrouter check`) поверх того же локального снимка.
 
 ## Методология
 

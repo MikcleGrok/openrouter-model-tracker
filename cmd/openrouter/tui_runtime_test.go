@@ -21,7 +21,7 @@ import (
 func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 	rows := []model.Model{
 		{Slug: "first/model", DisplayName: "First model", Provider: "First", License: "Apache-2.0", Tier: "sonnet", ClaudeRef: "≈ Sonnet", TaskFit: []string{"implement", "audit"}, Context: 128000, InPerM: 0.5, OutPerM: 2, OpenWeights: "yes", CanonicalSlug: "first/model", MetadataSourceURL: "https://meta.example/first", Description: strings.Repeat("first long description ", 12), Note: "first note"},
-		{Slug: "second/model", DisplayName: "Second model", Provider: "Second", License: "MIT", Tier: "haiku", ClaudeRef: "≈ Haiku", TaskFit: []string{"review"}, Context: 32768, InPerM: 0.1, OutPerM: 0.4, OpenWeights: "no", CanonicalSlug: "second/model", MetadataSourceURL: "https://meta.example/second", Description: "short description", Note: "short note", Score: &model.ScoreInfo{Value: 91.2, Metric: "SWE-bench Verified", Unit: "%", VariantMeasured: "second/model", SourceURL: "https://bench.example/second", Checked: "2026-08-20"}},
+		{Slug: "second/model", DisplayName: "Second model", Provider: "Second", License: "MIT", Tier: "haiku", ClaudeRef: "≈ Haiku", TaskFit: []string{"review"}, Context: 32768, InPerM: 0.1, OutPerM: 0.4, OpenWeights: "no", CanonicalSlug: "second/model", MetadataSourceURL: "https://meta.example/second", Description: strings.Repeat("second long description ", 100), Note: "short note", Score: &model.ScoreInfo{Value: 91.2, Metric: "SWE-bench Verified", Unit: "%", VariantMeasured: "second/model", SourceURL: "https://bench.example/second", Checked: "2026-08-20"}},
 	}
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
 	m.sortKey = "name"
@@ -29,17 +29,20 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 	m = runtimeTUIUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	assertRuntimeDetailState(t, m, 0)
-	expectedLast := runtimeExpectedLastOffset(runtimeExpectedDetailLines(rows[1]), m.width, m.height)
+	m.detailTab = 3
+	expectedLast := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(rows[1])}).MaxOffset
+	m.detailTab = 0
 	for _, step := range []struct {
 		key    string
 		want   int
 		marker string
 	}{
-		{"j", 1, "License:"},
-		{"j", 2, "Tier:"},
-		{"k", 1, "License:"},
-		{"G", expectedLast, "Fit and notes"},
-		{"g", 0, "Identity"},
+		{"j", 0, "License:"},
+		{"j", 0, "Tier:"},
+		{"k", 0, "License:"},
+		{"4", 0, "Provenance and metadata"},
+		{"G", expectedLast, "description"},
+		{"g", 0, "Provenance and metadata"},
 	} {
 		m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(step.key)})
 		assertRuntimeDetailState(t, m, step.want)
@@ -48,7 +51,7 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 		if !ok {
 			t.Fatalf("after %q detail row disappeared", step.key)
 		}
-		expectedLines := runtimeExpectedDetailLines(selected)
+		expectedLines := m.detailFrameLines(selected)
 		assertRuntimeExpectedPage(t, rows, expectedLines, m.detailOffset, m.width, m.height, step.key)
 		if !containsPhysicalRow(rows, step.marker) {
 			t.Fatalf("after %q no physical sentinel %q at offset %d: %#v", step.key, step.marker, m.detailOffset, rows)
@@ -68,7 +71,7 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 		t.Fatalf("initial frame dimensions: %dx%d rows=%d", m.width, m.height, len(detailRows))
 	}
 	m = runtimeTUIUpdate(t, m, tea.WindowSizeMsg{Width: 44, Height: 12})
-	assertRuntimeDetailState(t, m, runtimeExpectedClampedOffset(expectedLast, runtimeExpectedDetailLines(rows[1]), m.width, m.height))
+	assertRuntimeDetailState(t, m, runtimeExpectedClampedOffset(expectedLast, m.detailFrameLines(rows[1]), m.width, m.height))
 	detailRows = assertRuntimeGrid(t, m.View(), 44, 12)
 	if m.width != 44 || m.height != 12 || len(detailRows) != 12 {
 		t.Fatalf("shrunk frame dimensions: %dx%d rows=%d", m.width, m.height, len(detailRows))
@@ -77,7 +80,7 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 		t.Fatalf("shrunk frame retained a stale wide row: %#v", detailRows)
 	}
 	m = runtimeTUIUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	assertRuntimeDetailState(t, m, runtimeExpectedClampedOffset(expectedLast, runtimeExpectedDetailLines(rows[1]), m.width, m.height))
+	assertRuntimeDetailState(t, m, runtimeExpectedClampedOffset(expectedLast, m.detailFrameLines(rows[1]), m.width, m.height))
 	detailRows = assertRuntimeGrid(t, m.View(), 80, 20)
 	if m.width != 80 || m.height != 20 || len(detailRows) != 20 {
 		t.Fatalf("restored frame dimensions: %dx%d rows=%d", m.width, m.height, len(detailRows))
@@ -98,7 +101,7 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 		t.Fatalf("reopen state: overlay=%q offset=%d slug=%q", m.overlay, m.detailOffset, m.detailRowSlug())
 	}
 	actual := assertRuntimeGrid(t, m.View(), m.width, m.height)
-	expected := runtimeExpectedDetailFrameFromLines(runtimeExpectedDetailLines(rows[1]), m.width, m.height, m.detailOffset)
+	expected := runtimeExpectedDetailFrameFromLines(m.detailFrameLines(rows[1]), m.width, m.height, m.detailOffset)
 	if strings.Join(actual, "\n") != strings.Join(expected, "\n") {
 		t.Fatalf("reopened second model frame mismatch:\nactual:\n%s\nexpected:\n%s", strings.Join(actual, "\n"), strings.Join(expected, "\n"))
 	}
@@ -184,9 +187,9 @@ func assertRuntimeDetailState(t *testing.T, m tuiModel, wantOffset int) {
 
 func actualRuntimeDetailFrame(m tuiModel) output.DetailFrame {
 	row, _ := m.detailRow()
-	lines := m.detailLines(row)
+	lines := m.detailFrameLines(row)
 	return output.Detail(output.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: output.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
-		return fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", offset+1, end, total)
+		return detailFooterForLang(offset, end, total, m.width, false)
 	}})
 }
 
@@ -201,7 +204,7 @@ func assertRuntimeExpectedPage(t *testing.T, actual []string, logical []string, 
 	if len(expected) > 0 {
 		expected = append(expected, "")
 	}
-	expected = append(expected, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", pageOffset+1, end, len(physical)))
+	expected = append(expected, detailFooterForLang(pageOffset, end, len(physical), width, false))
 	for len(expected) < height {
 		expected = append(expected, "")
 	}
@@ -262,7 +265,7 @@ func runtimeExpectedDetailFrameFromLines(lines []string, width, height, offset i
 	if len(rows) > 0 {
 		rows = append(rows, "")
 	}
-	rows = append(rows, fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close", pageOffset+1, end, len(physical)))
+	rows = append(rows, detailFooterForLang(pageOffset, end, len(physical), width, false))
 	for len(rows) < height {
 		rows = append(rows, "")
 	}
@@ -281,7 +284,7 @@ func runtimeExpectedPayloadLines(row model.Model, now time.Time) []string {
 	return []string{
 		row.DisplayName + " (" + row.Slug + ")", "", "-- Identity --",
 		"Manufacturer: ❔ PROVIDER_UNIQUE_LONG", "Provider: " + row.Provider, "License: " + row.License, "Tier: " + row.Tier, "Claude reference: " + row.ClaudeRef, "Task fit: " + strings.Join(row.TaskFit, " + "),
-		"", "-- Pricing --", fmt.Sprintf("Context: %dK tokens", (row.Context+500)/1000), "Input: $1.25 per M tokens", "Output: $8.50 per M tokens", "Long context: $2.50 / $12.50 from 256K+", "  input: $2.50 from 256K+", "  output: $12.50 from 256K+", "Price history:", "  2026-08-02: $1/$2, 131K -> $2/$4, 131K", "  2026-08-03: $2/$4, 131K -> $3/$6, 131K", "  2026-08-04: $3/$6, 131K -> $4/$8, 131K", "Open weights: " + row.OpenWeights,
+		"", "-- Pricing --", fmt.Sprintf("Context: %dK tokens", (row.Context+500)/1000), "Input: $1.25 per M tokens", "Output: $8.50 per M tokens", "Long context: $2.50 / $12.50 from 256K+", "  input: $2.50 from 256K+", "  output: $12.50 from 256K+", "Price history:", "  2026-08-02: $1/$2, 131K -> $2/$4, 131K", "  2026-08-03: $2/$4, 131K -> $3/$6, 131K", "  2026-08-04: $3/$6, 131K -> $4/$8, 131K", "Price series (input/output per M tokens):", "  input  ._-#", "  output ._-#", "  2026-08-01: input $1 / output $2", "  2026-08-02: input $2 / output $4", "  2026-08-03: input $3 / output $6", "  2026-08-04: input $4 / output $8", "Open weights: " + row.OpenWeights,
 		"", "-- Benchmarks --", "SWE-bench Verified score (percent):", "  Value: n/a", "  Stale: value taken from a previous snapshot", "  Variant measured: BENCHMARK_VARIANT_UNIQUE", "  Metric: BENCHMARK_METRIC_UNIQUE", "  Unit: BENCHMARK_UNIT_UNIQUE", "  Identity status: IDENTITY_STATUS_UNIQUE", "  Source: https://benchmark.example/UNIQUE", "  Checked: BENCHMARK_DATE_UNIQUE", "  Provenance: raw=91.2; metric=BENCHMARK_METRIC_UNIQUE; unit=BENCHMARK_UNIT_UNIQUE; variant=BENCHMARK_VARIANT_UNIQUE; identity=IDENTITY_STATUS_UNIQUE; checked=BENCHMARK_DATE_UNIQUE; source=https://benchmark.example/UNIQUE; uncertainty=UNCERTAINTY_UNIQUE; sample=SAMPLE_SIZE_UNIQUE; harness=HARNESS_UNIQUE; scaffold=SCAFFOLD_UNIQUE; provider=BENCHMARK_PROVIDER_UNIQUE; configuration=CONFIGURATION_UNIQUE; configured_identity=CONFIGURED_IDENTITY_UNIQUE; canonical_id=CANONICAL_ID_UNIQUE; release_variant=RELEASE_VARIANT_UNIQUE; model_variant=MODEL_VARIANT_UNIQUE; reasoning=REASONING_UNIQUE; provenance=PROVENANCE_UNIQUE", "", "LMArena score (Elo rating):", "  Value: n/a", "  Variant measured: ARENA_VARIANT_UNIQUE", "  Metric: ARENA_METRIC_UNIQUE", "  Unit: ARENA_UNIT_UNIQUE", "  Identity status: ARENA_IDENTITY_STATUS_UNIQUE", "  Source: https://arena.example/UNIQUE", "  Checked: ARENA_DATE_UNIQUE", "  Provenance: raw=1201; metric=ARENA_METRIC_UNIQUE; unit=ARENA_UNIT_UNIQUE; variant=ARENA_VARIANT_UNIQUE; identity=ARENA_IDENTITY_STATUS_UNIQUE; checked=ARENA_DATE_UNIQUE; source=https://arena.example/UNIQUE; uncertainty=ARENA_UNCERTAINTY_UNIQUE; sample=ARENA_SAMPLE_SIZE_UNIQUE; harness=ARENA_HARNESS_UNIQUE; scaffold=ARENA_SCAFFOLD_UNIQUE; provider=ARENA_PROVIDER_UNIQUE; configuration=ARENA_CONFIGURATION_UNIQUE; configured_identity=ARENA_CONFIGURED_IDENTITY_UNIQUE; canonical_id=ARENA_CANONICAL_ID_UNIQUE; release_variant=ARENA_RELEASE_VARIANT_UNIQUE; model_variant=ARENA_MODEL_VARIANT_UNIQUE; reasoning=ARENA_REASONING_UNIQUE; provenance=ARENA_PROVENANCE_UNIQUE",
 		"", "-- Provenance and metadata --", fmt.Sprintf("Release date: %s (%s); catalogue entry creation date, release date unknown", date, age), "OpenRouter page: https://openrouter.ai/" + row.CanonicalSlug, "Model page: " + row.ModelURL, "Metadata source: " + row.MetadataSourceURL, "HuggingFace repository: https://huggingface.co/" + row.HuggingFaceID, "Description:", "  " + strings.TrimSpace(row.Description), "", "-- Fit and notes --", "Note:", "  " + strings.TrimSpace(row.Note),
 	}

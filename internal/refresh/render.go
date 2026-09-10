@@ -58,6 +58,9 @@ type RenderData struct {
 	FreeIntro  string
 	FreeModels []model.Model
 	FreeTerms  string
+
+	UnmappedIntro string
+	Unmapped      []model.Model
 }
 
 var tmpl = template.Must(template.New("comparison").Funcs(template.FuncMap{
@@ -143,6 +146,7 @@ func BuildRenderData(models []model.Model, nt *notes.Notes, updated string) Rend
 		Caveats:        nt.Caveats(),
 		FreeIntro:      nt.Section("free_intro"),
 		FreeTerms:      nt.Section("free_terms"),
+		UnmappedIntro:  "Актуальные строки каталога без ручной benchmark identity.",
 	}
 
 	d.Favorites = append(d.Favorites, FavoriteRow{
@@ -174,6 +178,10 @@ func BuildRenderData(models []model.Model, nt *notes.Notes, updated string) Rend
 		d.Tiers = append(d.Tiers, TierSection{Heading: tierHeadings[tier], Rows: rows})
 	}
 	d.FreeModels = model.TierRows(models, "free")
-
+	for _, m := range models {
+		if m.Unmapped {
+			d.Unmapped = append(d.Unmapped, m)
+		}
+	}
 	return d
 }

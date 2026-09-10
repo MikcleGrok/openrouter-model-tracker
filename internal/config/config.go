@@ -153,7 +153,7 @@ type TUIKeymap map[string]map[string]TUIBindings
 var defaultTUIKeymap = TUIKeymap{
 	"main":     {"open_settings": {"o"}, "open_details": {"enter", "right"}, "language_toggle": {"l"}, "close": {"esc", "h"}, "help": {"?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space"}, "cycle_availability": {"p"}, "toggle_layout": {"v"}},
 	"settings": {"close": {"esc", "o"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "switch_source": {"space", "enter"}},
-	"detail":   {"close": {"esc", "left", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
+	"detail":   {"close": {"esc", "h"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"columns":  {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
 	"filter":   {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
@@ -464,7 +464,7 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"tui_keymap:\n" +
 	"  main: {open_settings: [o], open_details: [enter, right], language_toggle: [l], help: ['?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space], cycle_availability: [p], toggle_layout: [v]}\n" +
 	"  settings: {close: [esc, o], navigate_up: [up, k], navigate_down: [down, j], switch_source: [space, enter]}\n" +
-	"  detail: {close: [esc, left, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
+	"  detail: {close: [esc, h], navigate_up: [up, k], navigate_down: [down, j]}\n" +
 	"  help: {close: [esc, '?'], full_help: [f1], navigate_up: [up, k], navigate_down: [down, j]}\n" +
 	"  columns: {close: [esc], navigate_up: [up, k], navigate_down: [down, j], toggle: [space], apply: [enter]}\n" +
 	"  filter: {close: [esc], navigate_up: [up, k], navigate_down: [down, j], toggle: [space], apply: [enter]}\n" +

@@ -19,6 +19,9 @@ type SnapshotEntry struct {
 	InPerM             float64          `json:"in_per_m"`
 	OutPerM            float64          `json:"out_per_m"`
 	Context            int              `json:"context"`
+	Free               bool             `json:"free,omitempty"`
+	HasPrice           bool             `json:"has_price,omitempty"`
+	NoPrice            bool             `json:"no_price,omitempty"`
 	Created            int64            `json:"created,omitempty"`
 	Description        string           `json:"description,omitempty"`
 	CatalogName        string           `json:"catalog_name,omitempty"`
@@ -161,6 +164,9 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 			InPerM:             m.InPerM,
 			OutPerM:            m.OutPerM,
 			Context:            m.Context,
+			Free:               m.Free,
+			HasPrice:           m.HasPrice,
+			NoPrice:            m.NoPrice,
 			Created:            m.Created,
 			Description:        m.Description,
 			CatalogName:        m.CatalogName,

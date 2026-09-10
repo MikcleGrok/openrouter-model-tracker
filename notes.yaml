@@ -838,6 +838,9 @@ models:
 
 # Qualitative fit for coding workflow tasks; this is not a score.
 task_fit:
+  anthropic/claude-opus-4.6: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-sonnet-4.5: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-haiku-4.5: [implement, debug, refactor, test]
   openai/gpt-5.6-luna: [implement, plan, research, debug, audit, refactor, test]
   openai/gpt-5.6-sol: [implement, plan, research, debug, audit, refactor, test]
   openai/gpt-5.6-luna-pro: [implement, plan, research, debug, audit, refactor, test]
