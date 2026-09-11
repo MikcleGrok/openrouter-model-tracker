@@ -10,12 +10,28 @@
 - Document installed Bash completion for the local Homebrew formula.
 - Align the TUI Task fit column and preserve Qwen aliases/icons in model configuration.
 
-## [Unreleased]
+## [1.16.8]
 
 - Add full catalog radar coverage with an unmapped-model fallback so new catalog entries remain visible without curated metadata.
 - Track Claude main models as first-class reference entries alongside catalog model data.
 - Preserve price and efficiency history across refreshes for trend comparisons.
 - Add tabbed Detail TUI navigation for model information and benchmark sections.
+
+## [1.16.9]
+
+- Fix release signing with multiline Keychain-backed cosign private keys by validating and passing key material through the shell environment instead of make-expanded recipe text.
+
+## [Unreleased]
+
+- Future release changes will be documented here.
+
+## [1.16.11]
+
+- Fix GitHub release provenance verification by passing evidence paths relative to the checkout root.
+
+## [1.16.10]
+
+- Fix release archive manifest validation so artifact path and digest array checks retain the manifest root object while comparing their lengths and formats.
 
 ## [1.16.6]
 
