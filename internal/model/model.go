@@ -260,6 +260,19 @@ func ProviderLabel(slug, provider string) string {
 	return namespace
 }
 
+func catalogDisplayName(slug, provider, catalogName string) string {
+	catalogName = strings.TrimSpace(catalogName)
+	if catalogName == "" {
+		return slug
+	}
+	provider = strings.TrimSpace(ProviderLabel(slug, provider))
+	prefix, name, ok := strings.Cut(catalogName, ":")
+	if ok && provider != "" && strings.EqualFold(strings.TrimSpace(prefix), provider) && strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	return catalogName
+}
+
 // IsPlaceholder reports whether a value is a standalone missing-data marker,
 // including the prose forms used in persisted notes and source snapshots.
 func IsPlaceholder(value string) bool {
@@ -321,8 +334,8 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		}
 
 		displayName := nt.DisplayName(e.Slug)
-		if IsPlaceholder(displayName) || strings.TrimSpace(displayName) == "" {
-			displayName = price.Name
+		if displayName == e.Slug || IsPlaceholder(displayName) || strings.TrimSpace(displayName) == "" {
+			displayName = catalogDisplayName(e.Slug, price.Provider, price.Name)
 		}
 		if strings.TrimSpace(displayName) == "" {
 			displayName = e.Slug

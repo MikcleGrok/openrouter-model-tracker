@@ -185,6 +185,7 @@ type tuiModel struct {
 	icons                 config.IconConfig
 	scoreSourceLoading    bool
 	pendingScoreSource    string
+	widthComputations     *int
 	selection             tuiselection.State
 	frameToken            uint64
 	// lang selects the TUI's display language: "" (the zero value) means
@@ -1966,7 +1967,8 @@ func (m tuiModel) baseView() string {
 	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, m.t(reverseLabel(m.reverse)), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
-	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
+	widths := m.tuiCellWidthsForFrame(columns)
+	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILineWithWidths(columns, nil, false, widths)))
 	status := m.status
 	if status == "" {
 		status = m.t("status: ready")
@@ -2009,7 +2011,7 @@ func (m tuiModel) baseView() string {
 			if i == m.cursor {
 				prefix = ">"
 			}
-			row := m.renderTUILine(columns, values, prefix == ">")
+			row := m.renderTUILineWithWidths(columns, values, prefix == ">", widths)
 			if prefix == ">" {
 				row = tuiSelectedStyle.Render(row)
 			}
@@ -2140,14 +2142,28 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 	if m.width <= 0 || len(columns) == 0 {
 		return ""
 	}
+	available := m.width - tableDisplayWidth("  ") - 3*(len(columns)-1)
+	return m.renderTUILineWithWidths(columns, values, selected, m.tuiCellWidths(columns, available, values))
+}
+
+func (m tuiModel) tuiCellWidthsForFrame(columns []tuiColumn) []int {
+	if m.width <= 0 || len(columns) == 0 {
+		return nil
+	}
+	available := m.width - tableDisplayWidth("  ") - 3*(len(columns)-1)
+	return m.tuiCellWidths(columns, available, nil)
+}
+
+func (m tuiModel) renderTUILineWithWidths(columns []tuiColumn, values []string, selected bool, widths []int) string {
+	if m.width <= 0 || len(columns) == 0 {
+		return ""
+	}
 	prefix := "  "
 	if values != nil {
 		if selected {
 			prefix = "> "
 		}
 	}
-	available := m.width - tableDisplayWidth(prefix) - 3*(len(columns)-1)
-	widths := m.tuiCellWidths(columns, available, values)
 	parts := make([]string, len(columns))
 	for i, col := range columns {
 		value := tuiColumnLabelForLang(col, m.scoreSource, m.lang)
@@ -2165,6 +2181,9 @@ func (m tuiModel) renderTUILine(columns []tuiColumn, values []string, selected b
 }
 
 func (m tuiModel) tuiCellWidths(columns []tuiColumn, available int, values []string) []int {
+	if m.widthComputations != nil {
+		*m.widthComputations++
+	}
 	contentWidths := make([]int, len(columns))
 	for i, column := range columns {
 		contentWidths[i] = tuiColumnMinimumWidthForLang(column, m.scoreSource, m.lang)
