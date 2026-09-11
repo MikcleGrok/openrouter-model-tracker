@@ -1,5 +1,11 @@
 # What's New
 
+## [1.16.17]
+
+- Speed up TUI selection by calculating display widths once per frame instead of repeatedly during rendering.
+- Add regression coverage for cursor rendering.
+- Normalize catalog display names, including `OpenAI GPT-5.6 Terra` instead of `OpenAI openai/gpt-5.6-terra`, while preserving explicit aliases.
+
 ## [1.16.16]
 
 - Add exact vals.ai mappings for Claude Opus 5 (`anthropic/claude-opus-5` -> `anthropic/claude-opus-5`, 97.0% SWE-bench Verified) and Claude Sonnet 5 (`anthropic/claude-sonnet-5` -> `anthropic/claude-sonnet-5`, 79.6% SWE-bench Verified), so both are included by `quality>=75`.
