@@ -1,7 +1,7 @@
 updated_note: >-
   цены и контекст получены из каталога OpenRouter (/api/v1/models), оценки —
-  с vals.ai и swebench.com по ручной карте model-map.tsv (23 записи vals=,
-  6 записей swebench=); остальные числа заданы вручную в notes.yaml и
+  с vals.ai и swebench.com по ручной карте model-map.tsv (34 записи vals=,
+  10 записей swebench=); остальные числа заданы вручную в notes.yaml и
   помечены как вендорские
 
 sections:
@@ -156,7 +156,7 @@ caveats:
   - >-
     Значительная часть оценок в таблицах — **вендорские** (помечено «только вендор»).
     Независимо подтверждены только те строки, число которых пришло с vals.ai или
-    swebench.com (в model-map.tsv 23 записи vals= и 6 записей swebench=).
+    swebench.com (в model-map.tsv 34 записи vals= и 10 записей swebench=).
   - >-
     SWE-bench Verified и подобные бенчмарки не идеально предсказывают реальное качество
     в конкретном воркфлоу — протестируйте 1-2 кандидата на своих задачах перед переключением.
@@ -180,11 +180,12 @@ favorite_reasons:
   sonnet:
     minimax/minimax-m3: >-
       Топ-1 по цена/качество в Sonnet-тире при цене в 10-12 раз ниже полного прайса
-      Sonnet 5. Оговорка: 80.5% — только по блогу вендора, на независимых лидербордах
-      модели нет.
+      Sonnet 5. Оценка теперь независимая (vals.ai, 75.0%) — прежняя вендорская заявка
+      80.5% снята.
     meta/muse-spark-1.1: >-
-      Следующая по «качество/цена» среди строк с оценкой именно этого продукта; её 77.4%
-      тоже вендорские, но относятся к ней самой.
+      Следующая по «качество/цена» среди строк с оценкой именно этого продукта; её 82.0%
+      теперь тоже независимо подтверждены на vals.ai — прежняя вендорская заявка 77.4%
+      снята.
   haiku:
     deepseek/deepseek-v4-flash: >-
       Capability estimate — ручной Haiku-like. Показатель 88.8% измерен на
@@ -196,23 +197,18 @@ favorite_reasons:
       (78.0%, только вендор, достоверность низкая); уже заметно используется в проде —
       #2 по объёму трафика и #1 по числу tool-calls в категории "coding" на OpenRouter.
   free:
-    z-ai/glm-5.2:free: >-
-      Новый лидер бесплатного тира по этому обновлению: 82.8% SWE-bench Verified —
-      независимая оценка vals.ai (не вендорская), заметно выше прежнего лидера
-      (69-70.9%). Тот же чекпоинт, что и платная z-ai/glm-5.2 (canonical_slug
-      совпадает буквально), лимиты бесплатного тира одинаковы для всех
-      `:free`-моделей, так что цена не отличает её от остальных кандидатов.
     poolside/laguna-xs-2.1:free: >-
       Впереди по сырой оценке (70.9% против 70.4% у Nemotron 3 Ultra), но это одиночная
       точка по данным самого вендора (Poolside прямо пишет в карточке, что публикует
       «official scores» из своих релизных постов) — не подтверждена независимо. Контекст
       меньше, чем у Nemotron 3 Ultra (262K против 1M).
     nvidia/nemotron-3-ultra-550b-a55b:free: >-
-      Лимиты бесплатного тира одинаковы для всех `:free`-моделей, так что отбор фактически
-      сводится к качеству и близким числам. По сырой оценке немного отстаёт от Laguna XS 2.1
-      (70.4% против 70.9%), но диапазон получен на 5 харнессах (устойчивее одиночной
-      самоотчётной точки), а контекст — 1M против 262K у Laguna: близкий, хорошо
-      обоснованный второй выбор.
+      Лидер бесплатного тира в этом обновлении: прежний лидер z-ai/glm-5.2:free исчез
+      из каталога OpenRouter (slug мёртв, снят из model-map.tsv), а Nemotron 3 Ultra —
+      единственная строка тира с независимо подтверждённой оценкой (vals.ai, 69.0%).
+      У Laguna XS 2.1 сырая цифра формально выше (70.9%), но это вендорская, а не
+      независимая оценка — Nemotron выигрывает по достоверности источника, а не по
+      сырому числу; контекст также больше (1M против 262K у Laguna).
 
 models:
   # (1) Модель с ЖИВОЙ оценкой с источника: блока score: нет — число придёт из vals.ai.
@@ -244,46 +240,32 @@ models:
     owner: MiniMax (н/д)
     open_weights: "**да** (кастомная лицензия, коммерч. ограничения)"
     note: >-
-      Лучшая цена/качество в этом тире. Оценка — только из блога вендора (minimax.io);
-      на независимых лидербордах модели нет, достоверность низкая. У GMICloud есть
-      маршрут дешевле типовой цены каталога.
-    score:
-      label: "80.5% (только вендор)"
-      value: 80.5
-      rankable: true
-      source: "https://minimax.io/"
+      Лучшая цена/качество в этом тире. Оценка теперь независимая — vals.ai показывает
+      75.0%, заметно ниже прежней вендорской заявки блога minimax.io (80.5%), которая
+      снята. У GMICloud есть маршрут дешевле типовой цены каталога.
 
   meta/muse-spark-1.1:
     display: Meta Muse Spark 1.1
     owner: Meta (D+)
     open_weights: "нет"
     note: >-
-      Флагман Meta вместо бренда Llama; 77.4% — заявка самой Meta, независимого
-      подтверждения нет. Цифру SWE-bench Verified Hard 42.9% **не удалось проверить
-      на 2026-07-30** (исходный PDF не читается, часть обзоров её вообще не упоминает) —
-      оставлена с прошлой версии; сторонние обзоры дают только SWE-bench Pro 52.4–61.5%
+      Флагман Meta вместо бренда Llama; 82.0% теперь подтверждены независимо на
+      vals.ai — выше прежней заявки самой Meta (77.4%), которая снята. Цифру
+      SWE-bench Verified Hard 42.9% **не удалось проверить на 2026-07-30**
+      (исходный PDF не читается, часть обзоров её вообще не упоминает) — оставлена
+      с прошлой версии; сторонние обзоры дают только SWE-bench Pro 52.4–61.5%
       и Terminal-Bench.
-    score:
-      label: "77.4% (только вендор)"
-      value: 77.4
-      rankable: true
-      source: "https://ai.meta.com/"
 
   qwen/qwen3.7-max:
     display: Qwen3.7 Max
     owner: Alibaba Cloud / Qwen (D−)
     open_weights: "нет"
     note: >-
-      80.4% держится только на вендорских и около-вендорских публикациях, независимого
-      лидерборда нет. Alibaba анонсировала превью Qwen 3.8-Max (2026-07-19); к 2026-07-30
-      у превью появились API и цена ($0.17/$0.51 за M — «10% от стандартной»), но
-      SWE-bench Verified не публиковали и продукта на OpenRouter нет — рано менять
-      рекомендацию.
-    score:
-      label: "80.4% (только вендор)"
-      value: 80.4
-      rankable: true
-      source: "https://qwenlm.github.io/"
+      Независимая оценка на vals.ai теперь есть — 68.8%, заметно ниже прежней
+      вендорской заявки 80.4% (снята). Qwen 3.8-Max, анонсированный превью
+      2026-07-19, с тех пор доехал до продукта на OpenRouter (слаг переименован
+      в `qwen/qwen3.8-max-0902`) с собственной независимой оценкой vals.ai 85.6% —
+      заметно выше 3.7 Max, стоит рассмотреть на замену рекомендации.
 
   # Живая оценка с vals.ai (форма 1) — vals= в model-map.tsv, блока score: нет.
   x-ai/grok-4.5:
@@ -301,27 +283,19 @@ models:
     open_weights: "**да** (модиф. MIT, лицензия нужна при выручке >$20M/мес)"
     note: >-
       Теперь основная рекомендация Mistral для агентного кодинга — заменила Devstral 2
-      по умолчанию в их Vibe CLI. 77.6% — из анонса самой Mistral (в пересказе прессы),
-      независимого подтверждения нет.
-    score:
-      label: "77.6% (только вендор)"
-      value: 77.6
-      rankable: true
-      source: "https://mistral.ai/"
+      по умолчанию в их Vibe CLI. Независимая оценка на vals.ai теперь есть — 66.4%,
+      заметно ниже прежней заявки самой Mistral в пересказе прессы (77.6%), которая
+      снята.
 
   google/gemini-3.1-pro-preview:
     display: Gemini 3.1 Pro Preview
     owner: Google DeepMind (C)
     open_weights: "нет"
     note: >-
-      Всё ещё preview — стабильного Gemini Pro на замену (Gemini 3.5 Pro) по-прежнему
-      нет: Google подтвердила 2026-07-21, что релиз не готов (цель 17 июля сорвана),
-      и выпускает вместо него Flash-модели.
-    score:
-      label: "80.6%"
-      value: 80.6
-      rankable: true
-      source: "https://deepmind.google/"
+      Всё ещё preview — стабильного Gemini Pro на замену по-прежнему нет: Google
+      подтвердила 2026-07-21, что релиз не готов (цель 17 июля сорвана), и выпускает
+      вместо него Flash-модели. Независимая оценка на vals.ai — 78.8%, немного ниже
+      прежнего числа 80.6%, которое снято.
 
   # Живая оценка с vals.ai (форма 1) — vals= в model-map.tsv, блока score: нет.
   moonshotai/kimi-k3:
@@ -433,53 +407,38 @@ models:
     owner: DeepSeek (F)
     open_weights: "**да, MIT**"
     note: >-
-      Оценки по вариантам расходятся: 67.8% (V3.2-Exp) — 73.1% (V3.2-Speciale), оба
-      варианта названы в статье самой DeepSeek, то есть это реальный разброс по
-      подвариантам, а не шум; взята середина. Цена: типовая в каталоге $0.269/$0.40 —
-      прошлая версия показывала $0.21/$0.31, это скидочный маршрут Baidu ($0.2072/$0.3108,
-      скидка 26%).
-    score:
-      label: "SWE-V 67.8–73.1%"
-      value: 70.45
-      rankable: true
-      source: "https://www.deepseek.com/"
+      Независимая медиана на swebench.com теперь есть — 70.0%, внутри прежнего
+      вендорского диапазона по вариантам (67.8% V3.2-Exp — 73.1% V3.2-Speciale), но
+      это уже реальное измерение, а не ручная середина диапазона, которая снята.
+      Цена: типовая в каталоге $0.269/$0.40 — прошлая версия показывала $0.21/$0.31,
+      это скидочный маршрут Baidu ($0.2072/$0.3108, скидка 26%).
 
   qwen/qwen3-coder:
     display: Qwen3 Coder (480B)
     owner: Alibaba Cloud / Qwen (D−)
     open_weights: "**да, Apache 2.0**"
     note: >-
-      Оценки сильно расходятся по источнику (68.4%, ~69-70%, 72.5%) — расхождение не
-      разрешено, взята середина диапазона. Цена: разобрано расхождение прошлой версии —
-      типовая цена каталога $0.30/$1.00, а показанные ранее $0.22/$1.80 относятся
-      к отдельному маршруту Google Vertex (us-south1, без скидки, проверено 2026-07-30).
-      Отсюда же прошлая заметка про «почти удвоившийся выход» — она описывала переход
-      на этот маршрут, а не изменение прайса.
-    score:
-      label: "SWE-V 66.5–72.5%"
-      value: 69.5
-      rankable: true
-      source: "https://qwenlm.github.io/"
+      Независимая медиана на swebench.com теперь есть — 55.4%, заметно ниже прежнего
+      вручную взятого диапазона по расходящимся источникам (66.5–72.5%), который снят.
+      Цена: разобрано расхождение прошлой версии — типовая цена каталога $0.30/$1.00,
+      а показанные ранее $0.22/$1.80 относятся к отдельному маршруту Google Vertex
+      (us-south1, без скидки, проверено 2026-07-30). Отсюда же прошлая заметка про
+      «почти удвоившийся выход» — она описывала переход на этот маршрут, а не
+      изменение прайса.
 
   xiaomi/mimo-v2.5-pro:
     display: Xiaomi MiMo-V2.5-Pro
     owner: Xiaomi (н/д)
     open_weights: "**да, MIT**"
     note: >-
-      **Метрика заменена в этом обновлении**: появилась оценка именно по SWE-bench
-      Verified — 78.9%, и именно для варианта "MiMo-V2.5-Pro". Но источник — PR
-      «community evaluation results», влитый в HF-репозиторий самой модели: это
-      вендор-хостинг чужого прогона, а не чистый сторонний лидерборд, **достоверность
-      низкая** — ранжирование этой строки принимайте с осторожностью. Прежняя цифра
-      SWE-bench Pro 57.2% никуда не делась и остаётся в силе как дополнительная точка
-      (другая метрика, в ранжирование не идёт). Цена: типовая $0.435/$0.87 — прошлая
-      версия показывала $0.348/$0.696, это маршрут GMICloud (скидка 20%). По данным
-      на 2026-07-28 — #1 модель по доле трафика в категории "coding" на OpenRouter (18%).
-    score:
-      label: "SWE-V 78.9%"
-      value: 78.9
-      rankable: true
-      source: "https://huggingface.co/XiaomiMiMo"
+      Независимая оценка на vals.ai теперь есть — 74.0%, что заменяет прежнее число
+      78.9% (снято), взятое из PR «community evaluation results» в HF-репозитории
+      самой модели — вендор-хостинг чужого прогона, а не чистый сторонний лидерборд.
+      Прежняя цифра SWE-bench Pro 57.2% никуда не делась и остаётся в силе как
+      дополнительная точка (другая метрика, в ранжирование не идёт). Цена: типовая
+      $0.435/$0.87 — прошлая версия показывала $0.348/$0.696, это маршрут GMICloud
+      (скидка 20%). По данным на 2026-07-28 — #1 модель по доле трафика в категории
+      "coding" на OpenRouter (18%).
 
   mistralai/devstral-2512:
     display: Mistral Devstral 2
@@ -500,39 +459,26 @@ models:
     owner: Moonshot AI (н/д)
     open_weights: "**да** (модиф. MIT)"
     note: >-
-      **Строка переехала сюда из таблицы «без независимой оценки»**: подозрение прошлой
-      версии («оценка ~76.8% похожа на перепутанную с Kimi K3») **снято** — 76.8%
-      привязаны конкретно к K2.5 на её официальной карточке Hugging Face, с описанной
-      методикой (non-thinking mode, внутренний eval-фреймворк), а Kimi K3 — отдельная
-      модель с собственной независимой оценкой 93.4% (vals.ai). Путаницы нет, есть два
-      разных реальных числа. Тем не менее 76.8% — вендорская цифра, независимого
-      подтверждения нет. Цена реально выросла: $0.375/$2.03 → $0.57/$2.85 (+52% вход
-      / +40% выход); самый дешёвый маршрут сейчас — StreamLake $0.54/$2.70 (скидка 10%).
-    score:
-      label: "SWE-V 76.8% (только вендор)"
-      value: 76.8
-      rankable: true
-      source: "https://huggingface.co/moonshotai"
+      Независимая медиана на swebench.com теперь есть — 70.8%, ниже прежней вендорской
+      цифры с официальной карточки Hugging Face (76.8%, non-thinking mode, внутренний
+      eval-фреймворк), которая снята. Путаницы с Kimi K3 (отдельная модель с
+      независимой оценкой 93.4% на vals.ai) по-прежнему нет — это два разных реальных
+      числа для двух разных моделей. Цена реально выросла: $0.375/$2.03 → $0.57/$2.85
+      (+52% вход / +40% выход); самый дешёвый маршрут сейчас — StreamLake $0.54/$2.70
+      (скидка 10%).
 
   moonshotai/kimi-k2.7-code:
     display: Kimi K2.7 Code
     owner: Moonshot AI (н/д)
     open_weights: "**да** (модиф. MIT)"
     note: >-
-      Источник числа 60.4% в этой проверке отследить не удалось — значение оставлено
-      с прошлой версии, **не удалось проверить на 2026-07-30**. Параллельно циркулирует
-      78.2% (automatio.ai) — расхождение не разрешено, приведены оба; при 78.2%
-      качество/цена была бы 55.6. Страница модели на vals.ai существует, но значение через
-      доступный инструментарий не читается — это **не** повод считать его нулём. Цена:
+      Независимая оценка на vals.ai теперь есть и разрешает прежнюю неоднозначность:
+      78.2% — это ровно то число, что параллельно циркулировало (automatio.ai), а не
+      конкурирующая цифра 60.4% с неотслеживаемым источником, которая снята. Цена:
       типовая в каталоге $0.73/$3.50 (два независимых замера каталога 2026-07-30), прямая
       проверка страницы модели в тот же день дала $0.71/$3.50 — расхождение $0.02, уровня
       округления/маршрута; ещё один источник ранее указывал $0.95/$4.00 — сверьтесь
       на странице модели.
-    score:
-      label: "SWE-V 60.4%"
-      value: 60.4
-      rankable: true
-      source: "источник не удалось отследить на 2026-07-30 (см. note)"
 
   # (пограничный пример из брифа, Step 5): оценка измерена на другом варианте линейки.
   kwaipilot/kat-coder-air-v2.5:
@@ -631,13 +577,9 @@ models:
     note: >-
       550B/55B-active MoE. Прогон на 5 разных агентных скаффолдах делала сама NVIDIA —
       это демонстрация устойчивости к харнессу, а не независимое подтверждение.
-      Независимая оценка на vals.ai теперь есть (69.0%) и используется в таблице вместо
-      вендорского диапазона ниже.
-    score:
-      label: "65–70.4% (5 скаффолдов, прогон самой NVIDIA)"
-      value: 70.4
-      rankable: true
-      source: "https://developer.nvidia.com/"
+      Независимая оценка на vals.ai теперь есть и используется в таблице (69.0%) вместо
+      прежнего вендорского диапазона 65–70.4% (тот же 5-скаффолдный прогон NVIDIA),
+      который снят.
 
   poolside/laguna-xs-2.1:free:
     display: Poolside Laguna XS 2.1
@@ -838,11 +780,16 @@ models:
 # Qualitative fit for coding workflow tasks; this is not a score.
 task_fit:
   anthropic/claude-fable-5: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-fable-5.1: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-opus-5: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-opus-4.8: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-opus-4.7: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-opus-4.6: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-sonnet-5: [implement, plan, research, debug, audit, refactor, test]
+  anthropic/claude-sonnet-4.6: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-sonnet-4.5: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-haiku-4.5: [implement, debug, refactor, test]
+  openai/gpt-6-astra: [implement, plan, research, debug, audit, refactor, test]
   openai/gpt-5.6-luna: [implement, plan, research, debug, audit, refactor, test]
   openai/gpt-5.6-sol: [implement, plan, research, debug, audit, refactor, test]
   openai/gpt-5.6-luna-pro: [implement, plan, research, debug, audit, refactor, test]
@@ -854,14 +801,19 @@ task_fit:
   qwen/qwen3.7-max: [implement, plan, research, debug, audit, refactor, test]
   qwen/qwen3.7-flash: [implement, debug, refactor, test]
   qwen/qwen3.7-plus: [implement, plan, debug, refactor, test]
-  qwen/qwen3.8-max: [implement, plan, research, debug, audit, refactor, test]
+  qwen/qwen3.8-max-0902: [implement, plan, research, debug, audit, refactor, test]
   x-ai/grok-4.5: [implement, plan, research, debug, audit, refactor, test]
+  x-ai/grok-4.6: [implement, plan, research, debug, audit, refactor, test]
   mistralai/mistral-medium-3-5: [implement, plan, research, debug, audit, refactor, test]
   google/gemini-3.1-pro-preview: [implement, plan, research, debug, audit, refactor, test]
   moonshotai/kimi-k3: [implement, plan, research, debug, audit, refactor, test]
   deepseek/deepseek-v4-pro: [implement, plan, research, debug, audit, refactor, test]
   z-ai/glm-5.2: [implement, plan, research, debug, audit, refactor, test]
+  z-ai/glm-5.3: [implement, plan, research, debug, audit, refactor, test]
   google/gemini-3.6-flash: [implement, plan, debug, refactor, test]
+  google/gemini-3.5-flash: [implement, plan, debug, refactor, test]
+  google/gemini-3.7-flash: [implement, plan, debug, refactor, test]
+  google/gemini-3.8-flash: [implement, plan, debug, refactor, test]
   deepseek/deepseek-v4-flash: [implement, debug, refactor, test]
   tencent/hy3: [implement, plan, debug, refactor, test]
   qwen/qwen3-coder-next: [implement, debug, refactor, test]
@@ -870,7 +822,6 @@ task_fit:
   xiaomi/mimo-v2.5-pro: [implement, plan, debug, audit, refactor, test]
   moonshotai/kimi-k2.5: [implement, plan, research, debug, audit, refactor, test]
   moonshotai/kimi-k2.7-code: [implement, debug, refactor, test]
-  kwaipilot/kat-coder-air-v2.5: [implement, debug, refactor, test]
   kwaipilot/kat-coder-pro-v2.5: [implement, debug, refactor, test]
   xiaomi/mimo-v2.5: [implement, debug, refactor, test]
   meta-llama/llama-4-maverick: [implement, test]
@@ -886,20 +837,22 @@ task_fit:
   nvidia/nemotron-3-nano-30b-a3b: [implement, test]
   poolside/laguna-s-2.1: [implement, plan, debug, refactor, test]
   poolside/laguna-xs-2.1: [implement, plan, debug, refactor, test]
+  z-ai/glm-4.7: [implement, debug, refactor, test]
+  z-ai/glm-4.7-flash: [implement, test]
+  z-ai/glm-5.3-flash: [implement, debug, refactor, test]
+  minimax/minimax-m2.5: [implement, debug, refactor, test]
+  minimax/minimax-m2: [implement, test]
+  qwen/qwen3-next-80b-a3b-instruct: [implement, debug, refactor, test]
+  qwen/qwen3-235b-a22b-2507: [implement, debug, refactor, test]
   "nvidia/nemotron-3.5-content-safety:free": []
   "nvidia/nemotron-3-ultra-550b-a55b:free": [implement, plan, debug, refactor, test]
   "poolside/laguna-xs-2.1:free": [implement, plan, debug, refactor, test]
   "cohere/north-mini-code:free": [implement, debug, refactor, test]
   "poolside/laguna-s-2.1:free": [implement, plan, debug, refactor, test]
   "nvidia/nemotron-3-super-120b-a12b:free": [implement, debug, refactor, test]
-  "nvidia/nemotron-3-nano-30b-a3b:free": [implement, test]
-  "openai/gpt-oss-20b:free": [implement, test]
   "google/gemma-4-31b-it:free": [implement, test]
   "google/gemma-4-26b-a4b-it:free": [implement, test]
-  "nvidia/nemotron-nano-9b-v2:free": [implement, plan, research, debug, test]
-  "inclusionai/ling-3.0-flash:free": []
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": []
-  "nvidia/nemotron-nano-12b-v2-vl:free": []
   "nvidia/nemotron-3.5-lightning:free": [implement, debug, refactor, test]
   "z-ai/glm-5.2:free": [implement, plan, research, debug, audit, refactor, test]
   "dots-studio/dots-3-note-preview:free": []
