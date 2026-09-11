@@ -555,9 +555,54 @@ func TestLoadPreservesExplicitEmptyTUIFilterAndDefaultFilter(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesLegacyDefaultFilterWithoutWritingConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "default_filter: " + LegacyDefaultFilter + "\ntui_filter: paid\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DefaultFilter != DefaultFilter || !got.DefaultFilterSet {
+		t.Fatalf("migrated default filter = %q, set = %v, want %q, true", got.DefaultFilter, got.DefaultFilterSet, DefaultFilter)
+	}
+	if got.TUIFilter != "paid" || !got.TUIFilterSet {
+		t.Fatalf("TUI filter = %q, set = %v, want paid, true", got.TUIFilter, got.TUIFilterSet)
+	}
+	read, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(read) != body {
+		t.Fatalf("Load rewrote config: got %q, want %q", read, body)
+	}
+}
+
+func TestLoadPreservesCustomDefaultFilterAndUnchangedTUIFilter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "default_filter: quality>=90,has-q/p,availability:any\ntui_filter: " + LegacyDefaultFilter + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DefaultFilter != "quality>=90,has-q/p,availability:any" {
+		t.Fatalf("custom default filter = %q", got.DefaultFilter)
+	}
+	if got.TUIFilter != LegacyDefaultFilter {
+		t.Fatalf("TUI filter = %q, want %q", got.TUIFilter, LegacyDefaultFilter)
+	}
+}
+
 func TestTUILayoutDefaultsAndSaveReload(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("default_filter: quality>=75,has-q/p,availability:paid\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("default_filter: "+LegacyDefaultFilter+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)
@@ -565,7 +610,7 @@ func TestTUILayoutDefaultsAndSaveReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.DefaultFilter != DefaultFilter || got.TUI.Layout != DefaultTUILayout || got.TUI.TopN != DefaultTUITopN {
-		t.Fatalf("defaults = filter %q, layout %q, top_n %d", got.DefaultFilter, got.TUI.Layout, got.TUI.TopN)
+		t.Fatalf("migrated filter/defaults = filter %q, layout %q, top_n %d", got.DefaultFilter, got.TUI.Layout, got.TUI.TopN)
 	}
 	if err := SaveTUILayout(path, "top-paid-free", 5); err != nil {
 		t.Fatal(err)
@@ -578,12 +623,12 @@ func TestTUILayoutDefaultsAndSaveReload(t *testing.T) {
 
 func TestLoadAcceptsNewAvailabilityAndQualityPriceFilters(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	body := "default_filter: quality>=75,has-q/p,availability:paid\ntui_filter: has-q/p,availability:any\n"
+	body := "default_filter: quality>=90,has-q/p,availability:paid\ntui_filter: has-q/p,availability:any\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)
-	if err != nil || got.DefaultFilter != "quality>=75,has-q/p,availability:paid" || got.TUIFilter != "has-q/p,availability:any" {
+	if err != nil || got.DefaultFilter != "quality>=90,has-q/p,availability:paid" || got.TUIFilter != "has-q/p,availability:any" {
 		t.Fatalf("filters = %+v, err %v", got, err)
 	}
 }

@@ -815,6 +815,24 @@ func TestFilterTableModelsQualityPriceAndAvailabilityPredicates(t *testing.T) {
 	}
 }
 
+func TestDefaultPaidFilterKeepsUnscoredCatalogModelsAndExplicitMetricsFilterThem(t *testing.T) {
+	models := []model.Model{
+		{Slug: "anthropic/claude-sonnet-4", Paid: true},
+		{Slug: "anthropic/claude-opus-4", Paid: true},
+		{Slug: "openai/gpt-free", Free: true},
+	}
+	got, err := filterTableModels(models, []string{config.DefaultFilter})
+	if err != nil || len(got) != 2 || got[0].Slug != "anthropic/claude-sonnet-4" || got[1].Slug != "anthropic/claude-opus-4" {
+		t.Fatalf("default filter = %+v, err %v; want both paid unscored Claude rows", got, err)
+	}
+	for _, filter := range []string{"quality>=75", "has-q/p"} {
+		got, err = filterTableModels(models, []string{filter})
+		if err != nil || len(got) != 0 {
+			t.Fatalf("explicit metric filter %q = %+v, err %v; want no unscored rows", filter, got, err)
+		}
+	}
+}
+
 func TestFilterTableModelsRejectsInvalidAvailability(t *testing.T) {
 	if _, err := filterTableModels(nil, []string{"availability:discount"}); err == nil {
 		t.Fatal("invalid availability unexpectedly accepted")

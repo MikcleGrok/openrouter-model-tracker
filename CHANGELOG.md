@@ -1,5 +1,10 @@
 # What's New
 
+## [1.16.12]
+
+- Fix the default TUI filter to keep paid catalog models visible even when they have no quality or price/performance score yet; quality and Q/P filters now apply only when explicitly requested.
+- Migrate the legacy default filter in memory when loading configuration without rewriting the user's config file, while preserving custom default filters and TUI filter overrides.
+
 ## [1.16.4]
 
 - Document installed Bash completion for the local Homebrew formula.

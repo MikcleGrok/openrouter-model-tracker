@@ -484,11 +484,11 @@ func TestTUICopyrightGuardrailColumnUsesModelFieldAndUnknownFallback(t *testing.
 func TestTUIFilterOpensEffectiveDefaultFields(t *testing.T) {
 	m := tuiModel{filter: config.DefaultFilter, filterFormExplicit: true}
 	m.openFilterEditor()
-	if m.filterDraft.quality != "75" || !m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
-		t.Fatalf("effective default filter draft = %+v, want quality 75, has Q/P and paid", m.filterDraft)
+	if m.filterDraft.quality != "" || m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("effective default filter draft = %+v, want paid availability without quality or Q/P", m.filterDraft)
 	}
 	view := tuiFilterView(tuiModel{width: 100, height: 20, overlay: "filter", filterDraft: m.filterDraft})
-	if !strings.Contains(view, "Quality minimum: 75") || !strings.Contains(view, "Has Q/P: [x]") || !strings.Contains(view, "Availability: paid") {
+	if !strings.Contains(view, "Quality minimum: (any)") || !strings.Contains(view, "Has Q/P: [ ]") || !strings.Contains(view, "Availability: paid") {
 		t.Fatalf("effective default filter view = %q", view)
 	}
 }
@@ -496,8 +496,8 @@ func TestTUIFilterOpensEffectiveDefaultFields(t *testing.T) {
 func TestTUIFilterKeepsExplicitDefaultFilterInForm(t *testing.T) {
 	m := tuiModel{filter: config.DefaultFilter, filterFormExplicit: true}
 	m.openFilterEditor()
-	if m.filterDraft.quality != "75" {
-		t.Fatalf("explicit default filter draft = %+v, want quality 75", m.filterDraft)
+	if m.filterDraft.quality != "" || m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("explicit default filter draft = %+v, want paid availability without quality or Q/P", m.filterDraft)
 	}
 }
 
@@ -506,14 +506,14 @@ func TestTUIRefreshUpdatesFilterFormExplicitness(t *testing.T) {
 	next, _ := m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: true})
 	m = next.(tuiModel)
 	m.openFilterEditor()
-	if m.filterDraft.quality != "75" {
-		t.Fatalf("reloaded explicit default draft = %+v, want quality 75", m.filterDraft)
+	if m.filterDraft.quality != "" || m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("reloaded explicit default draft = %+v, want paid availability without quality or Q/P", m.filterDraft)
 	}
 	next, _ = m.Update(tuiRefreshMsg{generation: 1, filter: config.DefaultFilter, filterFormExplicit: true})
 	m = next.(tuiModel)
 	m.openFilterEditor()
-	if m.filterDraft.quality != "75" {
-		t.Fatalf("reloaded effective default draft = %+v, want quality 75", m.filterDraft)
+	if m.filterDraft.quality != "" || m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("reloaded effective default draft = %+v, want paid availability without quality or Q/P", m.filterDraft)
 	}
 }
 
@@ -2547,6 +2547,20 @@ func TestTUISelectionAndStructuredFilter(t *testing.T) {
 	m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if len(m.visible) != 1 || m.visible[0].Slug != "a" {
 		t.Fatalf("substring search result = %+v", m.visible)
+	}
+}
+
+func TestTUIDefaultPaidFilterKeepsUnscoredClaudeForSearch(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "anthropic/claude-sonnet-4", DisplayName: "Claude Sonnet 4", Paid: true},
+		{Slug: "openai/gpt-free", DisplayName: "GPT Free", Free: true},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.filter = config.DefaultFilter
+	m.search = "claude"
+	m.rebuild()
+	if len(m.visible) != 1 || m.visible[0].Slug != "anthropic/claude-sonnet-4" {
+		t.Fatalf("default filter/search result = %+v, want unscored Claude row", m.visible)
 	}
 }
 
