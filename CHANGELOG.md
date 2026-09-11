@@ -1,5 +1,10 @@
 # What's New
 
+## [1.16.14]
+
+- Refresh shell completions with `refresh`/`update`/`up` aliases and their flags, real Bash candidate checks, and cross-shell alias registrations.
+- Integrate completion checks into the `test-all` and release gates while preserving compatibility with shells that do not support completion descriptions.
+
 ## [1.16.13]
 
 - Add source-aware freshness details to the TUI: distinguish the network fetch time for OpenRouter data, the checked date for the active benchmark source, and the latest local price observation, including `unknown` and stale/fallback markers.
