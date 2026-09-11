@@ -176,6 +176,8 @@ type tuiModel struct {
 	ranking               string
 	scoreSource           string
 	priceWeight           float64
+	mixInputWeight        float64
+	mixOutputWeight       float64
 	priceHistory          *pricehistory.History
 	rankingConfig         ranking.Compiled
 	rankingConfigSet      bool
@@ -211,7 +213,7 @@ type tuiFreshness struct {
 
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
-	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), iconGaps: config.DefaultIconGaps(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1, screenController: tuiscreen.New(nil)}
+	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, mixInputWeight: pricing.DefaultMixInputWeight, mixOutputWeight: pricing.DefaultMixOutputWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), iconGaps: config.DefaultIconGaps(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1, screenController: tuiscreen.New(nil)}
 	m.freshness = loadTUIFreshness(dataDir, models, nil)
 	m.rebuild()
 	if len(m.visible) > 0 {
@@ -269,6 +271,11 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		m.iconGaps = cfg.Table.IconGaps
 		m.icons = cfg.Icons
 		m.layout, m.topN = cfg.TUI.Layout, cfg.TUI.TopN
+		mixInputWeight, mixOutputWeight, mixErr := cfg.Pricing.EffectiveMixWeights()
+		if mixErr != nil {
+			return mixErr
+		}
+		m.mixInputWeight, m.mixOutputWeight = mixInputWeight, mixOutputWeight
 		if strings.EqualFold(cfg.TUILanguage, "ru") {
 			m.lang = "ru"
 		}
@@ -448,7 +455,7 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 		c.PriceWeight = &m.priceWeight
 		compiled, _ = ranking.Compile(c)
 	}
-	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, compiled); err != nil {
+	if err := sortTableModelsWithRankingAndConfig(filtered, m.sortKey, m.reverse, m.ranking, compiled, m.mixInputWeight, m.mixOutputWeight); err != nil {
 		return nil, -1, err
 	}
 	separator := -1
@@ -470,8 +477,8 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 		if freeErr != nil {
 			return nil, -1, freeErr
 		}
-		_ = sortTableModelsWithRankingAndConfig(paidBase, m.sortKey, m.reverse, m.ranking, compiled)
-		_ = sortTableModelsWithRankingAndConfig(freeBase, m.sortKey, m.reverse, m.ranking, compiled)
+		_ = sortTableModelsWithRankingAndConfig(paidBase, m.sortKey, m.reverse, m.ranking, compiled, m.mixInputWeight, m.mixOutputWeight)
+		_ = sortTableModelsWithRankingAndConfig(freeBase, m.sortKey, m.reverse, m.ranking, compiled, m.mixInputWeight, m.mixOutputWeight)
 		paid, free := make([]model.Model, 0), make([]model.Model, 0)
 		for _, row := range paidBase {
 			if row.Paid || (!row.Free && !row.NoPrice) {

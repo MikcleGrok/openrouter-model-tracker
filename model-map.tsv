@@ -47,36 +47,45 @@
 # расхождении чекпоинта/варианта — ошибка здесь пройдёт в ranking молча.
 
 # ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
-anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5
-anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5
-anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5
-anthropic/claude-opus-4.6	tier=opus
+anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5	arena=claude-fable-5-text
+anthropic/claude-fable-5.1	tier=opus	arena=claude-fable-5.1-max-text
+anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5	arena=claude-opus-5-high-text
+anthropic/claude-opus-4.6	tier=opus	swebench=Model: claude-opus-4-6
+anthropic/claude-opus-4.7	tier=opus	vals=anthropic/claude-opus-4-7
+anthropic/claude-opus-4.8	tier=opus	vals=anthropic/claude-opus-4-8	arena=claude-opus-4-8-text
 openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna	arena=gpt-5.6-luna-xhigh-text
 openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol	arena=gpt-5.6-sol-xhigh-text
 openai/gpt-5.6-luna-pro	tier=opus
 openai/gpt-5.6-sol-pro	tier=opus
 openai/gpt-5.6-terra	tier=opus	vals=openai/gpt-5.6-terra	arena=gpt-5.6-terra-xhigh-text
 openai/gpt-5.6-terra-pro	tier=opus
+openai/gpt-6-astra	tier=opus
 
 # ── ≈ Sonnet 5 ───────────────────────────────────────────────────────────────
-anthropic/claude-sonnet-5	tier=sonnet	vals=anthropic/claude-sonnet-5
-anthropic/claude-sonnet-4.5	tier=sonnet
+anthropic/claude-sonnet-5	tier=sonnet	vals=anthropic/claude-sonnet-5	arena=claude-sonnet-5-text
+anthropic/claude-sonnet-4.6	tier=sonnet	vals=anthropic/claude-sonnet-4-6
+anthropic/claude-sonnet-4.5	tier=sonnet	swebench=Model: claude-sonnet-4-5
 minimax/minimax-m3	tier=sonnet	vals=minimax/MiniMax-M3	arena=minimax-m3
 meta/muse-spark-1.1	tier=sonnet	vals=meta/muse_spark_1_1	arena=super-nova-ext-3tam-text
 qwen/qwen3.7-max	tier=sonnet	vals=alibaba/qwen3.7-max
 qwen/qwen3.7-flash	tier=sonnet
 qwen/qwen3.7-plus	tier=sonnet	arena=qwen3.7-plus
-qwen/qwen3.8-max	tier=sonnet	arena=kinsley-mrp8
+qwen/qwen3.8-max-0902	tier=sonnet	vals=alibaba/qwen3.8-max	arena=kinsley-mrp8
 x-ai/grok-4.5	tier=sonnet	vals=grok/grok-4.5	arena=grok-4.5-text
+x-ai/grok-4.6	tier=sonnet	vals=grok/grok-4.6	arena=grok-4.6-high-text
 mistralai/mistral-medium-3-5	tier=sonnet	vals=mistralai/mistral-medium-3.5	arena=mistral-medium-3.5-text
 google/gemini-3.1-pro-preview	tier=sonnet	vals=google/gemini-3.1-pro-preview	arena=gemini-3.1-pro-preview
 moonshotai/kimi-k3	tier=sonnet	vals=kimi/kimi-k3
 deepseek/deepseek-v4-pro	tier=sonnet	vals=deepseek/deepseek-v4-pro	arena=deepseek-v4-pro-ch1-text
 z-ai/glm-5.2	tier=sonnet	vals=zai/glm-5.2
+z-ai/glm-5.3	tier=sonnet	vals=zai/glm-5.3
 google/gemini-3.6-flash	tier=sonnet	vals=google/gemini-3.6-flash	arena=gemini-3.6-flash
+google/gemini-3.5-flash	tier=sonnet	vals=google/gemini-3.5-flash	arena=gemini-3.5-flash-medium
+google/gemini-3.7-flash	tier=sonnet	vals=google/gemini-3.7-flash
+google/gemini-3.8-flash	tier=sonnet	vals=google/gemini-3.8-flash
 
 # ── <≈ Haiku 4.5 ─────────────────────────────────────────────────────────────
-anthropic/claude-haiku-4.5	tier=haiku
+anthropic/claude-haiku-4.5	tier=haiku	swebench=Model: claude-haiku-4-5-20251001
 deepseek/deepseek-v4-flash	tier=haiku	vals!variant=deepseek/deepseek-v4-flash-0731	arena=deepseek-v4-ch3-text
 tencent/hy3	tier=haiku	arena=hy3-tencent-cloud-text
 qwen/qwen3-coder-next	tier=haiku
@@ -85,7 +94,6 @@ qwen/qwen3-coder	tier=haiku	swebench=Model: Qwen3-Coder-480B-A35B-Instruct	arena
 xiaomi/mimo-v2.5-pro	tier=haiku	vals=xiaomi/mimo-v2.5-pro	arena=mimo-v2.5-pro-text
 moonshotai/kimi-k2.5	tier=haiku	swebench=Model: kimi-k2.5
 moonshotai/kimi-k2.7-code	tier=haiku	vals=kimi/kimi-k2.7-code
-kwaipilot/kat-coder-air-v2.5	tier=haiku
 kwaipilot/kat-coder-pro-v2.5	tier=haiku
 xiaomi/mimo-v2.5	tier=haiku	vals=xiaomi/mimo-v2.5	arena=mimo-v2.5-text
 meta-llama/llama-4-maverick	tier=haiku	swebench=Model: llama-4-maverick-instruct	arena=llama-4-maverick-17b-128e-instruct
@@ -101,6 +109,13 @@ nvidia/nemotron-3-super-120b-a12b	tier=haiku	arena=march26-chatbot1
 nvidia/nemotron-3-nano-30b-a3b	tier=haiku	arena=nvidia-nemotron-3-nano-30b-a3b-bf16
 poolside/laguna-s-2.1	tier=haiku
 poolside/laguna-xs-2.1	tier=haiku
+z-ai/glm-4.7	tier=haiku	vals=zai/glm-4.7
+z-ai/glm-4.7-flash	tier=haiku	arena=glm-4.7-flash-fireworks
+z-ai/glm-5.3-flash	tier=haiku	vals=zai/glm-5.3-flash	arena=glm-5.3-flash-text
+minimax/minimax-m2.5	tier=haiku	vals=minimax/MiniMax-M2.5	arena=minimax-m2.5
+minimax/minimax-m2	tier=haiku	swebench=Model: minimax-m2	arena=minimax-m2
+qwen/qwen3-next-80b-a3b-instruct	tier=haiku	arena=qwen3-next-80b-a3b-instruct
+qwen/qwen3-235b-a22b-2507	tier=haiku	arena=qwen3-235b-a22b-instruct-2507
 
 # ── Бесплатные ───────────────────────────────────────────────────────────────
 nvidia/nemotron-3.5-content-safety:free	tier=free
@@ -109,15 +124,9 @@ poolside/laguna-xs-2.1:free	tier=free
 cohere/north-mini-code:free	tier=free
 poolside/laguna-s-2.1:free	tier=free
 nvidia/nemotron-3-super-120b-a12b:free	tier=free	arena=march26-chatbot1
-nvidia/nemotron-3-nano-30b-a3b:free	tier=free	arena=nvidia-nemotron-3-nano-30b-a3b-bf16
-openai/gpt-oss-20b:free	tier=free	arena=gpt-oss-20b
 google/gemma-4-31b-it:free	tier=free	arena=pteronura-text
 google/gemma-4-26b-a4b-it:free	tier=free	arena=significant-otter-text
-nvidia/nemotron-nano-9b-v2:free	tier=free
-inclusionai/ling-3.0-flash:free	tier=free	vals!variant=ant/ling-3.0-flash-2607
 nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free	tier=free
-nvidia/nemotron-nano-12b-v2-vl:free	tier=free
 nvidia/nemotron-3.5-lightning:free	tier=free	arena=august26-chatbot1-fmme
-z-ai/glm-5.2:free	tier=free	vals=zai/glm-5.2	arena=glm-5.2-text
 dots-studio/dots-3-note-preview:free	tier=free
 liquid/lfm-2.5-2.6b:free	tier=free

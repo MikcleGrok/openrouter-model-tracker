@@ -68,7 +68,7 @@ func scoreSourceLabel(source string) string {
 		return "arena (LMArena Elo; нормализован в 0-100 для ранжирования и для " +
 			"показанного Q/P — диапазон зависит от текущего набора моделей)"
 	}
-	return "swebench (SWE-bench Verified, %)"
+	return "swebench (SWE-bench Verified, %; v=vals.ai, s=swebench.com — see the Status column)"
 }
 
 func normalizeRanking(ranking string) string {
@@ -190,10 +190,16 @@ func sortTableModelsWithRankingAndWeight(models []model.Model, key string, rever
 	if err != nil {
 		return err
 	}
-	return sortTableModelsWithRankingAndConfig(models, key, reverse, rankingName, compiled)
+	return sortTableModelsWithRankingAndConfig(models, key, reverse, rankingName, compiled, pricing.DefaultMixInputWeight, pricing.DefaultMixOutputWeight)
 }
 
-func sortTableModelsWithRankingAndConfig(models []model.Model, key string, reverse bool, rankingName string, compiled ranking.Compiled) error {
+// sortTableModelsWithRankingAndConfig is the single choke point both the
+// table command and the TUI sort through. mixInputWeight/mixOutputWeight are
+// pricing.mix_input_weight/pricing.mix_output_weight (config.PricingConfig),
+// independent of compiled's own ranking.mixed_utility.price weighting: they
+// control the displayed MixedPrice/Quality-Price, compiled controls only the
+// mixed-utility ranking formula's internal price_mix term.
+func sortTableModelsWithRankingAndConfig(models []model.Model, key string, reverse bool, rankingName string, compiled ranking.Compiled, mixInputWeight, mixOutputWeight float64) error {
 	rankingName = normalizeRanking(rankingName)
 	if rankingName != rankingLegacy && rankingName != rankingTier && rankingName != rankingMixed {
 		return fmt.Errorf("table: invalid --ranking %q; allowed values: legacy, tier, tier-priority, mixed, mixed-utility", rankingName)
@@ -205,7 +211,7 @@ func sortTableModelsWithRankingAndConfig(models []model.Model, key string, rever
 	if key == "" {
 		key = "utility"
 	}
-	if err := applyCanonicalQualityPrice(models, compiled); err != nil {
+	if err := applyCanonicalQualityPrice(models, compiled, mixInputWeight, mixOutputWeight); err != nil {
 		return err
 	}
 	valid := map[string]bool{"name": true, "slug": true, "context": true, "input": true, "output": true, "price": true, "quality": true, "q/p": true, "utility": true}
@@ -278,17 +284,22 @@ func sortTableModelsWithRankingAndConfig(models []model.Model, key string, rever
 // applyCanonicalQualityPrice is the one table/TUI boundary where the
 // displayed and q/p-sorted metric is derived. The dependency is intentionally
 // one-way: base_quality -> base_qp -> full_utility -> displayed q/p.
-func applyCanonicalQualityPrice(models []model.Model, compiled ranking.Compiled) error {
+//
+// mixInputWeight/mixOutputWeight are pricing.mix_input_weight/
+// pricing.mix_output_weight (default 3:1, pricing.DefaultMixInputWeight/
+// DefaultMixOutputWeight): MixedPrice is unconditionally recomputed with
+// them here, overriding whatever the merge step set from the hard-coded
+// default, so a configured mix always reaches the displayed Q/P column and
+// the "price"/"utility" sort keys that read m.MixedPrice downstream. At the
+// default weights this recomputes the exact same value the merge step
+// already set, so default behavior is unchanged byte-for-byte.
+func applyCanonicalQualityPrice(models []model.Model, compiled ranking.Compiled, mixInputWeight, mixOutputWeight float64) error {
 	for i := range models {
 		m := &models[i]
 		if m.InPerM == 0 && m.OutPerM == 0 {
 			continue
 		}
-		if m.Free || m.Score == nil || !m.Rankable || m.MixedPrice <= 0 {
-			if m.MixedPrice <= 0 {
-				m.MixedPrice = pricing.MixedPrice(m.InPerM, m.OutPerM)
-			}
-		}
+		m.MixedPrice = pricing.MixedPriceWithWeights(m.InPerM, m.OutPerM, mixInputWeight, mixOutputWeight)
 		if m.Free || m.Score == nil || !m.Rankable || m.MixedPrice <= 0 {
 			continue
 		}
@@ -742,6 +753,11 @@ func padTableCell(value string, width int) string {
 	return value + strings.Repeat(" ", padding)
 }
 
+// tableStatus renders the Status/SWE % cell, ending with a single-character
+// source marker ("v" for vals.ai, "s" for swebench.com — model.ScoreSourceMarker)
+// whenever the active row's score came from one of the two SWE-bench sources,
+// so a reader never has to guess which measurement protocol produced a given
+// number just by looking at the table or the TUI list.
 func tableStatus(m model.Model) string {
 	if m.Unmapped {
 		return "unmapped (no benchmark identity)"
@@ -749,6 +765,8 @@ func tableStatus(m model.Model) string {
 	status := m.ScoreLabel
 	if status == "" {
 		status = "No score"
+	} else {
+		status += model.ScoreSourceMarker(m.Score)
 	}
 	return plainTableText(status)
 }

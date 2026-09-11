@@ -84,6 +84,32 @@ var SourceFamily = map[string]string{
 	sourceIDArena:    ScoreSourceArena,
 }
 
+// ScoreSourceMarker returns the single-character marker that distinguishes
+// which SWE-bench Verified protocol produced info's number: "v" for vals.ai
+// (a fixed independent harness that runs every submission itself) and "s"
+// for swebench.com (a self-submitted leaderboard, median across scaffolds —
+// see notes.yaml for how far the two protocols can diverge on the same
+// model, historically 15-25 percentage points). Table and TUI display this
+// next to the score so a reader never has to guess which population a
+// number belongs to just by looking at it.
+//
+// A nil info, an Arena row, a manual notes.yaml override, or any other
+// source without this two-way split returns "" — only the two SWE-bench
+// sources ever diverge in measurement protocol for the same metric.
+func ScoreSourceMarker(info *ScoreInfo) string {
+	if info == nil {
+		return ""
+	}
+	switch info.SourceFamily {
+	case sourceIDVals:
+		return "v"
+	case sourceIDSWEBench:
+		return "s"
+	default:
+		return ""
+	}
+}
+
 // arenaNoScoreLabel fills the quality/price cell of a row the Arena view has
 // no number for. It deliberately does not reuse notes.yaml's NoScoreReason:
 // that text names SWE-bench, which is exactly the confusion two separate

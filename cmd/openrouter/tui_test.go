@@ -23,6 +23,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
@@ -515,6 +516,21 @@ func TestTUIFilterDraftCopyrightGuardrailRoundTrip(t *testing.T) {
 	}
 	if got := tuiNextCopyrightGuardrail(""); got != notes.CopyrightGuardrailEnforces {
 		t.Fatalf("next copyright guardrail = %q", got)
+	}
+}
+
+// TestTUIStatusColumnShowsScoreSourceMarker checks Fix 1's marker reaches
+// the TUI list view: colStatus renders through the same tableStatus helper
+// the CLI table uses, so a vals.ai row and a swebench.com row must be
+// visually distinguishable there too.
+func TestTUIStatusColumnShowsScoreSourceMarker(t *testing.T) {
+	valsRow := model.Model{ScoreLabel: "93.0%", Score: &model.ScoreInfo{SourceFamily: "vals"}}
+	if got := tuiCell(valsRow, colStatus, false, scoreSourceSWEBench); got != "93.0%v" {
+		t.Fatalf("vals.ai status cell = %q, want %q", got, "93.0%v")
+	}
+	swebenchRow := model.Model{ScoreLabel: "80.0%", Score: &model.ScoreInfo{SourceFamily: "swebench"}}
+	if got := tuiCell(swebenchRow, colStatus, false, scoreSourceSWEBench); got != "80.0%s" {
+		t.Fatalf("swebench.com status cell = %q, want %q", got, "80.0%s")
 	}
 }
 
@@ -2422,6 +2438,28 @@ func TestTUIUsesConfiguredPriceWeight(t *testing.T) {
 	m.rebuild()
 	if m.visible[0].Slug != "value" {
 		t.Fatalf("custom-weight TUI first slug = %q, want value", m.visible[0].Slug)
+	}
+}
+
+// TestTUIUsesConfiguredPricingMixWeights covers Fix 2 in the TUI: the
+// displayed MixedPrice/Quality-Price must follow pricing.mix_input_weight/
+// pricing.mix_output_weight (m.mixInputWeight/m.mixOutputWeight), not just
+// the CLI table path.
+func TestTUIUsesConfiguredPricingMixWeights(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "input-heavy", Tier: "sonnet", Score: &model.ScoreInfo{Value: 90}, Rankable: true, InPerM: 1, OutPerM: 10},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	if got, want := m.visible[0].MixedPrice, pricing.MixedPrice(1, 10); got != want {
+		t.Fatalf("default mix MixedPrice = %v, want the built-in 3:1 blend %v", got, want)
+	}
+	m.mixInputWeight, m.mixOutputWeight = 1, 3
+	m.rebuild()
+	if got, want := m.visible[0].MixedPrice, pricing.MixedPriceWithWeights(1, 10, 1, 3); got != want {
+		t.Fatalf("configured 1:3 mix MixedPrice = %v, want %v", got, want)
+	}
+	if got, want := m.visible[0].QualityPriceLabel, pricing.FormatQualityPrice(pricing.QualityPrice(90, pricing.MixedPriceWithWeights(1, 10, 1, 3))); got != want {
+		t.Fatalf("configured 1:3 mix Quality/Price label = %q, want %q", got, want)
 	}
 }
 
