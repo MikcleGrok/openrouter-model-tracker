@@ -30,6 +30,15 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
 )
 
+func containsModelSlug(models []model.Model, slug string) bool {
+	for _, row := range models {
+		if row.Slug == slug {
+			return true
+		}
+	}
+	return false
+}
+
 func detailModelForTest(row model.Model, source string, width int, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps) tuiModel {
 	return tuiModel{models: []model.Model{row}, scoreSource: source, width: width, priceHistory: history, icons: icons, iconGap: gap, iconGaps: gaps}
 }
@@ -491,8 +500,11 @@ func TestTUIConfiguredScalarBindingsHandleCanonicalAliases(t *testing.T) {
 func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20}
 	view := m.View()
-	if !strings.Contains(view, "Tier options: (any), "+tier.ValuesString()) {
+	if !strings.Contains(view, "Tier options: (any), "+strings.Join(tier.FilterValues(), ", ")) || strings.Contains(view, "Tier options: (any), opus, sonnet, haiku, free") {
 		t.Fatalf("filter view = %q, want tier select options", view)
+	}
+	if !strings.Contains(view, "Tier min:") {
+		t.Fatalf("filter view = %q, want Tier min label", view)
 	}
 }
 
@@ -1663,8 +1675,8 @@ func TestTUIFilterTierSelectChangesThroughUpdateAndPersists(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
 	want := "tier:haiku"
-	if m.filter != want || len(m.visible) != 1 || m.visible[0].Slug != "haiku" {
-		t.Fatalf("applied tier filter = %q, visible %+v, want %q and haiku", m.filter, m.visible, want)
+	if m.filter != want || len(m.visible) != 2 || !containsModelSlug(m.visible, "sonnet") || !containsModelSlug(m.visible, "haiku") {
+		t.Fatalf("applied tier filter = %q, visible %+v, want %q and sonnet/haiku", m.filter, m.visible, want)
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1698,7 +1710,7 @@ func TestTUIFilterTierSelectArrowsThroughUpdateAndPersists(t *testing.T) {
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.filter != "tier:haiku" || len(m.visible) != 1 || m.visible[0].Slug != "haiku" {
+	if m.filter != "tier:haiku" || len(m.visible) != 2 || !containsModelSlug(m.visible, "sonnet") || !containsModelSlug(m.visible, "haiku") {
 		t.Fatalf("applied arrow tier filter = %q, visible %+v", m.filter, m.visible)
 	}
 	cfg, err := config.Load(configPath)
@@ -1707,6 +1719,26 @@ func TestTUIFilterTierSelectArrowsThroughUpdateAndPersists(t *testing.T) {
 	}
 	if cfg.TUIFilter != "tier:haiku" {
 		t.Fatalf("persisted arrow tier filter = %q, want tier:haiku", cfg.TUIFilter)
+	}
+}
+
+func TestTUIFilterTierMinimumAndLegacyFreeSemantics(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "opus", Tier: "opus"},
+		{Slug: "sonnet", Tier: "sonnet"},
+		{Slug: "haiku", Tier: "haiku"},
+		{Slug: "free", Tier: "free", Free: true},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.filter = "tier:free"
+	visible, _, err := m.buildVisible()
+	if err != nil || len(visible) != 1 || visible[0].Slug != "free" {
+		t.Fatalf("TUI tier:free = %+v, error %v; want only free", visible, err)
+	}
+	m.filter = "tier:haiku"
+	visible, _, err = m.buildVisible()
+	if err != nil || len(visible) != 3 || !containsModelSlug(visible, "opus") || !containsModelSlug(visible, "sonnet") || !containsModelSlug(visible, "haiku") || containsModelSlug(visible, "free") {
+		t.Fatalf("TUI tier:haiku = %+v, error %v; want paid haiku and higher only", visible, err)
 	}
 }
 
@@ -1806,7 +1838,7 @@ func TestTUIFilterDraftPreservesExplicitQualityZero(t *testing.T) {
 }
 
 func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
-	if got, want := tuiFilterTierValues(), append([]string{""}, tier.Values()...); !reflect.DeepEqual(got, want) {
+	if got, want := tuiFilterTierValues(), append([]string{""}, tier.FilterValues()...); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tier select values = %v, want %v", got, want)
 	}
 	m := tuiModel{overlay: "filter", filterCursor: 3}
@@ -1814,7 +1846,7 @@ func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
 	if m.filterDraft.tier != "opus" {
 		t.Fatalf("first tier selection = %q, want opus", m.filterDraft.tier)
 	}
-	for _, want := range []string{"sonnet", "haiku", "free", ""} {
+	for _, want := range []string{"sonnet", "haiku", ""} {
 		m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
 		if m.filterDraft.tier != want {
 			t.Fatalf("next tier selection = %q, want %q", m.filterDraft.tier, want)
@@ -6154,7 +6186,7 @@ func TestTUIRussianFilterOverlayRendersTranslatedText(t *testing.T) {
 	m.width, m.height, m.lang = 100, 24, "ru"
 	m.openFilterEditor()
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Фильтр", "Тир", "Качество (минимум)", "Доступность", "Esc", "Enter", "Tab/Shift+Tab"} {
+	for _, want := range []string{"Фильтр", "Минимальный тир", "Качество (минимум)", "Доступность", "Esc", "Enter", "Tab/Shift+Tab"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Russian Filter overlay is missing %q:\n%s", want, view)
 		}

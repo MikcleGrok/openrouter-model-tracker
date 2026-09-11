@@ -702,12 +702,12 @@ var tuiTranslationsRU = map[string]string{
 	"Error: ":  "Ошибка: ",
 
 	"Filter": "Фильтр",
-	"↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit": "↑/↓ перемещение · ←/→ изменение значений · Space переключает/циклит Tier · ввод текста для правки",
-	"Tier options: (any), ": "Варианты Tier: (любой), ",
+	"↑/↓ move · ←/→ step values · Space toggles/cycles Tier min · type to edit": "↑/↓ перемещение · ←/→ изменение значений · Space переключает/циклит Tier min · ввод текста для правки",
+	"Tier options: (any), ": "Варианты Tier min: (любой), ",
 	"Free":                  "Бесплатные",
 	"Paid":                  "Платные",
 	"Scored":                "С оценкой",
-	"Tier":                  "Тир",
+	"Tier min":              "Минимальный тир",
 	"Quality minimum":       "Качество (минимум)",
 	"Context minimum":       "Контекст (минимум)",
 	"Input max":             "Вход (максимум)",
@@ -1624,7 +1624,7 @@ func (m tuiModel) filterStatusValue(filter string) string {
 }
 
 func tuiFilterTierValues() []string {
-	return append([]string{""}, tier.Values()...)
+	return append([]string{""}, tier.FilterValues()...)
 }
 
 func tuiNextFilterTier(current string) string {
@@ -2146,13 +2146,11 @@ func (m tuiModel) baseView() string {
 
 func tuiFilterView(m tuiModel) string {
 	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability, m.filterDraft.copyrightGuardrail}
-	labels := []string{"Free", "Paid", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability", "Copyright guardrail"}
-	// tier.ValuesString() returns the literal tier predicate values
-	// (opus/sonnet/haiku/...), the same tokens the CLI's tier:VALUE filter
-	// syntax accepts — never translated, per this feature's scoping rule
-	// for CLI/filter syntax.
-	tierOptions := m.t("Tier options: (any), ") + tier.ValuesString()
-	lines := []string{m.t("Filter"), "", m.t("↑/↓ move · ←/→ step values · Space toggles/cycles Tier · type to edit"), tierOptions, ""}
+	labels := []string{"Free", "Paid", "Scored", "Tier min", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability", "Copyright guardrail"}
+	// FilterValues returns the literal paid tier predicate values, the same
+	// tokens the CLI's tier:MIN filter syntax accepts — never translated.
+	tierOptions := m.t("Tier options: (any), ") + strings.Join(tier.FilterValues(), ", ")
+	lines := []string{m.t("Filter"), "", m.t("↑/↓ move · ←/→ step values · Space toggles/cycles Tier min · type to edit"), tierOptions, ""}
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
@@ -3621,11 +3619,11 @@ const tuiHelpSectionFiltersBody = `Columns, search, and filters
 The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
 \tf\tfilter\tedits a structured filter and does not change the search.
-	CLI example: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
-	TUI example: press f, enable Paid, type sonnet in Tier and 0.8 in Quality minimum, then Enter.
-	Filter editor: Up/Down always move between fields, including Tier. Left/Right select Tier or step numeric values; Space cycles Tier. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
+	CLI example: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier min includes the selected tier and all higher paid tiers.
+	TUI example: press f, enable Paid, select sonnet in Tier min and 0.8 in Quality minimum, then Enter.
+	Filter editor: Up/Down always move between fields, including Tier min. Left/Right select Tier min or step numeric values; Space cycles paid Tier min values. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
 	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
-	Predicates: paid, free, scored; tier:VALUE; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
+	Predicates: paid, free, scored; tier:MIN; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
 	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
@@ -3872,11 +3870,11 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 Последний столбец остаётся выбранным.
 \t/\tпоиск\tищет по Name/Slug как обычный текст-подстроку.
 \tf\tфильтр\tредактирует структурированный фильтр и не меняет поиск.
-	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'.
-	Пример TUI: нажмите f, включите Платные, введите sonnet в Тир и 0.8 в Качество (минимум), затем Enter.
-	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Тир. Left/Right выбирают Тир или изменяют числовые значения; Space циклит Тир. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
+	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier min включает выбранный тир и все более высокие платные тиры.
+	Пример TUI: нажмите f, включите Платные, выберите sonnet в Tier min и 0.8 в Качество (минимум), затем Enter.
+	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Tier min. Left/Right выбирают Tier min или изменяют числовые значения; Space циклит платные значения Tier min. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
 	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
-	Предикаты: paid, free, scored; tier:VALUE; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
+	Предикаты: paid, free, scored; tier:MIN; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
 	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
 	Несколько фильтров разделяются запятой (или повторным --filter в CLI) и всегда работают через AND.
 	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
