@@ -1,5 +1,13 @@
 # What's New
 
+## [1.17.0]
+
+- Add 17 `model-map.tsv` entries for previously untracked models (Claude Fable 5.1, Opus 4.7/4.8, Sonnet 4.6, GPT-6 Astra, Grok 4.6, Gemini 3.5/3.7/3.8 Flash, GLM 5.3/4.7/5.3-flash/4.7-flash, MiniMax M2/M2.5, Qwen3-Next-80B, Qwen3-235B-2507), fix the dead `qwen3.8-max` mapping to point at `qwen3.8-max-0902`, and add the missing Arena keys to the three Claude 5 lines.
+- Correct five Arena keys that had drifted from the live leaderboard: restore `qwen/qwen3.8-max-0902`'s prior key `kinsley-mrp8`, repoint `google/gemini-3.5-flash` at its `-medium` variant and `z-ai/glm-4.7-flash` at its `-fireworks` variant, and drop the unmatched keys from `openai/gpt-6-astra` (no live Arena entry yet for any Astra variant) and `google/gemini-3.7-flash`/`google/gemini-3.8-flash` (not on the leaderboard yet).
+- Add swebench.com fallback scores for `claude-opus-4.6`, `claude-sonnet-4.5`, and `claude-haiku-4.5`, remove 7 stale dead mappings, correct 12 stale `notes.yaml` claims against live data, and suppress `:batch` variant noise via `ignore-candidates.txt`.
+- Mark each row's SWE-bench score with a v/s suffix to disclose whether it came from vals.ai or swebench.com.
+- Add configurable `pricing.mix_input_weight`/`pricing.mix_output_weight` settings for the displayed Quality/Price ratio's price blend (default 3:1, matching prior hard-coded behavior).
+
 ## [1.16.18]
 
 - Rename the `Tier` filter to `Tier min` to make its minimum-tier semantics explicit: selecting a tier includes that tier and all higher paid tiers.
@@ -52,11 +60,7 @@
 
 ## [Unreleased]
 
-- Add 17 `model-map.tsv` entries for previously untracked models (Claude Fable 5.1, Opus 4.7/4.8, Sonnet 4.6, GPT-6 Astra, Grok 4.6, Gemini 3.5/3.7/3.8 Flash, GLM 5.3/4.7/5.3-flash/4.7-flash, MiniMax M2/M2.5, Qwen3-Next-80B, Qwen3-235B-2507), fix the dead `qwen3.8-max` mapping to point at `qwen3.8-max-0902`, and add the missing Arena keys to the three Claude 5 lines.
-- Correct five Arena keys that had drifted from the live leaderboard: restore `qwen/qwen3.8-max-0902`'s prior key `kinsley-mrp8`, repoint `google/gemini-3.5-flash` at its `-medium` variant and `z-ai/glm-4.7-flash` at its `-fireworks` variant, and drop the unmatched keys from `openai/gpt-6-astra` (no live Arena entry yet for any Astra variant) and `google/gemini-3.7-flash`/`google/gemini-3.8-flash` (not on the leaderboard yet).
-- Add swebench.com fallback scores for `claude-opus-4.6`, `claude-sonnet-4.5`, and `claude-haiku-4.5`, remove 7 stale dead mappings, correct 12 stale `notes.yaml` claims against live data, and suppress `:batch` variant noise via `ignore-candidates.txt`.
-- Mark each row's SWE-bench score with a v/s suffix to disclose whether it came from vals.ai or swebench.com.
-- Add configurable `pricing.mix_input_weight`/`pricing.mix_output_weight` settings for the displayed Quality/Price ratio's price blend (default 3:1, matching prior hard-coded behavior).
+- Future release changes will be documented here.
 
 ## [1.16.11]
 
