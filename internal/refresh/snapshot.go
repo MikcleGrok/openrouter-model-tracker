@@ -46,6 +46,15 @@ type SnapshotEntry struct {
 	// two columns are apart: one source going down must never put its number
 	// into the other's view on the next run's fallback.
 	ArenaScore *model.ScoreInfo `json:"arena_score,omitempty"`
+	PriceStale bool             `json:"price_stale,omitempty"`
+}
+
+// Freshness records when each source was last fetched from the network.
+type Freshness struct {
+	OpenRouterNetworkFetchedAt string `json:"openrouter_network_fetched_at,omitempty"`
+	ValsNetworkFetchedAt       string `json:"vals_network_fetched_at,omitempty"`
+	SWEBenchNetworkFetchedAt   string `json:"swebench_network_fetched_at,omitempty"`
+	ArenaNetworkFetchedAt      string `json:"arena_network_fetched_at,omitempty"`
 }
 
 // Snapshot is the previous run's result, used to keep the document intact when
@@ -55,6 +64,7 @@ type Snapshot struct {
 	UpdatedAt    string                   `json:"updated_at,omitempty"`
 	Models       map[string]SnapshotEntry `json:"models"`
 	CatalogSlugs []string                 `json:"catalog_slugs,omitempty"`
+	Freshness    *Freshness               `json:"freshness,omitempty"`
 }
 
 // SnapshotFileName is the tracked, versioned snapshot's file name. It is
@@ -180,6 +190,7 @@ func NewSnapshot(models []model.Model, fetchedAt string) *Snapshot {
 			CopyrightGuardrail: m.CopyrightGuardrail,
 			Score:              m.Score,
 			ArenaScore:         m.ArenaScore,
+			PriceStale:         m.PriceStale,
 		}
 	}
 	return s

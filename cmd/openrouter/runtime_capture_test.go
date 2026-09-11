@@ -137,9 +137,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	}
 
 	step("начальный рендер", func(rows []string) bool {
-		// data:unknown — хвост мета-строки длиной ~117 колонок: на 100
-		// колонках она обрезается и этого хвоста на экране нет.
-		return tableAt(120)(rows) && containsPhysicalRow(rows, "data:unknown")
+		return tableAt(120)(rows) && containsPhysicalRow(rows, "freshness:")
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})
@@ -155,7 +153,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	sess.Resize(120, 30)
 	rp.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
 	step("resize обратно к исходному размеру", func(rows []string) bool {
-		return tableAt(120)(rows) && containsPhysicalRow(rows, "data:unknown")
+		return tableAt(120)(rows) && containsPhysicalRow(rows, "freshness:")
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})

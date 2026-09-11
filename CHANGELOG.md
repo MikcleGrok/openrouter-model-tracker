@@ -1,5 +1,12 @@
 # What's New
 
+## [1.16.13]
+
+- Add source-aware freshness details to the TUI: distinguish the network fetch time for OpenRouter data, the checked date for the active benchmark source, and the latest local price observation, including `unknown` and stale/fallback markers.
+- Add `omt refresh --force` to bypass the HTTP cache, report progress across the four logical source jobs, and fail closed when a required source refresh fails without publishing durable outputs.
+- Validate cached response digests and preserve source freshness metadata across fallback runs; make cache and refresh publication rollback-safe when body or metadata writes fail.
+- Add regression coverage for forced refreshes, four-source progress, freshness and fallback behavior, digest mismatches, failed fetches, cancellation, and rollback paths.
+
 ## [1.16.12]
 
 - Fix the default TUI filter to keep paid catalog models visible even when they have no quality or price/performance score yet; quality and Q/P filters now apply only when explicitly requested.
