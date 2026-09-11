@@ -279,6 +279,22 @@ func newRootCmd() *cobra.Command {
 			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.",
 		SilenceUsage: true,
 	}
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.BashCompletionFunction = "complete -o default -F __start_openrouter omt"
+	root.ValidArgsFunction = func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		var aliases []string
+		for _, subCmd := range cmd.Commands() {
+			if !subCmd.IsAvailableCommand() || len(subCmd.Aliases) == 0 {
+				continue
+			}
+			for _, alias := range subCmd.Aliases {
+				if strings.HasPrefix(alias, toComplete) {
+					aliases = append(aliases, cobra.CompletionWithDesc(alias, "alias for "+subCmd.Name()))
+				}
+			}
+		}
+		return aliases, cobra.ShellCompDirectiveNoFileComp
+	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config.yaml")
 	root.PersistentFlags().StringVar(&dataDir, "data-dir", "", "project directory with model-map.tsv, notes.yaml, and cache/ (overrides config)")
 
@@ -555,5 +571,76 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd)
 	root.AddCommand(tableCmd)
+	completionCmd := &cobra.Command{Use: "completion", Short: "Generate the autocompletion script for the specified shell", Args: cobra.NoArgs}
+	noDescriptions := false
+	newShellCompletion := func(use string) *cobra.Command {
+		cmd := &cobra.Command{Use: use, Args: cobra.NoArgs}
+		cmd.Flags().BoolVar(&noDescriptions, "no-descriptions", false, "disable completion descriptions")
+		return cmd
+	}
+	bashCompletion := newShellCompletion("bash")
+	bashCompletion.RunE = func(cmd *cobra.Command, _ []string) error {
+		if noDescriptions {
+			if err := cmd.Root().GenBashCompletionV2(cmd.OutOrStdout(), false); err != nil {
+				return err
+			}
+		} else if err := cmd.Root().GenBashCompletionV2(cmd.OutOrStdout(), true); err != nil {
+			return err
+		}
+		for _, line := range []string{"if [[ $(type -t compopt) = \"builtin\" ]]; then", "    complete -o default -F __start_openrouter omt", "else", "    complete -o default -o nospace -F __start_openrouter omt", "fi"} {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	zshCompletion := newShellCompletion("zsh")
+	zshCompletion.RunE = func(cmd *cobra.Command, _ []string) error {
+		if noDescriptions {
+			if err := cmd.Root().GenZshCompletionNoDesc(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+		} else if err := cmd.Root().GenZshCompletion(cmd.OutOrStdout()); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "compdef _openrouter omt")
+		return err
+	}
+	fishCompletion := newShellCompletion("fish")
+	fishCompletion.RunE = func(cmd *cobra.Command, _ []string) error {
+		if err := cmd.Root().GenFishCompletion(cmd.OutOrStdout(), !noDescriptions); err != nil {
+			return err
+		}
+		for _, line := range []string{
+			"complete -c omt -e",
+			"complete -c omt -n '__openrouter_clear_perform_completion_once_result'",
+			"complete -c omt -n 'not __openrouter_requires_order_preservation && __openrouter_prepare_completions' -f -a '$__openrouter_comp_results'",
+			"complete -k -c omt -n '__openrouter_requires_order_preservation && __openrouter_prepare_completions' -f -a '$__openrouter_comp_results'",
+		} {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	powershellCompletion := newShellCompletion("powershell")
+	powershellCompletion.RunE = func(cmd *cobra.Command, _ []string) error {
+		if noDescriptions {
+			if err := cmd.Root().GenPowerShellCompletion(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+		} else if err := cmd.Root().GenPowerShellCompletionWithDesc(cmd.OutOrStdout()); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "Register-ArgumentCompleter -CommandName 'omt' -ScriptBlock ${__openrouterCompleterBlock}")
+		return err
+	}
+	completionCmd.AddCommand(
+		bashCompletion,
+		zshCompletion,
+		fishCompletion,
+		powershellCompletion,
+	)
+	root.AddCommand(completionCmd)
 	return root
 }
