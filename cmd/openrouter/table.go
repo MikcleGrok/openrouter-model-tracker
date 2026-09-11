@@ -387,18 +387,7 @@ func modelScoreValue(m model.Model) float64 {
 }
 
 func rankingTierValue(tier string) int {
-	switch strings.ToLower(tier) {
-	case "opus":
-		return 3
-	case "sonnet":
-		return 2
-	case "haiku":
-		return 1
-	case "free":
-		return 0
-	default:
-		return -1
-	}
+	return tierpkg.Rank(tier)
 }
 
 func rankingLabel(ranking string) string {
@@ -481,7 +470,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				if !tierpkg.IsValid(tier) {
 					return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", tier, raw, tierpkg.ValuesString())
 				}
-				parsed = append(parsed, func(m model.Model) bool { return strings.EqualFold(m.Tier, tier) })
+				parsed = append(parsed, func(m model.Model) bool { return tierpkg.AtLeast(m.Tier, tier) })
 			case strings.HasPrefix(filter, "copyright_guardrail:"):
 				values := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "copyright_guardrail:")), ",")
 				allowed := make(map[string]bool, len(values))
@@ -524,7 +513,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				}
 				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
 			default:
-				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:*, copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:MIN, copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
 		}
 	}

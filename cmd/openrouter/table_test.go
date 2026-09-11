@@ -777,10 +777,32 @@ func TestFilterTableModelsRejectsUnknownTier(t *testing.T) {
 }
 
 func TestFilterTableModelsAcceptsTierCaseInsensitively(t *testing.T) {
-	models := []model.Model{{Slug: "sonnet", Tier: "sonnet"}, {Slug: "free", Tier: "free"}}
+	models := []model.Model{{Slug: "opus", Tier: "opus"}, {Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}, {Slug: "free", Tier: "free"}}
 	filtered, err := filterTableModels(models, []string{"tier:SONNET"})
-	if err != nil || len(filtered) != 1 || filtered[0].Slug != "sonnet" {
-		t.Fatalf("case-insensitive tier filter = %+v, error %v", filtered, err)
+	if err != nil || len(filtered) != 2 || filtered[0].Slug != "opus" || filtered[1].Slug != "sonnet" {
+		t.Fatalf("case-insensitive minimum tier filter = %+v, error %v", filtered, err)
+	}
+}
+
+func TestFilterTableModelsMinimumTierIncludesSelectedAndHigherPaidTiers(t *testing.T) {
+	models := []model.Model{{Slug: "opus", Tier: "opus"}, {Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}, {Slug: "free", Tier: "free"}}
+	for _, minimum := range []string{"opus", "sonnet", "haiku"} {
+		filtered, err := filterTableModels(models, []string{"tier:" + minimum})
+		if err != nil {
+			t.Fatalf("tier:%s: %v", minimum, err)
+		}
+		want := map[string][]string{"opus": []string{"opus"}, "sonnet": []string{"opus", "sonnet"}, "haiku": []string{"opus", "sonnet", "haiku"}}[minimum]
+		got := make([]string, 0, len(filtered))
+		for _, row := range filtered {
+			got = append(got, row.Slug)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("tier:%s = %v, want %v", minimum, got, want)
+		}
+	}
+	filtered, err := filterTableModels(models, []string{"tier:free"})
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "free" {
+		t.Fatalf("tier:free = %+v, error %v; want only free", filtered, err)
 	}
 }
 
@@ -1679,7 +1701,7 @@ func TestSortTableModelsSupportsShortAliases(t *testing.T) {
 func TestFilterTableModelsUsesANDSemantics(t *testing.T) {
 	models := []model.Model{
 		{Slug: "match", Tier: "sonnet", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
-		{Slug: "wrong-tier", Tier: "opus", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
+		{Slug: "wrong-tier", Tier: "haiku", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, Rankable: true},
 		{Slug: "wrong-score", Tier: "sonnet", Context: 128000, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
 	}
 	filtered, err := filterTableModels(models, []string{"paid", "tier:sonnet", "quality>=90", "context>=100000", "input<=1", "output<=2", "scored"})
@@ -1726,7 +1748,7 @@ func TestFilterTableModelsQualityOneMeansOneHundredPercent(t *testing.T) {
 func TestFilterTableModelsSplitsRepeatedCommaSeparatedFilters(t *testing.T) {
 	models := []model.Model{
 		{Slug: "match", Tier: "sonnet", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
-		{Slug: "wrong-tier", Tier: "opus", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
+		{Slug: "wrong-tier", Tier: "haiku", Free: false, Score: &model.ScoreInfo{Value: 80}, Rankable: true},
 		{Slug: "wrong-quality", Tier: "sonnet", Free: false, Score: &model.ScoreInfo{Value: 79}, Rankable: true},
 	}
 	filtered, err := filterTableModels(models, []string{"paid,quality>=80", "tier:sonnet"})
