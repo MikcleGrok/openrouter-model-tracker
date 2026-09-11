@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 )
 
 func executeCLI(t *testing.T, args ...string) string {
@@ -251,6 +252,24 @@ func TestRefreshAliasesPreserveRefreshCommand(t *testing.T) {
 	}
 	if refresh.Use != "refresh" || !reflect.DeepEqual(refresh.Aliases, []string{"update", "up"}) {
 		t.Fatalf("refresh command = use %q, aliases %v", refresh.Use, refresh.Aliases)
+	}
+}
+
+func TestProgressWriterRoutesNonTTYWithoutANSI(t *testing.T) {
+	var out bytes.Buffer
+	progressWriterWithTTY(&out, false)(refresh.ProgressEvent{Job: "Arena", Completed: 4, Total: 4, Remaining: 0})
+	if strings.ContainsAny(out.String(), "\r\x1b") || !strings.Contains(out.String(), "4/4 completed, 0 remaining") {
+		t.Fatalf("non-TTY progress = %q", out.String())
+	}
+}
+
+func TestProgressWriterTTYUsesSingleCarriageReturnLine(t *testing.T) {
+	var out bytes.Buffer
+	write := progressWriterWithTTY(&out, true)
+	write(refresh.ProgressEvent{Job: "Arena", Completed: 3, Total: 4, Remaining: 1})
+	write(refresh.ProgressEvent{Job: "Arena", Completed: 4, Total: 4, Remaining: 0})
+	if strings.Count(out.String(), "\r") != 2 || !strings.Contains(out.String(), "[###-] 3/4") || !strings.HasSuffix(out.String(), "\n") {
+		t.Fatalf("TTY progress = %q", out.String())
 	}
 }
 

@@ -1,9 +1,12 @@
 package refresh
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -104,7 +107,10 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	dir := newDataDir(t)
 	out := filepath.Join(t.TempDir(), "docs", "openrouter-model-comparison.md")
 
-	report, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, okDeps())
+	d := okDeps()
+	fetchedAt := time.Date(2026, 8, 4, 11, 0, 0, 0, time.UTC)
+	d.networkFetchedAt = func(url string) *time.Time { return &fetchedAt }
+	report, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -140,12 +146,65 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	if len(snap.CatalogSlugs) != 3 || snap.CatalogSlugs[0] != "openai/gpt-5.6-luna" {
 		t.Errorf("snapshot CatalogSlugs = %v, want the complete successful catalogue", snap.CatalogSlugs)
 	}
+	if snap.Freshness == nil || snap.Freshness.OpenRouterNetworkFetchedAt != "2026-08-04T11:00:00Z" || snap.Freshness.ValsNetworkFetchedAt != "2026-08-04T11:00:00Z" {
+		t.Fatalf("snapshot freshness = %+v, want injected source timestamp", snap.Freshness)
+	}
 	history, err := pricehistory.Load(pricehistory.Path(dir))
 	if err != nil || len(history.Observations) != 1 {
 		t.Fatalf("price history = %+v, %v", history, err)
 	}
 	if s := snap.Models["openai/gpt-5.6-luna"].Score; s == nil || s.Value != 93 {
 		t.Errorf("snapshot did not record luna's score: %+v", snap.Models["openai/gpt-5.6-luna"])
+	}
+}
+
+func TestRunProgressHasFourLogicalJobsAndCountsFailure(t *testing.T) {
+	dir := newDataDir(t)
+	d := okDeps()
+	d.sources = append(d.sources, scoreSource{id: "arena", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+		return nil, errors.New("arena down")
+	}})
+	var events []ProgressEvent
+	_, err := run(context.Background(), Options{DataDir: dir, OutputPath: filepath.Join(t.TempDir(), "doc.md"), Progress: func(event ProgressEvent) { events = append(events, event) }}, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("progress events = %d, want four: %+v", len(events), events)
+	}
+	if events[len(events)-1].Completed != 4 || events[len(events)-1].Remaining != 0 {
+		t.Fatalf("last progress event = %+v, want 4 completed and 0 remaining", events[len(events)-1])
+	}
+	foundFailure := false
+	for _, event := range events {
+		if event.Job == "Arena" && event.Err != nil {
+			foundFailure = true
+		}
+	}
+	if !foundFailure {
+		t.Fatal("Arena failure was not reported as a processed job")
+	}
+}
+
+func TestLiveDepsForceRefreshReachesHTTPClient(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"data":[{"id":"demo/model"}]}`))
+	}))
+	defer srv.Close()
+	oldURL := sources.CatalogURL
+	sources.CatalogURL = srv.URL
+	defer func() { sources.CatalogURL = oldURL }()
+	d := liveDeps(Options{DataDir: t.TempDir(), CacheTTL: time.Hour, ForceRefresh: true})
+	if _, err := d.catalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.catalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 2 {
+		t.Fatalf("forced live deps requests = %d, want 2", hits)
 	}
 }
 
@@ -384,6 +443,12 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 
 	seed := &Snapshot{
 		FetchedAt: "2026-08-01",
+		Freshness: &Freshness{
+			OpenRouterNetworkFetchedAt: "2026-08-01T10:00:00Z",
+			ValsNetworkFetchedAt:       "2026-08-01T10:01:00Z",
+			SWEBenchNetworkFetchedAt:   "2026-08-01T10:02:00Z",
+			ArenaNetworkFetchedAt:      "2026-08-01T10:03:00Z",
+		},
 		Models: map[string]SnapshotEntry{
 			"openai/gpt-5.6-luna": {
 				InPerM: 0.5, OutPerM: 3, Context: 1000000,
@@ -470,6 +535,12 @@ func TestRunFallsBackToSnapshotWhenEverythingFails(t *testing.T) {
 	if got := newSnap.Models["openai/gpt-5.6-luna"].HuggingFaceID; got != "openai-community/gpt-5-6-luna" {
 		t.Errorf("HuggingFaceID = %q, want the snapshot's fallback value to survive applyFallback", got)
 	}
+	if !newSnap.Models["openai/gpt-5.6-luna"].PriceStale {
+		t.Error("fallback price was not persisted as stale")
+	}
+	if newSnap.Freshness == nil || newSnap.Freshness.OpenRouterNetworkFetchedAt != "2026-08-01T10:00:00Z" || newSnap.Freshness.ValsNetworkFetchedAt != "2026-08-01T10:01:00Z" || newSnap.Freshness.SWEBenchNetworkFetchedAt != "2026-08-01T10:02:00Z" || newSnap.Freshness.ArenaNetworkFetchedAt != "2026-08-01T10:03:00Z" {
+		t.Fatalf("fallback freshness = %+v, want previous source timestamps preserved", newSnap.Freshness)
+	}
 	// The live score remains stale-visible even when its identity metadata is complete.
 	if !strings.Contains(doc, "93.0% (не удалось проверить") {
 		t.Errorf("the snapshot score was not labelled stale:\n%s", doc)
@@ -509,6 +580,182 @@ func TestRunWarningsHaveDeterministicOrder(t *testing.T) {
 	}
 	if strings.Join(report.Warnings, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("Warnings = %v, want %v", report.Warnings, want)
+	}
+}
+
+func TestRunForceDryRunReportsSourceFailuresWithoutPublishing(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+	broken := okDeps()
+	broken.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalog down") }
+	broken.prices = func(context.Context, []string) (map[string]sources.PriceInfo, error) {
+		return nil, errors.New("prices down")
+	}
+	broken.sources = []scoreSource{
+		{id: "vals", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+			return nil, errors.New("vals down")
+		}},
+		{id: "swebench", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+			return nil, errors.New("swebench down")
+		}},
+		{id: "arena", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+			return nil, errors.New("arena down")
+		}},
+	}
+	report, err := run(context.Background(), Options{DataDir: dir, OutputPath: out, DryRun: true, ForceRefresh: true}, broken)
+	if err == nil || !strings.Contains(err.Error(), "no durable outputs were published") || !strings.Contains(err.Error(), "arena: arena down") {
+		t.Fatalf("force dry-run error = %v, want failed source and no-publish diagnostic", err)
+	}
+	if len(report.Warnings) != 5 {
+		t.Fatalf("warnings = %v, want all failed source warnings", report.Warnings)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("force dry-run wrote the document")
+	}
+	if _, err := os.Stat(SnapshotPath(dir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("force dry-run wrote the snapshot")
+	}
+}
+
+func TestRunForceFailureNamesCatalogPricesAndBenchmarkJobs(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*deps)
+		want  string
+	}{
+		{name: "catalog", setup: func(d *deps) {
+			d.catalog = func(context.Context) ([]string, error) { return nil, errors.New("catalog down") }
+		}, want: "openrouter catalog"},
+		{name: "prices", setup: func(d *deps) {
+			d.prices = func(context.Context, []string) (map[string]sources.PriceInfo, error) {
+				return nil, errors.New("prices down")
+			}
+		}, want: "openrouter prices"},
+		{name: "benchmark", setup: func(d *deps) {
+			d.sources = []scoreSource{{id: "vals", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+				return nil, errors.New("vals down")
+			}}}
+		}, want: "vals: vals down"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := newDataDir(t)
+			d := okDeps()
+			tc.setup(&d)
+			report, err := run(context.Background(), Options{DataDir: dir, OutputPath: filepath.Join(t.TempDir(), "doc.md"), ForceRefresh: true}, d)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "no durable outputs were published") {
+				t.Fatalf("force error = %v, want %q and no-publish diagnostic", err, tc.want)
+			}
+			if len(report.Warnings) == 0 {
+				t.Fatal("force failure lost report warnings")
+			}
+		})
+	}
+}
+
+func TestRunForceFailureLeavesDurableOutputsUntouched(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, okDeps()); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{out, SnapshotPath(dir), pricehistory.Path(dir)}
+	type fileState struct {
+		body []byte
+		mod  time.Time
+	}
+	before := make(map[string]fileState, len(paths))
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[path] = fileState{body: body, mod: info.ModTime()}
+	}
+	broken := okDeps()
+	broken.sources = append(broken.sources, scoreSource{id: "arena", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) {
+		return nil, errors.New("arena down")
+	}})
+	report, err := run(context.Background(), Options{DataDir: dir, OutputPath: out, ForceRefresh: true}, broken)
+	if err == nil || !strings.Contains(err.Error(), "arena: arena down") || !strings.Contains(err.Error(), "no durable outputs were published") {
+		t.Fatalf("force failure = %v, want explicit failed source and no-publish diagnostic", err)
+	}
+	if len(report.Warnings) == 0 {
+		t.Fatal("force failure returned no source warnings")
+	}
+	for _, path := range paths {
+		body, readErr := os.ReadFile(path)
+		info, statErr := os.Stat(path)
+		if readErr != nil || statErr != nil || !bytes.Equal(body, before[path].body) || !info.ModTime().Equal(before[path].mod) {
+			t.Fatalf("durable output %s changed after force failure: read=%v stat=%v", path, readErr, statErr)
+		}
+	}
+}
+
+func TestRunCancellationAfterPreparationDoesNotPublish(t *testing.T) {
+	dir := newDataDir(t)
+	out := filepath.Join(t.TempDir(), "doc.md")
+	ctx, cancel := context.WithCancel(context.Background())
+	d := okDeps()
+	d.networkFetchedAt = func(string) *time.Time {
+		cancel()
+		fetchedAt := fixedNow()
+		return &fetchedAt
+	}
+	_, err := run(ctx, Options{DataDir: dir, OutputPath: out}, d)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled run = %v, want context.Canceled", err)
+	}
+	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("cancelled run published the document")
+	}
+	if _, statErr := os.Stat(SnapshotPath(dir)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("cancelled run published the snapshot")
+	}
+}
+
+func TestPublishContextCancellationBeforeCommitDoesNotPublish(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	second := filepath.Join(dir, "second")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := publishContext(ctx, []publishFile{{path: first, data: []byte("first")}, {path: second, data: []byte("second")}}, os.Rename, os.Remove)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("publish cancellation = %v, want context.Canceled", err)
+	}
+	for _, path := range []string{first, second} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("cancelled publish created %s", path)
+		}
+	}
+}
+
+func TestPublishContextCancellationAfterCommitStartsCompletesSequence(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	second := filepath.Join(dir, "second")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelOnFirstPublish := true
+	rename := func(oldPath, newPath string) error {
+		if cancelOnFirstPublish && filepath.Base(newPath) == "first" && strings.HasPrefix(filepath.Base(oldPath), ".refresh-") {
+			cancelOnFirstPublish = false
+			cancel()
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	if err := publishContext(ctx, []publishFile{{path: first, data: []byte("first")}, {path: second, data: []byte("second")}}, rename, os.Remove); err != nil {
+		t.Fatalf("publish after commit cancellation = %v, want complete commit", err)
+	}
+	for path, want := range map[string]string{first: "first", second: "second"} {
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != want {
+			t.Fatalf("published %s = %q, %v; want %q", path, body, err, want)
+		}
 	}
 }
 

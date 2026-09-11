@@ -169,12 +169,13 @@ missing или ручном observation-only значении равен `н/д`
 metric, unit, source/provenance, measured variant, identity status и manual tier.
 
 - `openrouter init [--config PATH] [--data-dir PATH]` — создать пользовательский конфиг и локальный каталог кэша; существующие пути не изменяются
-- `openrouter refresh|update|up [--output PATH] [--dry-run]` — собрать данные и перезаписать документ
+- `openrouter refresh|update|up [--output PATH] [--dry-run] [--force]` — собрать данные и перезаписать документ. Обычный refresh сохраняет fallback из предыдущего snapshot. `--force` обходит TTL HTTP-кэша, выполняет сетевые GET и требует успешной обработки всех четырёх source jobs; при ошибке возвращает failed jobs и не публикует document, snapshot или price history. `--force --dry-run` также валидирует все источники и возвращает ошибку при их сбое, но не публикует durable model outputs; успешные raw HTTP cache body/metadata могут обновиться. Progress считает job обработанным после success или failure, а итоговый результат отдельно сообщает об ошибке.
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
 - `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый custom-фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, пуст или равен legacy `has-q/p`, используется текущий `default_filter` (по умолчанию `availability:paid`), и его effective-поля показываются в редакторе. Качество и Q/P не применяются к default-каталогу без явного предиката. Явный `--filter` имеет приоритет над сохранённым и default-значением; `--filter=` намеренно отключает все фильтры. Очистка фильтра в редакторе удаляет persisted override, поэтому после reload снова применяется default. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
 - В TUI источник оценки переключается прямо на основном экране клавишей `Space`; альтернативно нажмите `o`, стрелкой `Down` перейдите на `Score source`, затем нажмите `Space`. Это переключает `SWE-bench` и `Arena`. На основном списке `Enter` открывает подробную страницу модели. Текущий источник виден в meta-строке, Settings и status hints.
+- Строка свежести TUI различает происхождение времени: `net` — время последнего сетевого получения каталога OpenRouter из `Snapshot.Freshness`, `bench` — дата `Checked` активного benchmark source (`mixed`, если даты различаются), `price obs` — дата последнего локального `price-history` observation. Публикационные поля `model-snapshot.json.updated_at` и `fetched_at` не являются свежестью внешних данных и в TUI не показываются как таковая. Отсутствующие значения отображаются как `unknown`; `*` означает stale/fallback для benchmark или price.
 - Клавиши TUI можно переопределить в том же YAML-конфиге через `tui_keymap`. Контексты и действия проверяются отдельно, поэтому одинаковый `space` допустим в Settings, фильтре и выборе колонок. Binding может быть строкой или списком:
 
   ```yaml
@@ -822,8 +823,9 @@ baseline. `check` сравнивает живой каталог с этим bas
 `cache/price-history.json`. Observation содержит UTC timestamp и числовые поля цены, контекст и
 long-context override для каждого slug; история ограничена последними 365 наблюдениями.
 `document`, `last-run snapshot` и `price-history` подготавливаются и публикуются через общий локальный
-rollback-протокол: обычные ошибки откатываются, но аварийное завершение между отдельными `rename`
-всё ещё может оставить смешанное поколение. Если подготовка history не удалась, основное состояние
+rollback-протокол с попыткой восстановить уже заменённые файлы при обычной ошибке. Каждый из трёх
+артефактов публикуется отдельным `rename`; обычный process crash между этими rename теоретически
+может оставить mixed generation, и rollback-протокол не является crash-safe транзакцией. Если подготовка history не удалась, основное состояние
 не продвигается без соответствующего observation. Ошибки benchmark-источников не мешают сохранению цен, но fallback-цены,
 `check` и `refresh --dry-run` observation не создают. `check` сравнивает live-цены с последним
 сохранённым observation и остаётся read-only; в выводе видны base input/output/context и long-context
@@ -831,7 +833,9 @@ threshold/override input/output, включая изменения только 
 цен не показывается.
 
 `check` и `refresh --dry-run` не изменяют domain snapshot, `price-history.json` и generated document.
-При этом HTTP cache может обновиться из-за сетевого чтения.
+При этом HTTP cache может обновиться из-за сетевого чтения. HTTP metadata содержит SHA-256 body;
+повреждённая, несовпадающая или legacy metadata без digest считается cache miss и не используется
+как свежий ответ.
 
 Например: `openrouter history --model openai/gpt-5.6-luna --since 2026-08-01 --format tsv`.
 Кэшированные файлы из `cache/` (HTTP cache, `price-history.json`) не добавляются в Git.

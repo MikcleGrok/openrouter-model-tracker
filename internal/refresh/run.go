@@ -30,7 +30,19 @@ type Options struct {
 	RequestTimeout    time.Duration
 	RequestTimeoutSet bool
 	DryRun            bool
+	ForceRefresh      bool
+	Progress          func(ProgressEvent)
 }
+
+type ProgressEvent struct {
+	Job       string
+	Completed int
+	Total     int
+	Remaining int
+	Err       error
+}
+
+const progressTotal = 4
 
 // scoreSource is one benchmark source, identified by the column name it uses in
 // model-map.tsv.
@@ -41,13 +53,14 @@ type scoreSource struct {
 
 // deps is the seam that lets run be tested without touching the network.
 type deps struct {
-	prices      func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error)
-	catalog     func(ctx context.Context) ([]string, error)
-	sources     []scoreSource
-	now         func() time.Time
-	saveHistory func(*pricehistory.History, string) error
-	rename      func(string, string) error
-	remove      func(string) error
+	prices           func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error)
+	catalog          func(ctx context.Context) ([]string, error)
+	sources          []scoreSource
+	now              func() time.Time
+	saveHistory      func(*pricehistory.History, string) error
+	rename           func(string, string) error
+	remove           func(string) error
+	networkFetchedAt func(string) *time.Time
 }
 
 func liveDeps(opts Options) deps {
@@ -66,7 +79,7 @@ func liveDeps(opts Options) deps {
 	if !opts.RequestTimeoutSet && timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	c := httpcache.NewWithTimeout(filepath.Join(cacheDir, "http"), ttl, timeout)
+	c := httpcache.NewWithTimeout(filepath.Join(cacheDir, "http"), ttl, timeout).WithOptions(httpcache.Options{Force: opts.ForceRefresh})
 	return deps{
 		prices: func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
 			return sources.LookupPrices(ctx, c, slugs)
@@ -102,10 +115,11 @@ func liveDeps(opts Options) deps {
 				return sources.FetchArenaElo(ctx, c, names)
 			}},
 		},
-		now:         time.Now,
-		saveHistory: func(history *pricehistory.History, path string) error { return history.Save(path) },
-		rename:      os.Rename,
-		remove:      os.Remove,
+		now:              time.Now,
+		saveHistory:      func(history *pricehistory.History, path string) error { return history.Save(path) },
+		rename:           os.Rename,
+		remove:           os.Remove,
+		networkFetchedAt: c.NetworkFetchedAt,
 	}
 }
 
@@ -123,6 +137,9 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 	if d.remove == nil {
 		d.remove = os.Remove
+	}
+	if d.networkFetchedAt == nil {
+		d.networkFetchedAt = func(string) *time.Time { return nil }
 	}
 	entries, err := modelmap.Load(filepath.Join(opts.DataDir, "model-map.tsv"))
 	if err != nil {
@@ -154,7 +171,19 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		catalogOK bool
 		rows      = make(map[string][]sources.ScoreRow, len(d.sources))
 		warnings  []string
+		jobErrors []error
 	)
+	var progressMu sync.Mutex
+	completed := 0
+	emit := func(job string, err error) {
+		if opts.Progress == nil {
+			return
+		}
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		completed++
+		opts.Progress(ProgressEvent{Job: job, Completed: completed, Total: progressTotal, Remaining: progressTotal - completed, Err: err})
+	}
 	warn := func(format string, args ...any) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -173,9 +202,12 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		c, err := d.catalog(ctx)
-		if err != nil {
-			warn("openrouter: каталог не получен (%v) — новые и снятые модели в этом прогоне не искались", err)
+		c, catalogErr := d.catalog(ctx)
+		if catalogErr != nil {
+			mu.Lock()
+			jobErrors = append(jobErrors, fmt.Errorf("openrouter catalog: %w", catalogErr))
+			mu.Unlock()
+			warn("openrouter: каталог не получен (%v) — новые и снятые модели в этом прогоне не искались", catalogErr)
 		} else {
 			mu.Lock()
 			catalog = c
@@ -184,19 +216,32 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		}
 
 		requested := modelmap.Slugs(entries)
-		if err == nil {
+		if catalogErr == nil {
 			requested = appendUnique(requested, c...)
 		} else {
 			requested = appendUnique(requested, snapshotCatalogSlugs(snap)...)
 		}
-		p, err := d.prices(ctx, requested)
-		if err != nil {
-			warn("openrouter: цены не получены (%v) — берутся из снимка прошлого прогона", err)
+		p, priceErr := d.prices(ctx, requested)
+		if priceErr != nil {
+			mu.Lock()
+			jobErrors = append(jobErrors, fmt.Errorf("openrouter prices: %w", priceErr))
+			mu.Unlock()
+			warn("openrouter: цены не получены (%v) — берутся из снимка прошлого прогона", priceErr)
+			emitError := priceErr
+			if catalogErr != nil {
+				emitError = fmt.Errorf("catalog: %v; prices: %w", catalogErr, priceErr)
+			}
+			emit("OpenRouter catalog + prices", emitError)
 			return
 		}
 		mu.Lock()
 		defer mu.Unlock()
 		prices, pricesOK = p, true
+		if catalogErr != nil {
+			emit("OpenRouter catalog + prices", catalogErr)
+		} else {
+			emit("OpenRouter catalog + prices", nil)
+		}
 	}()
 
 	for _, s := range d.sources {
@@ -205,15 +250,21 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 			defer wg.Done()
 			r, err := s.fn(ctx, modelmap.NamesFor(entries, s.id))
 			if err != nil {
+				mu.Lock()
+				jobErrors = append(jobErrors, fmt.Errorf("%s: %w", s.id, err))
+				mu.Unlock()
 				warn("%s: источник недоступен или изменил структуру (%v) — оценки берутся из снимка", s.id, err)
+				emit(progressJob(s.id), err)
 				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
 			rows[s.id] = r
+			emit(progressJob(s.id), nil)
 		}(s)
 	}
 	wg.Wait()
+	ctxErr := ctx.Err()
 
 	// Rows are split by family, never concatenated into one slice: Merge's
 	// selectRow picks among a slug's rows within one family (identity-gated,
@@ -301,7 +352,16 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	// (`openrouter check`) — a pure read-only report must never hard-fail, so
 	// every guard below that blocks an actual WRITE runs only past this point.
 	if opts.DryRun {
+		if opts.ForceRefresh && len(jobErrors) > 0 {
+			return report, forcedRefreshError(jobErrors)
+		}
+		if ctxErr != nil {
+			return report, ctxErr
+		}
 		return report, nil
+	}
+	if opts.ForceRefresh && len(jobErrors) > 0 {
+		return report, forcedRefreshError(jobErrors)
 	}
 
 	// A whole-catalogue failure with no snapshot fallback for some tracked slug
@@ -337,6 +397,27 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	}
 	newSnapshot := NewSnapshotWithPrices(models, prices, today)
 	newSnapshot.UpdatedAt = d.now().UTC().Format(time.RFC3339)
+	newSnapshot.Freshness = snap.Freshness
+	setFreshness := func(url string, succeeded bool) string {
+		if !succeeded {
+			return ""
+		}
+		fetchedAt := formatFetchedAt(d.networkFetchedAt(url))
+		return fetchedAt
+	}
+	openRouterFetchedAt := setFreshness(sources.CatalogURL, catalogOK || pricesOK)
+	valsFetchedAt := setFreshness(sources.ValsSWEBenchURL, sourceOK["vals"])
+	swebenchFetchedAt := setFreshness(sources.SWEBenchURL, sourceOK["swebench"])
+	arenaFetchedAt := setFreshness(sources.ArenaURL, sourceOK["arena"])
+	if openRouterFetchedAt != "" || valsFetchedAt != "" || swebenchFetchedAt != "" || arenaFetchedAt != "" {
+		if newSnapshot.Freshness == nil {
+			newSnapshot.Freshness = &Freshness{}
+		}
+		newSnapshot.Freshness.OpenRouterNetworkFetchedAt = nonEmptyOr(openRouterFetchedAt, newSnapshot.Freshness.OpenRouterNetworkFetchedAt)
+		newSnapshot.Freshness.ValsNetworkFetchedAt = nonEmptyOr(valsFetchedAt, newSnapshot.Freshness.ValsNetworkFetchedAt)
+		newSnapshot.Freshness.SWEBenchNetworkFetchedAt = nonEmptyOr(swebenchFetchedAt, newSnapshot.Freshness.SWEBenchNetworkFetchedAt)
+		newSnapshot.Freshness.ArenaNetworkFetchedAt = nonEmptyOr(arenaFetchedAt, newSnapshot.Freshness.ArenaNetworkFetchedAt)
+	}
 	if catalogOK {
 		newSnapshot.CatalogSlugs = append([]string(nil), catalog...)
 	} else {
@@ -348,10 +429,44 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		history.AddObservation(d.now(), prices, liveScores, liveArenaScores)
 		files = append(files, publishFile{path: historyPath, save: func(path string) error { return d.saveHistory(history, path) }, errPrefix: "save price history"})
 	}
-	if err := publish(files, d.rename, d.remove); err != nil {
+	if err := ctx.Err(); err != nil {
+		return report, fmt.Errorf("refresh: cancelled before publish: %w", err)
+	}
+	if err := publishContext(ctx, files, d.rename, d.remove); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+func forcedRefreshError(jobErrors []error) error {
+	return fmt.Errorf("refresh: forced refresh failed for required source job(s): %v; no durable outputs were published", jobErrors)
+}
+
+func progressJob(id string) string {
+	switch id {
+	case "vals":
+		return "Vals SWE-bench"
+	case "swebench":
+		return "SWE-bench"
+	case "arena":
+		return "Arena"
+	default:
+		return id
+	}
+}
+
+func formatFetchedAt(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func nonEmptyOr(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func containsString(values []string, wanted string) bool {
@@ -429,6 +544,13 @@ func IsPostCommitCleanupError(err error) bool {
 // earlier replacements if a later rename fails. A process crash between two
 // renames can still leave a mixed generation; ordinary write errors recover.
 func publish(files []publishFile, rename func(string, string) error, remove func(string) error) error {
+	return publishContext(context.Background(), files, rename, remove)
+}
+
+// publishContext has an explicit non-cancellable commit boundary: cancellation
+// is checked after every file is prepared, but never between durable renames.
+// Once commit starts, rename errors use the existing rollback protocol.
+func publishContext(ctx context.Context, files []publishFile, rename func(string, string) error, remove func(string) error) error {
 	prepared := make([]publishedFile, len(files))
 	for i, file := range files {
 		if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
@@ -464,7 +586,12 @@ func publish(files []publishFile, rename func(string, string) error, remove func
 			}
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return preparationError(fmt.Errorf("refresh: cancelled before publish commit: %w", err), prepared, remove)
+	}
 
+	// Commit phase: do not inspect ctx here. A cancellation after the first
+	// rename must not stop the sequence between files and create a mixed run.
 	var cleanupErrs []error
 	for i := range prepared {
 		backup, err := os.CreateTemp(filepath.Dir(prepared[i].path), ".refresh-backup-*")

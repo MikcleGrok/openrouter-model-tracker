@@ -63,10 +63,12 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "last-run-snapshot.json")
 	want := &Snapshot{
 		FetchedAt:    "2026-08-04",
+		Freshness:    &Freshness{OpenRouterNetworkFetchedAt: "2026-08-04T11:00:00Z", ValsNetworkFetchedAt: "2026-08-04T11:01:00Z"},
 		CatalogSlugs: []string{"minimax/minimax-m3", "openai/gpt-5.6-luna"},
 		Models: map[string]SnapshotEntry{
 			"openai/gpt-5.6-luna": {
 				InPerM: 0.5, OutPerM: 3, Context: 1000000,
+				PriceStale: true,
 				Score: &model.ScoreInfo{
 					Metric: "SWE-bench Verified", Value: 93.0,
 					VariantMeasured: "openai/gpt-5.6-luna",
@@ -88,12 +90,18 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if got.FetchedAt != want.FetchedAt || len(got.Models) != 2 || len(got.CatalogSlugs) != 2 {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
+	if got.Freshness == nil || got.Freshness.OpenRouterNetworkFetchedAt != "2026-08-04T11:00:00Z" || got.Freshness.ValsNetworkFetchedAt != "2026-08-04T11:01:00Z" {
+		t.Fatalf("freshness = %+v, want source timestamps", got.Freshness)
+	}
 	luna := got.Models["openai/gpt-5.6-luna"]
 	if luna.InPerM != 0.5 || luna.OutPerM != 3 || luna.Context != 1000000 {
 		t.Errorf("luna prices = %+v", luna)
 	}
 	if luna.Score == nil || luna.Score.Value != 93.0 || luna.Score.Checked != "2026-08-03" {
 		t.Errorf("luna.Score = %+v, want the score to survive the round trip", luna.Score)
+	}
+	if !luna.PriceStale {
+		t.Error("luna.PriceStale = false, want true to survive round trip")
 	}
 	if m3 := got.Models["minimax/minimax-m3"]; m3.Score != nil {
 		t.Errorf("m3.Score = %+v, want nil to survive as nil", m3.Score)

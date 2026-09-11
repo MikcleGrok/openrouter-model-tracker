@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
@@ -26,6 +28,30 @@ import (
 
 // version is overridden at build time via -ldflags "-X main.version=...".
 var version = "dev"
+
+func progressWriter(out io.Writer) func(refresh.ProgressEvent) {
+	file, isFile := out.(*os.File)
+	return progressWriterWithTTY(out, isFile && term.IsTerminal(int(file.Fd())))
+}
+
+func progressWriterWithTTY(out io.Writer, tty bool) func(refresh.ProgressEvent) {
+	return func(event refresh.ProgressEvent) {
+		if tty {
+			width := event.Completed
+			bar := strings.Repeat("#", width) + strings.Repeat("-", event.Total-width)
+			fmt.Fprintf(out, "\rRefresh [%s] %d/%d completed, %d remaining", bar, event.Completed, event.Total, event.Remaining)
+			if event.Remaining == 0 {
+				fmt.Fprintln(out)
+			}
+			return
+		}
+		status := "completed"
+		if event.Err != nil {
+			status = "failed"
+		}
+		fmt.Fprintf(out, "Refresh: %s %s (%d/%d completed, %d remaining)\n", event.Job, status, event.Completed, event.Total, event.Remaining)
+	}
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -240,6 +266,7 @@ func newRootCmd() *cobra.Command {
 		tableFilters     []string
 		tableRanking     string
 		tableScoreSource string
+		forceRefresh     bool
 	)
 
 	root := &cobra.Command{
@@ -261,6 +288,8 @@ func newRootCmd() *cobra.Command {
 			return err
 		}
 		opts.DryRun = dry
+		opts.ForceRefresh = forceRefresh
+		opts.Progress = progressWriter(cmd.ErrOrStderr())
 		report, err := refresh.Run(cmd.Context(), opts)
 		// Print the report exactly once: on error, only if there is
 		// something in it to show (Warnings survive even a hard failure);
@@ -290,6 +319,7 @@ func newRootCmd() *cobra.Command {
 	}
 	refreshCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (overrides config)")
 	refreshCmd.Flags().BoolVar(&dryRun, "dry-run", false, "write nothing: neither the document nor the snapshot")
+	refreshCmd.Flags().BoolVar(&forceRefresh, "force", false, "bypass HTTP TTL and validate all four sources; fallback is only used by ordinary refresh")
 
 	checkCmd := &cobra.Command{
 		Use:   "check",

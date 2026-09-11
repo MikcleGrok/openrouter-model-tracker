@@ -33,6 +33,43 @@ import (
 func detailModelForTest(row model.Model, source string, width int, history *pricehistory.History, icons config.IconConfig, gap int, gaps config.IconGaps) tuiModel {
 	return tuiModel{models: []model.Model{row}, scoreSource: source, width: width, priceHistory: history, icons: icons, iconGap: gap, iconGaps: gaps}
 }
+
+func TestTUIFreshnessUsesSourceMetadataAndMarksFallback(t *testing.T) {
+	dir := t.TempDir()
+	snapshot := &refresh.Snapshot{UpdatedAt: "2099-01-01T00:00:00Z", FetchedAt: "2099-01-01", Freshness: &refresh.Freshness{OpenRouterNetworkFetchedAt: "2026-08-04T11:00:00Z"}}
+	if err := snapshot.Save(refresh.SnapshotPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	history := &pricehistory.History{Observations: []pricehistory.Observation{{ObservedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)}, {ObservedAt: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)}}}
+	rows := []model.Model{{Score: &model.ScoreInfo{Checked: "2026-08-01", Stale: true}, PriceStale: true}, {Score: &model.ScoreInfo{Checked: "2026-08-02"}}}
+	freshness := loadTUIFreshness(dir, rows, history)
+	if freshness.network != "2026-08-04T11:00:00Z" || freshness.benchmark != "mixed" || freshness.price != "2026-08-04" || !freshness.benchmarkStale || !freshness.priceStale {
+		t.Fatalf("freshness = %#v", freshness)
+	}
+	m := tuiModel{freshness: freshness}
+	if got := m.freshnessLine(); got != "freshness: net 2026-08-04T11:00:00Z | bench mixed* | price obs 2026-08-04*" {
+		t.Fatalf("freshness line = %q", got)
+	}
+	m.lang = "ru"
+	if got := m.freshnessLine(); !strings.Contains(got, "свежесть:") || !strings.Contains(got, "наблюдение цены") {
+		t.Fatalf("Russian freshness line = %q", got)
+	}
+	if got := truncateTable(m.freshnessLine(), 24); len([]rune(got)) == 0 {
+		t.Fatal("narrow freshness line is empty")
+	}
+}
+
+func TestTUIFreshnessLegacySnapshotDoesNotUsePublicationTime(t *testing.T) {
+	dir := t.TempDir()
+	snapshot := &refresh.Snapshot{UpdatedAt: "2099-01-01T00:00:00Z", FetchedAt: "2099-01-01"}
+	if err := snapshot.Save(refresh.SnapshotPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	freshness := loadTUIFreshness(dir, nil, nil)
+	if freshness.network != "unknown" || freshness.benchmark != "unknown" || freshness.price != "unknown" {
+		t.Fatalf("legacy freshness = %#v", freshness)
+	}
+}
 func detailLinesForTest(row model.Model, source string, width int, now time.Time) []string {
 	m := detailModelForTest(row, source, width, nil, config.DefaultIconConfig(), int(config.DefaultIconGap), config.DefaultIconGaps())
 	m.lang = "ru"
@@ -1175,6 +1212,19 @@ func TestTUIFullHelpDescribesTheToolBeforeHotkeys(t *testing.T) {
 	for _, want := range []string{"OpenRouter", "quality", "price"} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("full help description before Hotkeys is missing %q: %q", want, description)
+		}
+	}
+}
+
+func TestTUIFreshnessLegendIsDocumentedInEnglishAndRussianHelp(t *testing.T) {
+	for _, want := range []string{"net", "bench", "price obs", "unknown", "*", "stale"} {
+		if !strings.Contains(tuiHelpSectionOverviewBody, want) {
+			t.Errorf("English Overview help missing freshness legend term %q", want)
+		}
+	}
+	for _, want := range []string{"net", "bench", "price obs", "unknown", "*", "stale", "fallback"} {
+		if !strings.Contains(tuiHelpSectionOverviewBodyRU, want) {
+			t.Errorf("Russian Overview help missing freshness legend term %q", want)
 		}
 	}
 }
@@ -5121,7 +5171,7 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 //
 // Критерий включения поля: сюда попадают только поля, которые меняет хотя бы
 // один кейс из tuiShortcutCases() сегодня — например, pendingColumns,
-// helpMatches, helpMatch, scoreSource и updatedAt сюда намеренно не входят.
+// helpMatches, helpMatch, scoreSource и freshness сюда намеренно не входят.
 // Новый кейс, единственный эффект которого приходится на поле вне этого
 // списка, пройдёт тест впустую (снимки совпадут, потому что поле не
 // снимается) — сначала расширь эту структуру и tuiShortcutSnapshot, потом

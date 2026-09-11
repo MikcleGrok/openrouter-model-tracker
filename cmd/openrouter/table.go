@@ -134,6 +134,9 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 	if len(models) == 0 {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
+	for i := range models {
+		models[i].PriceStale = snapshot.Models[models[i].Slug].PriceStale
+	}
 	return model.ForScoreSource(models, source), nil
 }
 
@@ -170,20 +173,6 @@ func scoreRowFromInfo(slug string, info *model.ScoreInfo, fallbackIdentity strin
 		identity = fallbackIdentity
 	}
 	return sources.ScoreRow{Slug: slug, SourceFamily: info.SourceFamily, ConfiguredIdentity: info.ConfiguredIdentity, IdentityAmbiguous: info.IdentityAmbiguous, Metric: info.Metric, Value: info.Value, Unit: info.Unit, VariantMeasured: info.VariantMeasured, SourceURL: info.SourceURL, Checked: info.Checked, IdentityStatus: identity, CanonicalID: info.CanonicalID, ReleaseVariant: info.ReleaseVariant, ModelVariant: info.ModelVariant, Reasoning: info.Reasoning, Configuration: info.Configuration, Provider: info.Provider, Uncertainty: info.Uncertainty, SampleSize: info.SampleSize, Harness: info.Harness, Scaffold: info.Scaffold}
-}
-
-func loadLocalUpdatedAt(dataDir string) string {
-	snapshot, err := refresh.LoadSnapshot(refresh.SnapshotPath(dataDir))
-	if err != nil {
-		return "unknown"
-	}
-	if snapshot.UpdatedAt != "" {
-		return snapshot.UpdatedAt
-	}
-	if snapshot.FetchedAt != "" {
-		return snapshot.FetchedAt
-	}
-	return "unknown"
 }
 
 func sortTableModels(models []model.Model, key string, reverse bool) error {

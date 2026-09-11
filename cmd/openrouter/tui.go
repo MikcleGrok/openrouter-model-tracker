@@ -93,6 +93,7 @@ type tuiRefreshMsg struct {
 	generation            uint64
 	scoreSourceGeneration uint64
 	models                []model.Model
+	freshness             tuiFreshness
 	filter                string
 	filterSteps           config.TUISteps
 	keymap                config.TUIKeymap
@@ -112,6 +113,7 @@ type tuiScoreSourceMsg struct {
 	generation uint64
 	source     string
 	models     []model.Model
+	freshness  tuiFreshness
 	err        error
 }
 type tuiTickMsg struct{}
@@ -146,7 +148,7 @@ type tuiModel struct {
 	filterDefaulted       bool
 	lastNote              bool
 	status, err           string
-	updatedAt             string
+	freshness             tuiFreshness
 	refreshing            bool
 	generation            uint64
 	scoreSourceGeneration uint64
@@ -198,10 +200,18 @@ type tuiModel struct {
 	screenController *tuiscreen.Controller
 }
 
+type tuiFreshness struct {
+	network        string
+	benchmark      string
+	price          string
+	benchmarkStale bool
+	priceStale     bool
+}
+
 func newTUIModel(ctx context.Context, dataDir string, opts refresh.Options, interval time.Duration, models []model.Model) tuiModel {
 	compiled, _ := ranking.Compile(ranking.DefaultConfig())
 	m := tuiModel{ctx: ctx, dataDir: dataDir, refreshOpts: opts, interval: interval, models: models, columns: []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}, sortKey: "utility", ranking: rankingDefault, scoreSource: scoreSourceDefault, priceWeight: config.DefaultMixedUtilityPriceWeight, rankingConfig: compiled, filterSteps: config.DefaultTUISteps(), keymap: config.DefaultTUIKeymap(), nameWidth: config.DefaultNameWidth, iconGap: int(config.DefaultIconGap), iconGaps: config.DefaultIconGaps(), icons: config.DefaultIconConfig(), width: 100, height: 24, limit: 0, layout: config.DefaultTUILayout, topN: config.DefaultTUITopN, topSeparator: -1, screenController: tuiscreen.New(nil)}
-	m.updatedAt = loadLocalUpdatedAt(dataDir)
+	m.freshness = loadTUIFreshness(dataDir, models, nil)
 	m.rebuild()
 	if len(m.visible) > 0 {
 		m.selectedSlug = m.visible[0].Slug
@@ -311,6 +321,7 @@ func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Opt
 	if err != nil {
 		return tuiModel{}, err
 	}
+	m.freshness = loadTUIFreshness(dataDir, models, m.priceHistory)
 	m.rankingConfig = compiled
 	m.rankingConfigSet = true
 	m.sortKey, m.reverse, m.filter, m.limit = sortKey, reverse, filter, limit
@@ -321,6 +332,72 @@ func newConfiguredTUIModel(ctx context.Context, dataDir string, opts refresh.Opt
 	}
 	m.rebuild()
 	return m, nil
+}
+
+func loadTUIFreshness(dataDir string, models []model.Model, history *pricehistory.History) tuiFreshness {
+	result := tuiFreshness{network: "unknown", benchmark: "unknown", price: "unknown"}
+	snapshot, err := refresh.LoadSnapshot(refresh.SnapshotPath(dataDir))
+	if err == nil && snapshot.Freshness != nil {
+		result.network = snapshot.Freshness.OpenRouterNetworkFetchedAt
+		if result.network == "" {
+			result.network = "unknown"
+		}
+	}
+	checked := make(map[string]struct{})
+	for _, row := range models {
+		if row.Score == nil || strings.TrimSpace(row.Score.Checked) == "" {
+			continue
+		}
+		checked[strings.TrimSpace(row.Score.Checked)] = struct{}{}
+		if row.Score.Stale {
+			result.benchmarkStale = true
+		}
+	}
+	if len(checked) == 1 {
+		for date := range checked {
+			result.benchmark = date
+		}
+	} else if len(checked) > 1 {
+		result.benchmark = "mixed"
+	}
+	if history == nil {
+		history, err = pricehistory.Load(pricehistory.Path(dataDir))
+		if err != nil {
+			history = nil
+		}
+	}
+	if history != nil {
+		for _, observation := range history.Observations {
+			if observation.ObservedAt.IsZero() {
+				continue
+			}
+			if result.price == "unknown" || observation.ObservedAt.After(parseTUIFreshnessDate(result.price)) {
+				result.price = observation.ObservedAt.UTC().Format("2006-01-02")
+			}
+		}
+	}
+	for _, row := range models {
+		if row.PriceStale {
+			result.priceStale = true
+		}
+	}
+	return result
+}
+
+func parseTUIFreshnessDate(value string) time.Time {
+	date, _ := time.Parse("2006-01-02", value)
+	return date
+}
+
+func (m tuiModel) freshnessLine() string {
+	benchmark, price := m.freshness.benchmark, m.freshness.price
+	if m.freshness.benchmarkStale {
+		benchmark += "*"
+	}
+	if m.freshness.priceStale {
+		price += "*"
+	}
+	return fmt.Sprintf(m.t("freshness: net %s | bench %s | price obs %s"), m.freshness.network, benchmark, price)
 }
 
 func (m *tuiModel) rebuild() {
@@ -502,7 +579,16 @@ func (m tuiModel) refreshCmd() tea.Cmd {
 		// Reload through the same projection the session started with, so a
 		// refresh can never swap the table back to the other source.
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, icons: icons, iconsSet: iconsSet, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
+		var freshness tuiFreshness
+		if err == nil {
+			history, historyErr := pricehistory.Load(pricehistory.Path(dir))
+			if historyErr != nil {
+				err = historyErr
+			} else {
+				freshness = loadTUIFreshness(dir, rows, history)
+			}
+		}
+		return tuiRefreshMsg{generation: generation, scoreSourceGeneration: scoreSourceGeneration, models: rows, freshness: freshness, filter: filter, filterSteps: filterSteps, keymap: keymap, nameWidth: nameWidth, iconGap: iconGap, iconGaps: iconGaps, iconGapSet: iconGapSet, icons: icons, iconsSet: iconsSet, filterFormExplicit: filterFormExplicit, filterDefaulted: filterDefaulted, layout: layout, topN: topN, err: err}
 	}
 }
 
@@ -510,7 +596,16 @@ func (m tuiModel) scoreSourceCmd(source string) tea.Cmd {
 	dir, generation := m.dataDir, m.scoreSourceGeneration
 	return func() tea.Msg {
 		rows, err := loadLocalModelsForSource(dir, source)
-		return tuiScoreSourceMsg{generation: generation, source: source, models: rows, err: err}
+		var freshness tuiFreshness
+		if err == nil {
+			history, historyErr := pricehistory.Load(pricehistory.Path(dir))
+			if historyErr != nil {
+				err = historyErr
+			} else {
+				freshness = loadTUIFreshness(dir, rows, history)
+			}
+		}
+		return tuiScoreSourceMsg{generation: generation, source: source, models: rows, freshness: freshness, err: err}
 	}
 }
 
@@ -564,7 +659,8 @@ func (m tuiModel) t(en string) string {
 // applied to prose).
 var tuiTranslationsRU = map[string]string{
 	"OpenRouter models": "Модели OpenRouter",
-	"ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s": "ранжирование:%s  источник:%s  сортировка:%s%s  вид:%s  топ-N:%d  фильтр:%q  поиск:%s  моделей:%d  данные:%s",
+	"ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  %s": "ранжирование:%s  источник:%s  сортировка:%s%s  вид:%s  топ-N:%d  фильтр:%q  поиск:%s  моделей:%d  %s",
+	"freshness: net %s | bench %s | price obs %s":                                               "свежесть: сеть %s | бенч %s | наблюдение цены %s",
 	"status: ready":                   "статус: готово",
 	" (reverse)":                      " (обратный)",
 	"status: refreshing...":           "статус: обновление...",
@@ -728,7 +824,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.filterExplicit {
 			m.filter = msg.filter
 		}
-		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
+		m.freshness = msg.freshness
 		m.rebuild()
 		m.clampDetailOffset()
 	case tuiScoreSourceMsg:
@@ -746,7 +842,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scoreSourceLoading = false
 		m.pendingScoreSource = ""
 		m.scoreSource, m.models, m.err, m.status = msg.source, msg.models, "", m.t("score source changed")
-		m.updatedAt = loadLocalUpdatedAt(m.dataDir)
+		m.freshness = msg.freshness
 		m.rebuild()
 		m.clampDetailOffset()
 	}
@@ -1954,7 +2050,11 @@ func (m tuiModel) baseView() string {
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
 	}
-	title := truncateTable(m.t("OpenRouter models"), m.width)
+	titleText := m.t("OpenRouter models")
+	if m.width >= 80 {
+		titleText += "  " + m.freshnessLine()
+	}
+	title := truncateTable(titleText, m.width)
 	searchContext := m.t("none")
 	if m.search != "" {
 		if m.lang == "ru" {
@@ -1963,7 +2063,10 @@ func (m tuiModel) baseView() string {
 			searchContext = fmt.Sprintf("%q (%d matches)", m.search, len(m.visible))
 		}
 	}
-	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d  data:%s"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, m.t(reverseLabel(m.reverse)), m.layout, m.topN, m.filter, searchContext, len(m.visible), m.updatedAt)), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf(m.t("ranking:%s  score:%s  sort:%s%s  layout:%s  top-n:%d  filter:%q  search:%s  models:%d"), rankingLabel(m.ranking), m.scoreSource, m.sortKey, m.t(reverseLabel(m.reverse)), m.layout, m.topN, m.filter, searchContext, len(m.visible))), m.width)
+	if m.width < 80 {
+		meta = truncateTable(plainTableText(meta+"  "+m.freshnessLine()), m.width)
+	}
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 	columns := m.renderColumns()
 	lines = append(lines, tuiHeaderStyle.Render(m.renderTUILine(columns, nil, false)))
@@ -3339,6 +3442,10 @@ const tuiHelpSectionOverviewBody = `omt tracks AI models available on OpenRouter
 - Quality comes from SWE-bench Verified or LMArena Elo scores; price comes from the OpenRouter catalogue.
 - Models are grouped into tiers matched against Claude Opus, Sonnet, and Haiku, so relative quality is easy to judge.
 
+Freshness summary
+- net: last network fetch for the OpenRouter catalogue; bench: benchmark date; price obs: latest local price observation.
+- unknown means no trustworthy timestamp is available; * means the value is stale or came from snapshot fallback.
+
 What feeds every row: three independent kinds of data
 Three kinds of data feed every row, and none of them is derived from another.
 - Price and context come live from the OpenRouter catalogue.
@@ -3586,6 +3693,10 @@ const tuiHelpTitleLineRU = "omt tui — хоткеи"
 const tuiHelpSectionOverviewBodyRU = `omt отслеживает AI-модели, доступные на OpenRouter, и ранжирует их по качеству и цене.
 - Качество берётся из оценок SWE-bench Verified или LMArena Elo; цена — из каталога OpenRouter.
 - Модели сгруппированы по тирам относительно Claude Opus, Sonnet и Haiku, чтобы относительное качество было легко оценить.
+
+Сводка свежести
+- net: последнее сетевое получение каталога OpenRouter; bench: дата бенчмарка; price obs: последнее локальное наблюдение цены.
+- unknown означает, что нет достоверной временной отметки; * означает stale/fallback из snapshot.
 
 Что формирует каждую строку: три независимых вида данных
 Каждую строку формируют три вида данных, и ни один не выводится из другого.

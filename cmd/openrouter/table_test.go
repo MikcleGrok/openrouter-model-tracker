@@ -2269,6 +2269,7 @@ func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 		"demo/dated": {
 			InPerM: 1, OutPerM: 3, Context: 128000, Created: 1786034890, Description: "Demo prose.",
 			CanonicalSlug: "demo/dated-20260804", HuggingFaceID: "demo-labs/Dated",
+			PriceStale: true,
 		},
 	}}
 	body, err := json.Marshal(snapshot)
@@ -2291,6 +2292,9 @@ func TestLoadLocalModelsForSourceRestoresCatalogueMetadata(t *testing.T) {
 	}
 	if models[0].CanonicalSlug != "demo/dated-20260804" || models[0].HuggingFaceID != "demo-labs/Dated" {
 		t.Errorf("row = %+v, want the link identifiers rebuilt from the snapshot entry: this is the path the TUI actually runs, and a field missing here is a permanent н/д on the detail screen", models[0])
+	}
+	if !models[0].PriceStale {
+		t.Error("PriceStale = false, want stale price marker restored through loadLocalModelsForSource")
 	}
 }
 
