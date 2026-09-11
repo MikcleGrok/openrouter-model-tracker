@@ -63,8 +63,8 @@ func TestEffectiveDefaultFilterOpensInStructuredEditor(t *testing.T) {
 	filter := resolveTUIFilter("", false, "", false, config.DefaultFilter)
 	m := tuiModel{filter: filter, filterFormExplicit: true}
 	m.openFilterEditor()
-	if m.filterDraft.quality != "75" || !m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
-		t.Fatalf("effective default draft = %+v, want quality 75, has Q/P and paid", m.filterDraft)
+	if m.filterDraft.quality != "" || m.filterDraft.hasQP || m.filterDraft.availability != "paid" {
+		t.Fatalf("effective default draft = %+v, want paid availability without quality or Q/P", m.filterDraft)
 	}
 }
 

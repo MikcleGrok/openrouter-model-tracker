@@ -371,7 +371,8 @@ type RankingConfig struct {
 }
 
 const DefaultMixedUtilityPriceWeight = ranking.DefaultPriceWeight
-const DefaultFilter = "quality>=75,has-q/p,availability:paid"
+const DefaultFilter = "availability:paid"
+const LegacyDefaultFilter = "quality>=75,has-q/p,availability:paid"
 const DefaultTUILayout = "all"
 const DefaultTUITopN = 3
 const DefaultCacheDir = "cache"
@@ -456,7 +457,7 @@ func configuredDuration(value string, fallback time.Duration, name string, set b
 const template = "# User configuration for openrouter. Relative paths are resolved from this config file.\n" +
 	"data_dir: .\n" +
 	"default_output: docs/openrouter-model-comparison.md\n" +
-	"default_filter: quality>=75,has-q/p,availability:paid\n" +
+	"default_filter: availability:paid\n" +
 	"icons:\n" +
 	"  manufacturers: {openai: '🌀', anthropic: '🔶', google: '🌐', meta: '🔵', deepseek: '🐋', qwen: '🌸', mistral: '💨', xai: '🚀', xiaomi: '🟠', nvidia: '🟢', z.ai: '🔷', minimax: '🎲', moonshot: '🌙', tencent: '🐧'}\n" +
 	"  unknown: '❔'\n" +
@@ -645,6 +646,8 @@ func Load(path string) (Config, error) {
 	c.Cache.TTLSet = yamlNestedMappingHasKey(document, "cache", "ttl")
 	c.Cache.RequestTimeoutSet = yamlNestedMappingHasKey(document, "cache", "request_timeout")
 	if !yamlMappingHasKey(document, "default_filter") {
+		c.DefaultFilter = DefaultFilter
+	} else if c.DefaultFilter == LegacyDefaultFilter {
 		c.DefaultFilter = DefaultFilter
 	}
 	for name, value := range map[string]int{"quality_points": c.TUISteps.QualityPoints, "context_tokens": c.TUISteps.ContextTokens, "input_cents": c.TUISteps.InputCents, "output_cents": c.TUISteps.OutputCents, "quality": c.TUISteps.Quality, "context": c.TUISteps.Context, "input": c.TUISteps.Input, "output": c.TUISteps.Output} {

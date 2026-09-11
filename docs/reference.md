@@ -173,7 +173,7 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
 - `openrouter history [--model SLUG] [--since RFC3339|YYYY-MM-DD] [--format markdown|tsv]` — показать историю цен
-- `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый custom-фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, пуст или равен legacy `has-q/p`, используется текущий `default_filter` (по умолчанию `quality>=75,has-q/p,availability:paid`), и его effective-поля показываются в редакторе. Явный `--filter` имеет приоритет над сохранённым и default-значением; `--filter=` намеренно отключает все фильтры. Очистка фильтра в редакторе удаляет persisted override, поэтому после reload снова применяется default. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
+- `openrouter tui [--filter FILTER]` — интерактивная таблица; `f` открывает редактор структурированного фильтра и применяет его сразу, а подтверждённый custom-фильтр сохраняется в `tui_filter` пользовательского `config.yaml` и загружается при следующем запуске. Если `tui_filter` отсутствует, пуст или равен legacy `has-q/p`, используется текущий `default_filter` (по умолчанию `availability:paid`), и его effective-поля показываются в редакторе. Качество и Q/P не применяются к default-каталогу без явного предиката. Явный `--filter` имеет приоритет над сохранённым и default-значением; `--filter=` намеренно отключает все фильтры. Очистка фильтра в редакторе удаляет persisted override, поэтому после reload снова применяется default. Изменение `default_filter` в конфиге подхватывается следующим auto-refresh TUI.
 - В TUI источник оценки переключается прямо на основном экране клавишей `Space`; альтернативно нажмите `o`, стрелкой `Down` перейдите на `Score source`, затем нажмите `Space`. Это переключает `SWE-bench` и `Arena`. На основном списке `Enter` открывает подробную страницу модели. Текущий источник виден в meta-строке, Settings и status hints.
 - Клавиши TUI можно переопределить в том же YAML-конфиге через `tui_keymap`. Контексты и действия проверяются отдельно, поэтому одинаковый `space` допустим в Settings, фильтре и выборе колонок. Binding может быть строкой или списком:
 
@@ -484,12 +484,12 @@ fallback на Owner и Provider. Пустые или содержащие упр
 игнорируются: для известного производителя используется его default, для unknown
 используется `❔`. Изменение секции применяется при следующем запуске CLI/TUI.
 
-Фильтр по умолчанию: `quality>=75,has-q/p,availability:paid`. Дополнительно поддерживаются predicates `has-q/p` и `availability:any|free|paid`.
+Фильтр по умолчанию: `availability:paid`. Качество и Q/P — только явные predicates; дополнительно поддерживаются `has-q/p` и `availability:any|free|paid`.
 
 Default filter для TUI настраивается отдельно и читается при запуске и auto-refresh:
 
 ```yaml
-default_filter: quality>=75,has-q/p,availability:paid
+default_filter: availability:paid
 ```
 
 Шаги числовых полей редактора фильтра настраиваются без пересборки бинарника:
