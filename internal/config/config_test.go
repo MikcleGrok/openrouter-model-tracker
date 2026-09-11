@@ -663,6 +663,86 @@ func TestLoadRejectsInvalidMixedUtilityPriceWeight(t *testing.T) {
 	}
 }
 
+func TestPricingMixWeightsDefaultTo3To1WhenMissing(t *testing.T) {
+	got, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	input, output, err := got.Pricing.EffectiveMixWeights()
+	if err != nil {
+		t.Fatalf("EffectiveMixWeights: %v", err)
+	}
+	if input != 3 || output != 1 {
+		t.Fatalf("EffectiveMixWeights() = %v, %v, want the built-in 3:1 default", input, output)
+	}
+}
+
+func TestLoadParsesConfiguredPricingMixWeights(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "pricing:\n  mix_input_weight: 1\n  mix_output_weight: 3\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	input, output, err := got.Pricing.EffectiveMixWeights()
+	if err != nil {
+		t.Fatalf("EffectiveMixWeights: %v", err)
+	}
+	if input != 1 || output != 3 {
+		t.Fatalf("EffectiveMixWeights() = %v, %v, want the configured 1:3", input, output)
+	}
+}
+
+func TestLoadRejectsInvalidPricingMixWeights(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"zero sum", "pricing:\n  mix_input_weight: 0\n  mix_output_weight: 0\n"},
+		{"negative input", "pricing:\n  mix_input_weight: -1\n  mix_output_weight: 1\n"},
+		{"negative output", "pricing:\n  mix_input_weight: 1\n  mix_output_weight: -1\n"},
+		{"NaN", "pricing:\n  mix_input_weight: .NaN\n  mix_output_weight: 1\n"},
+		{"Inf", "pricing:\n  mix_input_weight: .Inf\n  mix_output_weight: 1\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(c.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "pricing.mix_input_weight and pricing.mix_output_weight") {
+				t.Fatalf("Load(%q) error = %v, want a clear pricing mix weight error", c.body, err)
+			}
+		})
+	}
+}
+
+func TestInitTemplateDocumentsPricingMixWeights(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if _, err := Init(path, "."); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "mix_input_weight: 3") || !strings.Contains(string(body), "mix_output_weight: 1") {
+		t.Fatalf("template does not document pricing mix weights: %s", body)
+	}
+	// The template must parse back to the unchanged 3:1 default.
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load generated template: %v", err)
+	}
+	input, output, err := got.Pricing.EffectiveMixWeights()
+	if err != nil || input != 3 || output != 1 {
+		t.Fatalf("EffectiveMixWeights() from template = %v, %v, err %v, want 3, 1, nil", input, output, err)
+	}
+}
+
 func TestLoadMissingFileIsZeroConfig(t *testing.T) {
 	got, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
 	if err != nil {

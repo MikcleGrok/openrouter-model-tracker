@@ -18,6 +18,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
+	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/spf13/pflag"
 )
@@ -37,6 +38,48 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 	}
 	if !strings.Contains(output, "...") {
 		t.Errorf("long cells were not truncated:\n%s", output)
+	}
+}
+
+// TestTableStatusAppendsScoreSourceMarker covers Fix 1: the Status/SWE %
+// cell must end with model.ScoreSourceMarker's single-character suffix so a
+// reader can tell a vals.ai row from a swebench.com row without opening the
+// TUI detail screen.
+func TestTableStatusAppendsScoreSourceMarker(t *testing.T) {
+	cases := []struct {
+		name string
+		row  model.Model
+		want string
+	}{
+		{"vals.ai row", model.Model{ScoreLabel: "93.0%", Score: &model.ScoreInfo{SourceFamily: "vals"}}, "93.0%v"},
+		{"swebench.com row", model.Model{ScoreLabel: "80.0%", Score: &model.ScoreInfo{SourceFamily: "swebench"}}, "80.0%s"},
+		{"arena row carries no vals/swebench marker", model.Model{ScoreLabel: "1500 Elo", Score: &model.ScoreInfo{SourceFamily: "arena"}}, "1500 Elo"},
+		{"manual override carries no marker", model.Model{ScoreLabel: "70.0% (только вендор)", Score: &model.ScoreInfo{}}, "70.0% (только вендор)"},
+		{"no score at all", model.Model{}, "No score"},
+		{"unmapped model ignores score entirely", model.Model{Unmapped: true, ScoreLabel: "93.0%", Score: &model.ScoreInfo{SourceFamily: "vals"}}, "unmapped (no benchmark identity)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tableStatus(c.row); got != c.want {
+				t.Errorf("tableStatus(%+v) = %q, want %q", c.row, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRenderTableShowsScoreSourceMarkerInStatusColumn is the end-to-end
+// counterpart: the marker must actually reach the rendered table output, not
+// just the tableStatus helper in isolation.
+func TestRenderTableShowsScoreSourceMarkerInStatusColumn(t *testing.T) {
+	output := renderTable([]model.Model{
+		{DisplayName: "vals model", ScoreLabel: "93.0%", Score: &model.ScoreInfo{SourceFamily: "vals"}, QualityPriceLabel: "82.7"},
+		{DisplayName: "swebench model", ScoreLabel: "80.0%", Score: &model.ScoreInfo{SourceFamily: "swebench"}, QualityPriceLabel: "70.0"},
+	}, 120, false)
+	if !strings.Contains(output, "93.0%v") {
+		t.Errorf("rendered table does not show the vals.ai marker:\n%s", output)
+	}
+	if !strings.Contains(output, "80.0%s") {
+		t.Errorf("rendered table does not show the swebench.com marker:\n%s", output)
 	}
 }
 
@@ -1611,6 +1654,45 @@ func TestMixedUtilityUsesConfiguredPriceWeight(t *testing.T) {
 	}
 	if rows[0].Slug != "value" {
 		t.Fatalf("custom-weight ranking first slug = %q, want value", rows[0].Slug)
+	}
+}
+
+// TestApplyCanonicalQualityPriceUsesConfiguredMixWeights covers Fix 2: the
+// displayed MixedPrice/QualityPrice must follow pricing.mix_input_weight/
+// pricing.mix_output_weight instead of always using the hard-coded 3:1
+// blend, while the default weights keep reproducing the exact same value
+// pricing.MixedPrice always has.
+func TestApplyCanonicalQualityPriceUsesConfiguredMixWeights(t *testing.T) {
+	compiled, err := ranking.Compile(ranking.DefaultConfig())
+	if err != nil {
+		t.Fatalf("ranking.Compile: %v", err)
+	}
+	newRow := func() []model.Model {
+		return []model.Model{{Slug: "input-heavy", Tier: "sonnet", Score: &model.ScoreInfo{Value: 90}, Rankable: true, InPerM: 1, OutPerM: 10}}
+	}
+
+	defaultRows := newRow()
+	if err := applyCanonicalQualityPrice(defaultRows, compiled, pricing.DefaultMixInputWeight, pricing.DefaultMixOutputWeight); err != nil {
+		t.Fatalf("applyCanonicalQualityPrice default weights: %v", err)
+	}
+	if got, want := defaultRows[0].MixedPrice, pricing.MixedPrice(1, 10); got != want {
+		t.Fatalf("default-weight MixedPrice = %v, want %v (unchanged from before pricing.mix_* existed)", got, want)
+	}
+
+	customRows := newRow()
+	if err := applyCanonicalQualityPrice(customRows, compiled, 1, 3); err != nil {
+		t.Fatalf("applyCanonicalQualityPrice custom weights: %v", err)
+	}
+	wantMixed := pricing.MixedPriceWithWeights(1, 10, 1, 3)
+	if got := customRows[0].MixedPrice; got != wantMixed {
+		t.Fatalf("custom 1:3 weight MixedPrice = %v, want %v", got, wantMixed)
+	}
+	wantQP := pricing.QualityPrice(90, wantMixed)
+	if got := customRows[0].QualityPrice; got != wantQP {
+		t.Fatalf("custom 1:3 weight QualityPrice = %v, want %v", got, wantQP)
+	}
+	if customRows[0].MixedPrice == defaultRows[0].MixedPrice {
+		t.Fatalf("custom weights produced the same MixedPrice as the default 3:1 blend: %v", customRows[0].MixedPrice)
 	}
 }
 

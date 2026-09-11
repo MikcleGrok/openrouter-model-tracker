@@ -215,7 +215,7 @@ func TestProductionTaskFitMetadataMatchesModelMap(t *testing.T) {
 		mapSlugs[entry.Slug] = true
 	}
 	for slug := range mapSlugs {
-		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-nano-12b-v2-vl:free" && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "inclusionai/ling-3.0-flash:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" && slug != "dots-studio/dots-3-note-preview:free" && slug != "liquid/lfm-2.5-2.6b:free" {
+		if values := parsedNotes.TaskFit(slug); values == nil && slug != "nvidia/nemotron-3.5-content-safety:free" && slug != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free" && slug != "dots-studio/dots-3-note-preview:free" && slug != "liquid/lfm-2.5-2.6b:free" {
 			t.Errorf("task_fit is missing model-map slug %q", slug)
 		}
 	}
@@ -236,21 +236,33 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 	}
 	wantVals := map[string]string{
 		"anthropic/claude-fable-5":               "anthropic/claude-fable-5",
+		"anthropic/claude-opus-4.7":              "anthropic/claude-opus-4-7",
+		"anthropic/claude-opus-4.8":              "anthropic/claude-opus-4-8",
 		"anthropic/claude-opus-5":                "anthropic/claude-opus-5",
+		"anthropic/claude-sonnet-4.6":            "anthropic/claude-sonnet-4-6",
 		"anthropic/claude-sonnet-5":              "anthropic/claude-sonnet-5",
 		"openai/gpt-5.6-luna":                    "openai/gpt-5.6-luna",
 		"openai/gpt-5.6-sol":                     "openai/gpt-5.6-sol",
 		"openai/gpt-5.6-terra":                   "openai/gpt-5.6-terra",
 		"minimax/minimax-m3":                     "minimax/MiniMax-M3",
+		"minimax/minimax-m2.5":                   "minimax/MiniMax-M2.5",
 		"meta/muse-spark-1.1":                    "meta/muse_spark_1_1",
 		"qwen/qwen3.7-max":                       "alibaba/qwen3.7-max",
+		"qwen/qwen3.8-max-0902":                  "alibaba/qwen3.8-max",
 		"x-ai/grok-4.5":                          "grok/grok-4.5",
+		"x-ai/grok-4.6":                          "grok/grok-4.6",
 		"mistralai/mistral-medium-3-5":           "mistralai/mistral-medium-3.5",
 		"google/gemini-3.1-pro-preview":          "google/gemini-3.1-pro-preview",
+		"google/gemini-3.5-flash":                "google/gemini-3.5-flash",
+		"google/gemini-3.6-flash":                "google/gemini-3.6-flash",
+		"google/gemini-3.7-flash":                "google/gemini-3.7-flash",
+		"google/gemini-3.8-flash":                "google/gemini-3.8-flash",
 		"moonshotai/kimi-k3":                     "kimi/kimi-k3",
 		"deepseek/deepseek-v4-pro":               "deepseek/deepseek-v4-pro",
 		"z-ai/glm-5.2":                           "zai/glm-5.2",
-		"google/gemini-3.6-flash":                "google/gemini-3.6-flash",
+		"z-ai/glm-5.3":                           "zai/glm-5.3",
+		"z-ai/glm-4.7":                           "zai/glm-4.7",
+		"z-ai/glm-5.3-flash":                     "zai/glm-5.3-flash",
 		"deepseek/deepseek-v4-flash":             "deepseek/deepseek-v4-flash-0731",
 		"xiaomi/mimo-v2.5-pro":                   "xiaomi/mimo-v2.5-pro",
 		"moonshotai/kimi-k2.7-code":              "kimi/kimi-k2.7-code",
@@ -258,8 +270,6 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"mistralai/mistral-large-2512":           "mistralai/mistral-large-2512",
 		"nvidia/nemotron-3-ultra-550b-a55b":      "nvidia/nemotron-3-ultra-550b-a55b",
 		"nvidia/nemotron-3-ultra-550b-a55b:free": "nvidia/nemotron-3-ultra-550b-a55b",
-		"inclusionai/ling-3.0-flash:free":        "ant/ling-3.0-flash-2607",
-		"z-ai/glm-5.2:free":                      "zai/glm-5.2",
 	}
 	wantSWE := map[string]string{
 		"deepseek/deepseek-v3.2":      "Model: deepseek-v3.2",
@@ -268,6 +278,10 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"meta-llama/llama-4-maverick": "Model: llama-4-maverick-instruct",
 		"meta-llama/llama-4-scout":    "Model: llama-4-scout-instruct",
 		"openai/gpt-5-mini":           "Model: gpt-5-mini-2025-08-07",
+		"anthropic/claude-opus-4.6":   "Model: claude-opus-4-6",
+		"anthropic/claude-sonnet-4.5": "Model: claude-sonnet-4-5",
+		"anthropic/claude-haiku-4.5":  "Model: claude-haiku-4-5-20251001",
+		"minimax/minimax-m2":          "Model: minimax-m2",
 	}
 	if got := NamesFor(entries, "vals"); !reflect.DeepEqual(got, wantVals) {
 		t.Errorf("NamesFor(vals) =\n  %v\nwant\n  %v", got, wantVals)
@@ -277,16 +291,30 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 	}
 
 	wantArena := map[string]string{
+		"anthropic/claude-fable-5":               "claude-fable-5-text",
+		"anthropic/claude-fable-5.1":             "claude-fable-5.1-max-text",
+		"anthropic/claude-opus-4.8":              "claude-opus-4-8-text",
+		"anthropic/claude-opus-5":                "claude-opus-5-high-text",
+		"anthropic/claude-sonnet-5":              "claude-sonnet-5-text",
 		"openai/gpt-5.6-luna":                    "gpt-5.6-luna-xhigh-text",
 		"openai/gpt-5.6-sol":                     "gpt-5.6-sol-xhigh-text",
 		"openai/gpt-5.6-terra":                   "gpt-5.6-terra-xhigh-text",
+		"openai/gpt-6-astra":                     "gpt-6-astra-high",
 		"minimax/minimax-m3":                     "minimax-m3",
+		"minimax/minimax-m2.5":                   "minimax-m2.5",
+		"minimax/minimax-m2":                     "minimax-m2",
 		"meta/muse-spark-1.1":                    "super-nova-ext-3tam-text",
 		"qwen/qwen3.7-plus":                      "qwen3.7-plus",
-		"qwen/qwen3.8-max":                       "kinsley-mrp8",
+		"qwen/qwen3.8-max-0902":                  "qwen3.8-max-0902",
+		"qwen/qwen3-next-80b-a3b-instruct":       "qwen3-next-80b-a3b-instruct",
+		"qwen/qwen3-235b-a22b-2507":              "qwen3-235b-a22b-instruct-2507",
 		"x-ai/grok-4.5":                          "grok-4.5-text",
+		"x-ai/grok-4.6":                          "grok-4.6-high-text",
 		"mistralai/mistral-medium-3-5":           "mistral-medium-3.5-text",
 		"google/gemini-3.1-pro-preview":          "gemini-3.1-pro-preview",
+		"google/gemini-3.5-flash":                "gemini-3.5-flash",
+		"google/gemini-3.7-flash":                "gemini-3.7-flash",
+		"google/gemini-3.8-flash":                "gemini-3.8-flash",
 		"deepseek/deepseek-v4-pro":               "deepseek-v4-pro-ch1-text",
 		"google/gemini-3.6-flash":                "gemini-3.6-flash",
 		"deepseek/deepseek-v4-flash":             "deepseek-v4-ch3-text",
@@ -304,13 +332,12 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"nvidia/nemotron-3-super-120b-a12b":      "march26-chatbot1",
 		"nvidia/nemotron-3-nano-30b-a3b":         "nvidia-nemotron-3-nano-30b-a3b-bf16",
 		"nvidia/nemotron-3-ultra-550b-a55b:free": "may26-chatbot4-3x57",
-		"openai/gpt-oss-20b:free":                "gpt-oss-20b",
 		"google/gemma-4-31b-it:free":             "pteronura-text",
 		"google/gemma-4-26b-a4b-it:free":         "significant-otter-text",
 		"nvidia/nemotron-3-super-120b-a12b:free": "march26-chatbot1",
-		"nvidia/nemotron-3-nano-30b-a3b:free":    "nvidia-nemotron-3-nano-30b-a3b-bf16",
 		"nvidia/nemotron-3.5-lightning:free":     "august26-chatbot1-fmme",
-		"z-ai/glm-5.2:free":                      "glm-5.2-text",
+		"z-ai/glm-4.7-flash":                     "glm-4.7-flash",
+		"z-ai/glm-5.3-flash":                     "glm-5.3-flash-text",
 	}
 	if got := NamesFor(entries, "arena"); !reflect.DeepEqual(got, wantArena) {
 		t.Errorf("NamesFor(arena) =\n  %v\nwant\n  %v", got, wantArena)

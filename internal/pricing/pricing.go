@@ -10,9 +10,39 @@ import (
 	"strings"
 )
 
+// DefaultMixInputWeight and DefaultMixOutputWeight are MixedPrice's built-in
+// 3:1 input:output blend ratio, used whenever pricing.mix_input_weight /
+// pricing.mix_output_weight are not configured.
+const (
+	DefaultMixInputWeight  = 3.0
+	DefaultMixOutputWeight = 1.0
+)
+
 // MixedPrice returns the 3:1 input:output blended price in $/M tokens.
 func MixedPrice(inPerM, outPerM float64) float64 {
-	return (3*inPerM + outPerM) / 4
+	return MixedPriceWithWeights(inPerM, outPerM, DefaultMixInputWeight, DefaultMixOutputWeight)
+}
+
+// MixedPriceWithWeights returns the input:output blended price in $/M
+// tokens using the given weights, letting pricing.mix_input_weight /
+// pricing.mix_output_weight override MixedPrice's built-in 3:1 ratio. This
+// is the same kind of independent weighting internal/ranking.Context already
+// applies to the ranking formula's own price_mix term; this function lets
+// the displayed Quality/Price column follow suit.
+//
+// Weights that are not both finite and non-negative, or whose sum is not
+// positive, have no valid blend to compute and fall back to the 3:1
+// default — the same safe shape config.Load's own validation already
+// guarantees a caller reading from config never actually triggers.
+func MixedPriceWithWeights(inPerM, outPerM, inputWeight, outputWeight float64) float64 {
+	if !validMixWeight(inputWeight) || !validMixWeight(outputWeight) || inputWeight+outputWeight <= 0 {
+		return (3*inPerM + outPerM) / 4
+	}
+	return (inputWeight*inPerM + outputWeight*outPerM) / (inputWeight + outputWeight)
+}
+
+func validMixWeight(w float64) bool {
+	return !math.IsNaN(w) && !math.IsInf(w, 0) && w >= 0
 }
 
 // QualityPrice returns a benchmark score (in percent) divided by the blended

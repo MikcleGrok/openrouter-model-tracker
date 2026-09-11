@@ -952,6 +952,54 @@ func TestSourceFamilyRegistry(t *testing.T) {
 	}
 }
 
+func TestScoreSourceMarker(t *testing.T) {
+	cases := []struct {
+		name string
+		info *ScoreInfo
+		want string
+	}{
+		{"nil info", nil, ""},
+		{"vals.ai row", &ScoreInfo{SourceFamily: "vals"}, "v"},
+		{"swebench.com row", &ScoreInfo{SourceFamily: "swebench"}, "s"},
+		{"arena row", &ScoreInfo{SourceFamily: "arena"}, ""},
+		{"manual override with no source family", &ScoreInfo{SourceFamily: ""}, ""},
+		{"unknown source family", &ScoreInfo{SourceFamily: "not-a-source"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ScoreSourceMarker(c.info); got != c.want {
+				t.Errorf("ScoreSourceMarker(%+v) = %q, want %q", c.info, got, c.want)
+			}
+		})
+	}
+}
+
+// TestMergeStampsScoreSourceMarkerFromRealRows checks the marker end to end
+// through Merge, not just against a hand-built ScoreInfo: a vals.ai-sourced
+// row and a swebench.com-sourced row must come out of the merge carrying the
+// exact SourceFamily ScoreSourceMarker keys off.
+func TestMergeStampsScoreSourceMarkerFromRealRows(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "vendor/vals-model", Tier: "sonnet", Names: map[string]string{"vals": "vendor/vals-model"}},
+		{Slug: "vendor/swebench-model", Tier: "sonnet", Names: map[string]string{"swebench": "Model: vendor/swebench-model"}},
+	}
+	prices := map[string]sources.PriceInfo{
+		"vendor/vals-model":     {Slug: "vendor/vals-model", InPerM: 1, OutPerM: 2, Found: true},
+		"vendor/swebench-model": {Slug: "vendor/swebench-model", InPerM: 1, OutPerM: 2, Found: true},
+	}
+	scores := []sources.ScoreRow{
+		{Slug: "vendor/vals-model", SourceFamily: "vals", ConfiguredIdentity: "vendor/vals-model", Metric: sources.MetricSWEBenchVerified, Value: 90, SourceURL: "https://www.vals.ai/benchmarks/swebench"},
+		{Slug: "vendor/swebench-model", SourceFamily: "swebench", ConfiguredIdentity: "Model: vendor/swebench-model", Metric: sources.MetricSWEBenchVerified, Value: 80, SourceURL: "https://www.swebench.com/"},
+	}
+	got := byslug(Merge(entries, prices, scores, testNotes(t)))
+	if marker := ScoreSourceMarker(got["vendor/vals-model"].Score); marker != "v" {
+		t.Errorf("vals.ai row marker = %q, want %q", marker, "v")
+	}
+	if marker := ScoreSourceMarker(got["vendor/swebench-model"].Score); marker != "s" {
+		t.Errorf("swebench.com row marker = %q, want %q", marker, "s")
+	}
+}
+
 func TestForScoreSourceProjectsArenaAndHidesSWEBench(t *testing.T) {
 	models := []Model{
 		{

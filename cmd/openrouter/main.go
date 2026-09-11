@@ -120,6 +120,18 @@ func resolveMixedUtilityConfig(cfgPath string) (ranking.Compiled, error) {
 	return cfg.CompiledMixedUtility()
 }
 
+// resolvePricingMixWeights reads pricing.mix_input_weight/mix_output_weight,
+// the input:output blend the displayed Quality/Price column uses — separate
+// from resolveMixedUtilityConfig's ranking.mixed_utility.price weighting,
+// which only feeds the mixed-utility ranking formula's own internal terms.
+func resolvePricingMixWeights(cfgPath string) (float64, float64, error) {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	return cfg.Pricing.EffectiveMixWeights()
+}
+
 func resolveTUIFilter(flagValue string, flagSet bool, savedValue string, savedSet bool, defaultValue string) string {
 	if flagSet {
 		return flagValue
@@ -378,6 +390,10 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			mixInputWeight, mixOutputWeight, err := resolvePricingMixWeights(cfgPath)
+			if err != nil {
+				return err
+			}
 			tableOpts, err := resolveTUIOptions(cfgPath, dataDir, output)
 			if err != nil {
 				return err
@@ -394,7 +410,7 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			tableRanking = normalizeRanking(tableRanking)
-			if err := sortTableModelsWithRankingAndConfig(models, tableSort, tableReverse, tableRanking, compiledRanking); err != nil {
+			if err := sortTableModelsWithRankingAndConfig(models, tableSort, tableReverse, tableRanking, compiledRanking, mixInputWeight, mixOutputWeight); err != nil {
 				return err
 			}
 			models = limitTableModels(models, tableLimit)

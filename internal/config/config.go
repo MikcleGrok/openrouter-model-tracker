@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
+	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"gopkg.in/yaml.v3"
 )
@@ -37,8 +39,42 @@ type Config struct {
 	TUISteps         TUISteps      `yaml:"tui_steps"`
 	TUIKeymap        TUIKeymap     `yaml:"tui_keymap"`
 	Ranking          RankingConfig `yaml:"ranking"`
+	Pricing          PricingConfig `yaml:"pricing"`
 	Icons            IconConfig    `yaml:"icons"`
 }
+
+// PricingConfig lets the displayed Quality/Price column's input:output price
+// mix be set independently of internal/ranking's own
+// ranking.mixed_utility.price.{input_weight,output_weight}, which only feeds
+// the mixed-utility ranking formula's own price_mix/quality_price terms.
+// pricing.MixedPrice's built-in 3:1 blend stays the default when neither key
+// is set.
+type PricingConfig struct {
+	MixInputWeight  *float64 `yaml:"mix_input_weight"`
+	MixOutputWeight *float64 `yaml:"mix_output_weight"`
+}
+
+// EffectiveMixWeights returns the input:output weights the displayed
+// Quality/Price column blends prices with, defaulting to
+// pricing.MixedPrice's built-in 3:1 ratio when a key is not set. An explicit
+// weight must be finite and non-negative, and the two together must have a
+// positive sum — the same shape ranking.PriceConfig's own
+// input_weight/output_weight already enforces in internal/ranking.Compile.
+func (c PricingConfig) EffectiveMixWeights() (input, output float64, err error) {
+	input, output = pricing.DefaultMixInputWeight, pricing.DefaultMixOutputWeight
+	if c.MixInputWeight != nil {
+		input = *c.MixInputWeight
+	}
+	if c.MixOutputWeight != nil {
+		output = *c.MixOutputWeight
+	}
+	if !finiteNonNegative(input) || !finiteNonNegative(output) || input+output <= 0 {
+		return 0, 0, errors.New("pricing.mix_input_weight and pricing.mix_output_weight must be finite, non-negative, and have a positive sum")
+	}
+	return input, output, nil
+}
+
+func finiteNonNegative(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
 
 // IconConfig controls manufacturer badges shown by the CLI and TUI.
 type IconConfig struct {
@@ -497,7 +533,13 @@ const template = "# User configuration for openrouter. Relative paths are resolv
 	"      input_weight: 3\n" +
 	"      output_weight: 1\n" +
 	"    tier_factors: {opus: 1, sonnet: 1, haiku: 0.5, free: 0, default: 0}\n" +
-	"    # formula and price_weight cannot be used together; see README for the whitelist.\n"
+	"    # formula and price_weight cannot be used together; see README for the whitelist.\n" +
+	"pricing:\n" +
+	"  # mix_input_weight/mix_output_weight blend the displayed Quality/Price\n" +
+	"  # column independently of ranking.mixed_utility.price above; 3:1 matches\n" +
+	"  # the built-in default and changes nothing until edited.\n" +
+	"  mix_input_weight: 3\n" +
+	"  mix_output_weight: 1\n"
 
 // Init creates the user config and the cache directory without replacing existing paths.
 func Init(path, dataDir string) ([]string, error) {
@@ -709,6 +751,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 	if _, err := ranking.Compile(c.Ranking.MixedUtility); err != nil {
+		return Config{}, fmt.Errorf("config: %s: %w", path, err)
+	}
+	if _, _, err := c.Pricing.EffectiveMixWeights(); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	switch strings.ToLower(strings.TrimSpace(c.TUILanguage)) {

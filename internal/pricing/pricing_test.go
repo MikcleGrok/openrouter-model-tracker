@@ -1,6 +1,9 @@
 package pricing
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestMixedPrice(t *testing.T) {
 	if got := MixedPrice(0.5, 3.0); got != 1.125 {
@@ -8,6 +11,49 @@ func TestMixedPrice(t *testing.T) {
 	}
 	if got := MixedPrice(5.0, 30.0); got != 11.25 {
 		t.Fatalf("MixedPrice(5.0, 30.0) = %v, want 11.25", got)
+	}
+}
+
+func TestMixedPriceWithWeightsMatchesDefaultAtBuiltInRatio(t *testing.T) {
+	if got, want := MixedPriceWithWeights(0.5, 3.0, DefaultMixInputWeight, DefaultMixOutputWeight), MixedPrice(0.5, 3.0); got != want {
+		t.Fatalf("MixedPriceWithWeights at the default 3:1 ratio = %v, want %v (MixedPrice unchanged)", got, want)
+	}
+	if got, want := MixedPriceWithWeights(5.0, 30.0, 3, 1), 11.25; got != want {
+		t.Fatalf("MixedPriceWithWeights(5.0, 30.0, 3, 1) = %v, want %v", got, want)
+	}
+}
+
+func TestMixedPriceWithWeightsAppliesCustomRatio(t *testing.T) {
+	// 1:3 input:output is the inverse of the 3:1 default, and should weight
+	// the output price three times as heavily as the input price.
+	if got, want := MixedPriceWithWeights(1.0, 9.0, 1, 3), 7.0; got != want {
+		t.Fatalf("MixedPriceWithWeights(1.0, 9.0, 1, 3) = %v, want %v", got, want)
+	}
+	// Equal weights average the two prices plainly.
+	if got, want := MixedPriceWithWeights(2.0, 8.0, 1, 1), 5.0; got != want {
+		t.Fatalf("MixedPriceWithWeights(2.0, 8.0, 1, 1) = %v, want %v", got, want)
+	}
+}
+
+func TestMixedPriceWithWeightsFallsBackToDefaultOnInvalidWeights(t *testing.T) {
+	want := MixedPrice(1.0, 5.0)
+	cases := []struct {
+		name          string
+		input, output float64
+	}{
+		{"zero sum", 0, 0},
+		{"negative sum", -1, -1},
+		{"negative input", -1, 4},
+		{"NaN input", math.NaN(), 1},
+		{"+Inf output", 1, math.Inf(1)},
+		{"-Inf input", math.Inf(-1), 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := MixedPriceWithWeights(1.0, 5.0, c.input, c.output); got != want {
+				t.Errorf("MixedPriceWithWeights(1.0, 5.0, %v, %v) = %v, want default-fallback %v", c.input, c.output, got, want)
+			}
+		})
 	}
 }
 
