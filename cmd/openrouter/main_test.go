@@ -197,7 +197,11 @@ func TestCompletionSuggestions(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{name: "root", args: []string{""}, want: []string{"table", "tui", "completion"}},
+		{name: "root", args: []string{""}, want: []string{"table", "tui", "completion", "refresh", "update", "up"}},
+		{name: "root flags", args: []string{"--"}, want: []string{"--config", "--data-dir", "--help", "--version"}},
+		{name: "refresh flags", args: []string{"refresh", "--"}, want: []string{"--config", "--data-dir", "--dry-run", "--force", "--help", "--output"}},
+		{name: "update flags", args: []string{"update", "--"}, want: []string{"--config", "--data-dir", "--dry-run", "--force", "--help", "--output"}},
+		{name: "up flags", args: []string{"up", "--"}, want: []string{"--config", "--data-dir", "--dry-run", "--force", "--help", "--output"}},
 		{name: "tui flags", args: []string{"tui", "--"}, want: []string{"--refresh-interval", "--ranking", "--sort", "--filter", "--limit", "--reverse", "--slug"}},
 		{name: "table flags", args: []string{"table", "--"}, want: []string{"--ranking", "--task-fit", "--sort", "--filter", "--limit", "--notes", "--no-pager", "--reverse", "--slug"}},
 	}
@@ -207,6 +211,69 @@ func TestCompletionSuggestions(t *testing.T) {
 			for _, want := range tt.want {
 				if !got[want] {
 					t.Errorf("completion suggestions do not contain %q: %v", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestBashCompletionRegistersExecutableAliases(t *testing.T) {
+	output := executeCLI(t, "completion", "bash")
+	for _, want := range []string{"complete -o default -F __start_openrouter openrouter", "complete -o default -F __start_openrouter omt", "complete -o default -o nospace -F __start_openrouter omt"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("bash completion does not preserve registration %q:\n%s", want, output)
+		}
+	}
+	if !strings.Contains(output, "if [[ $(type -t compopt) = \"builtin\" ]]; then") {
+		t.Fatalf("bash completion does not register omt on the canonical function:\n%s", output)
+	}
+}
+
+func TestCompletionNoDescriptionsUsesNoDescriptionGenerators(t *testing.T) {
+	normalOutput := executeCLI(t, "completion", "bash")
+	output := executeCLI(t, "completion", "bash", "--no-descriptions")
+	if !strings.Contains(output, "__completeNoDesc") || strings.Contains(normalOutput, "__completeNoDesc") {
+		t.Fatalf("bash no-descriptions generator request path is wrong; normal has no-desc=%t, no-desc has no-desc=%t", strings.Contains(normalOutput, "__completeNoDesc"), strings.Contains(output, "__completeNoDesc"))
+	}
+	if strings.Contains(output, "Fetch fresh data and overwrite the document") {
+		t.Fatalf("bash no-descriptions output contains command descriptions:\n%s", output)
+	}
+	normalCandidates := completionSuggestions(t, "refresh", "--")
+	noDescriptionOutput := executeCLI(t, "__completeNoDesc", "refresh", "--")
+	for candidate := range normalCandidates {
+		if !strings.Contains(noDescriptionOutput, candidate) {
+			t.Fatalf("no-description completion result lost candidate %q: %s", candidate, noDescriptionOutput)
+		}
+	}
+}
+
+func TestCompletionRegistersAliasesForAllShells(t *testing.T) {
+	tests := []struct {
+		shell string
+		want  string
+	}{
+		{shell: "bash", want: "complete -o default -o nospace -F __start_openrouter omt"},
+		{shell: "zsh", want: "compdef _openrouter omt"},
+		{shell: "fish", want: "complete -c omt -n 'not __openrouter_requires_order_preservation && __openrouter_prepare_completions' -f -a '$__openrouter_comp_results'"},
+		{shell: "powershell", want: "Register-ArgumentCompleter -CommandName 'omt' -ScriptBlock ${__openrouterCompleterBlock}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.shell, func(t *testing.T) {
+			output := executeCLI(t, "completion", tt.shell)
+			if !strings.Contains(output, tt.want) {
+				t.Fatalf("%s completion does not register omt:\n%s", tt.shell, output)
+			}
+			if tt.shell == "zsh" && !strings.Contains(output, "compdef _openrouter openrouter") {
+				t.Fatalf("zsh completion lost canonical registration:\n%s", output)
+			}
+			if tt.shell == "powershell" && !strings.Contains(output, "Register-ArgumentCompleter -CommandName 'openrouter'") {
+				t.Fatalf("powershell completion lost canonical registration:\n%s", output)
+			}
+			if tt.shell == "fish" {
+				for _, branch := range []string{"complete -k -c omt -n '__openrouter_requires_order_preservation && __openrouter_prepare_completions' -f -a '$__openrouter_comp_results'", "complete -c omt -n '__openrouter_clear_perform_completion_once_result'"} {
+					if !strings.Contains(output, branch) {
+						t.Fatalf("fish completion is missing alias branch %q:\n%s", branch, output)
+					}
 				}
 			}
 		})
