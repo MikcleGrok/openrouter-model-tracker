@@ -66,9 +66,8 @@ sections:
     openrouter.ai/settings/privacy.
 
 fable_verdict: >-
-  Ни одна проверенная модель независимо не подтверждает Fable-уровень: на лидерборде vals.ai
-  сам Claude Fable 5 держит 95.0% SWE-bench Verified, а лучший сторонний результат в подборке
-  относится к Opus-уровню.
+  Сам Claude Fable 5 независимо подтверждён на лидерборде vals.ai с результатом 95.0%
+  SWE-bench Verified; лучший сторонний результат в подборке относится к Opus-уровню.
 
 claude_note: >-
   На OpenRouter (`anthropic/claude-opus-5`, `anthropic/claude-sonnet-5`,
@@ -838,6 +837,7 @@ models:
 
 # Qualitative fit for coding workflow tasks; this is not a score.
 task_fit:
+  anthropic/claude-fable-5: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-opus-5: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-opus-4.6: [implement, plan, research, debug, audit, refactor, test]
   anthropic/claude-sonnet-5: [implement, plan, research, debug, audit, refactor, test]

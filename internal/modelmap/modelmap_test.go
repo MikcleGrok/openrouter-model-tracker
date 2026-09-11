@@ -235,6 +235,7 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		t.Fatalf("production model-map.tsv: %v", err)
 	}
 	wantVals := map[string]string{
+		"anthropic/claude-fable-5":               "anthropic/claude-fable-5",
 		"anthropic/claude-opus-5":                "anthropic/claude-opus-5",
 		"anthropic/claude-sonnet-5":              "anthropic/claude-sonnet-5",
 		"openai/gpt-5.6-luna":                    "openai/gpt-5.6-luna",
