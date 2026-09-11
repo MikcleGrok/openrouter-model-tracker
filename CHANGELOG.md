@@ -1,5 +1,11 @@
 # What's New
 
+## [1.16.18]
+
+- Rename the `Tier` filter to `Tier min` to make its minimum-tier semantics explicit: selecting a tier includes that tier and all higher paid tiers.
+- Remove `free` from the TUI tier options while preserving the legacy exact `tier:free` filter behavior.
+- Add boundary tests and documentation covering minimum-tier filtering and the legacy `tier:free` behavior.
+
 ## [1.16.17]
 
 - Speed up TUI selection by calculating display widths once per frame instead of repeatedly during rendering.
