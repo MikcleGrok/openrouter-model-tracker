@@ -2700,6 +2700,71 @@ func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 	}
 }
 
+func TestTUIFrameCellWidthsAreSharedByHeaderAndRows(t *testing.T) {
+	rows := []model.Model{
+		{Slug: "short", DisplayName: "Short", Context: 7, InPerM: 1.5},
+		{Slug: "long", DisplayName: "A considerably longer model name", Context: 12345, InPerM: 0.125},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.width, m.height = 100, 10
+	m.columns = []tuiColumn{colName, colContext, colInput}
+	widthComputations := 0
+	m.widthComputations = &widthComputations
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	if widthComputations != 1 {
+		t.Fatalf("View() computed cell widths %d times, want once per frame", widthComputations)
+	}
+	var tableLines []string
+	for _, line := range lines {
+		if strings.Contains(line, "Name") || strings.Contains(line, "Short") || strings.Contains(line, "considerably") {
+			tableLines = append(tableLines, line)
+		}
+	}
+	if len(tableLines) != 3 {
+		t.Fatalf("View() table lines = %q, want header and two rows", tableLines)
+	}
+	// Cell strings are still built once per visible row and column: O(rows*columns).
+	// The regression is the removed per-row width scan, which made width work O(rows^2).
+	want := tuiSeparatorDisplayOffsets(tableLines[0])
+	for _, line := range tableLines[1:] {
+		if got := tuiSeparatorDisplayOffsets(line); !reflect.DeepEqual(got, want) {
+			t.Fatalf("View() row geometry differs from header: row=%v header=%v\nrow=%q\nheader=%q", got, want, line, tableLines[0])
+		}
+	}
+}
+
+func TestTUICursorMovementPreservesVisibleRowsAndRebuildSemantics(t *testing.T) {
+	rows := []model.Model{{Slug: "a", DisplayName: "A"}, {Slug: "b", DisplayName: "B"}, {Slug: "c", DisplayName: "C"}}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.width, m.height = 80, 10
+	beforeVisible := append([]model.Model(nil), m.visible...)
+	beforeView := ansi.Strip(m.View())
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got := next.(tuiModel)
+	if got.cursor != 1 || got.selectedSlug != "b" {
+		t.Fatalf("cursor movement state = cursor %d selected %q, want cursor 1 on b", got.cursor, got.selectedSlug)
+	}
+	if !reflect.DeepEqual(got.visible, beforeVisible) {
+		t.Fatalf("cursor movement rebuilt visible rows: got=%v want=%v", got.visible, beforeVisible)
+	}
+	afterView := ansi.Strip(got.View())
+	for _, value := range []string{"A", "B", "C"} {
+		if !strings.Contains(beforeView, value) || !strings.Contains(afterView, value) {
+			t.Fatalf("cursor movement changed visible content for %q: before=%q after=%q", value, beforeView, afterView)
+		}
+	}
+	selectedB := false
+	for _, line := range strings.Split(afterView, "\n") {
+		if strings.HasPrefix(line, "> ") && strings.Contains(line, "B") {
+			selectedB = true
+			break
+		}
+	}
+	if !selectedB {
+		t.Fatalf("cursor movement did not select row B: %q", afterView)
+	}
+}
+
 func TestTUIHeaderAndTaskFitDataShareDisplayOffsets(t *testing.T) {
 	m := tuiModel{width: 100, scoreSource: scoreSourceDefault}
 	columns := []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}

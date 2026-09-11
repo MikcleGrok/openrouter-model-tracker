@@ -47,6 +47,7 @@
 # расхождении чекпоинта/варианта — ошибка здесь пройдёт в ranking молча.
 
 # ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
+anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5
 anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5
 anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5
 anthropic/claude-opus-4.6	tier=opus

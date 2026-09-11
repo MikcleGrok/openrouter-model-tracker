@@ -192,6 +192,95 @@ func TestProviderLabelUsesCatalogueValueOrNamespaceAlias(t *testing.T) {
 	}
 }
 
+func TestCatalogDisplayNameUsesCatalogOnlyForMissingAlias(t *testing.T) {
+	tests := []struct {
+		name, slug, provider, catalog, want string
+	}{
+		{"same provider prefix is removed", "openai/gpt-5.6-terra", "OpenAI", "OpenAI: GPT-5.6 Terra", "GPT-5.6 Terra"},
+		{"provider prefix is case insensitive", "openai/gpt-5.6-terra", "OpenAI", "oPeNaI: GPT-5.6 Terra", "GPT-5.6 Terra"},
+		{"another provider", "anthropic/claude-sonnet", "Anthropic", "Anthropic: Claude Sonnet", "Claude Sonnet"},
+		{"catalog name without prefix", "openai/gpt-5.6-sol", "OpenAI", "GPT-5.6 Sol", "GPT-5.6 Sol"},
+		{"missing catalog name", "openai/gpt-5.6-terra-pro", "OpenAI", "", "openai/gpt-5.6-terra-pro"},
+		{"empty provider uses slug namespace", "openai/gpt-5.6-terra", "", "OpenAI: GPT-5.6 Terra", "GPT-5.6 Terra"},
+		{"placeholder provider uses slug namespace", "openai/gpt-5.6-terra", "n/a (catalog missing)", "OpenAI: GPT-5.6 Terra", "GPT-5.6 Terra"},
+		{"non-prefix text is not stripped", "openai/gpt-5.6-terra", "OpenAI", "OpenAIish: GPT-5.6 Terra", "OpenAIish: GPT-5.6 Terra"},
+		{"provider mismatch keeps catalog text", "openai/gpt-5.6-terra", "OpenAI", "Anthropic: GPT-5.6 Terra", "Anthropic: GPT-5.6 Terra"},
+	}
+	for _, test := range tests {
+		if got := catalogDisplayName(test.slug, test.provider, test.catalog); got != test.want {
+			t.Errorf("%s: catalogDisplayName() = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
+func TestMergeKeepsExplicitDisplayAliasOverCatalogName(t *testing.T) {
+	const slug = "openai/gpt-5.6-luna"
+	entries := []modelmap.Entry{{Slug: slug, Tier: "opus"}}
+	prices := map[string]sources.PriceInfo{slug: {Slug: slug, Found: true, Name: "OpenAI: Catalog Luna", Provider: "OpenAI"}}
+	got := Merge(entries, prices, nil, testNotes(t))
+	if len(got) != 1 || got[0].DisplayName != "GPT-5.6 Luna" {
+		t.Fatalf("display name = %+v, want explicit alias %q", got, "GPT-5.6 Luna")
+	}
+}
+
+func TestMergeUsesCatalogDisplayNameWhenNoteAliasIsMissing(t *testing.T) {
+	const slug = "openai/gpt-5.6-terra"
+	entries := []modelmap.Entry{{Slug: slug, Tier: "opus"}}
+	prices := map[string]sources.PriceInfo{slug: {Slug: slug, Found: true, Name: "OpenAI: GPT-5.6 Terra", Provider: "n/a (catalog missing)"}}
+	got := Merge(entries, prices, nil, &notes.Notes{})
+	if len(got) != 1 || got[0].DisplayName != "GPT-5.6 Terra" {
+		t.Fatalf("display name = %+v, want %q", got, "GPT-5.6 Terra")
+	}
+}
+
+func TestMergeCatalogDisplayNamesPreserveVariantsAndRawNames(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "openai/gpt-5.6-terra-pro", Tier: "opus"},
+		{Slug: "openai/gpt-5.6-terra-batch", Tier: ""},
+		{Slug: "openai/gpt-5.6-terra-unmapped", Tier: ""},
+		{Slug: "openai/gpt-5.6-terra-case", Tier: "sonnet"},
+		{Slug: "openai/gpt-5.6-terra-mismatch", Tier: "sonnet"},
+		{Slug: "openai/gpt-5.6-terra-empty-provider", Tier: "sonnet"},
+		{Slug: "openai/gpt-5.6-terra-placeholder-provider", Tier: "sonnet"},
+	}
+	prices := map[string]sources.PriceInfo{
+		"openai/gpt-5.6-terra-pro":                  {Slug: "openai/gpt-5.6-terra-pro", Found: true, Name: "OpenAI: GPT-5.6 Terra Pro", Provider: "OpenAI", CanonicalSlug: "catalog/terra-pro", HuggingFaceID: "org/terra-pro"},
+		"openai/gpt-5.6-terra-batch":                {Slug: "openai/gpt-5.6-terra-batch", Found: true, Name: "OpenAI: GPT-5.6 Terra Batch", Provider: "OpenAI", CanonicalSlug: "catalog/terra-batch", HuggingFaceID: "org/terra-batch"},
+		"openai/gpt-5.6-terra-unmapped":             {Slug: "openai/gpt-5.6-terra-unmapped", Found: true, Name: "OpenAI: GPT-5.6 Terra Unmapped", Provider: "OpenAI", CanonicalSlug: "catalog/terra-unmapped", HuggingFaceID: "org/terra-unmapped"},
+		"openai/gpt-5.6-terra-case":                 {Slug: "openai/gpt-5.6-terra-case", Found: true, Name: "oPeNaI: GPT-5.6 Terra Case", Provider: "OPENAI", CanonicalSlug: "catalog/terra-case", HuggingFaceID: "org/terra-case"},
+		"openai/gpt-5.6-terra-mismatch":             {Slug: "openai/gpt-5.6-terra-mismatch", Found: true, Name: "Anthropic: GPT-5.6 Terra Mismatch", Provider: "OpenAI", CanonicalSlug: "catalog/terra-mismatch", HuggingFaceID: "org/terra-mismatch"},
+		"openai/gpt-5.6-terra-empty-provider":       {Slug: "openai/gpt-5.6-terra-empty-provider", Found: true, Name: "OpenAI: GPT-5.6 Terra Empty", CanonicalSlug: "catalog/terra-empty", HuggingFaceID: "org/terra-empty"},
+		"openai/gpt-5.6-terra-placeholder-provider": {Slug: "openai/gpt-5.6-terra-placeholder-provider", Found: true, Name: "OpenAI: GPT-5.6 Terra Placeholder", Provider: "n/a", CanonicalSlug: "catalog/terra-placeholder", HuggingFaceID: "org/terra-placeholder"},
+	}
+	got := byslug(Merge(entries, prices, nil, &notes.Notes{}))
+	want := map[string]struct {
+		display, provider string
+	}{
+		"openai/gpt-5.6-terra-pro":                  {"GPT-5.6 Terra Pro", "OpenAI"},
+		"openai/gpt-5.6-terra-batch":                {"GPT-5.6 Terra Batch", "OpenAI"},
+		"openai/gpt-5.6-terra-unmapped":             {"GPT-5.6 Terra Unmapped", "OpenAI"},
+		"openai/gpt-5.6-terra-case":                 {"GPT-5.6 Terra Case", "OPENAI"},
+		"openai/gpt-5.6-terra-mismatch":             {"Anthropic: GPT-5.6 Terra Mismatch", "OpenAI"},
+		"openai/gpt-5.6-terra-empty-provider":       {"GPT-5.6 Terra Empty", "OpenAI"},
+		"openai/gpt-5.6-terra-placeholder-provider": {"GPT-5.6 Terra Placeholder", "OpenAI"},
+	}
+	for slug, expected := range want {
+		model, ok := got[slug]
+		if !ok {
+			t.Fatalf("Merge omitted %q", slug)
+		}
+		if model.DisplayName != expected.display || model.Provider != expected.provider {
+			t.Errorf("%s identity = display %q/provider %q, want %q/%q", slug, model.DisplayName, model.Provider, expected.display, expected.provider)
+		}
+		if model.CatalogName != prices[slug].Name {
+			t.Errorf("%s CatalogName = %q, want raw catalog name %q", slug, model.CatalogName, prices[slug].Name)
+		}
+		if model.CanonicalSlug != prices[slug].CanonicalSlug || model.HuggingFaceID != prices[slug].HuggingFaceID {
+			t.Errorf("%s catalog identifiers = canonical %q/HF %q, want %q/%q", slug, model.CanonicalSlug, model.HuggingFaceID, prices[slug].CanonicalSlug, prices[slug].HuggingFaceID)
+		}
+	}
+}
+
 func TestIsPlaceholderRecognizesSupportedForms(t *testing.T) {
 	for _, value := range []string{
 		"_нужен обзор_", " _НУЖЕН ОБЗОР_ ", "_нужен обзор_ (нет данных)", "_нужен обзор_(нет данных)",
