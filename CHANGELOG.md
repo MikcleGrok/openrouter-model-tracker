@@ -1,9 +1,9 @@
 # What's New
 
-## [1.16.15]
+## [1.16.16]
 
 - Add exact vals.ai mappings for Claude Opus 5 (`anthropic/claude-opus-5` -> `anthropic/claude-opus-5`, 97.0% SWE-bench Verified) and Claude Sonnet 5 (`anthropic/claude-sonnet-5` -> `anthropic/claude-sonnet-5`, 79.6% SWE-bench Verified), so both are included by `quality>=75`.
-- Increase the vals.ai provenance count from 21 to 23 and extend production model-map regression coverage to verify both exact mappings.
+- Add the exact vals.ai mapping for Claude Fable 5 (`anthropic/claude-fable-5` -> `anthropic/claude-fable-5`, 95.0% SWE-bench Verified), increase the vals.ai provenance count to 23, and extend production model-map regression coverage.
 
 ## [1.16.14]
 
