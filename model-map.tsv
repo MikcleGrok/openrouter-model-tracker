@@ -47,6 +47,7 @@
 # расхождении чекпоинта/варианта — ошибка здесь пройдёт в ranking молча.
 
 # ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
+anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5
 anthropic/claude-opus-4.6	tier=opus
 openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna	arena=gpt-5.6-luna-xhigh-text
 openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol	arena=gpt-5.6-sol-xhigh-text
@@ -56,6 +57,7 @@ openai/gpt-5.6-terra	tier=opus	vals=openai/gpt-5.6-terra	arena=gpt-5.6-terra-xhi
 openai/gpt-5.6-terra-pro	tier=opus
 
 # ── ≈ Sonnet 5 ───────────────────────────────────────────────────────────────
+anthropic/claude-sonnet-5	tier=sonnet	vals=anthropic/claude-sonnet-5
 anthropic/claude-sonnet-4.5	tier=sonnet
 minimax/minimax-m3	tier=sonnet	vals=minimax/MiniMax-M3	arena=minimax-m3
 meta/muse-spark-1.1	tier=sonnet	vals=meta/muse_spark_1_1	arena=super-nova-ext-3tam-text
