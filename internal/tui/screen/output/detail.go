@@ -197,7 +197,7 @@ func detailPhysicalLines(lines []string, regions []Region, width int) ([]string,
 			if index > 0 {
 				paragraph = indent + paragraph
 			}
-			wrapped := wrapSafeLine(paragraph, width)
+			wrapped := wrapDetailLine(paragraph, width)
 			for i := range wrapped {
 				wrapped[i] = fitDetailLine(wrapped[i], width)
 			}
@@ -219,6 +219,33 @@ func detailPhysicalLines(lines []string, regions []Region, width int) ([]string,
 
 func sanitizeDetailLine(value string) string {
 	return normalizePlainLine(value)
+}
+
+// wrapDetailLine is wrapSafeLine plus the one thing a list needs that a
+// field row does not: a wrapped bullet continues under its own text, not
+// under its marker, so the marker column keeps identifying where each
+// item starts. The marker is measured out of the available width before
+// wrapping rather than prepended afterwards, so no continuation row can
+// end up wider than the viewport and be truncated by fitDetailLine. A
+// section heading ("-- Pricing --") also starts with "-" and is
+// deliberately excluded: it is a heading, not an item.
+func wrapDetailLine(value string, width int) []string {
+	value = normalizeLine(value)
+	lead := value[:len(value)-len(strings.TrimLeft(value, " "))]
+	content := strings.TrimLeft(value, " ")
+	if !strings.HasPrefix(content, DetailBulletMarker) || strings.HasPrefix(content, "--") {
+		return wrapSafeLine(value, width)
+	}
+	marker := ansi.StringWidth(lead) + ansi.StringWidth(DetailBulletMarker)
+	wrapped := Wrap(content[len(DetailBulletMarker):], max(1, width-marker))
+	for i := range wrapped {
+		if i == 0 {
+			wrapped[i] = lead + DetailBulletMarker + wrapped[i]
+			continue
+		}
+		wrapped[i] = lead + strings.Repeat(" ", ansi.StringWidth(DetailBulletMarker)) + wrapped[i]
+	}
+	return wrapped
 }
 
 func normalizePlainLine(value string) string {

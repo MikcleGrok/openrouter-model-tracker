@@ -1056,7 +1056,7 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.detailOffset = 0
 		case "end", "G":
 			m.detailOffset = maxOffset
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4":
 			m.detailTab = int(key[0] - '1')
 			m.detailTabsActive = true
 			m.detailOffset = 0
@@ -3097,9 +3097,45 @@ func (m tuiModel) detailLines(row model.Model) []string {
 	return m.detailLinesAt(row, time.Now())
 }
 
-const detailTabCount = 5
+// detailTabCount is both the number of tabs and the highest digit key
+// that selects one: the digits stay 1..detailTabCount with no gap, so a
+// merged group never leaves a dead key behind.
+const detailTabCount = 4
 
-var detailTabTitles = [detailTabCount][2]string{{"Identity", "Идентичность"}, {"Pricing", "Цены"}, {"Benchmarks", "Бенчмарки"}, {"Provenance", "Происхождение"}, {"Fit & Notes", "Соответствие и заметки"}}
+const (
+	detailTabIdentity = iota
+	detailTabPricing
+	detailTabBenchmarks
+	detailTabFitNotes
+)
+
+var detailTabTitles = [detailTabCount][2]string{{"Identity", "Идентичность"}, {"Pricing", "Цены"}, {"Benchmarks", "Бенчмарки"}, {"Fit & Notes", "Соответствие и заметки"}}
+
+// detailSectionTab maps a section heading to the tab that shows it. The
+// document keeps all five headings — they are what groups the rows
+// visually — but Provenance and metadata is shown inside the Identity
+// tab: both blocks are short, static, rarely-changing metadata about the
+// same thing (what this model is and where the record came from), and
+// together they still fit one screen. Fit and notes is deliberately not
+// merged in with them: its task-fit list and per-claim note bullets are
+// the one block whose height is driven by the data, and on a model with
+// a long note they alone fill most of a terminal.
+func detailSectionTab(heading string) (int, bool) {
+	switch {
+	case strings.Contains(heading, "-- Идентичность --"), strings.Contains(heading, "-- Identity --"):
+		return detailTabIdentity, true
+	case strings.Contains(heading, "-- Цены --"), strings.Contains(heading, "-- Pricing --"):
+		return detailTabPricing, true
+	case strings.Contains(heading, "-- Бенчмарки --"), strings.Contains(heading, "-- Benchmarks --"):
+		return detailTabBenchmarks, true
+	case strings.Contains(heading, "-- Происхождение"), strings.Contains(heading, "-- Provenance"):
+		return detailTabIdentity, true
+	case strings.Contains(heading, "-- Соответствие"), strings.Contains(heading, "-- Fit and notes --"):
+		return detailTabFitNotes, true
+	default:
+		return 0, false
+	}
+}
 
 func (m tuiModel) detailLinesForTab(row model.Model) []string {
 	lines := m.detailLines(row)
@@ -3107,21 +3143,24 @@ func (m tuiModel) detailLinesForTab(row model.Model) []string {
 		return lines
 	}
 	result := []string{lines[0]}
-	section := 0
+	section := detailTabIdentity
 	for _, line := range lines[1:] {
-		plain := ansi.Strip(line)
-		if strings.Contains(plain, "-- Цены --") || strings.Contains(plain, "-- Pricing --") {
-			section = 1
-		} else if strings.Contains(plain, "-- Бенчмарки --") || strings.Contains(plain, "-- Benchmarks --") {
-			section = 2
-		} else if strings.Contains(plain, "-- Происхождение") || strings.Contains(plain, "-- Provenance") {
-			section = 3
-		} else if strings.Contains(plain, "-- Соответствие") || strings.Contains(plain, "-- Fit and notes --") {
-			section = 4
+		tab, heading := detailSectionTab(ansi.Strip(line))
+		if heading {
+			section = tab
 		}
-		if section == m.detailTab {
-			result = append(result, line)
+		if section != m.detailTab {
+			continue
 		}
+		// A tab that shows two non-adjacent sections would otherwise
+		// inherit whichever blank line happened to precede the first of
+		// them and butt the second block straight against the first.
+		// The separator is the tab's own, so it is made here rather
+		// than relied on from the document's ordering.
+		if heading && len(result) > 1 && strings.TrimSpace(ansi.Strip(result[len(result)-1])) != "" {
+			result = append(result, "")
+		}
+		result = append(result, line)
 	}
 	if len(result) == 1 {
 		result = append(result, detailTabTitles[m.detailTab][0]+": "+tuiDetailPlaceholderForLang(m.lang))
@@ -3279,14 +3318,14 @@ func tuiDetailView(m tuiModel) string {
 
 func detailFooterForLang(offset, end, total, width int, ru bool) string {
 	if ru {
-		full := fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть · вкладки 1-5/←→/Tab · h тоже закрывает", offset+1, end, total)
+		full := fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc закрыть · вкладки 1-%d/←→/Tab · h тоже закрывает", offset+1, end, total, detailTabCount)
 		short := fmt.Sprintf("Детали %d-%d/%d · ↑↓ прокрутка · Esc/h · Tab вкладки", offset+1, end, total)
 		if width > 0 && ansi.StringWidth(full) > width {
 			return short
 		}
 		return full
 	}
-	full := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close · tabs 1-5/Left-Right/Tab · h also closes", offset+1, end, total)
+	full := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc close · tabs 1-%d/Left-Right/Tab · h also closes", offset+1, end, total, detailTabCount)
 	short := fmt.Sprintf("Detail %d-%d/%d · ↑↓ scroll · Esc/h · Tab tabs", offset+1, end, total)
 	if width > 0 && ansi.StringWidth(full) > width {
 		return short
@@ -3335,7 +3374,7 @@ func tuiDetailTabBar(active int, lang string, widths ...int) string {
 		activeTitle = detailTabTitles[active][1]
 	}
 	if width > 0 && width < 80 {
-		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/%d] %s", active+1, detailTabCount, activeTitle))
 	}
 	parts := make([]string, 0, detailTabCount)
 	for i, titles := range detailTabTitles {
@@ -3351,7 +3390,7 @@ func tuiDetailTabBar(active int, lang string, widths ...int) string {
 	}
 	bar := strings.Join(parts, " ")
 	if width > 0 && ansi.StringWidth(ansi.Strip(bar)) > width {
-		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/%d] %s", active+1, detailTabCount, activeTitle))
 	}
 	return bar
 }
@@ -3640,14 +3679,15 @@ The last column stays selected.
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
-The five groups are Identity, Pricing, Benchmarks, Provenance, and Fit & Notes.
-\t1-5\ttabs\tselect Identity, Pricing, Benchmarks, Provenance, or Fit & Notes; resets scroll.
+The four groups are Identity, Pricing, Benchmarks, and Fit & Notes. Identity also carries provenance and metadata: both blocks are short and static, and together they still fit one screen.
+\t1-4\ttabs\tselect Identity, Pricing, Benchmarks, or Fit & Notes; resets scroll.
 \tLeft / Right\ttabs\tselect the previous or next tab; resets scroll.
 \tTab / Shift+Tab\ttabs\tselect the next or previous tab; resets scroll.
 \tEnter or Right\tdetail\tEnter or Right opens the detail screen for the highlighted model.
 \tEsc or h\tdetail\tclose it and return to the list with the same cursor; Left/Right switch tabs.
 \tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
 The screen opens on the Identity tab and keeps the model header visible above the active tab. It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
+Fit & Notes is a list, not a paragraph: every task-fit tag is its own item, and the note is split into one item per claim.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
 History shows separate input price, output price, SWE score percentage, SWE Q/P, and Arena raw Elo series. Missing observations are gaps; no-history and a metric unavailable for this slug are shown explicitly. Current values are never substituted into a historical series.
@@ -3890,14 +3930,15 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 // tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
 // translation.
 const tuiHelpSectionDetailBodyRU = `Экран деталей модели
-Пять групп: Идентичность, Цены, Бенчмарки, Происхождение, Соответствие и заметки.
-\t1-5\tвкладки\tвыбрать Идентичность, Цены, Бенчмарки, Происхождение или Соответствие и заметки; прокрутка сбрасывается.
+Четыре группы: Идентичность, Цены, Бенчмарки, Соответствие и заметки. Происхождение и метаданные показаны внутри «Идентичности»: оба блока короткие и статичные, вместе они по-прежнему помещаются на один экран.
+\t1-4\tвкладки\tвыбрать Идентичность, Цены, Бенчмарки или Соответствие и заметки; прокрутка сбрасывается.
 \tLeft / Right\tвкладки\tвыбрать предыдущую или следующую вкладку; прокрутка сбрасывается.
 \tTab / Shift+Tab\tвкладки\tвыбрать следующую или предыдущую вкладку; прокрутка сбрасывается.
 \tEnter или Right\tдетали\tEnter или Right открывает экран деталей для выделенной модели.
 \tEsc или h\tдетали\tзакрыть его и вернуться к списку с тем же курсором.
 \tUp/Down или j/k\tпрокрутка\tпрокрутить текст деталей; PgUp/PgDown и Home/End тоже работают.
 Экран открывается на вкладке «Идентичность» и сохраняет заголовок модели над активной вкладкой. Он показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
+«Соответствие и заметки» — это список, а не абзац: каждый тег task fit — отдельный пункт, а заметка разбита на пункты по одному на утверждение.
 Вендорское описание переносится по ширине терминала, а не обрезается, как ячейка таблицы.
 Экран также содержит ссылку на страницу модели на OpenRouter и, если каталог её знает, — на репозиторий HuggingFace. Ссылки показаны как обычный текст; кликабельных терминальных гиперссылок нет.
 История показывает отдельные ряды входной цены, выходной цены, процента SWE, SWE Q/P и сырого Arena Elo. Отсутствующие наблюдения — это пропуски; отсутствие истории и метрики для этого slug показываются явно. Текущие значения никогда не подставляются в исторический ряд.

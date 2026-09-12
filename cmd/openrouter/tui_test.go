@@ -227,12 +227,12 @@ func TestTUIDetailViewPreservesProductionFieldsAsPlainRows(t *testing.T) {
 	if strings.Contains(view, `\n`) || strings.Contains(view, "\x1b]8;") {
 		t.Fatalf("detail view retained terminal payload: %q", view)
 	}
-	for _, want := range []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "Claude reference: ≈ Sonnet", "Task fit: implement + audit", "Context: 128K tokens", "Input: $0.50 per M tokens", "Output: $2.00 per M tokens", "Open weights: yes", "Source: https://bench.example/score", "Metadata source: https://meta.example/model", "Description:", "  first paragraph", "  second paragraph"} {
+	for _, want := range []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "Claude reference: ≈ Sonnet", "Task fit:", "  - implement", "  - audit", "Context: 128K tokens", "Input: $0.50 per M tokens", "Output: $2.00 per M tokens", "Open weights: yes", "Source: https://bench.example/score", "Metadata source: https://meta.example/model", "Description:", "  first paragraph", "  second paragraph", "  - release note", "  - with provenance"} {
 		if strings.Count(view, want) != 1 {
 			t.Fatalf("detail field %q count in view = %d\n%s", want, strings.Count(view, want), view)
 		}
 	}
-	order := []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "-- Pricing --", "-- Benchmarks --", "-- Provenance and metadata --", "-- Fit and notes --"}
+	order := []string{"Provider: Acme", "License: Apache-2.0", "Tier: sonnet", "-- Provenance and metadata --", "-- Pricing --", "-- Benchmarks --", "-- Fit and notes --"}
 	previous := -1
 	for _, marker := range order {
 		index := strings.Index(view, marker)
@@ -688,8 +688,14 @@ func TestTUISearchEscapeKeepsAppliedQuery(t *testing.T) {
 func TestTUIDetailPrioritizesFitPricingAndBenchmarks(t *testing.T) {
 	lines := detailLinesForTest(model.Model{DisplayName: "Model", Slug: "vendor/model", Description: "long description", TaskFit: []string{"implement"}, InPerM: 1, OutPerM: 2, Score: &model.ScoreInfo{Value: 90}, ScoreLabel: "90%"}, scoreSourceSWEBench, 100, time.Unix(0, 0))
 	joined := strings.Join(lines, "\n")
-	if strings.Index(joined, "Task fit:") > strings.Index(joined, "-- Цены --") || strings.Index(joined, "-- Цены --") > strings.Index(joined, "-- Бенчмарки --") {
+	if strings.Index(joined, "-- Идентичность --") > strings.Index(joined, "-- Цены --") || strings.Index(joined, "-- Цены --") > strings.Index(joined, "-- Бенчмарки --") {
 		t.Fatalf("detail priority order is wrong:\n%s", joined)
+	}
+	// Task fit belongs to the fit block, not to identity: it is the list
+	// the Fit & Notes tab is built around, and duplicating it as a joined
+	// one-liner under identity would say the same thing twice.
+	if strings.Index(joined, "Task fit:") < strings.Index(joined, "-- Соответствие") {
+		t.Fatalf("task fit did not move into the fit block:\n%s", joined)
 	}
 	if strings.Index(joined, "Описание:") < strings.Index(joined, "-- Benchmarks --") {
 		t.Fatalf("description appears before benchmarks:\n%s", joined)
@@ -4402,9 +4408,11 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		"  вход: $1.00 от 272K+",
 		"  выход: $4.00 от 272K+",
 		"Открытые веса: нет",
-		"Task fit: implement + debug",
+		"Task fit:",
+		"  - implement",
+		"  - debug",
 		"Заметка:",
-		"  Дорогая, но лучшая по SWE-bench.",
+		"  - Дорогая, но лучшая по SWE-bench.",
 		"Описание:",
 	} {
 		if !strings.Contains(joined, want) {
@@ -4412,7 +4420,7 @@ func TestTUIDetailLinesShowEveryBlockInOrder(t *testing.T) {
 		}
 	}
 
-	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Тир:", "Task fit:", "-- Цены --", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Дата релиза:", "Описание:", "Заметка:"}
+	order := []string{"GPT-5.6 Luna", "Производитель:", "Провайдер:", "Лицензия:", "Тир:", "-- Цены --", "Контекст:", "Открытые веса:", "Оценка SWE-bench", "Оценка LMArena", "Дата релиза:", "Описание:", "Task fit:", "Заметка:"}
 	previous := -1
 	for _, prefix := range order {
 		index := tuiDetailIndex(t, lines, prefix)
@@ -4518,16 +4526,22 @@ func TestTUIDetailLinesNeverPrintAnEloUnderTheSWEBenchHeading(t *testing.T) {
 func TestTUIDetailLinesFallBackToThePlaceholder(t *testing.T) {
 	lines := detailLinesForTest(model.Model{Slug: "a/bare"}, scoreSourceSWEBench, 60, time.Now())
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Производитель: ❔", "Провайдер: н/д", "Лицензия: н/д", "Описание:", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: н/д", "Открытые веса: н/д", "Task fit: н/д"} {
+	for _, want := range []string{"Производитель: ❔", "Провайдер: н/д", "Лицензия: н/д", "Описание:", "Тир: н/д", "Claude-референс: н/д", "Дата релиза: н/д", "Страница OpenRouter: https://openrouter.ai/a/bare", "Контекст: н/д", "Открытые веса: н/д", "Task fit:\n  н/д"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("an empty model is missing the placeholder line %q:\n%s", want, joined)
 		}
+	}
+	// A placeholder is the absence of items, never an item: it must not
+	// pick up a bullet marker, or the styling that greys it out stops
+	// matching and an empty list starts reading as a one-entry list.
+	if strings.Contains(joined, "- н/д") {
+		t.Errorf("an empty list was rendered as a bullet:\n%s", joined)
 	}
 	if strings.Contains(joined, "Длинный контекст") {
 		t.Errorf("a model without a long-context tier must not get that block at all:\n%s", joined)
 	}
 	if lines[len(lines)-1] != "  н/д" {
-		t.Errorf("an empty description = %q, want the placeholder", lines[len(lines)-1])
+		t.Errorf("an empty note = %q, want the placeholder", lines[len(lines)-1])
 	}
 }
 
@@ -4750,7 +4764,7 @@ func TestTUIDetailViewShowsTheSelectedModelAndBothScoreBlocks(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{tuiDetailTestModel()})
 	m.overlay, m.width, m.height = "detail", 120, 60
 	view := allDetailTabsView(t, &m)
-	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "SWE-bench Verified score", "93.0%", "LMArena score", "1453 Elo", "Task fit: implement + debug", "Дорогая, но лучшая", "long-context flagship", "Esc close", "tabs"} {
+	for _, want := range []string{"GPT-5.6 Luna", "openai/gpt-5.6-luna", "SWE-bench Verified score", "93.0%", "LMArena score", "1453 Elo", "Task fit:", "  - implement", "  - debug", "Дорогая, но лучшая", "long-context flagship", "Esc close", "tabs"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("detail view is missing %q:\n%s", want, view)
 		}
@@ -5152,7 +5166,7 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 		"Model detail view",
 		"Enter or Right opens the detail screen",
 		"Esc or h closes it",
-		"1-5",
+		"1-4",
 		"Tab / Shift+Tab",
 		"scroll the detail text",
 		"links to the model's OpenRouter page",
@@ -5593,7 +5607,7 @@ func TestTUIDetailScreenShowsModelLinksFromTheSnapshot(t *testing.T) {
 
 	view := allDetailTabsView(t, &m)
 	plain := view
-	m.detailTab, m.detailOffset = 3, 0
+	m.detailTab, m.detailOffset = detailTabIdentity, 0
 	rendered := m.View()
 	for _, want := range []string{
 		"Demo Dated (demo/dated)",
@@ -6310,7 +6324,7 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 		"License: нет", // License itself is empty; falls back to the (untranslated, curated) OpenWeights value.
 		"Tier: opus",
 		"Claude reference: ≈ Opus 4.6",
-		"Task fit: implement + debug",
+		"Task fit:\n  - implement\n  - debug",
 		"Context: 1M tokens",
 		"Input: $0.50 per M tokens",
 		"Output: $3.00 per M tokens",
