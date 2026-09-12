@@ -29,18 +29,21 @@ func TestTUIRuntimeViewGridAcrossDetailNavigationAndReopen(t *testing.T) {
 	m = runtimeTUIUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	assertRuntimeDetailState(t, m, 0)
-	m.detailTab = 3
+	m.detailTab = detailTabIdentity
 	expectedLast := output.Detail(output.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(rows[1])}).MaxOffset
-	m.detailTab = 0
 	for _, step := range []struct {
 		key    string
 		want   int
 		marker string
 	}{
-		{"j", 0, "License:"},
-		{"j", 0, "Tier:"},
-		{"k", 0, "License:"},
-		{"4", 0, "Provenance and metadata"},
+		// The Identity tab carries the provenance block too, so on a
+		// 20-row terminal it scrolls: j/k must move by exactly one row
+		// and be each other's inverse, and the digit key must put the
+		// tab back at the top.
+		{"j", 1, "License:"},
+		{"j", 2, "Tier:"},
+		{"k", 1, "License:"},
+		{"1", 0, "Provenance and metadata"},
 		{"G", expectedLast, "description"},
 		{"g", 0, "Provenance and metadata"},
 	} {
@@ -243,13 +246,34 @@ func runtimeExpectedDetailLines(row model.Model) []string {
 	if canonical == "" {
 		canonical = row.Slug
 	}
-	lines := []string{row.DisplayName + " (" + row.Slug + ")", "", "-- Identity --", "Manufacturer: ❔ " + row.Provider, "Provider: " + row.Provider, "License: " + license, "Tier: " + row.Tier, "Claude reference: " + row.ClaudeRef, "Task fit: " + strings.Join(row.TaskFit, " + "), "", "-- Pricing --", fmt.Sprintf("Context: %dK tokens", (row.Context+500)/1000), fmt.Sprintf("Input: $%.2f per M tokens", row.InPerM), fmt.Sprintf("Output: $%.2f per M tokens", row.OutPerM), "Open weights: " + row.OpenWeights, "", "-- Benchmarks --", "SWE-bench Verified score (percent):"}
+	lines := []string{row.DisplayName + " (" + row.Slug + ")", "", "-- Identity --", "Manufacturer: ❔ " + row.Provider, "Provider: " + row.Provider, "License: " + license, "Tier: " + row.Tier, "Claude reference: " + row.ClaudeRef, "", "-- Pricing --", fmt.Sprintf("Context: %dK tokens", (row.Context+500)/1000), fmt.Sprintf("Input: $%.2f per M tokens", row.InPerM), fmt.Sprintf("Output: $%.2f per M tokens", row.OutPerM), "Open weights: " + row.OpenWeights, "", "-- Benchmarks --", "SWE-bench Verified score (percent):"}
 	if row.Score == nil {
 		lines = append(lines, "  Value: n/a", "  Provenance: raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a; configured_identity=n/a; canonical_id=n/a; release_variant=n/a; model_variant=n/a; reasoning=n/a; provenance=n/a")
 	} else {
 		lines = append(lines, "  Value: n/a", "  Variant measured: "+row.Score.VariantMeasured, "  Metric: "+row.Score.Metric, "  Unit: "+row.Score.Unit, "  Identity status: n/a", "  Source: "+row.Score.SourceURL, "  Checked: "+row.Score.Checked, "  Provenance: raw=91.2; metric="+row.Score.Metric+"; unit="+row.Score.Unit+"; variant="+row.Score.VariantMeasured+"; identity=n/a; checked="+row.Score.Checked+"; source="+row.Score.SourceURL+"; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a; configured_identity=n/a; canonical_id=n/a; release_variant=n/a; model_variant=n/a; reasoning=n/a; provenance=n/a")
 	}
-	return append(lines, "", "LMArena score (Elo rating):", "  Value: n/a", "  Provenance: raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a; configured_identity=n/a; canonical_id=n/a; release_variant=n/a; model_variant=n/a; reasoning=n/a; provenance=n/a", "", "-- Provenance and metadata --", "Release date: n/a", "OpenRouter page: https://openrouter.ai/"+canonical, "Metadata source: "+row.MetadataSourceURL, "Description:", "  "+row.Description, "", "-- Fit and notes --", "Note:", "  "+row.Note)
+	lines = append(lines, "", "LMArena score (Elo rating):", "  Value: n/a", "  Provenance: raw=n/a; metric=n/a; unit=n/a; variant=n/a; identity=missing_identity; checked=n/a; source=n/a; uncertainty=n/a; sample=n/a; harness=n/a; scaffold=n/a; provider=n/a; configuration=n/a; configured_identity=n/a; canonical_id=n/a; release_variant=n/a; model_variant=n/a; reasoning=n/a; provenance=n/a", "", "-- Provenance and metadata --", "Release date: n/a", "OpenRouter page: https://openrouter.ai/"+canonical, "Metadata source: "+row.MetadataSourceURL, "Description:", "  "+row.Description, "", "-- Fit and notes --")
+	return append(lines, runtimeExpectedFitLines(row)...)
+}
+
+// runtimeExpectedFitLines spells out the consolidated Fit and notes
+// block the way the screen must render it: a task-fit list with one item
+// per tag, then the note as items. The fixtures that use it deliberately
+// carry single-claim notes, so the note item is the note itself and the
+// fixture stays independent of the production claim splitter.
+func runtimeExpectedFitLines(row model.Model) []string {
+	lines := []string{"Task fit:"}
+	if len(row.TaskFit) == 0 {
+		lines = append(lines, "  n/a")
+	}
+	for _, fit := range row.TaskFit {
+		lines = append(lines, "  - "+fit)
+	}
+	lines = append(lines, "Note:")
+	if note := strings.TrimSpace(row.Note); note != "" {
+		return append(lines, "  - "+note)
+	}
+	return append(lines, "  n/a")
 }
 
 func runtimeExpectedDetailFrame(row model.Model, width, height, offset int, now time.Time) []string {
@@ -281,13 +305,13 @@ func runtimeExpectedDetailFrameFromLines(lines []string, width, height, offset i
 func runtimeExpectedPayloadLines(row model.Model, now time.Time) []string {
 	date := time.Unix(row.Created, 0).UTC().Format("2006-01-02")
 	age := runtimeExpectedAge(time.Unix(row.Created, 0).UTC(), now)
-	return []string{
+	return append([]string{
 		row.DisplayName + " (" + row.Slug + ")", "", "-- Identity --",
-		"Manufacturer: ❔ PROVIDER_UNIQUE_LONG", "Provider: " + row.Provider, "License: " + row.License, "Tier: " + row.Tier, "Claude reference: " + row.ClaudeRef, "Task fit: " + strings.Join(row.TaskFit, " + "),
+		"Manufacturer: ❔ PROVIDER_UNIQUE_LONG", "Provider: " + row.Provider, "License: " + row.License, "Tier: " + row.Tier, "Claude reference: " + row.ClaudeRef,
 		"", "-- Pricing --", fmt.Sprintf("Context: %dK tokens", (row.Context+500)/1000), "Input: $1.25 per M tokens", "Output: $8.50 per M tokens", "Long context: $2.50 / $12.50 from 256K+", "  input: $2.50 from 256K+", "  output: $12.50 from 256K+", "Price history:", "  2026-08-02: $1/$2, 131K -> $2/$4, 131K", "  2026-08-03: $2/$4, 131K -> $3/$6, 131K", "  2026-08-04: $3/$6, 131K -> $4/$8, 131K", "Price series (input/output per M tokens):", "  input  ._-#", "  output ._-#", "  2026-08-01: input $1 / output $2", "  2026-08-02: input $2 / output $4", "  2026-08-03: input $3 / output $6", "  2026-08-04: input $4 / output $8", "Open weights: " + row.OpenWeights,
 		"", "-- Benchmarks --", "SWE-bench Verified score (percent):", "  Value: n/a", "  Stale: value taken from a previous snapshot", "  Variant measured: BENCHMARK_VARIANT_UNIQUE", "  Metric: BENCHMARK_METRIC_UNIQUE", "  Unit: BENCHMARK_UNIT_UNIQUE", "  Identity status: IDENTITY_STATUS_UNIQUE", "  Source: https://benchmark.example/UNIQUE", "  Checked: BENCHMARK_DATE_UNIQUE", "  Provenance: raw=91.2; metric=BENCHMARK_METRIC_UNIQUE; unit=BENCHMARK_UNIT_UNIQUE; variant=BENCHMARK_VARIANT_UNIQUE; identity=IDENTITY_STATUS_UNIQUE; checked=BENCHMARK_DATE_UNIQUE; source=https://benchmark.example/UNIQUE; uncertainty=UNCERTAINTY_UNIQUE; sample=SAMPLE_SIZE_UNIQUE; harness=HARNESS_UNIQUE; scaffold=SCAFFOLD_UNIQUE; provider=BENCHMARK_PROVIDER_UNIQUE; configuration=CONFIGURATION_UNIQUE; configured_identity=CONFIGURED_IDENTITY_UNIQUE; canonical_id=CANONICAL_ID_UNIQUE; release_variant=RELEASE_VARIANT_UNIQUE; model_variant=MODEL_VARIANT_UNIQUE; reasoning=REASONING_UNIQUE; provenance=PROVENANCE_UNIQUE", "", "LMArena score (Elo rating):", "  Value: n/a", "  Variant measured: ARENA_VARIANT_UNIQUE", "  Metric: ARENA_METRIC_UNIQUE", "  Unit: ARENA_UNIT_UNIQUE", "  Identity status: ARENA_IDENTITY_STATUS_UNIQUE", "  Source: https://arena.example/UNIQUE", "  Checked: ARENA_DATE_UNIQUE", "  Provenance: raw=1201; metric=ARENA_METRIC_UNIQUE; unit=ARENA_UNIT_UNIQUE; variant=ARENA_VARIANT_UNIQUE; identity=ARENA_IDENTITY_STATUS_UNIQUE; checked=ARENA_DATE_UNIQUE; source=https://arena.example/UNIQUE; uncertainty=ARENA_UNCERTAINTY_UNIQUE; sample=ARENA_SAMPLE_SIZE_UNIQUE; harness=ARENA_HARNESS_UNIQUE; scaffold=ARENA_SCAFFOLD_UNIQUE; provider=ARENA_PROVIDER_UNIQUE; configuration=ARENA_CONFIGURATION_UNIQUE; configured_identity=ARENA_CONFIGURED_IDENTITY_UNIQUE; canonical_id=ARENA_CANONICAL_ID_UNIQUE; release_variant=ARENA_RELEASE_VARIANT_UNIQUE; model_variant=ARENA_MODEL_VARIANT_UNIQUE; reasoning=ARENA_REASONING_UNIQUE; provenance=ARENA_PROVENANCE_UNIQUE",
-		"", "-- Provenance and metadata --", fmt.Sprintf("Release date: %s (%s); catalogue entry creation date, release date unknown", date, age), "OpenRouter page: https://openrouter.ai/" + row.CanonicalSlug, "Model page: " + row.ModelURL, "Metadata source: " + row.MetadataSourceURL, "HuggingFace repository: https://huggingface.co/" + row.HuggingFaceID, "Description:", "  " + strings.TrimSpace(row.Description), "", "-- Fit and notes --", "Note:", "  " + strings.TrimSpace(row.Note),
-	}
+		"", "-- Provenance and metadata --", fmt.Sprintf("Release date: %s (%s); catalogue entry creation date, release date unknown", date, age), "OpenRouter page: https://openrouter.ai/" + row.CanonicalSlug, "Model page: " + row.ModelURL, "Metadata source: " + row.MetadataSourceURL, "HuggingFace repository: https://huggingface.co/" + row.HuggingFaceID, "Description:", "  " + strings.TrimSpace(row.Description), "", "-- Fit and notes --",
+	}, runtimeExpectedFitLines(row)...)
 }
 
 // Manufacturer, score blocks and history are derived while Model becomes a

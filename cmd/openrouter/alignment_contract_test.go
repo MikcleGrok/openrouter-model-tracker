@@ -283,7 +283,7 @@ func TestTUIDetailFrameHasExactIndependentLinesAndClearsRightEdge(t *testing.T) 
 	m.rebuild()
 	plain := ansi.Strip(m.View())
 	lines := strings.Split(plain, "\n")
-	want := []string{"Test model (openai/test)", "", "-- Identity --", "Manufacturer:     🌀 OpenAI", "Provider:         OpenAI", "License:          n/a", "Tier:             sonnet", "Claude reference: n/a", "Task fit:         n/a", "", "-- Pricing --", "Context:          128K tokens", "Input:            $1.20 per M tokens", "Output:           $4.50 per M tokens", "Price history:    unavailable (no observations)", "Open weights:     n/a", "", "-- Benchmarks --", "SWE-bench Verified score (percent):", "  Value: 96.2%", "  Variant measured: n/a", "  Metric: n/a"}
+	want := []string{"Test model (openai/test)", "", "-- Identity --", "Manufacturer:     🌀 OpenAI", "Provider:         OpenAI", "License:          n/a", "Tier:             sonnet", "Claude reference: n/a", "", "-- Pricing --", "Context:          128K tokens", "Input:            $1.20 per M tokens", "Output:           $4.50 per M tokens", "Price history:    unavailable (no observations)", "Open weights:     n/a", "", "-- Benchmarks --", "SWE-bench Verified score (percent):", "  Value: 96.2%", "  Variant measured: n/a", "  Metric: n/a"}
 	for i, expected := range want {
 		if lines[i] != expected {
 			t.Fatalf("detail line %d = %q, want %q\n%s", i, lines[i], expected, plain)

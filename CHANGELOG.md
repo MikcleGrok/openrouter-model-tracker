@@ -1,5 +1,12 @@
 # What's New
 
+## [Unreleased]
+
+- Consolidate the TUI model-detail screen from five tabs to four: Provenance and metadata now shares the Identity tab, and the digit keys stay sequential at `1`-`4`.
+- Render Fit & Notes as a list instead of a paragraph — one item per task-fit tag, one item per note claim, with wrapped items aligned under their own text.
+- Move Task fit out of Identity and into the Fit & Notes tab it names, so the same list is not shown twice.
+- Add a height budget to the detail screen's tests: with no history graphs, every tab fits a 40-row terminal at both 100 and 80 columns, in English and Russian.
+
 ## [1.17.0]
 
 - Add 17 `model-map.tsv` entries for previously untracked models (Claude Fable 5.1, Opus 4.7/4.8, Sonnet 4.6, GPT-6 Astra, Grok 4.6, Gemini 3.5/3.7/3.8 Flash, GLM 5.3/4.7/5.3-flash/4.7-flash, MiniMax M2/M2.5, Qwen3-Next-80B, Qwen3-235B-2507), fix the dead `qwen3.8-max` mapping to point at `qwen3.8-max-0902`, and add the missing Arena keys to the three Claude 5 lines.

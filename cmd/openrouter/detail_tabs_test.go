@@ -8,11 +8,131 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
+	tuioutput "github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
 )
+
+// detailScreenBudget is the "fits one screen" target this layout is cut
+// to: a full-screen terminal on a laptop display, in rows including the
+// model header, the tab bar, the footer and their separators. 80 columns
+// is the narrow end of the same budget; the full detail view is never
+// laid out for anything narrower without scrolling.
+const detailScreenBudget = 40
+
+// detailBudgetRow is a deliberately worst-case row for the height budget:
+// every task-fit tag the taxonomy has, and a note as long as the longest
+// one notes.yaml actually carries, written as the several claims such a
+// note is really made of.
+func detailBudgetRow() model.Model {
+	return model.Model{
+		Slug: "vendor/worst-case", DisplayName: "Worst case model", Provider: "Vendor", License: "да (кастомная лицензия, свободно до 100M MAU)", Tier: "sonnet", ClaudeRef: "≈ Sonnet 5 — тот же чекпоинт",
+		Context: 1000000, InPerM: 1.25, OutPerM: 8.5, OpenWeights: "да, MIT", CanonicalSlug: "vendor/worst-case-20260715", HuggingFaceID: "vendor/Worst-Case", ModelURL: "https://vendor.example/news/worst-case", MetadataSourceURL: "https://arena.ai/leaderboard/text", Created: 1784160000,
+		Description: "Worst case is a 2.8T parameter open-weight multimodal reasoning model. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at end-to-end software tasks and code review.",
+		TaskFit:     []string{"implement", "plan", "research", "debug", "audit", "refactor", "test"},
+		Note: "Основное число изменено в этом обновлении: 93.4% взяты с живого независимого лидерборда vals.ai (ранг #4, обновление 2026-07-22, продукт совпадает точно). " +
+			"Прошлая версия документа показывала 76.8%, но источник этого числа не удалось отследить на 2026-07-30 — нашлись только другие метрики (Toolathlon-Verified 76.5%, FrontierSWE 81.2%, DeepSWE 67.5%, SWE Marathon 42.0%, Program Bench 77.8%), ни одна из них не «76.8% SWE-bench Verified». " +
+			"По правилу «независимое измерение приоритетнее вендорского» в ранжирование пошло 93.4% (качество/цена 15.6 вместо прежних 12.8); 76.8% сохранено здесь как альтернативная цифра с неподтверждённым источником. " +
+			"Расхождение такого размера у этой модели правдоподобно объясняется скаффолдом: на Terminal-Bench 2.1 у неё же 88.3% на харнессе Moonshot против 80.9% на прогоне vals.ai. " +
+			"По сырой оценке 93.4% модель уже на уровне тира выше, но оценка спорная, а цена равна полному прайсу без скидки — строка оставлена в этом тире; если 93.4% подтвердится вторым независимым источником, её следует перенести выше.",
+	}
+}
+
+func detailBudgetModel(t *testing.T, row model.Model, lang string, width, height int) tuiModel {
+	t.Helper()
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.visible, m.cursor, m.lang = m.models, 0, lang
+	m.width, m.height = width, height
+	m.overlay, m.detailTabsActive, m.detailOffset = "detail", true, 0
+	return m
+}
+
+func detailTabHeight(m tuiModel, row model.Model, tab int) (used, capacity int) {
+	m.detailTab = tab
+	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: 0, Lines: m.detailFrameLines(row)})
+	return frame.MaxOffset, m.height
+}
+
+// TestEveryDetailTabFitsOneScreen is the budget the consolidation was cut
+// to, asserted on the screen's own viewport primitive: MaxOffset is zero
+// exactly when a tab needs no scrolling at all. It runs on a worst-case
+// row with no price or score history — history is a graph that scrolls by
+// design and is not what the grouping is sized for — in both languages
+// and at both ends of the width budget.
+func TestEveryDetailTabFitsOneScreen(t *testing.T) {
+	row := detailBudgetRow()
+	row.Score = &model.ScoreInfo{Value: 93.4, Metric: "SWE-bench Verified", Unit: "%", VariantMeasured: "vendor/worst-case", SourceURL: "https://www.vals.ai/benchmarks/swebench", Checked: "2026-09-01", IdentityStatus: model.IdentityExact}
+	for _, lang := range []string{"", "ru"} {
+		for _, width := range []int{100, 80} {
+			m := detailBudgetModel(t, row, lang, width, detailScreenBudget)
+			for tab := 0; tab < detailTabCount; tab++ {
+				if overflow, _ := detailTabHeight(m, row, tab); overflow > 0 {
+					m.detailTab = tab
+					t.Errorf("lang %q width %d: tab %d (%s) overflows the %d-row budget by %d rows:\n%s", lang, width, tab+1, detailTabTitles[tab][0], detailScreenBudget, overflow, strings.Join(m.detailFrameLines(row), "\n"))
+				}
+			}
+		}
+	}
+}
+
+// TestFitAndNotesStaysItsOwnTabBecauseItWouldNotFitInsideIdentity records
+// why the merge stopped where it did. The user's rule is "one screen, and
+// split what does not fit": Identity and provenance together do fit, so
+// they share a tab; adding the fit block to them does not, so it keeps
+// its own. If the content ever shrinks enough for all three to fit, this
+// test is the one that says the grouping may be revisited.
+func TestFitAndNotesStaysItsOwnTabBecauseItWouldNotFitInsideIdentity(t *testing.T) {
+	row := detailBudgetRow()
+	m := detailBudgetModel(t, row, "", 80, detailScreenBudget)
+	m.detailTab = detailTabIdentity
+	identity := m.detailFrameLines(row)
+	m.detailTab = detailTabFitNotes
+	fit := m.detailFrameLines(row)
+	// The merged tab would carry one header and one tab bar, so the fit
+	// block contributes everything past its own three chrome rows.
+	merged := append(append([]string(nil), identity...), fit[3:]...)
+	if tuioutput.Detail(tuioutput.DetailData{Width: 80, Height: detailScreenBudget, Lines: merged}).MaxOffset == 0 {
+		t.Fatalf("Identity, provenance and the fit block now fit one screen together (%d rows at 80 columns); the three-way merge is worth revisiting", len(merged))
+	}
+	if tuioutput.Detail(tuioutput.DetailData{Width: 80, Height: detailScreenBudget, Lines: identity}).MaxOffset != 0 {
+		t.Fatalf("the Identity tab that does carry provenance no longer fits one screen:\n%s", strings.Join(identity, "\n"))
+	}
+}
+
+// TestFitAndNotesTabIsAListNotAParagraph is the user-visible result of
+// the restructuring, taken off the rendered screen rather than off the
+// line builder: one item per task-fit tag, one item per note claim, and
+// no claim left glued to the next.
+func TestFitAndNotesTabIsAListNotAParagraph(t *testing.T) {
+	row := model.Model{Slug: "vendor/model", DisplayName: "Vendor model", TaskFit: []string{"implement", "plan", "test"}, Note: "Первое утверждение про модель. Второе утверждение про неё же."}
+	for _, test := range []struct {
+		lang        string
+		fitHeading  string
+		noteHeading string
+	}{{"", "Task fit:", "Note:"}, {"ru", "Task fit:", "Заметка:"}} {
+		m := detailBudgetModel(t, row, test.lang, 100, detailScreenBudget)
+		m.detailTab = detailTabFitNotes
+		view := ansi.Strip(m.View())
+		want := []string{test.fitHeading, "  - implement", "  - plan", "  - test", test.noteHeading, "  - Первое утверждение про модель.", "  - Второе утверждение про неё же."}
+		previous := -1
+		for _, line := range want {
+			index := strings.Index(view, "\n"+line)
+			if index < 0 {
+				t.Fatalf("lang %q: the fit tab has no row %q:\n%s", test.lang, line, view)
+			}
+			if index <= previous {
+				t.Fatalf("lang %q: row %q is out of order:\n%s", test.lang, line, view)
+			}
+			previous = index
+		}
+		if strings.Contains(view, "implement + plan") || strings.Contains(view, "модель. Второе") {
+			t.Fatalf("lang %q: the fit tab still renders joined prose:\n%s", test.lang, view)
+		}
+	}
+}
 
 func TestDetailTabBarLocalizesAndHighlightsActiveTab(t *testing.T) {
 	bar := tuiDetailTabBar(2, "ru")
@@ -98,7 +218,7 @@ func TestDetailTabsOpenAndNavigateWithResetScroll(t *testing.T) {
 	if m.detailTab != 2 || m.detailOffset != 0 {
 		t.Fatalf("Shift+Tab navigation = tab %d offset %d", m.detailTab, m.detailOffset)
 	}
-	if bar := tuiDetailTabBar(2, "", 20); !strings.Contains(bar, "[3/5]") {
+	if bar := tuiDetailTabBar(2, "", 20); !strings.Contains(bar, "[3/4]") {
 		t.Fatalf("narrow tab bar lost active accessibility: %q", bar)
 	}
 }
@@ -176,16 +296,138 @@ func TestDetailHelpEnglishRussianParity(t *testing.T) {
 	if got := detailHelpKeyActionInventory(t, english); !reflect.DeepEqual(got, detailHelpKeyActionInventory(t, russian)) {
 		t.Fatalf("English/Russian detail help key/action inventory differs: EN=%v RU=%v", got, detailHelpKeyActionInventory(t, russian))
 	}
-	for _, want := range []string{"Identity", "Pricing", "Benchmarks", "Provenance", "Fit & Notes", "1-5", "Left / Right", "Tab / Shift+Tab", "Esc or h", "SWE score", "Q/P", "source", "unit"} {
+	for _, want := range []string{"Identity", "Pricing", "Benchmarks", "provenance", "Fit & Notes", "1-4", "Left / Right", "Tab / Shift+Tab", "Esc or h", "SWE score", "Q/P", "source", "unit"} {
 		if !strings.Contains(english, want) {
 			t.Errorf("English detail help missing %q", want)
 		}
 	}
-	for _, want := range []string{"Идентичность", "Цены", "Бенчмарки", "Происхождение", "Соответствие и заметки", "1-5", "Left / Right", "Tab / Shift+Tab", "Esc или h", "SWE", "Q/P", "источник", "единицу"} {
+	for _, want := range []string{"Идентичность", "Цены", "Бенчмарки", "Происхождение", "Соответствие и заметки", "1-4", "Left / Right", "Tab / Shift+Tab", "Esc или h", "SWE", "Q/P", "источник", "единицу"} {
 		if !strings.Contains(russian, want) {
 			t.Errorf("Russian detail help missing %q", want)
 		}
 	}
+	// The help must name the tabs the build actually has, in the build's
+	// own order, in both languages — a merged-away group left in the text
+	// is exactly the drift the inventory check above cannot see.
+	for tab, titles := range detailTabTitles {
+		if !strings.Contains(english, titles[0]) {
+			t.Errorf("English detail help does not name tab %d (%q)", tab+1, titles[0])
+		}
+		if !strings.Contains(russian, titles[1]) {
+			t.Errorf("Russian detail help does not name tab %d (%q)", tab+1, titles[1])
+		}
+	}
+	for _, gone := range []string{"1-5", "The five groups", "or Fit & Notes; resets scroll.\n\t"} {
+		if strings.Contains(english, gone) {
+			t.Errorf("English detail help still documents the removed five-tab layout: %q", gone)
+		}
+	}
+	if strings.Contains(russian, "1-5") || strings.Contains(russian, "Пять групп") {
+		t.Errorf("Russian detail help still documents the removed five-tab layout")
+	}
+}
+
+// TestDetailTabInventoryIsSequentialAndMergesProvenanceIntoIdentity pins
+// the consolidated layout itself: four tabs, digit keys 1..4 with no
+// gap, and every section heading the document can emit routed to one of
+// them — Provenance into Identity, Fit and notes kept on its own.
+func TestDetailTabInventoryIsSequentialAndMergesProvenanceIntoIdentity(t *testing.T) {
+	if detailTabCount != 4 || len(detailTabTitles) != detailTabCount {
+		t.Fatalf("detail tab count = %d with %d titles, want 4", detailTabCount, len(detailTabTitles))
+	}
+	for _, want := range []struct {
+		heading string
+		tab     int
+	}{
+		{"-- Identity --", detailTabIdentity},
+		{"-- Идентичность --", detailTabIdentity},
+		{"-- Provenance and metadata --", detailTabIdentity},
+		{"-- Происхождение и метаданные --", detailTabIdentity},
+		{"-- Pricing --", detailTabPricing},
+		{"-- Цены --", detailTabPricing},
+		{"-- Benchmarks --", detailTabBenchmarks},
+		{"-- Бенчмарки --", detailTabBenchmarks},
+		{"-- Fit and notes --", detailTabFitNotes},
+		{"-- Соответствие и заметки --", detailTabFitNotes},
+	} {
+		got, ok := detailSectionTab(want.heading)
+		if !ok || got != want.tab {
+			t.Errorf("detailSectionTab(%q) = %d/%v, want %d", want.heading, got, ok, want.tab)
+		}
+	}
+	if _, ok := detailSectionTab("Provider: Acme"); ok {
+		t.Errorf("a plain field row was taken for a section heading")
+	}
+	for _, titles := range detailTabTitles {
+		for _, title := range titles {
+			if strings.TrimSpace(title) == "" {
+				t.Errorf("tab title %q is blank", title)
+			}
+		}
+	}
+}
+
+// TestDetailDigitKeysCoverEveryTabAndStopAtTheLastOne walks the real
+// runtime key path: 1..detailTabCount each select their own tab, and the
+// first digit past the end changes nothing, so no key points at content
+// that was merged away.
+func TestDetailDigitKeysCoverEveryTabAndStopAtTheLastOne(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo", Tier: "sonnet", InPerM: 1, OutPerM: 2}})
+	m.visible, m.cursor, m.width, m.height = m.models, 0, 80, 24
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	for tab := 0; tab < detailTabCount; tab++ {
+		m.detailOffset = 5
+		m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune('1' + tab)}})
+		if m.detailTab != tab || m.detailOffset != 0 {
+			t.Fatalf("key %d selected tab %d offset %d", tab+1, m.detailTab, m.detailOffset)
+		}
+	}
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune('1' + detailTabCount)}})
+	if m.detailTab != detailTabCount-1 || m.overlay != "detail" {
+		t.Fatalf("key %d past the last tab = tab %d overlay %q", detailTabCount+1, m.detailTab, m.overlay)
+	}
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.overlay != "" {
+		t.Fatalf("Esc did not close the detail screen: overlay %q", m.overlay)
+	}
+}
+
+// TestDetailIdentityTabCarriesProvenanceWithItsOwnSeparator is the merge
+// itself, asserted on the tab's real lines: one tab holds both blocks, in
+// document order, separated by a blank row it does not borrow from the
+// section that happens to precede it.
+func TestDetailIdentityTabCarriesProvenanceWithItsOwnSeparator(t *testing.T) {
+	row := model.Model{Slug: "demo/model", DisplayName: "Demo", Provider: "Acme", License: "MIT", Tier: "sonnet", ClaudeRef: "≈ Sonnet", CanonicalSlug: "demo/model", MetadataSourceURL: "https://meta.example/demo", Description: "vendor description", TaskFit: []string{"implement"}, Note: "A note."}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{row})
+	m.visible, m.cursor, m.width, m.height = m.models, 0, 100, 40
+	m.overlay, m.detailTabsActive, m.detailTab = "detail", true, detailTabIdentity
+	lines := m.detailLinesForTab(row)
+	identity, provenance := indexOfLine(lines, "-- Identity --"), indexOfLine(lines, "-- Provenance and metadata --")
+	if identity < 0 || provenance < 0 || provenance < identity {
+		t.Fatalf("Identity tab = %#v", lines)
+	}
+	if strings.TrimSpace(lines[provenance-1]) != "" {
+		t.Errorf("the provenance block has no separator above it: %q", lines[provenance-1])
+	}
+	for _, want := range []string{"Provider: Acme", "Release date:", "OpenRouter page: https://openrouter.ai/demo/model", "Description:"} {
+		if !strings.Contains(strings.Join(lines, "\n"), want) {
+			t.Errorf("Identity tab is missing %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	for _, gone := range []string{"-- Pricing --", "-- Benchmarks --", "-- Fit and notes --", "vendor note"} {
+		if strings.Contains(strings.Join(lines, "\n"), gone) {
+			t.Errorf("Identity tab leaked %q from another tab", gone)
+		}
+	}
+}
+
+func indexOfLine(lines []string, want string) int {
+	for i, line := range lines {
+		if strings.TrimSpace(line) == want {
+			return i
+		}
+	}
+	return -1
 }
 
 func detailHelpKeyActionInventory(t *testing.T, body string) map[string]int {

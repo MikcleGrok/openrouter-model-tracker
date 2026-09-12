@@ -4,7 +4,21 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
+
+// DetailBulletMarker is the detail screen's list marker. It is the same
+// "- " the help document already uses for its own lists, so a bulleted
+// detail block and a bulleted help block read identically; JustifyLines
+// and wrapDetailLine both key their hanging indent off exactly this
+// prefix.
+const DetailBulletMarker = "- "
+
+// detailBulletIndent is the two-column indent every value under a
+// "Label:" heading already carries on this screen (see detailProse). A
+// bullet keeps it so a list reads as the heading's body, not as a new
+// field.
+const detailBulletIndent = "  "
 
 // DetailLabels contains the localized chrome of the detail screen. Values in
 // DetailDTO are model data; labels are the only text selected by language.
@@ -104,7 +118,7 @@ func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLoc
 	lines = append(lines, "", l.Identity)
 	manufacturer := l.Manufacturer + value(icons.Manufacturer(data))
 	lines = append(lines, manufacturer)
-	lines = append(lines, l.Provider+value(data.Provider), l.License+value(data.License), l.Tier+value(data.Tier), l.ClaudeReference+value(data.ClaudeRef), l.TaskFit+taskFit(data.TaskFit, l.Placeholder))
+	lines = append(lines, l.Provider+value(data.Provider), l.License+value(data.License), l.Tier+value(data.Tier), l.ClaudeReference+value(data.ClaudeRef))
 	lines = append(lines, "", l.Pricing, l.Context+context+l.Tokens, l.Input+prices.Price(data.InPerM)+l.PerMTokens, l.Output+prices.Price(data.OutPerM)+l.PerMTokens)
 	if combined, input, output := prices.LongContext(data, lang); combined != "" {
 		lines = append(lines, l.LongContext+combined, l.LongContextInput+input, l.LongContextOutput+output)
@@ -126,23 +140,122 @@ func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLoc
 		lines = append(lines, l.HuggingFace+"https://huggingface.co/"+value(data.HuggingFaceID))
 	}
 	lines = append(lines, l.Description, detailProse(data.Description, l.Placeholder))
-	lines = append(lines, "", l.FitNotes, l.Note)
-	lines = append(lines, detailProse(data.Note, l.Placeholder))
+	lines = append(lines, "", l.FitNotes, detailHeading(l.TaskFit))
+	lines = append(lines, detailBullets(data.TaskFit, l.Placeholder)...)
+	lines = append(lines, l.Note)
+	lines = append(lines, detailBullets(DetailClaims(data.Note), l.Placeholder)...)
 	return lines
 }
 
 func detailProse(value, placeholder string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "  " + placeholder
+		return detailBulletIndent + placeholder
 	}
-	return "  " + value
+	return detailBulletIndent + value
 }
-func taskFit(values []string, placeholder string) string {
-	if len(values) == 0 {
-		return placeholder
+
+// detailHeading turns a field label ("Task fit: ") into the block-heading
+// form ("Task fit:") the Description and Note blocks already use, so a
+// bulleted block needs no second label in DetailLabels and cannot drift
+// out of EN/RU parity with its own inline label.
+func detailHeading(label string) string { return strings.TrimRight(label, " ") }
+
+// detailBullets renders one list item per entry, indented under its
+// heading. An empty list stays a plain indented placeholder rather than a
+// bullet: a placeholder is the absence of items, not an item, and keeping
+// it unbulleted is also what lets the caller's styling recognise it.
+func detailBullets(items []string, placeholder string) []string {
+	cleaned := make([]string, 0, len(items))
+	for _, item := range items {
+		if item = strings.TrimSpace(item); item != "" {
+			cleaned = append(cleaned, item)
+		}
 	}
-	return strings.Join(values, " + ")
+	if len(cleaned) == 0 {
+		return []string{detailBulletIndent + placeholder}
+	}
+	lines := make([]string, 0, len(cleaned))
+	for _, item := range cleaned {
+		lines = append(lines, detailBulletIndent+DetailBulletMarker+item)
+	}
+	return lines
+}
+
+// DetailClaims splits note prose into the separate claims it is actually
+// made of, so each one can be rendered as its own list item instead of
+// disappearing into a paragraph.
+//
+// A split happens only where a terminator (. ! ? ;) is followed by
+// whitespace and then by something that can start a new claim — an
+// uppercase letter, a digit, or an opening quote/bracket. That triple
+// condition is what keeps the shapes this data really contains
+// intact: decimals ("93.4%") and domains ("vals.ai") have no space after
+// the dot, and lowercase abbreviations ("см. arXiv:2511.03929", "т.д.
+// дальше") continue in lower case. Explicit line breaks, including the
+// escaped "\n" this screen's inputs carry, always separate claims.
+func DetailClaims(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	var claims []string
+	for _, paragraph := range splitEscapedLines(value) {
+		claims = append(claims, detailParagraphClaims(paragraph)...)
+	}
+	return claims
+}
+
+func detailParagraphClaims(paragraph string) []string {
+	runes := []rune(strings.TrimSpace(paragraph))
+	if len(runes) == 0 {
+		return nil
+	}
+	var claims []string
+	start := 0
+	for i := 0; i < len(runes); i++ {
+		if !detailClaimTerminator(runes[i]) {
+			continue
+		}
+		end := i + 1
+		for end < len(runes) && detailClaimCloser(runes[end]) {
+			end++
+		}
+		if end >= len(runes) || !unicode.IsSpace(runes[end]) {
+			continue
+		}
+		next := end
+		for next < len(runes) && unicode.IsSpace(runes[next]) {
+			next++
+		}
+		if next >= len(runes) || !detailClaimOpener(runes[next]) {
+			continue
+		}
+		if claim := detailTrimClaim(string(runes[start:end])); claim != "" {
+			claims = append(claims, claim)
+		}
+		start, i = next, next-1
+	}
+	if tail := detailTrimClaim(string(runes[start:])); tail != "" {
+		claims = append(claims, tail)
+	}
+	return claims
+}
+
+// detailTrimClaim drops a trailing semicolon. It is punctuation that
+// joined this claim to the next one, and once the two are separate items
+// it has nothing left to join. A full stop is left alone: it ends a
+// sentence whether or not the sentence is a list item.
+func detailTrimClaim(claim string) string {
+	return strings.TrimSpace(strings.TrimRight(strings.TrimSpace(claim), ";"))
+}
+
+func detailClaimTerminator(r rune) bool { return r == '.' || r == '!' || r == '?' || r == ';' }
+func detailClaimCloser(r rune) bool {
+	return r == '"' || r == '\'' || r == ')' || r == ']' || r == '»' || r == '”' || r == '*'
+}
+func detailClaimOpener(r rune) bool {
+	return unicode.IsUpper(r) || unicode.IsDigit(r) || r == '«' || r == '"' || r == '“' || r == '('
 }
 func releaseDate(created int64, now time.Time, labels DetailLabels) string {
 	if created <= 0 {
