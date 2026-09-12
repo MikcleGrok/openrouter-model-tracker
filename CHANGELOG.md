@@ -1,6 +1,6 @@
 # What's New
 
-## [Unreleased]
+## [1.18.0]
 
 - Add GPQA Diamond (vals.ai) as a third, fully independent quality axis, selectable with `--score-source=general` and reachable in the TUI by cycling `Space` through SWE-bench/Arena/GPQA. It never blends with the other two: separate column, separate Q/P, separate snapshot slot and separate staleness fallback.
 - Populate 40 verified `gpqa=` mappings in `model-map.tsv`, five of them flagged `!variant` because vals.ai only publishes an extended-thinking run or a dated checkpoint for those models. `anthropic/claude-fable-5.1`, previously carrying only a crowd-preference Elo, now has a real independent benchmark number.
