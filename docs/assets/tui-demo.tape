@@ -7,123 +7,46 @@ Set Theme "Catppuccin Frappe"
 Set Padding 12
 
 Hide
-Type "cd /Users/sergey/projects/tools/openrouter-model-tracker && ./bin/openrouter tui"
+Type "cd /Users/sergey/projects/tools/openrouter-model-tracker/.worktree/readme-and-demo-refresh && ./bin/openrouter tui --data-dir . --filter availability:paid"
 Enter
-Sleep 3s
+Sleep 2.5s
 Show
 
+# Cycle the score source: SWE-bench -> Arena -> GPQA Diamond.
 Space
-Sleep 2s
+Sleep 1.5s
 Space
-Sleep 2s
+Sleep 1.5s
 
+# Open a model's Detail screen and step through all four consolidated tabs.
 Enter
-Sleep 2s
-Down
-Sleep 2s
-Down
-Sleep 2s
-Escape
-Sleep 2s
-
-Type "p"
-Sleep 2s
-Type "p"
-Sleep 2s
-Type "p"
-Sleep 2s
-
-Type "o"
-Sleep 2s
-Down
-Sleep 2s
-Down
-Sleep 2s
-Escape
-Sleep 2s
-
-Type "c"
-Sleep 2s
-Down
-Sleep 1s
-Space
-Sleep 2s
-Enter
-Sleep 2s
-
-Type "f"
-Sleep 2s
-Down
-Down
-Down
-Down
-Sleep 1s
-Type "75"
-Sleep 2s
-Escape
-Sleep 2s
-
-Type "?"
-Sleep 2s
-Type "1"
-Sleep 2s
+Sleep 1.5s
 Type "2"
-Sleep 2s
+Sleep 1.3s
 Type "3"
-Sleep 2s
+Sleep 1.3s
 Type "4"
-Sleep 2s
-Type "5"
-Sleep 2s
-Type "6"
-Sleep 2s
+Sleep 1.3s
+Type "1"
+Sleep 1.3s
 Escape
-Sleep 2s
+Sleep 1s
 
-Type "?"
-Sleep 2s
-Escape
-Sleep 2s
+# Cycle the availability filter over to free models, then back to paid.
+Type "p"
+Sleep 1.3s
+Type "p"
+Sleep 1.5s
+Type "p"
+Sleep 1s
 
+# Quick substring search.
 Type "/"
-Type "openai"
-Sleep 2s
+Type "claude"
+Sleep 1.5s
 Escape
-Sleep 2s
+Sleep 1s
 
-Type "v"
-Sleep 2s
-Type "v"
-Sleep 2s
-
-Type "l"
-Sleep 3s
-Type "o"
-Sleep 2s
-Escape
-Sleep 2s
-Type "?"
-Sleep 2s
-Type "3"
-Sleep 2s
-Escape
-Sleep 2s
-Type "l"
-Sleep 2s
-
-Type "s"
-Sleep 1.5s
-Type "S"
-Sleep 1.5s
-Type "q"
-Sleep 1.5s
-Type "r"
-Sleep 1.5s
-Type "m"
-Sleep 1.5s
-Type "n"
-Sleep 1.5s
-
+# Manual refresh.
 Type "R"
-Sleep 3s
-Sleep 2s
+Sleep 2.5s
