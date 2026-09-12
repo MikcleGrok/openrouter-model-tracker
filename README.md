@@ -26,23 +26,30 @@ brew install mikclegrok/tools/openrouter-model-tracker
 [GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases):
 
 ```bash
-curl -LO https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.18.5/openrouter-1.18.5-linux-amd64.tar.gz
-tar xzf openrouter-1.18.5-linux-amd64.tar.gz
-sudo install -m 0755 openrouter-1.18.5-linux-amd64 /usr/local/bin/openrouter
+curl -LO https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.18.7/openrouter-1.18.7-linux-amd64.tar.gz
+tar xzf openrouter-1.18.7-linux-amd64.tar.gz
+sudo install -m 0755 openrouter-1.18.7-linux-amd64 /usr/local/bin/openrouter
 ```
 
 (для arm64 замените `amd64` на `arm64`; актуальная версия — на странице Releases)
 
-**Windows** — бинарник пока не публикуется. Соберите из исходников (нужен
-[Go](https://go.dev) 1.26.5+):
+**Windows 10/11** (amd64; на ARM-устройствах работает через встроенную
+x64-эмуляцию) — zip-архив из
+[GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases),
+в PowerShell:
 
-```bash
-git clone https://github.com/MikcleGrok/openrouter-model-tracker.git
-cd openrouter-model-tracker
-go build -o openrouter.exe ./cmd/openrouter
+```powershell
+Invoke-WebRequest https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.18.7/openrouter-1.18.7-windows-amd64.zip -OutFile openrouter.zip
+Expand-Archive openrouter.zip -DestinationPath .
+Move-Item openrouter-1.18.7-windows-amd64.exe openrouter.exe
+.\openrouter.exe tui
 ```
 
-На любой платформе доступна и сборка из исходников без Homebrew:
+(чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог из
+`PATH`; TUI рассчитан на Windows Terminal. Сборка из исходников:
+`go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+)
+
+На macOS и Linux доступна и сборка из исходников без Homebrew:
 `git clone ... && cd ... && make install` — подробности (`PREFIX`/`BINDIR`,
 локальный disposable tap для разработки) в
 [docs/reference.md](docs/reference.md).

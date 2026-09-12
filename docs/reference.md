@@ -100,7 +100,7 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | --- | --- |
 | `project type` | Go CLI/TUI, read-only data refresh tool; публикуемый release-бинарник |
 | `profiles` | `active`: plain CLI/TUI, build/release и supply-chain; `N/A`: daemon, container runtime |
-| `OS/ARCH` | CI и release: `linux/amd64`; локальная distribution-проверка: macOS/Homebrew; cross-platform matrix не заявлена |
+| `OS/ARCH` | CI: `linux/amd64`; release-артефакты: `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64` (tar.gz) и `windows/amd64` (zip), кросс-сборка `CGO_ENABLED=0` с macOS-хоста; локальная distribution-проверка: macOS/Homebrew; runtime-верификация Windows не выполняется |
 | `modes` | локальная работа без credentials; CI PR/push; exact-tag release с GitHub Release и static-key provenance |
 | `channels` | active: GitHub Release binary/evidence; local-only: Homebrew formula в disposable tap; `N/A`: опубликованный Homebrew tap и container image |
 | `version source` | release version только из clean checkout на exact `vMAJOR.MINOR.PATCH` tag; обычная сборка использует `git describe`; formula синхронизирует tag и revision |
@@ -637,14 +637,17 @@ OPENROUTER_DATA_DIR="$HOME/.local/share/openrouter" \
 make openrouter-launchd-refresh-install
 ```
 
-`make release-local` (алиас `make local-release`) включает в каждый archive бинарник
-и runtime-скрипты `scripts/launchd-refresh.sh` и `scripts/cron-refresh.sh` с mode
-`0755`. `scripts/launchd-refresh_test.sh` остаётся только в исходном checkout и
+`make release-local` (алиас `make local-release`) включает в каждый `tar.gz`-archive
+(macOS/Linux) бинарник и runtime-скрипты `scripts/launchd-refresh.sh` и
+`scripts/cron-refresh.sh` с mode `0755`. Windows-`zip` содержит только `.exe`: эти
+скрипты — bash-автоматизация для cron/launchd и на Windows неприменимы.
+`scripts/launchd-refresh_test.sh` остаётся только в исходном checkout и
 намеренно не входит в runtime package. Local-release проверяет наличие обоих скриптов,
 отсутствие тестового скрипта и executable mode до вычисления checksum. GitHub Release
 публикует те же archives вместе с binary/provenance artifacts. LaunchAgent использует
 `cron-refresh.sh` как единственную refresh-логику, поэтому отдельного дублирующего
-расписания в package не создаётся.
+расписания в package не создаётся. Для Windows-архива проверяется, что он содержит
+ровно одну запись — `.exe`.
 
 `make release-check VERSION=1.0.0` — непубликующий pre-tag gate: проверяет чистоту
 checkout, формат release-версии, локальный commit SHA, diff hygiene, форматирование,
@@ -671,11 +674,13 @@ tag/version/commit, clean checkout и formula, установленную вер
 `vMAJOR.MINOR.PATCH` tag через `check-tag`, затем запускает существующие
 форматирование, тесты, vet, security, secrets и documentation checks. После этого
 собираются deterministic `CGO_ENABLED=0` Go-бинарники для
-`darwin/arm64`, `darwin/amd64`, `linux/amd64` и `linux/arm64`; список можно
-переопределить через `LOCAL_RELEASE_PLATFORMS`.
+`darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64` и `windows/amd64`;
+список можно переопределить через `LOCAL_RELEASE_PLATFORMS`. Windows-бинарник
+собирается с суффиксом `.exe` и упаковывается в `zip` (требуются `zip` и
+`unzip`; их отсутствие блокирует запуск до сборки), остальные — в `tar.gz`.
 
 Результат сохраняется в persistent каталоге
-`dist/local-release/<version>/`: архивы `tar.gz`, `SHA256SUMS`,
+`dist/local-release/<version>/`: архивы `tar.gz` и `zip`, `SHA256SUMS`,
 `RELEASE_NOTES.md` и `manifest.json` с version, tag, commit, artifact, sha256 и
 UTC `built_at`. Каталог локальный и игнорируется Git. Команда не создаёт и не
 двигает tags, не меняет remote, не вызывает GitHub/GitLab, `gh`, API, Homebrew,
