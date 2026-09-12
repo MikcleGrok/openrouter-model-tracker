@@ -1,5 +1,10 @@
 # What's New
 
+## [1.18.5]
+
+- Fix `Claude` and `SWE %`/score columns getting truncated to `>≈ ...`/`93...` at realistic terminal widths (100 columns, a typical laptop terminal) in both `table` and the TUI: the width algorithm gave the `Name` column first claim on the budget and let every other column shrink to its bare header length. Every column but `Name` now claims its real content-aware minimum first; `Name` absorbs what's left and is the one that degrades under width pressure.
+- Shorten the `Q/P score/$M` and `Context tok` column headers to `QP/$M` and `Ctx tok` to free up budget for the fix above; both are explained in the TUI's F1 help (Filters section).
+
 ## [1.18.4]
 
 - Add a one-line gloss to each Task fit tag in the Detail screen's Fit & Notes tab (e.g. `implement: write or change production code.`), reusing the exact wording already established in the Hotkeys help's "Task-fit codes" table, in both English and Russian.
