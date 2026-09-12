@@ -11,6 +11,7 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 func TestDetailTabBarLocalizesAndHighlightsActiveTab(t *testing.T) {
@@ -23,6 +24,57 @@ func TestDetailTabBarLocalizesAndHighlightsActiveTab(t *testing.T) {
 		if !strings.Contains(english, "Pricing") {
 			t.Fatalf("English tab bar = %q", english)
 		}
+	}
+}
+
+// TestDetailTabBarActiveTabHighlightSurvivesFullRender guards against a
+// regression where tuiDetailTabBar's own active-tab styling (verified in
+// isolation by TestDetailTabBarLocalizesAndHighlightsActiveTab) never
+// reaches the screen: detailFrameLines splices the already-styled bar into
+// the logical detail lines, and tuioutput.Detail's line-sanitization step
+// used to strip every ANSI escape — including the active tab's highlight —
+// before the physical frame was ever composed. tuiStyleDetail only paints
+// unstyled content afterwards, so a wipe at that earlier stage is
+// invisible to any test that inspects tuiDetailTabBar's return value alone.
+func TestDetailTabBarActiveTabHighlightSurvivesFullRender(t *testing.T) {
+	tuiForceColorProfile(t)
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo", Tier: "sonnet", InPerM: 1, OutPerM: 2}})
+	m.visible, m.cursor = m.models, 0
+	m = runtimeTUIUpdate(t, m, tea.WindowSizeMsg{Width: 100, Height: 24})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	view := m.View()
+	activeStyled := tuiSelectedStyle.Render("[3 Benchmarks]")
+	if !strings.Contains(view, activeStyled) {
+		t.Fatalf("active tab highlight did not survive the full detail render: want %q in view, got:\n%s", activeStyled, view)
+	}
+	if inactiveStyled := tuiSelectedStyle.Render("[1 Identity]"); strings.Contains(view, inactiveStyled) {
+		t.Fatalf("inactive tab is incorrectly highlighted: %s", view)
+	}
+}
+
+// TestDetailFrameLinesInsertsBlankLineBetweenTitleAndTabBar guards the
+// vertical-spacing convention DetailLines itself already applies between the
+// title and every section heading (see detail_lines.go, e.g. "lines =
+// append(lines, "", l.Identity)"): the tab bar is spliced in by
+// detailFrameLines rather than DetailLines, so it needs its own blank-line
+// separator from the title, matching every other block in this view.
+func TestDetailFrameLinesInsertsBlankLineBetweenTitleAndTabBar(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo", Tier: "sonnet", InPerM: 1, OutPerM: 2}})
+	m.visible, m.cursor, m.width, m.height = m.models, 0, 100, 24
+	m.detailTabsActive = true
+	lines := m.detailFrameLines(m.visible[0])
+	if len(lines) < 4 {
+		t.Fatalf("expected at least 4 lines (title, blank, tab bar, blank), got %d: %v", len(lines), lines)
+	}
+	if lines[0] == "" {
+		t.Fatalf("expected the model title on the first line, got blank")
+	}
+	if lines[1] != "" {
+		t.Fatalf("expected a blank line separating the title from the tab bar, got %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "Identity") {
+		t.Fatalf("expected the tab bar on the third line, got %q", lines[2])
 	}
 }
 
@@ -191,6 +243,43 @@ func TestDetailHistoryRendersSeparateMetricSparklinesAndGaps(t *testing.T) {
 	}
 	if strings.Contains(got, "1400 Elo") {
 		t.Errorf("graph renderer should not turn Arena into SWE detail: %q", got)
+	}
+}
+
+// TestDetailHistoryFrequentSameDayRefreshesDoNotFloodGapsOrSparkline
+// reproduces the exact user-reported symptom end to end through the real
+// ingestion path (pricehistory.History.AddObservation), not a hand-built
+// literal: a live TUI --interval refreshing every 40 minutes, where
+// demo/model's Arena identity match succeeds only on the first refresh of
+// the day — every later refresh that day still records a valid Arena
+// score for some OTHER model (so each observation's Scores map is
+// non-empty overall, exactly the real multi-model-refresh shape), but
+// keeps missing demo/model specifically. Before pricehistory's same-day
+// coalescing this produced 36 observations, a "gaps:" line repeating
+// "2026-09-11 Arena" 35 times, and an Arena sparkline of one real point
+// followed by 35 unlabeled "?" — verified live against the pre-fix code
+// (see decisions.md for the captured before/after render).
+func TestDetailHistoryFrequentSameDayRefreshesDoNotFloodGapsOrSparkline(t *testing.T) {
+	history := &pricehistory.History{}
+	day := time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC)
+	prices := map[string]sources.PriceInfo{"demo/model": {Found: true, InPerM: 1, OutPerM: 2}, "other/model": {Found: true, InPerM: 1, OutPerM: 2}}
+	history.AddObservation(day, prices, nil,
+		[]sources.ScoreRow{{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: "exact_product"}})
+	for hour := 1; hour < 36; hour++ {
+		history.AddObservation(day.Add(time.Duration(hour)*time.Minute*40), prices, nil,
+			[]sources.ScoreRow{{Slug: "other/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1300, IdentityStatus: "exact_product"}})
+	}
+	if len(history.Observations) != 1 {
+		t.Fatalf("36 same-day refreshes were not coalesced into one observation: %d", len(history.Observations))
+	}
+	got := strings.Join(tuiDetailScoreHistoryLines(history, "demo/model", ""), "\n")
+	if count := strings.Count(got, "2026-09-11 Arena"); count > 1 {
+		t.Fatalf("gaps line still repeats the same date (%d times): %q", count, got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "Arena raw Elo") && strings.Count(line, "?") > 0 {
+			t.Fatalf("Arena sparkline is a wall of gap characters instead of one point per day: %q", line)
+		}
 	}
 }
 

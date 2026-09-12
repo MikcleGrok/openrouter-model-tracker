@@ -145,6 +145,86 @@ func TestFormat(t *testing.T) {
 	}
 }
 
+// TestAddObservationCoalescesSameUTCDayKeepingUnionOfScores guards against a
+// real production bug: a live TUI --interval (or a frequently-scheduled
+// `openrouter refresh`) called AddObservation many times within one day,
+// and nothing merged same-day entries — MaxObservations' own name and
+// TestHistoryRetention's one-call-per-day construction both assume exactly
+// one entry per day. Left unfixed, a model whose Arena/SWE identity match
+// only succeeds intermittently produced one "gaps: <date> Arena" line per
+// refresh that day (the literal user report: the same date repeated 35+
+// times) and a sparkline as long as the refresh count instead of the day
+// count (a wall of unlabeled "?").
+func TestAddObservationCoalescesSameUTCDayKeepingUnionOfScores(t *testing.T) {
+	history := &History{}
+	morning := time.Date(2026, 9, 11, 8, 0, 0, 0, time.UTC)
+	afternoon := time.Date(2026, 9, 11, 16, 0, 0, 0, time.UTC)
+	nextDay := time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
+
+	// Morning refresh: price is stale, but the identity gate lets a valid
+	// Arena score through.
+	history.AddObservation(morning, map[string]sources.PriceInfo{"demo/model": {Found: true, InPerM: 1, OutPerM: 2}}, nil,
+		[]sources.ScoreRow{{Slug: "demo/model", SourceFamily: "arena", Metric: sources.MetricArenaElo, Value: 1400, IdentityStatus: "exact_product"}})
+	// Afternoon refresh, same UTC day: fresher price, but Arena's identity
+	// match fails this time around (row simply absent, exactly as a real
+	// failed/ambiguous identity match produces no row at all).
+	history.AddObservation(afternoon, map[string]sources.PriceInfo{"demo/model": {Found: true, InPerM: 1.1, OutPerM: 2.2}}, nil, nil)
+
+	if len(history.Observations) != 1 {
+		t.Fatalf("same-day refreshes were not coalesced: %d observations: %#v", len(history.Observations), history.Observations)
+	}
+	day := history.Observations[0]
+	if !day.ObservedAt.Equal(afternoon) {
+		t.Errorf("coalesced ObservedAt = %s, want the latest same-day refresh %s", day.ObservedAt, afternoon)
+	}
+	if price := day.Prices["demo/model"]; price.InPerM != 1.1 || price.OutPerM != 2.2 {
+		t.Errorf("coalesced price = %#v, want the latest same-day reading", price)
+	}
+	arena, ok := day.Scores["demo/model\x00arena"]
+	if !ok || arena.Value != 1400 {
+		t.Fatalf("coalesced day lost the morning's valid Arena score: %#v", day.Scores)
+	}
+
+	// A genuinely new UTC day must still append rather than merge.
+	history.AddObservation(nextDay, map[string]sources.PriceInfo{"demo/model": {Found: true, InPerM: 1.2, OutPerM: 2.4}}, nil, nil)
+	if len(history.Observations) != 2 {
+		t.Fatalf("a new UTC day was merged instead of appended: %d observations: %#v", len(history.Observations), history.Observations)
+	}
+}
+
+// TestLoadCoalescesPreExistingSameDayDuplicates proves Load() self-heals a
+// price-history.json that already accumulated same-day duplicates before
+// coalescing existed (the shape a real installation's file was already in
+// when this bug was reported) — not only new writes going forward.
+func TestLoadCoalescesPreExistingSameDayDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache", "price-history.json")
+	raw := &History{SchemaVersion: SchemaVersion, Observations: []Observation{
+		{ObservedAt: time.Date(2026, 9, 11, 1, 0, 0, 0, time.UTC), Prices: map[string]Price{"demo/model": {Found: true, InPerM: 1, OutPerM: 2}},
+			Scores: map[string]Score{"demo/model\x00arena": {SourceFamily: "arena", Value: 1400, IdentityStatus: "exact_product"}}},
+		{ObservedAt: time.Date(2026, 9, 11, 3, 0, 0, 0, time.UTC), Prices: map[string]Price{"demo/model": {Found: true, InPerM: 1, OutPerM: 2}}},
+		{ObservedAt: time.Date(2026, 9, 11, 5, 0, 0, 0, time.UTC), Prices: map[string]Price{"demo/model": {Found: true, InPerM: 1.5, OutPerM: 3}}},
+		{ObservedAt: time.Date(2026, 9, 12, 1, 0, 0, 0, time.UTC), Prices: map[string]Price{"demo/model": {Found: true, InPerM: 1.6, OutPerM: 3.2}}},
+	}}
+	if err := raw.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Observations) != 2 {
+		t.Fatalf("Load did not coalesce pre-existing same-day duplicates: %d observations: %#v", len(got.Observations), got.Observations)
+	}
+	firstDay := got.Observations[0]
+	if price := firstDay.Prices["demo/model"]; price.InPerM != 1.5 {
+		t.Errorf("first day price = %#v, want the latest same-day reading (1.5)", price)
+	}
+	if arena := firstDay.Scores["demo/model\x00arena"]; arena.Value != 1400 {
+		t.Errorf("first day lost its earlier valid Arena score: %#v", firstDay.Scores)
+	}
+}
+
 func TestHistorySaveErrorDoesNotReplaceExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "history.json")

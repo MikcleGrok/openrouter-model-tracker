@@ -3134,7 +3134,13 @@ func (m tuiModel) detailFrameLines(row model.Model) []string {
 	if !m.detailTabsActive || len(lines) == 0 {
 		return lines
 	}
-	return append([]string{lines[0], tuiDetailTabBar(m.detailTab, m.lang, m.width), ""}, lines[1:]...)
+	// A blank line separates the title from the tab bar, matching the
+	// vertical-spacing convention DetailLines itself already uses between
+	// the title and every section heading (see detail_lines.go: "lines =
+	// append(lines, "", l.Identity)" and identically for Pricing/
+	// Benchmarks/Provenance/FitNotes) — the tab bar is one more such block,
+	// so it gets the same blank-line separator before it.
+	return append([]string{lines[0], "", tuiDetailTabBar(m.detailTab, m.lang, m.width), ""}, lines[1:]...)
 }
 
 func detailPriceSeries(history *pricehistory.History, slug, lang string) string {
@@ -3274,7 +3280,19 @@ func tuiDetailView(m tuiModel) string {
 	frame := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Offset: m.detailOffset, Lines: lines, Regions: tuioutput.RegionsFromLines(lines), FooterFunc: func(offset, end, total int) string {
 		return detailFooterForLang(offset, end, total, m.width, m.lang == "ru")
 	}})
-	return tuiStyleDetail(strings.Join(frame.Lines, "\n"), frame.Offset == 0, frame.FooterLine)
+	// The tab bar sits at a fixed absolute line (detailTabBarAbsoluteIndex,
+	// see detailFrameLines) whenever tabs are active, exactly like
+	// tuiHelpView's own tabBarLineIndex locates its tab bar: computed
+	// against the same offset Detail() already applied, so it still points
+	// at the right physical line once frame.Lines has been sliced to the
+	// scrolled viewport.
+	tabBarLineIndex := -1
+	if m.detailTabsActive {
+		if idx := detailTabBarAbsoluteIndex - frame.Offset; idx >= 0 && idx < len(frame.Lines) {
+			tabBarLineIndex = idx
+		}
+	}
+	return tuiStyleDetail(strings.Join(frame.Lines, "\n"), frame.Offset == 0, frame.FooterLine, tabBarLineIndex, m.detailTab, m.lang)
 }
 
 func detailFooterForLang(offset, end, total, width int, ru bool) string {
@@ -3301,13 +3319,17 @@ func detailFooterForLang(offset, end, total, width int, ru bool) string {
 // nothing about escape sequences, so a styled string entering them would
 // be measured by its raw byte length, cut mid-escape, and end up on
 // screen as visible "[38;5;87m" garbage. tuiHelpView takes exactly this
-// approach for the same reason. Two lines are addressed by index rather
-// than by text because their position is known for certain: the title is
-// the first line whenever the screen is not scrolled, and the footer is
-// the line tuiDetailView appended itself. A footer index past the end of
-// the output simply never matches — that happens only at height 1, where
-// tuiFullscreenText clips the footer away.
-func tuiStyleDetail(view string, header bool, footer int) string {
+// approach for the same reason, including for its own tab bar (see
+// tuiStyleHelpTabBarForLang): tuiDetailTabBar therefore returns plain text
+// too, and tabBarLineIndex here is the detail screen's equivalent of
+// tuiHelpView's tabBarLineIndex. Lines are addressed by index rather than
+// by text because their position is known for certain: the title is the
+// first line whenever the screen is not scrolled, the footer is the line
+// tuiDetailView appended itself, and the tab bar (when active) is
+// detailTabBarAbsoluteIndex lines after the title, offset the same way. A
+// footer index past the end of the output simply never matches — that
+// happens only at height 1, where tuiFullscreenText clips the footer away.
+func tuiStyleDetail(view string, header bool, footer, tabBarLineIndex, activeTab int, lang string) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
 		switch {
@@ -3315,6 +3337,8 @@ func tuiStyleDetail(view string, header bool, footer int) string {
 			lines[i] = tuiTitleStyle.Render(line)
 		case i == footer:
 			lines[i] = tuiHintStyle.Render(line)
+		case i == tabBarLineIndex:
+			lines[i] = tuiStyleDetailTabBar(line, activeTab, lang)
 		default:
 			lines[i] = tuiStyleDetailLine(line)
 		}
@@ -3322,6 +3346,25 @@ func tuiStyleDetail(view string, header bool, footer int) string {
 	return strings.Join(lines, "\n")
 }
 
+// detailTabBarAbsoluteIndex is the tab bar's fixed logical-line position
+// once detailFrameLines splices it in: 0 title, 1 blank, 2 tab bar. Mirrors
+// tuiHelpTabBarAbsoluteIndex, which solves the identical "find the tab bar
+// again after slicing to a scrolled viewport" problem for the F1 help
+// overlay.
+const detailTabBarAbsoluteIndex = 2
+
+// tuiDetailTabBar builds the detail screen's tab bar as plain text — no
+// embedded ANSI. detailFrameLines splices its return value directly into
+// the logical Lines handed to tuioutput.Detail(), which also carries
+// untrusted, externally-sourced text (a model's description/note) and
+// therefore strips every escape sequence it sees as a terminal-injection
+// defence (see sanitizeDetailLine's own comment in
+// internal/tui/screen/output/detail.go); a pre-styled bar would be
+// silently stripped right along with it. The active-tab highlight is
+// applied afterwards instead, by tuiStyleDetailTabBar, once Detail() has
+// already finished its own ANSI-unaware wrapping and sanitization —
+// exactly the split tuiHelpView already uses for its own tab bar
+// (tuiHelpTabBarLine plain, tuiStyleHelpTabBarForLang styles it after).
 func tuiDetailTabBar(active int, lang string, widths ...int) string {
 	if active < 0 || active >= detailTabCount {
 		active = 0
@@ -3335,7 +3378,7 @@ func tuiDetailTabBar(active int, lang string, widths ...int) string {
 		activeTitle = detailTabTitles[active][1]
 	}
 	if width > 0 && width < 80 {
-		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+		return fmt.Sprintf("[%d/5] %s", active+1, activeTitle)
 	}
 	parts := make([]string, 0, detailTabCount)
 	for i, titles := range detailTabTitles {
@@ -3343,17 +3386,45 @@ func tuiDetailTabBar(active int, lang string, widths ...int) string {
 		if lang == "ru" {
 			title = titles[1]
 		}
-		part := fmt.Sprintf("[%d %s]", i+1, title)
-		if i == active {
-			part = tuiSelectedStyle.Render(part)
-		}
-		parts = append(parts, part)
+		parts = append(parts, fmt.Sprintf("[%d %s]", i+1, title))
 	}
 	bar := strings.Join(parts, " ")
 	if width > 0 && ansi.StringWidth(ansi.Strip(bar)) > width {
-		return tuiSelectedStyle.Render(fmt.Sprintf("[%d/5] %s", active+1, activeTitle))
+		return fmt.Sprintf("[%d/5] %s", active+1, activeTitle)
 	}
 	return bar
+}
+
+// tuiStyleDetailTabBar mirrors tuiStyleHelpTabBarForLang: it finds the
+// active tab's already-composed text within the finished, wrapped,
+// truncated tab-bar line and wraps just that substring with
+// tuiSelectedStyle — the same highlight the main list uses for its
+// selected row. Applying colour here, after Detail() has already finished
+// its own wrapping and sanitization, is what keeps the highlight from
+// ever being treated as untrusted content and stripped by
+// sanitizeDetailLine. tuiDetailTabBar has two possible plain forms
+// depending on width — "[N Title]" among all five tabs, or the narrow
+// "[N/5] Title" fallback when the full bar does not fit — so both are
+// tried; if neither is found (e.g. the line wrapped or scrolled away
+// unexpectedly) the line is returned unstyled rather than guessing.
+func tuiStyleDetailTabBar(line string, active int, lang string) string {
+	if active < 0 || active >= detailTabCount {
+		return line
+	}
+	title := detailTabTitles[active][0]
+	if lang == "ru" {
+		title = detailTabTitles[active][1]
+	}
+	target := fmt.Sprintf("[%d %s]", active+1, title)
+	index := strings.Index(line, target)
+	if index < 0 {
+		target = fmt.Sprintf("[%d/5] %s", active+1, title)
+		index = strings.Index(line, target)
+		if index < 0 {
+			return line
+		}
+	}
+	return line[:index] + tuiSelectedStyle.Render(target) + line[index+len(target):]
 }
 
 // tuiStyleDetailLine styles one finished line by reading its own plain
