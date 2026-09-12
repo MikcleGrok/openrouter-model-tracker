@@ -4,7 +4,7 @@ CLI/TUI для сравнения AI-моделей на OpenRouter по кач�
 
 `openrouter-model-tracker` собирает живой каталог моделей OpenRouter (цены,
 контекст) и сопоставляет его с независимыми оценками качества — SWE-bench
-Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжирует платные
+Verified (vals.ai и swebench.com), LMArena Elo и GPQA Diamond (vals.ai), — затем ранжирует платные
 модели по метрике «качество/цена» и раскладывает их по тирам, ориентированным
 на Claude Opus/Sonnet/Haiku. Сопоставление строк с разных сайтов проходит через
 ручную curated-карту `model-map.tsv` и structured identity gate, а не fuzzy-match по
@@ -15,22 +15,25 @@ Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжиру
 ## Скриншоты
 
 Короткий тур по TUI: главный экран с ранжированной таблицей → переключение
-источника оценки (`Space`, SWE-bench/Arena) → карточка модели → переключение
+источника оценки (`Space`, SWE-bench/Arena/GPQA) → карточка модели → переключение
 фильтра доступности (`p`, paid/free) на бесплатные модели — без выхода из
 приложения:
 
-![TUI: главная таблица, переключение SWE-bench/Arena, карточка модели, переключение на бесплатные модели](docs/assets/tui-demo.gif)
+![TUI: главная таблица, переключение SWE-bench/Arena/GPQA, карточка модели, переключение на бесплатные модели](docs/assets/tui-demo.gif)
 
 ## Возможности
 
 - Три независимых источника данных: цены и контекст — из публичного
-  OpenRouter API; качество — SWE-bench Verified (vals.ai, swebench.com) и
-  LMArena Elo, независимая оценка отдельно от вендорской.
+  OpenRouter API; качество — три несмешиваемых измерения: SWE-bench Verified
+  (vals.ai, swebench.com), LMArena Elo и GPQA Diamond (vals.ai), независимая
+  оценка отдельно от вендорской. Agentic coding, предпочтения людей и общее
+  рассуждение — три разных вопроса, поэтому и три отдельных представления, а
+  не одно усреднённое число.
 - Ранжирование платных моделей по метрике «качество/цена» (mixed-utility) с
   тирами относительно Claude Opus/Sonnet/Haiku; настраиваемая ranking-формула.
 - Интерактивный TUI (`openrouter tui`): сортировка, structured-фильтры,
-  детальная карточка модели, переключение источника оценки (SWE-bench/Arena) и
-  доступности (paid/free) прямо в интерфейсе.
+  детальная карточка модели, переключение источника оценки
+  (SWE-bench/Arena/GPQA) и доступности (paid/free) прямо в интерфейсе.
 - Тот же движок как plain-text CLI-таблица (`openrouter table`) — без сети, для
   скриптов и пайпов.
 - Настраиваемые фильтры, ranking-формула, иконки производителей, хоткеи и шаги
@@ -42,7 +45,8 @@ Verified (vals.ai и swebench.com) и LMArena Elo, — затем ранжиру
 
 Каждая строка таблицы собрана из трёх независимых источников: живая цена и
 контекст из каталога OpenRouter, независимый benchmark score (SWE-bench
-Verified с vals.ai/swebench.com или LMArena Elo — никогда оба сразу) и
+Verified с vals.ai/swebench.com, LMArena Elo или GPQA Diamond — всегда ровно
+один из трёх, никогда несколько сразу) и
 ручной Claude-relative tier. Строка с лидерборда попадает в оценку модели
 только через явное сопоставление в `model-map.tsv` — никогда по похожести
 имён, — а платные модели ранжируются по «качество/цена» с настраиваемой

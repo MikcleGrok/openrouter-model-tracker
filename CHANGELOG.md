@@ -1,5 +1,13 @@
 # What's New
 
+## [Unreleased]
+
+- Add GPQA Diamond (vals.ai) as a third, fully independent quality axis, selectable with `--score-source=general` and reachable in the TUI by cycling `Space` through SWE-bench/Arena/GPQA. It never blends with the other two: separate column, separate Q/P, separate snapshot slot and separate staleness fallback.
+- Populate 40 verified `gpqa=` mappings in `model-map.tsv`, five of them flagged `!variant` because vals.ai only publishes an extended-thinking run or a dated checkpoint for those models. `anthropic/claude-fable-5.1`, previously carrying only a crowd-preference Elo, now has a real independent benchmark number.
+- Guard the new source at the page level as well as per row: the fetcher reads the leaderboard's own `metadata.slug` and refuses to read any page that is not GPQA, since every vals.ai benchmark renders through the same component at a near-identical URL and both metrics are percentages.
+- Name the score column after the active experiment (`SWE %` / `Arena Elo` / `GPQA %`), and stop deriving a SWE-bench-calibrated Claude equivalence for haiku/free rows under any non-SWE-bench source.
+- Derive the refresh progress total from the registered sources instead of a hard-coded 4, so adding a source can no longer make the bar count past its own total.
+
 ## [1.17.0]
 
 - Add 17 `model-map.tsv` entries for previously untracked models (Claude Fable 5.1, Opus 4.7/4.8, Sonnet 4.6, GPT-6 Astra, Grok 4.6, Gemini 3.5/3.7/3.8 Flash, GLM 5.3/4.7/5.3-flash/4.7-flash, MiniMax M2/M2.5, Qwen3-Next-80B, Qwen3-235B-2507), fix the dead `qwen3.8-max` mapping to point at `qwen3.8-max-0902`, and add the missing Arena keys to the three Claude 5 lines.

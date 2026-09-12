@@ -203,7 +203,7 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
   ```
 
   Доступны также контексты `help`, `columns` и `filter` с действиями `close`, `full_help`, `navigate_up`, `navigate_down`, `toggle` и `apply` по смыслу контекста. Неизвестные действия/контексты, пустые bindings и повтор одного binding для разных действий в одном контексте дают ошибку конфига. При reload TUI эта секция перечитывается вместе с `default_filter`, `tui_filter` и `tui_steps`; до успешной загрузки snapshot источник оценки не меняется, а Settings показывает pending или ошибку.
-- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena] [--ranking=legacy|tier|mixed-utility]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
+- `openrouter table [-s|--sort KEY] [-S|--slug] [-R|--reverse] [-n|--limit N] [-f|--filter FILTER] [--task-fit=short|long] [--notes] [--no-pager] [--score-source=swebench|arena|general] [--ranking=legacy|tier|mixed-utility]` — показать локальные данные моделей в plain-text таблице без Markdown и сети. По умолчанию показывается короткая колонка `Task fit`; `--task-fit=long` выводит полные keywords, а `--notes` возвращает прежнюю колонку `Note`. `--notes` нельзя смешивать с `--task-fit`. `-n N` оставляет первые `N` моделей после сортировки; standalone `-N` является shorthand для `-n N` (`-1`, `-20`), а `-0` и `-n 0` означают отсутствие лимита. Фильтр можно повторять, фильтры объединяются через AND.
 - `openrouter completion bash` (`omt completion bash`) — сгенерировать Bash completion
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
@@ -392,10 +392,17 @@ evidence. Read-only verification не требует `COSIGN_PRIVATE_KEY`; он 
 
 Источник оценки выбирается отдельно от режима ранжирования:
 `--score-source=swebench` (по умолчанию) — SWE-bench Verified в процентах,
-`--score-source=arena` — рейтинг Elo с `arena.ai/leaderboard/text`. Это два полностью
+`--score-source=arena` — рейтинг Elo с `arena.ai/leaderboard/text`,
+`--score-source=general` — GPQA Diamond в процентах с `vals.ai/benchmarks/gpqa`.
+Это три полностью
 независимых представления: в режиме `arena` модель без Arena-строки показывает `н/д`,
 даже если у неё есть настоящий SWE-bench-счёт, и наоборот. Значения `auto` нет — числа
-двух источников никогда не смешиваются в одной колонке. Elo показывается сырым
+трёх источников никогда не смешиваются в одной колонке; у пары swebench/general это
+правило особенно важно, потому что обе шкалы — проценты, и подмена ничем не выдала бы
+себя в самой цифре (заголовок колонки именно поэтому всегда называет эксперимент:
+`SWE %`, `Arena Elo`, `GPQA %`). GPQA уже измеряется в 0–100, поэтому идёт в формулу
+ранжирования и в колонку Q/P как есть, без нормализации, — и Q/P этого представления,
+в отличие от Arena-based, стабилен между прогонами. Elo показывается сырым
 (`1453 Elo`), а после min-max нормализации в 0–100 по текущему набору Arena-моделей
 попадает и в формулу ранжирования, и в показанную колонку «Качество/цена» (так что
 `price_weight` и tier-факторы остаются теми же) — у модели с минимальным Elo в наборе
