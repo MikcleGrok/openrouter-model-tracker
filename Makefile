@@ -20,7 +20,7 @@ PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 FORMULA_TAG ?=
 HOMEBREW_VERSION := $(patsubst v%,%,$(if $(FORMULA_TAG),$(FORMULA_TAG),$(TAG_VERSION)))
 LOCAL_RELEASE_DIR ?= $(ROOT)dist/local-release
-LOCAL_RELEASE_PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+LOCAL_RELEASE_PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
 LOCAL_RELEASE_BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Signed release provenance (static cosign key-pair, no Fulcio/Rekor — see
@@ -334,26 +334,40 @@ whats-new:
 release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
 	@set -eu; \
 		version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
+		for platform in $(LOCAL_RELEASE_PLATFORMS); do os="$${platform%/*}"; case "$$os" in windows) \
+		  command -v zip >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: zip is required to package the Windows release archive' >&2; exit 1; }; \
+		  command -v unzip >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: unzip is required to verify the Windows release archive' >&2; exit 1; }; \
+		  break;; esac; done; \
 		rm -rf "$$out"; mkdir -p "$$out/artifacts"; artifacts_json=''; first=1; \
 		for platform in $(LOCAL_RELEASE_PLATFORMS); do \
 		os="$${platform%/*}"; arch="$${platform#*/}"; name="openrouter-$$version-$$os-$$arch"; \
-		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$name" '$(ROOT)cmd/openrouter'; \
-		chmod 0755 "$$out/$$name"; \
-		touch -t 197001010000 "$$out/$$name"; \
-		package="$$out/package-$$name"; mkdir -p "$$package/scripts"; \
-		mv "$$out/$$name" "$$package/$$name"; \
+		case "$$os" in windows) binary="$$name.exe"; archive="$$name.zip";; *) binary="$$name"; archive="$$name.tar.gz";; esac; \
+		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$binary" '$(ROOT)cmd/openrouter'; \
+		chmod 0755 "$$out/$$binary"; \
+		touch -t 197001010000 "$$out/$$binary"; \
+		package="$$out/package-$$name"; mkdir -p "$$package"; \
+		mv "$$out/$$binary" "$$package/$$binary"; \
+		chmod 0755 "$$package/$$binary"; \
+		if test "$$os" = windows; then \
+		rm -f "$$out/artifacts/$$archive"; \
+		zip -q -j -X "$$out/artifacts/$$archive" "$$package/$$binary"; \
+		unzip -Z1 "$$out/artifacts/$$archive" | grep -Fqx "$$binary"; \
+		test "$$(unzip -Z1 "$$out/artifacts/$$archive" | wc -l)" -eq 1; \
+		else \
+		mkdir -p "$$package/scripts"; \
 		cp '$(ROOT)scripts/cron-refresh.sh' '$(ROOT)scripts/launchd-refresh.sh' "$$package/scripts/"; \
-		chmod 0755 "$$package/$$name" "$$package/scripts/cron-refresh.sh" "$$package/scripts/launchd-refresh.sh"; \
-		tar -C "$$package" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$name.tar.gz" "$$name" scripts/cron-refresh.sh scripts/launchd-refresh.sh; \
-		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx "$$name"; \
-		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx 'scripts/cron-refresh.sh'; \
-		tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fqx 'scripts/launchd-refresh.sh'; \
-		! tar -tzf "$$out/artifacts/$$name.tar.gz" | grep -Fq 'launchd-refresh_test.sh'; \
-		test "$$(tar -tvzf "$$out/artifacts/$$name.tar.gz" | awk '$$NF == "scripts/launchd-refresh.sh" {print $$1}')" = '-rwxr-xr-x'; \
-		digest="$$(shasum -a 256 "$$out/artifacts/$$name.tar.gz")" || exit $$?; digest="$${digest%% *}"; \
-		printf '%s  %s\n' "$$digest" "artifacts/$$name.tar.gz" >> "$$out/SHA256SUMS"; \
+		chmod 0755 "$$package/scripts/cron-refresh.sh" "$$package/scripts/launchd-refresh.sh"; \
+		tar -C "$$package" --format=ustar --mtime='1970-01-01 00:00:00 UTC' --owner=0 --group=0 --numeric-owner -czf "$$out/artifacts/$$archive" "$$name" scripts/cron-refresh.sh scripts/launchd-refresh.sh; \
+		tar -tzf "$$out/artifacts/$$archive" | grep -Fqx "$$name"; \
+		tar -tzf "$$out/artifacts/$$archive" | grep -Fqx 'scripts/cron-refresh.sh'; \
+		tar -tzf "$$out/artifacts/$$archive" | grep -Fqx 'scripts/launchd-refresh.sh'; \
+		! tar -tzf "$$out/artifacts/$$archive" | grep -Fq 'launchd-refresh_test.sh'; \
+		test "$$(tar -tvzf "$$out/artifacts/$$archive" | awk '$$NF == "scripts/launchd-refresh.sh" {print $$1}')" = '-rwxr-xr-x'; \
+		fi; \
+		digest="$$(shasum -a 256 "$$out/artifacts/$$archive")" || exit $$?; digest="$${digest%% *}"; \
+		printf '%s  %s\n' "$$digest" "artifacts/$$archive" >> "$$out/SHA256SUMS"; \
 		if test "$$first" -eq 0; then artifacts_json="$$artifacts_json,"; fi; first=0; \
-		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$name.tar.gz\",\"sha256\":\"$$digest\"}"; \
+		artifacts_json="$$artifacts_json{\"artifact\":\"artifacts/$$archive\",\"sha256\":\"$$digest\"}"; \
 		rm -rf "$$package"; \
 	done; \
 		awk -v version="$$version" 'BEGIN { found=0; notes=0 } /^## / { if (found) exit; if ($$0 == "## [" version "]") found=1 } found { print; if ($$0 ~ /^- /) notes=1 } END { exit !(found && notes) }' '$(ROOT)CHANGELOG.md' > "$$out/RELEASE_NOTES.md"; \
@@ -374,8 +388,8 @@ release-github-check:
 		test -s "$$manifest" || { printf '%s\n' "BLOCKED: release manifest is missing or empty: $$manifest" >&2; exit 1; }; test -s "$$signature" || { printf '%s\n' "BLOCKED: GitHub release requires signed provenance; signature bundle is missing: $$signature" >&2; printf '%s\n' "DETAIL: set COSIGN_PRIVATE_KEY securely, then run PROVENANCE_PROFILE=published TAG_VERSION=$$tag VERSION=$$version make -C $$source_dir sign attest verify-provenance" >&2; exit 1; }; test -s "$$attestation" || { printf '%s\n' "BLOCKED: GitHub release requires signed provenance; attestation bundle is missing: $$attestation" >&2; printf '%s\n' "DETAIL: set COSIGN_PRIVATE_KEY securely, then run PROVENANCE_PROFILE=published TAG_VERSION=$$tag VERSION=$$version make -C $$source_dir attest verify-provenance" >&2; exit 1; }; for evidence in "$$sbom" "$$dependency_evidence"; do test -s "$$evidence" || { printf '%s\n' "BLOCKED: required release evidence is missing or empty: $$evidence" >&2; exit 1; }; done; \
 		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (.artifacts | length == 1) and (.artifacts[0].path == "bin/openrouter")' "$$manifest" >/dev/null || { printf '%s\n' 'BLOCKED: signed release manifest identity does not match exact tag checkout' >&2; exit 1; }; \
 		cd "$$artifact_dir"; test -s RELEASE_NOTES.md && test -s manifest.json && test -s SHA256SUMS || { printf '%s\n' 'BLOCKED: local release notes, manifest, or checksums are missing' >&2; exit 1; }; \
-		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (. as $$manifest | ($$manifest.artifacts | length > 0) and ([$$manifest.artifacts[].artifact] | all(test("^artifacts/[A-Za-z0-9._-]+\\.tar\\.gz$$"))) and ([$$manifest.artifacts[].artifact] | unique | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | all(test("^[0-9a-f]{64}$$"))))' manifest.json >/dev/null || { printf '%s\n' 'BLOCKED: local release manifest has invalid identity, archive paths, or digests' >&2; exit 1; }; \
-		tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp" "$$tmp_dir"' EXIT; jq -r '.artifacts[] | "\(.sha256)  \(.artifact)"' manifest.json | sort > "$$tmp_dir/manifest"; sort SHA256SUMS > "$$tmp_dir/checksums"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/checksums" || { printf '%s\n' 'BLOCKED: SHA256SUMS differs from release manifest' >&2; exit 1; }; : > "$$tmp_dir/actual"; set -- artifacts/*.tar.gz; test -f "$$1" || { printf '%s\n' 'BLOCKED: no local release archives found' >&2; exit 1; }; for archive; do test -s "$$archive" || { printf '%s\n' "BLOCKED: release archive is missing or empty: $$archive" >&2; exit 1; }; shasum -a 256 "$$archive" >> "$$tmp_dir/actual"; done; sort "$$tmp_dir/actual" > "$$tmp_dir/actual.sorted"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/actual.sorted" || { printf '%s\n' 'BLOCKED: local archive set or digest differs from release manifest' >&2; exit 1; }; shasum -a 256 -c SHA256SUMS >/dev/null || { printf '%s\n' 'BLOCKED: local release archive checksum verification failed' >&2; exit 1; }; \
+		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (. as $$manifest | ($$manifest.artifacts | length > 0) and ([$$manifest.artifacts[].artifact] | all(test("^artifacts/[A-Za-z0-9._-]+\\.(tar\\.gz|zip)$$"))) and ([$$manifest.artifacts[].artifact] | unique | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | all(test("^[0-9a-f]{64}$$"))))' manifest.json >/dev/null || { printf '%s\n' 'BLOCKED: local release manifest has invalid identity, archive paths, or digests' >&2; exit 1; }; \
+		tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp" "$$tmp_dir"' EXIT; jq -r '.artifacts[] | "\(.sha256)  \(.artifact)"' manifest.json | sort > "$$tmp_dir/manifest"; sort SHA256SUMS > "$$tmp_dir/checksums"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/checksums" || { printf '%s\n' 'BLOCKED: SHA256SUMS differs from release manifest' >&2; exit 1; }; : > "$$tmp_dir/actual"; set -- artifacts/*; test -f "$$1" || { printf '%s\n' 'BLOCKED: no local release archives found' >&2; exit 1; }; for archive; do test -s "$$archive" || { printf '%s\n' "BLOCKED: release archive is missing or empty: $$archive" >&2; exit 1; }; shasum -a 256 "$$archive" >> "$$tmp_dir/actual"; done; sort "$$tmp_dir/actual" > "$$tmp_dir/actual.sorted"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/actual.sorted" || { printf '%s\n' 'BLOCKED: local archive set or digest differs from release manifest' >&2; exit 1; }; shasum -a 256 -c SHA256SUMS >/dev/null || { printf '%s\n' 'BLOCKED: local release archive checksum verification failed' >&2; exit 1; }; \
 		cd "$$source_dir"; PROVENANCE_PROFILE=published TAG_VERSION="$$tag" VERSION="$$version" COSIGN_PUBLIC_KEY="$$source_dir/cosign.pub" RELEASE_MANIFEST=.release/release-manifest.json RELEASE_MANIFEST_SIG=.release/release-manifest.json.sig.bundle.json RELEASE_MANIFEST_ATT=.release/release-manifest.json.att.bundle.json SBOM_FILE=.release/sbom.spdx.json PUBLISHED_EVIDENCE=.release/published-evidence.json GITHUB_REPOSITORY="$(GITHUB_REPOSITORY)" ./scripts/verify-provenance.sh full >/dev/null; $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$$tag" --commit "$$commit" --version "$$version"; $(GO) run ./cmd/evidencecheck --published-evidence .release/published-evidence.json --tag "$$tag" --commit "$$commit" --version "$$version"; \
 		printf '%s\n' "GitHub release evidence verified for $$tag at $$commit"
 
@@ -385,7 +399,7 @@ release-github: release-github-check
 		if gh release view "$$tag" --repo "$$repository" >"$$tmp_dir/release-view.out" 2>"$$tmp_dir/release-view.err"; then printf '%s\n' "BLOCKED: GitHub Release $$tag already exists; refusing duplicate publication" >&2; exit 1; else view_status=$$?; if test $$view_status -eq 1 && grep -Eiq '(^|[^0-9])404([^0-9]|$$)|not found' "$$tmp_dir/release-view.err"; then :; else printf '%s\n' "BLOCKED: GitHub release preflight failed; only confirmed not-found permits create (exit $$view_status)" >&2; cat "$$tmp_dir/release-view.err" >&2; exit 1; fi; fi; \
 		set -- gh release create "$$tag" --repo "$$repository" --verify-tag --title "$$tag" --notes-file "$$notes" --draft=false --prerelease=false "$$source_dir/.release/release-manifest.json" "$$source_dir/.release/release-manifest.json.sig.bundle.json" "$$source_dir/.release/release-manifest.json.att.bundle.json" "$$source_dir/.release/sbom.spdx.json" "$$source_dir/.release/dependency-evidence.json" "$$source_dir/.release/published-evidence.json" "$$source_dir/.release/openrouter.sha256"; \
 		jq -r '.artifacts[].artifact' "$$artifact_dir/manifest.json" > "$$tmp_dir/artifacts"; \
-		while IFS= read -r artifact; do artifact_path="$$artifact_dir/$$artifact"; case "$$artifact" in artifacts/[A-Za-z0-9._-]*.tar.gz) ;; *) printf '%s\n' "BLOCKED: unsafe archive path in local release manifest: $$artifact" >&2; exit 1 ;; esac; case "$$artifact_path" in "$$artifact_dir"/artifacts/*) ;; *) printf '%s\n' "BLOCKED: archive path escapes local release directory: $$artifact" >&2; exit 1 ;; esac; set -- "$$@" "$$artifact_path"; done < "$$tmp_dir/artifacts"; \
+		while IFS= read -r artifact; do artifact_path="$$artifact_dir/$$artifact"; case "$$artifact" in artifacts/[A-Za-z0-9._-]*.tar.gz|artifacts/[A-Za-z0-9._-]*.zip) ;; *) printf '%s\n' "BLOCKED: unsafe archive path in local release manifest: $$artifact" >&2; exit 1 ;; esac; case "$$artifact_path" in "$$artifact_dir"/artifacts/*) ;; *) printf '%s\n' "BLOCKED: archive path escapes local release directory: $$artifact" >&2; exit 1 ;; esac; set -- "$$@" "$$artifact_path"; done < "$$tmp_dir/artifacts"; \
 		if test '$(RELEASE_DRY_RUN)' = 1; then printf 'DRY RUN:'; printf ' %s' "$$@"; printf '\n'; else command -v gh >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is required to publish a GitHub Release' >&2; exit 1; }; gh auth status >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is not authenticated; run gh auth login' >&2; exit 1; }; if "$$@"; then :; else if gh release view "$$tag" --repo "$$repository" >/dev/null 2>&1; then printf '%s\n' "BLOCKED: GitHub Release $$tag appeared during publication; refusing duplicate publication" >&2; else printf '%s\n' "BLOCKED: GitHub Release $$tag publication failed" >&2; fi; exit 1; fi; fi
 
 docs check-docs:
