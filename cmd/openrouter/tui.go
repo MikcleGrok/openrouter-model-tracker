@@ -2212,11 +2212,22 @@ func (m tuiModel) compactView(lines []string, statusLine, hintsLine, inputLine s
 	return strings.Join(compact[:min(len(compact), m.height)], "\n")
 }
 
+// tuiColumnShrinkPriority orders columns from "give this up first" to "keep
+// this last" whenever the terminal is too narrow to satisfy everyone: it is
+// the order renderColumns drops whole columns in, and tuiCellWidthsForLangWithContent
+// reuses the identical order to shrink surviving columns' widths down toward
+// their bare header minimum under the same pressure. Quality and Name are
+// deliberately absent — Quality is content-aware-but-capped and Name is
+// handled on its own by tuiCellWidthsForLangWithContent (it is the column
+// that always yields first) — so neither belongs in a "drop/shrink the
+// others" list.
+var tuiColumnShrinkPriority = []tuiColumn{colNote, colTask, colOutput, colInput, colContext, colStatus, colClaude, colSlug}
+
 func (m tuiModel) renderColumns() []tuiColumn {
 	columns := append([]tuiColumn(nil), m.columns...)
 	for len(columns) > 1 && m.tuiColumnsWidth(columns) > m.width {
 		removed := false
-		for _, secondary := range []tuiColumn{colNote, colTask, colOutput, colInput, colContext, colStatus, colClaude, colSlug} {
+		for _, secondary := range tuiColumnShrinkPriority {
 			for i, col := range columns {
 				if col == secondary {
 					columns = append(columns[:i], columns[i+1:]...)
@@ -2328,6 +2339,92 @@ func tuiCellWidthsForLang(columns []tuiColumn, available, nameWidth int, scoreSo
 	return tuiCellWidthsForLangWithContent(columns, available, nameWidth, scoreSource, lang, contentWidths)
 }
 
+// diagnosticColumnWidthCap bounds how wide the CLI's Status/score and
+// Quality/Price columns are allowed to grow even when the current data's
+// longest cell is longer than that. Both columns' normal content is a short
+// number or percentage ("100.0%v", "207"); the occasional much longer value
+// — "unmapped (no benchmark identity)", a manual score-override annotation,
+// an "n/a (variant mismatch)"-style reason — is a rare diagnostic string,
+// not the column's normal job. Sizing content-aware up to this cap means the
+// realistic worst case (the reported bug: SWE % truncated to "93...") is
+// never truncated, while one pathological outlier still falls back to this
+// project's existing "..." truncation instead of crushing every other
+// column's budget for the whole table. The CLI's own Quality/Price column
+// already relied on an equivalent cap (coincidentally its own header length)
+// before this change, and existing CLI tests pin exact truncation points
+// against that cap's value, so it stays at 12 here. The TUI uses its own,
+// tighter tuiDiagnosticColumnWidthCap instead of this constant — see there
+// for why the two needed to diverge.
+const diagnosticColumnWidthCap = 12
+
+// tuiDiagnosticColumnWidthCap is the TUI's counterpart to
+// diagnosticColumnWidthCap, deliberately tighter (8 instead of 12). The TUI's
+// Name column has no reserved floor of its own the way the CLI's does (the
+// CLI never lets Name below min(30, nameWidth); the TUI's Name absorbs
+// whatever is left, down to 1) — so on a real, unfiltered snapshot (445
+// rows, including "unmapped (no benchmark identity)" and "n/a (no
+// SWE-bench Verified score)" catalogue entries), Status and Quality both
+// saturate the cap simultaneously, and every extra character taken by either
+// comes directly out of Name's budget at a realistic terminal width. 8
+// still comfortably covers every realistic value the investigation
+// identified for the Status column ("100.0%v" is 7 characters, "No score"
+// is 8) with no headroom to spare, and Quality/Price's real values in the
+// ranked list are short numbers ("207", "775") well under it too — verified
+// against the live snapshot while implementing this fix (see
+// .task/table-column-widths/decisions.md for the before/after numbers).
+const tuiDiagnosticColumnWidthCap = 8
+
+// priceColumnWidthCap is the TUI's cap for In $/M and Out $/M, sized much
+// smaller than either diagnostic cap because these two columns have no
+// comparable free-text reason string in their normal vocabulary — every
+// legitimate price this project renders is well under it (the highest
+// observed real price is "50.00", 5 characters) — so 8 leaves comfortable
+// headroom while still meaningfully truncating the one pathological value
+// actually observed in real data: unmapped/no-price catalogue rows render a
+// literal "-1000000.00" (11 characters) price sentinel. Uncapped, that
+// sentinel alone was enough to starve the Name column down to 1-2 characters
+// on a real, unfiltered TUI session even after Status/Quality were already
+// capped — that data anomaly is not something this width algorithm should
+// try to fix (it belongs in model-building, not rendering), but the
+// algorithm must not let it dominate every other column's budget either.
+// The CLI's In $/M and Out $/M stay the fixed, uncapped-by-content 9/10
+// this project already used before this change — they were not part of the
+// reported bug, and the CLI's Name column is not as exposed to this
+// specific failure mode (see diagnosticColumnWidthCap above), so there is
+// nothing to fix there.
+const priceColumnWidthCap = 8
+
+// tuiColumnContentCap reports whether column is one of the TUI's capped
+// columns, and if so, the cap to apply. Claude (a small, verified-safe
+// closed set of tier labels, currently at most 13 characters), Context
+// (bounded by construction — pricing.FormatContext never emits more than a
+// handful of characters), Task fit (a small fixed keyword-code set) and Note
+// (whose entire purpose is showing arbitrary-length real content, an
+// existing, deliberate exception predating this change) are uncapped.
+func tuiColumnContentCap(column tuiColumn) (int, bool) {
+	switch column {
+	case colStatus, colQuality:
+		return tuiDiagnosticColumnWidthCap, true
+	case colInput, colOutput:
+		return priceColumnWidthCap, true
+	default:
+		return 0, false
+	}
+}
+
+// tuiCellWidthsForLangWithContent computes each column's rendered width from
+// available space, following Option D's reversed priority: every column
+// other than Name claims its own real content-aware floor first (the width
+// it needs to show its longest current cell in full, capped for the two
+// diagnostic-string columns above), and Name — whose configured/target width
+// is only ever a preference, never a hard requirement — absorbs whatever
+// budget is left over. A shortened Name is still readable from its visible
+// prefix; a truncated Claude/SWE % value is actively misleading. That is why
+// Name is the column that degrades under real pressure, never them: the
+// previous algorithm gave Name first claim on the budget (up to nameWidth)
+// and only grew every other column with whatever was left, which is exactly
+// why Claude and SWE % were truncated to "<<≈ ..." and "93..." at realistic
+// terminal widths despite plenty of total space.
 func tuiCellWidthsForLangWithContent(columns []tuiColumn, available, nameWidth int, scoreSource, lang string, contentWidths []int) []int {
 	widths := make([]int, len(columns))
 	if len(columns) == 0 {
@@ -2361,28 +2458,47 @@ func tuiCellWidthsForLangWithContent(columns []tuiColumn, available, nameWidth i
 			break
 		}
 	}
-	for i := range contentWidths {
-		if i >= len(columns) {
-			break
+	for i, column := range columns {
+		if i >= len(contentWidths) {
+			continue
 		}
 		contentWidths[i] = max(contentWidths[i], minimums[i])
+		if capWidth, capped := tuiColumnContentCap(column); capped {
+			contentWidths[i] = min(contentWidths[i], max(capWidth, minimums[i]))
+		}
 	}
 	if nameIndex >= 0 {
 		contentWidths[nameIndex] = max(contentWidths[nameIndex], nameWidth)
 	}
-	remaining := available
-	if nameIndex >= 0 {
-		otherMinimum := minimumWidth - minimums[nameIndex]
-		widths[nameIndex] = min(contentWidths[nameIndex], max(minimums[nameIndex], available-otherMinimum))
-		remaining -= widths[nameIndex]
-	}
+
+	// Every OTHER column claims its full content-aware floor immediately;
+	// Name gets whatever is left, clamped to at least 1 rather than given
+	// any reserved minimum of its own. Name's own header staying fully
+	// legible is not a requirement here — only Claude and the diagnostic
+	// columns' realistic content must never truncate — so there is no
+	// "shrink everyone else to protect Name's header" fallback: that
+	// fallback was tried and rejected (see git history) because it can
+	// claw back Claude/Status width it had just been given, silently
+	// reintroducing part of the original bug under real narrow-terminal
+	// pressure. If every column's true floor together exceeds available —
+	// only possible with a genuinely pathological row (a five-figure
+	// negative price sentinel, an unusually long free-text diagnostic
+	// reason) — the row can end up wider than available; renderTUILine's
+	// own trailing truncateTable(..., m.width) is the actual, unconditional
+	// safety net against that, exactly as it already is for an over-long
+	// Note.
+	othersFloor := 0
 	for i := range columns {
-		if i == nameIndex {
-			continue
+		if i != nameIndex {
+			widths[i] = contentWidths[i]
+			othersFloor += widths[i]
 		}
-		widths[i] = minimums[i]
-		remaining -= widths[i]
 	}
+	if nameIndex >= 0 {
+		widths[nameIndex] = max(1, min(contentWidths[nameIndex], available-othersFloor))
+	}
+
+	remaining := available - sum(widths)
 	for remaining > 0 {
 		grown := false
 		for i := range widths {
@@ -2448,9 +2564,9 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 	case colStatus:
 		return scoreColumnHeader(scoreSource)
 	case colQuality:
-		return "Q/P score/$M"
+		return "QP/$M"
 	case colContext:
-		return "Context tok"
+		return "Ctx tok"
 	case colInput:
 		return "In $/M"
 	case colOutput:
@@ -2468,11 +2584,17 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 // tuiColumnLabel itself is left untouched — it has a direct test call
 // site pinned to its exact 2-argument signature — so this is a sibling,
 // not a change, matching the *ForLang convention used throughout the
-// detail screen. Slug, Claude, Arena Elo, SWE % and Task fit stay English
+// detail screen. Slug, Claude, Arena Elo, SWE %, Task fit and the QP/$M
+// abbreviation stay English (or language-neutral punctuation, for QP/$M)
 // in both languages: Slug and Task fit are terms of art kept English even
 // in Russian prose elsewhere.
 // docs/methodology.md's own choice for "Task fit"), and Claude/Arena Elo/
-// SWE % are proper nouns and metric names, not translatable prose.
+// SWE % are proper nouns and metric names, not translatable prose. QP/$M
+// (renamed from the longer "Q/P score/$M"/"Q/P очки/$M" so the column earns
+// back real width — see diagnosticColumnWidthCap and
+// tuiCellWidthsForLangWithContent) is likewise kept identical in both
+// languages: it is already a currency-and-symbol abbreviation, not prose,
+// and the F1 help's Columns/Filters section spells out what it means.
 func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
 	if lang != "ru" {
 		return tuiColumnLabel(column, scoreSource)
@@ -2489,7 +2611,7 @@ func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
 	case colStatus:
 		return scoreColumnHeader(scoreSource)
 	case colQuality:
-		return "Q/P очки/$M"
+		return "QP/$M"
 	case colContext:
 		return "Контекст"
 	case colInput:
@@ -3738,7 +3860,8 @@ The last column stays selected.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter) and always use AND.
 	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
-	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.`
+	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.
+Column headers: QP/$M is the quality/price ranking score per $/M tokens (was "Q/P score/$M"); Ctx tok is the context window in tokens (was "Context tok"). Both were shortened so Claude and the Status column (SWE %, Arena Elo, or GPQA %) always have room to show their full value instead of being truncated.`
 
 // tuiHelpSectionDetailBody is the "Model Detail" section: the model
 // detail screen's own block, relocated verbatim out of what used to be the
@@ -3990,7 +4113,8 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
 	Несколько фильтров разделяются запятой (или повторным --filter в CLI) и всегда работают через AND.
 	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
-	Для quality принимается ввод и 0..100, и 0..1: quality>=0.8 означает quality>=80.`
+	Для quality принимается ввод и 0..100, и 0..1: quality>=0.8 означает quality>=80.
+Заголовки столбцов: QP/$M — ранжирующий показатель качество/цена за $/M токенов (раньше "Q/P score/$M"); Ctx tok — размер контекста в токенах (раньше "Context tok"). Оба сокращены, чтобы у Claude и столбца статуса (SWE %, Arena Elo или GPQA %) всегда было место показать значение полностью, а не обрезанным.`
 
 // tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
 // translation.

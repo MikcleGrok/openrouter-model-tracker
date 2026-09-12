@@ -51,8 +51,8 @@ func TestAlignmentCLIWidthContractMatrix(t *testing.T) {
 
 var alignmentCLISeparators = map[int][]int{
 	40:  {0, 7, 13, 17, 23, 27, 31, 35, 39},
-	80:  {0, 33, 42, 51, 59, 69, 81, 94, 101},
-	120: {0, 38, 47, 58, 73, 87, 99, 112, 119},
+	80:  {0, 33, 42, 53, 61, 71, 83, 96, 103},
+	120: {0, 42, 51, 62, 77, 87, 99, 112, 119},
 	180: {0, 43, 52, 63, 78, 147, 159, 172, 179},
 }
 
@@ -159,10 +159,10 @@ func TestAlignmentTUIViewContractMatrix(t *testing.T) {
 }
 
 var alignmentTUISeparators = map[int]map[int][]int{
-	40:  {4: {9, 18, 26}},
-	80:  {7: {16, 25, 33, 48, 62, 71}},
-	120: {9: {38, 47, 55, 70, 84, 93, 103, 114}},
-	180: {9: {43, 59, 74, 96, 117, 133, 150, 168}},
+	40:  {4: {16, 25, 33}},
+	80:  {9: {9, 18, 26, 34, 44, 53, 63, 74}},
+	120: {9: {43, 53, 62, 71, 82, 92, 103, 114}},
+	180: {9: {43, 61, 78, 94, 112, 129, 147, 166}},
 }
 
 func TestAlignmentTUIViewRefreshResizeSortFilterSelectionContract(t *testing.T) {
