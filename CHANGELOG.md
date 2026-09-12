@@ -1,8 +1,8 @@
 # What's New
 
-## [1.18.2]
+## [1.18.3]
 
-- Fix a test assertion left over from merging the tab-consolidation branch (expected detail-view line count) — no user-facing change; v1.18.0 and v1.18.1 were tagged before this correction and are superseded by this release.
+- Fix a test assertion left over from merging the tab-consolidation branch (expected detail-view line count) — no user-facing change; v1.18.0, v1.18.1 and v1.18.2 were tagged before this correction and are superseded by this release.
 
 ## [1.18.0]
 
