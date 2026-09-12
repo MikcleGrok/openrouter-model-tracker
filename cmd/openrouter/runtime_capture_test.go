@@ -141,11 +141,11 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	step("открыт detail", detailWithFooter("Detail 1-12/12"))
+	step("открыт detail", detailWithFooter("Detail 1-13/13"))
 
 	sess.Resize(90, 24)
 	rp.Send(tea.WindowSizeMsg{Width: 90, Height: 24})
-	step("resize при открытом detail", detailWithFooter("Detail 1-12/12"))
+	step("resize при открытом detail", detailWithFooter("Detail 1-13/13"))
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
 	step("overlay закрыт", tableAt(90))
@@ -157,7 +157,7 @@ func TestTUIRuntimeCaptureAcrossRealSession(t *testing.T) {
 	})
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	step("повторно открыт detail", detailWithFooter("Detail 1-12/12"))
+	step("повторно открыт detail", detailWithFooter("Detail 1-13/13"))
 
 	rp.Send(tea.KeyMsg{Type: tea.KeyEscape})
 	step("overlay закрыт повторно", tableAt(120))

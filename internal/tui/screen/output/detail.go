@@ -217,6 +217,18 @@ func detailPhysicalLines(lines []string, regions []Region, width int) ([]string,
 	return physical, owners
 }
 
+// sanitizeDetailLine strips every escape sequence unconditionally, including
+// SGR colour codes. This is deliberate: Detail's Lines can carry untrusted,
+// externally-sourced text (a model's description/note as served by the
+// OpenRouter API), and this is the boundary that keeps that text from
+// injecting terminal escape sequences — a hidden OSC 8 hyperlink, a colour
+// reset that hides following content, etc. See
+// TestDetailRemovesMixedControlPayloadsFromVisibleBaseText and
+// TestDetailDecodesEscapedNewlinesAndSanitizesTerminalPayloads. Any line
+// that legitimately needs colour (e.g. the detail tab bar's active-tab
+// highlight) must therefore never carry pre-baked ANSI into Lines at all —
+// it gets styled afterwards, in tuiStyleDetail, the same way the title and
+// footer already are.
 func sanitizeDetailLine(value string) string {
 	return normalizePlainLine(value)
 }
