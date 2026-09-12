@@ -50,15 +50,14 @@ go build -o openrouter.exe ./cmd/openrouter
 ## Использование
 
 ```bash
-openrouter tui                                     # интерактивный TUI
-openrouter table                                    # та же таблица как plain-text (без сети, для скриптов)
-openrouter refresh                                   # обновить цены и оценки
-openrouter history --model <slug> --format report     # история цен по одной модели
-openrouter check                                       # что изменилось в каталоге/карте, без записи
+omt tui                        # интерактивный TUI
+omt table                      # та же таблица как plain-text (без сети, для скриптов)
+omt refresh                    # обновить цены и оценки
+omt history                    # история цен
+omt check                      # что изменилось в каталоге/карте, без записи
 ```
 
-(после установки через Homebrew те же команды — через `omt` или
-`openrouter-model-tracker`)
+(также можно использовать полное имя `openrouter-model-tracker`)
 
 ## Подробнее
 
