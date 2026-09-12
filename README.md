@@ -72,5 +72,6 @@ omt check                      # что изменилось в каталоге
 
 - [docs/methodology.md](docs/methodology.md) — identity gate, три независимых измерения качества, формула ранжирования
 - [docs/reference.md](docs/reference.md) — полный список команд, конфиг, Makefile-таргеты, релиз-процесс
+- [docs/contributing.md](docs/contributing.md) — процесс приёмки изменений: ветка, PR с историей, гейты, ревью, merge
 - [docs/security.md](docs/security.md) — supply-chain profile и подписывание релиза
 - [CHANGELOG.md](CHANGELOG.md) — история изменений
