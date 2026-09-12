@@ -34,6 +34,23 @@ func progressWriter(out io.Writer) func(refresh.ProgressEvent) {
 	return progressWriterWithTTY(out, isFile && term.IsTerminal(int(file.Fd())))
 }
 
+// chartWidth sizes the `history --format report` bar charts to the real
+// terminal width when out is a TTY (leaving a small margin so the plot
+// never touches the edge), and falls back to pricehistory's own default
+// otherwise — piped/redirected output, or a non-*os.File writer such as a
+// test's bytes.Buffer.
+func chartWidth(out io.Writer) int {
+	file, ok := out.(*os.File)
+	if !ok || !term.IsTerminal(int(file.Fd())) {
+		return pricehistory.DefaultChartWidth
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil || width <= 0 {
+		return pricehistory.DefaultChartWidth
+	}
+	return width - 2
+}
+
 func progressWriterWithTTY(out io.Writer, tty bool) func(refresh.ProgressEvent) {
 	return func(event refresh.ProgressEvent) {
 		if tty {
@@ -195,13 +212,25 @@ func parseSince(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-func renderHistory(h *pricehistory.History, modelSlug, since, format string) (string, error) {
-	if format != "markdown" && format != "tsv" {
-		return "", fmt.Errorf("--format must be markdown or tsv")
+// renderHistory implements the `history` CLI command's three formats:
+// "markdown"/"tsv" dump every observation (across all models unless
+// --model narrows it) as a machine-friendly change log, and "report"
+// renders a single model's price history as a human-readable deduplicated
+// table plus a labeled bar chart (pricehistory.RenderModelReport) — width
+// caps the report's chart columns and is ignored by the other two formats.
+func renderHistory(h *pricehistory.History, modelSlug, since, format string, width int) (string, error) {
+	if format != "markdown" && format != "tsv" && format != "report" {
+		return "", fmt.Errorf("--format must be markdown, tsv, or report")
 	}
 	cutoff, err := parseSince(since)
 	if err != nil {
 		return "", err
+	}
+	if format == "report" {
+		if modelSlug == "" {
+			return "", fmt.Errorf("--format report requires --model <slug>")
+		}
+		return pricehistory.RenderModelReport(pricehistory.FilterSince(h, cutoff), modelSlug, width), nil
 	}
 	previous := make(map[string]pricehistory.Price)
 	var b strings.Builder
@@ -372,7 +401,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			output, err := renderHistory(history, historyModel, historySince, historyFormat)
+			output, err := renderHistory(history, historyModel, historySince, historyFormat, chartWidth(cmd.OutOrStdout()))
 			if err != nil {
 				return err
 			}
@@ -382,7 +411,7 @@ func newRootCmd() *cobra.Command {
 	}
 	historyCmd.Flags().StringVar(&historyModel, "model", "", "filter by slug")
 	historyCmd.Flags().StringVar(&historySince, "since", "", "show observations after RFC3339 or YYYY-MM-DD")
-	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown or tsv")
+	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown (full change log), tsv (machine-readable change log), or report (one model's deduplicated price table + bar chart; requires --model)")
 
 	tableCmd := &cobra.Command{
 		Use:                "table",
