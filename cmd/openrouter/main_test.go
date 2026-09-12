@@ -288,7 +288,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 	}{
 		{command: "refresh", wanted: []string{"Fetch fresh data and overwrite the document", "path to generated markdown", "write nothing"}, old: []string{"Собрать свежие данные", "путь генерируемого markdown", "ничего не писать"}},
 		{command: "check", wanted: []string{"Report only: new candidates, removed slugs, and notes.yaml gaps; write nothing", "path to generated markdown"}, old: []string{"Только отчёт", "путь генерируемого markdown"}},
-		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "format: markdown or tsv"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv"}},
+		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "format: markdown", "or report", "requires --model"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv"}},
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
 		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "default mixed-utility", "automatic live refresh interval"}},
