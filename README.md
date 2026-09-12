@@ -47,7 +47,9 @@ Move-Item openrouter-1.18.7-windows-amd64.exe openrouter.exe
 
 (чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог из
 `PATH`; TUI рассчитан на Windows Terminal. Сборка из исходников:
-`go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+)
+`go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+;
+бинарник не подписан, поэтому при первом запуске SmartScreen покажет
+предупреждение — это ожидаемо, жмите «Подробнее» → «Выполнить в любом случае»)
 
 На macOS и Linux доступна и сборка из исходников без Homebrew:
 `git clone ... && cd ... && make install` — подробности (`PREFIX`/`BINDIR`,

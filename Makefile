@@ -334,7 +334,7 @@ whats-new:
 release-local local-release: check-tag fmt-check test-all vet security secrets-check check-docs
 	@set -eu; \
 		version='$(VERSION)'; tag='$(TAG_VERSION)'; commit="$$(git -C '$(ROOT)' rev-parse HEAD)"; out='$(LOCAL_RELEASE_DIR)/'"$$version"; \
-		for platform in $(LOCAL_RELEASE_PLATFORMS); do case "$$platform" in windows/*) \
+		for platform in $(LOCAL_RELEASE_PLATFORMS); do os="$${platform%/*}"; case "$$os" in windows) \
 		  command -v zip >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: zip is required to package the Windows release archive' >&2; exit 1; }; \
 		  command -v unzip >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: unzip is required to verify the Windows release archive' >&2; exit 1; }; \
 		  break;; esac; done; \
