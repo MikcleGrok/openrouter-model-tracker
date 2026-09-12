@@ -75,6 +75,15 @@ GITHUB_RUN_ID ?= local
 RELEASE_SOURCE_DIR ?= $(ROOT)
 RELEASE_ARTIFACT_DIR ?= $(RELEASE_SOURCE_DIR)/dist/local-release/$(VERSION)
 
+# Winget publication (see docs/reference.md "Winget submission" and
+# .task/winget-install-support/plan.md): local generation + `gh`-driven
+# submission, no CI, mirroring the sync-homebrew-formula.sh pattern.
+WINGET_PACKAGE_IDENTIFIER ?= MikcleGrok.openrouter-model-tracker
+WINGET_MANIFEST_VERSION ?= 1.12.0
+WINGET_FORK ?= MikcleGrok/winget-pkgs
+WINGET_PKGS_REPOSITORY ?= microsoft/winget-pkgs
+WINGET_DIR ?= $(RELEASE_ARTIFACT_DIR)/winget
+
 VALID_PROVENANCE_PROFILES := local candidate external published
 ifneq ($(filter $(PROVENANCE_PROFILE),$(VALID_PROVENANCE_PROFILES)),$(PROVENANCE_PROFILE))
 $(error BLOCKED: unknown PROVENANCE_PROFILE '$(PROVENANCE_PROFILE)' (expected local|candidate|external|published))
@@ -82,7 +91,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -107,7 +116,7 @@ completion-check: build
 test-acceptance: build
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -count=1 ./tests/...
 
-test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check
+test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check winget-manifest-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -149,6 +158,9 @@ sign-flags-check:
 
 provenance-profile-check:
 	@$(ROOT)scripts/provenance_profile_test.sh
+
+winget-manifest-check:
+	@$(ROOT)scripts/winget-manifest_test.sh
 
 openrouter-launchd-refresh-check:
 	@$(ROOT)scripts/launchd-refresh_test.sh
@@ -341,17 +353,17 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 		rm -rf "$$out"; mkdir -p "$$out/artifacts"; artifacts_json=''; first=1; \
 		for platform in $(LOCAL_RELEASE_PLATFORMS); do \
 		os="$${platform%/*}"; arch="$${platform#*/}"; name="openrouter-$$version-$$os-$$arch"; \
-		case "$$os" in windows) binary="$$name.exe"; archive="$$name.zip";; *) binary="$$name"; archive="$$name.tar.gz";; esac; \
+		case "$$os" in windows) binary="$$name.exe"; packaged='openrouter.exe'; archive="$$name.zip";; *) binary="$$name"; packaged="$$name"; archive="$$name.tar.gz";; esac; \
 		GOOS="$$os" GOARCH="$$arch" CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$$version" -o "$$out/$$binary" '$(ROOT)cmd/openrouter'; \
 		chmod 0755 "$$out/$$binary"; \
 		touch -t 197001010000 "$$out/$$binary"; \
 		package="$$out/package-$$name"; mkdir -p "$$package"; \
-		mv "$$out/$$binary" "$$package/$$binary"; \
-		chmod 0755 "$$package/$$binary"; \
+		mv "$$out/$$binary" "$$package/$$packaged"; \
+		chmod 0755 "$$package/$$packaged"; \
 		if test "$$os" = windows; then \
 		rm -f "$$out/artifacts/$$archive"; \
-		zip -q -j -X "$$out/artifacts/$$archive" "$$package/$$binary"; \
-		unzip -Z1 "$$out/artifacts/$$archive" | grep -Fqx "$$binary"; \
+		zip -q -j -X "$$out/artifacts/$$archive" "$$package/$$packaged"; \
+		unzip -Z1 "$$out/artifacts/$$archive" | grep -Fqx "$$packaged"; \
 		test "$$(unzip -Z1 "$$out/artifacts/$$archive" | wc -l)" -eq 1; \
 		else \
 		mkdir -p "$$package/scripts"; \
@@ -392,6 +404,15 @@ release-github-check:
 		tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp" "$$tmp_dir"' EXIT; jq -r '.artifacts[] | "\(.sha256)  \(.artifact)"' manifest.json | sort > "$$tmp_dir/manifest"; sort SHA256SUMS > "$$tmp_dir/checksums"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/checksums" || { printf '%s\n' 'BLOCKED: SHA256SUMS differs from release manifest' >&2; exit 1; }; : > "$$tmp_dir/actual"; set -- artifacts/*; test -f "$$1" || { printf '%s\n' 'BLOCKED: no local release archives found' >&2; exit 1; }; for archive; do test -s "$$archive" || { printf '%s\n' "BLOCKED: release archive is missing or empty: $$archive" >&2; exit 1; }; shasum -a 256 "$$archive" >> "$$tmp_dir/actual"; done; sort "$$tmp_dir/actual" > "$$tmp_dir/actual.sorted"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/actual.sorted" || { printf '%s\n' 'BLOCKED: local archive set or digest differs from release manifest' >&2; exit 1; }; shasum -a 256 -c SHA256SUMS >/dev/null || { printf '%s\n' 'BLOCKED: local release archive checksum verification failed' >&2; exit 1; }; \
 		cd "$$source_dir"; PROVENANCE_PROFILE=published TAG_VERSION="$$tag" VERSION="$$version" COSIGN_PUBLIC_KEY="$$source_dir/cosign.pub" RELEASE_MANIFEST=.release/release-manifest.json RELEASE_MANIFEST_SIG=.release/release-manifest.json.sig.bundle.json RELEASE_MANIFEST_ATT=.release/release-manifest.json.att.bundle.json SBOM_FILE=.release/sbom.spdx.json PUBLISHED_EVIDENCE=.release/published-evidence.json GITHUB_REPOSITORY="$(GITHUB_REPOSITORY)" ./scripts/verify-provenance.sh full >/dev/null; $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$$tag" --commit "$$commit" --version "$$version"; $(GO) run ./cmd/evidencecheck --published-evidence .release/published-evidence.json --tag "$$tag" --commit "$$commit" --version "$$version"; \
 		printf '%s\n' "GitHub release evidence verified for $$tag at $$commit"
+
+winget-manifest:
+	@cd $(ROOT) && WINGET_PACKAGE_IDENTIFIER='$(WINGET_PACKAGE_IDENTIFIER)' WINGET_MANIFEST_VERSION='$(WINGET_MANIFEST_VERSION)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' WINGET_DIR='$(WINGET_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' ./scripts/winget-manifest.sh --generate
+
+winget-submit-check:
+	@cd $(ROOT) && WINGET_PACKAGE_IDENTIFIER='$(WINGET_PACKAGE_IDENTIFIER)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' WINGET_DIR='$(WINGET_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' ./scripts/winget-manifest.sh --check
+
+winget-submit: winget-submit-check
+	@cd $(ROOT) && WINGET_PACKAGE_IDENTIFIER='$(WINGET_PACKAGE_IDENTIFIER)' WINGET_FORK='$(WINGET_FORK)' WINGET_PKGS_REPOSITORY='$(WINGET_PKGS_REPOSITORY)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' WINGET_DIR='$(WINGET_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' WINGET_DRY_RUN='$(WINGET_DRY_RUN)' ./scripts/winget-manifest.sh --submit
 
 release-github: release-github-check
 	@set -eu; \
@@ -472,6 +493,9 @@ help:
 		'local-release   Alias for release-local' \
 		'release-github-check Verify exact-tag GitHub release evidence without publishing' \
 		'release-github  Publish an exact-tag GitHub Release (RELEASE_DRY_RUN=1 for command preview)' \
+		'winget-manifest Generate the winget-pkgs manifest YAML from local-release evidence (run after release-github)' \
+		'winget-submit-check Verify the generated manifest against SHA256SUMS and the published GitHub Release' \
+		'winget-submit  Fork sync, branch, upload manifest, open a winget-pkgs PR (WINGET_DRY_RUN=1 for command preview)' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
 		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \
