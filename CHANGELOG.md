@@ -1,5 +1,11 @@
 # What's New
 
+## [1.18.6]
+
+- Rewrite README.md to fit one screen (172 → 68 lines): a short pitch, the demo GIF, install for macOS/Linux/Windows, the essential commands, and links to `docs/methodology.md`/`docs/reference.md` for everything else. Correct the documented macOS install to match what the public Homebrew formula actually installs the binary as.
+- Regenerate `docs/assets/tui-demo.gif` to show current behavior: the fixed (non-truncating) columns, `Space`-cycling SWE-bench/Arena/GPQA, and the consolidated 4-tab Detail screen.
+- Fix the public Homebrew tap (`mikclegrok/tools`) formula, stale since v1.16.6: it had been accidentally repointed at a one-off re-hosted release that was never kept in sync, rather than the source repo's own releases. Repointed directly at `MikcleGrok/openrouter-model-tracker`'s real v1.18.5 assets with verified checksums.
+
 ## [1.18.5]
 
 - Fix `Claude` and `SWE %`/score columns getting truncated to `>≈ ...`/`93...` at realistic terminal widths (100 columns, a typical laptop terminal) in both `table` and the TUI: the width algorithm gave the `Name` column first claim on the budget and let every other column shrink to its bare header length. Every column but `Name` now claims its real content-aware minimum first; `Name` absorbs what's left and is the one that degrades under width pressure.
