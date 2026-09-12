@@ -29,7 +29,7 @@ func TestRenderTableUsesPlainTextAndTruncatesCells(t *testing.T) {
 		t.Fatalf("headers missing from table:\n%s", output)
 	}
 	wide := renderTable([]model.Model{{DisplayName: "model"}}, 220, false)
-	assertTableHeaders(t, wide, []string{"Name", "Claude", "SWE %", "Q/P score/$M", "Context tok", "In $/M", "Out $/M", "Note"})
+	assertTableHeaders(t, wide, []string{"Name", "Claude", "SWE %", "QP/$M", "Ctx tok", "In $/M", "Out $/M", "Note"})
 	if strings.Contains(output, "#") || strings.Contains(output, "|---") || strings.Contains(output, "<table") {
 		t.Fatalf("table contains markup:\n%s", output)
 	}
@@ -451,7 +451,7 @@ func testIconContract(icon string) testIconLayout {
 
 func testCLISeparatorColumns(width int) []int {
 	want, ok := map[int][]int{
-		120: {0, 38, 47, 58, 73, 87, 99, 112, 119},
+		120: {0, 43, 52, 63, 71, 87, 99, 112, 119},
 		40:  {0, 7, 13, 17, 23, 27, 31, 35, 39},
 	}[width]
 	if !ok {
@@ -981,7 +981,7 @@ func TestRenderTableDoesNotExpandEmptyNoteColumn(t *testing.T) {
 
 func TestRenderTableUsesSlugAsTheSingleIdentityColumn(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "Display name", Slug: "vendor/a-very-long-model-slug-that-must-be-bounded"}}, 120, true)
-	assertTableHeaders(t, output, []string{"Slug", "Claude", "SWE %", "Q/P score/$M", "Context tok", "In $/M", "Out $/M", "Note"})
+	assertTableHeaders(t, output, []string{"Slug", "Claude", "SWE %", "QP/$M", "Ctx tok", "In $/M", "Out $/M", "Note"})
 	if !strings.Contains(output, "vendor/a-very") || strings.Contains(output, "Display name") {
 		t.Fatalf("slug identity mode output = %s", output)
 	}
@@ -1088,7 +1088,7 @@ func tableColumnWidths(output string) []int {
 
 func TestRenderTableFitsNarrowWidth(t *testing.T) {
 	output := renderTable([]model.Model{{DisplayName: "a model", Context: 128000, InPerM: 1.25, OutPerM: 2.5, ScoreLabel: "93.0%", Note: "a note"}}, 40, false)
-	if !strings.Contains(output, "| Name ") || !strings.Contains(output, "| Cla ") || !strings.Contains(output, "| Q/P ") {
+	if !strings.Contains(output, "| Name ") || !strings.Contains(output, "| Cla ") || !strings.Contains(output, "| QP/ ") {
 		t.Fatalf("minimum table does not preserve required headers:\n%s", output)
 	}
 }
@@ -1188,6 +1188,50 @@ func TestRenderTableKeepsClaudeLabelAtAnyRequestedWidth(t *testing.T) {
 		}
 		if got := tableColumnWidths(output)[1]; got < tableDisplayWidth(want) {
 			t.Errorf("Claude column width at %d columns = %d, want >= %d", width, got, tableDisplayWidth(want))
+		}
+	}
+}
+
+// TestRenderTableNeverTruncatesClaudeOrStatusAtRealisticNarrowWidths is the
+// regression test for the reported bug: at a realistic terminal width (100
+// or 80 columns — this project's own established width-budget convention,
+// shared with the Detail-view tests in detail_tabs_test.go), the Claude and
+// Status/score columns must show their full realistic-worst-case value
+// ("<<≈ Haiku 4.5", 13 characters; "100.0%v", 7 characters — the vals.ai
+// source marker appended to a 100.0% score) rather than being truncated to
+// "<<≈ ..." / "93..." the way they were before this fix, while Name — whose
+// configured/target width is only ever a preference — is the column that
+// absorbs the resulting pressure and truncates instead, since a shortened
+// Name is still readable from its visible prefix but a truncated Claude/
+// Status value is actively misleading.
+func TestRenderTableNeverTruncatesClaudeOrStatusAtRealisticNarrowWidths(t *testing.T) {
+	longName := "A Very Long Display Model Name That Cannot Possibly Fit In The Available Budget"
+	wantClaude := "<<≈ Haiku 4.5"
+	wantStatus := "100.0%v"
+	models := []model.Model{{
+		DisplayName: longName, Tier: "free", Score: &model.ScoreInfo{Value: 59, SourceFamily: "vals"}, Rankable: true,
+		ScoreLabel: "100.0%", QualityPriceLabel: "n/a (free)", Context: 128000,
+	}}
+	for _, width := range []int{100, 80} {
+		output := renderTable(models, width, false)
+		if !strings.Contains(output, wantClaude) {
+			t.Errorf("width %d: Claude value %q was truncated:\n%s", width, wantClaude, output)
+		}
+		if !strings.Contains(output, wantStatus) {
+			t.Errorf("width %d: Status value %q was truncated:\n%s", width, wantStatus, output)
+		}
+		widths := tableColumnWidths(output)
+		if widths[1] < tableDisplayWidth(wantClaude) {
+			t.Errorf("width %d: Claude column width = %d, want >= %d", width, widths[1], tableDisplayWidth(wantClaude))
+		}
+		if widths[2] < tableDisplayWidth(wantStatus) {
+			t.Errorf("width %d: Status column width = %d, want >= %d", width, widths[2], tableDisplayWidth(wantStatus))
+		}
+		if strings.Contains(output, longName) {
+			t.Fatalf("width %d: full Name fit without truncation — test no longer exercises real width pressure, widths=%v:\n%s", width, widths, output)
+		}
+		if widths[0] >= config.DefaultNameWidth {
+			t.Errorf("width %d: Name column width = %d did not absorb any of the pressure Claude/Status were protected from (still at its full %d-column target)", width, widths[0], config.DefaultNameWidth)
 		}
 	}
 }

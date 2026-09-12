@@ -202,7 +202,16 @@ func TestTUIDetailScrollAndReturnAlwaysProduceIndependentFrames(t *testing.T) {
 	}
 	m = tuiKey(m, "esc")
 	list := ansi.Strip(m.View())
-	if len(strings.Split(list, "\n")) != m.height || !strings.Contains(list, "OpenRouter models") || !strings.Contains(list, "Provider") || strings.Contains(list, "Detail ") {
+	// "SWE %" (the Status column header, always fully shown — see
+	// diagnosticColumnWidthCap/tuiDiagnosticColumnWidthCap) stands in for the
+	// list table being genuinely present; the manufacturer badge text
+	// ("Provider") this used to check for lives inside the Name cell, whose
+	// own width is exactly what Option D reallocates under real column
+	// pressure (see tuiCellWidthsForLangWithContent) — at this narrow a
+	// width with 5 surviving columns, Name can legitimately be squeezed down
+	// to a couple of characters, which is the intended tradeoff, not a stale
+	// frame.
+	if len(strings.Split(list, "\n")) != m.height || !strings.Contains(list, "OpenRouter models") || !strings.Contains(list, "SWE %") || strings.Contains(list, "Detail ") {
 		t.Fatalf("return-to-list frame is stale or incomplete:\n%s", list)
 	}
 	if strings.Contains(list, "long description") {
@@ -2755,7 +2764,7 @@ func TestTUIViewNarrowAndSanitized(t *testing.T) {
 func TestTUIRenderTUILineAlignsCellsAndNumericValues(t *testing.T) {
 	m := tuiModel{width: 34}
 	columns := []tuiColumn{colName, colContext, colInput}
-	wantOffsets := []int{12, 26}
+	wantOffsets := []int{16, 26}
 	header := m.renderTUILine(columns, nil, false)
 	for _, values := range [][]string{{"Long model", "7", "1.5"}, {"Long model", "12345", "0.125"}} {
 		row := m.renderTUILine(columns, values, false)
@@ -2841,11 +2850,23 @@ func TestTUICursorMovementPreservesVisibleRowsAndRebuildSemantics(t *testing.T) 
 	}
 }
 
+// TestTUIHeaderAndTaskFitDataShareDisplayOffsets verifies header/row column
+// alignment through the same shared-widths mechanism View() actually uses
+// (tuiCellWidthsForFrame once, then renderTUILineWithWidths for every line):
+// since tuiCellWidthsForLangWithContent's Option D priority makes Name's own
+// width depend on how much real content every other column needs, two
+// independent renderTUILine(..., nil, ...) / renderTUILine(..., values, ...)
+// calls on a bare model with no m.visible are no longer guaranteed to agree
+// with each other — the header call has no row content to look at, the row
+// call does — even though within one real frame (one computed widths array,
+// reused for every line) they always still do. See git history for the
+// two-independent-calls version this replaced.
 func TestTUIHeaderAndTaskFitDataShareDisplayOffsets(t *testing.T) {
 	m := tuiModel{width: 100, scoreSource: scoreSourceDefault}
 	columns := []tuiColumn{colName, colClaude, colStatus, colQuality, colContext, colInput, colOutput, colTask}
-	header := m.renderTUILine(columns, nil, false)
-	row := m.renderTUILine(columns, []string{"🌸 Alibaba Qwen3.7 Plus", "≈ Sonnet 5", "93.0%", "82.7", "1M", "$1", "$2", "IPDRT"}, false)
+	widths := m.tuiCellWidthsForFrame(columns)
+	header := m.renderTUILineWithWidths(columns, nil, false, widths)
+	row := m.renderTUILineWithWidths(columns, []string{"🌸 Alibaba Qwen3.7 Plus", "≈ Sonnet 5", "93.0%", "82.7", "1M", "$1", "$2", "IPDRT"}, false, widths)
 	if got, want := tuiSeparatorDisplayOffsets(row), tuiSeparatorDisplayOffsets(header); !reflect.DeepEqual(got, want) {
 		t.Fatalf("TUI column offsets differ: header=%v row=%v\nheader=%q\nrow=%q", want, got, header, row)
 	}
@@ -2899,6 +2920,63 @@ func TestTUIWideViewportShowsFullIdentityValues(t *testing.T) {
 	data := strings.Split(view, "\n")[3]
 	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(header), tuiSeparatorDisplayOffsets(data)) {
 		t.Fatalf("header/data geometry differs: header=%q data=%q", header, data)
+	}
+}
+
+// TestTUINeverTruncatesClaudeOrStatusAtRealisticNarrowWidths is the TUI
+// counterpart of TestRenderTableNeverTruncatesClaudeOrStatusAtRealisticNarrowWidths
+// (table_test.go) — the regression test for the originally reported bug: at
+// a realistic terminal width (100 or 80 columns), the Claude and Status
+// columns must show their full realistic-worst-case value ("<<≈ Haiku 4.5",
+// 13 characters; "100.0%v", 7 characters) rather than being truncated to
+// "<<≈ ..." / "93..." the way they were before this fix, while Name absorbs
+// the resulting pressure and is the column that truncates instead.
+func TestTUINeverTruncatesClaudeOrStatusAtRealisticNarrowWidths(t *testing.T) {
+	longName := "A Very Long Display Model Name That Cannot Possibly Fit In The Available Budget"
+	wantClaude := "<<≈ Haiku 4.5"
+	wantStatus := "100.0%v"
+	rows := []model.Model{{
+		DisplayName: longName, Tier: "free", Score: &model.ScoreInfo{Value: 59, SourceFamily: "vals"}, Rankable: true,
+		ScoreLabel: "100.0%", QualityPriceLabel: "n/a (free)", Context: 128000,
+	}}
+	for _, width := range []int{100, 80} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+		m.width, m.height = width, 24
+		view := ansi.Strip(m.View())
+		if !strings.Contains(view, wantClaude) {
+			t.Errorf("width %d: Claude value %q was truncated:\n%s", width, wantClaude, view)
+		}
+		if !strings.Contains(view, wantStatus) {
+			t.Errorf("width %d: Status value %q was truncated:\n%s", width, wantStatus, view)
+		}
+		columns := m.renderColumns()
+		widths := m.tuiCellWidthsForFrame(columns)
+		nameIndex, claudeIndex, statusIndex := -1, -1, -1
+		for i, column := range columns {
+			switch column {
+			case colName:
+				nameIndex = i
+			case colClaude:
+				claudeIndex = i
+			case colStatus:
+				statusIndex = i
+			}
+		}
+		if nameIndex < 0 || claudeIndex < 0 || statusIndex < 0 {
+			t.Fatalf("width %d: default columns lost Name/Claude/Status: %v", width, columns)
+		}
+		if widths[claudeIndex] < tableDisplayWidth(wantClaude) {
+			t.Errorf("width %d: Claude column width = %d, want >= %d", width, widths[claudeIndex], tableDisplayWidth(wantClaude))
+		}
+		if widths[statusIndex] < tableDisplayWidth(wantStatus) {
+			t.Errorf("width %d: Status column width = %d, want >= %d", width, widths[statusIndex], tableDisplayWidth(wantStatus))
+		}
+		if strings.Contains(view, longName) {
+			t.Fatalf("width %d: full Name fit without truncation — test no longer exercises real width pressure, widths=%v:\n%s", width, widths, view)
+		}
+		if widths[nameIndex] >= config.DefaultNameWidth {
+			t.Errorf("width %d: Name column width = %d did not absorb any of the pressure Claude/Status were protected from (still at its full %d-column target)", width, widths[nameIndex], config.DefaultNameWidth)
+		}
 	}
 }
 
@@ -2998,7 +3076,7 @@ func TestTUIRenderTUILineUsesDisplayWidthAndStripsANSI(t *testing.T) {
 	if lipgloss.Width(row) > m.width {
 		t.Fatalf("Unicode row exceeds width: %q", row)
 	}
-	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), []int{9}) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false)), []int{9}) {
+	if !reflect.DeepEqual(tuiSeparatorDisplayOffsets(row), []int{13}) || !reflect.DeepEqual(tuiSeparatorDisplayOffsets(m.renderTUILine(columns, []string{"界🙂", "123"}, false)), []int{13}) {
 		t.Fatalf("Unicode separator display position changed with numeric width: %q", row)
 	}
 }
@@ -3065,7 +3143,7 @@ func TestTUIViewportPreservesDisplayedSourceAwareHeaders(t *testing.T) {
 	}{
 		{80, scoreSourceSWEBench, "SWE %"},
 		{96, scoreSourceArena, "Arena Elo"},
-		{120, scoreSourceSWEBench, "Q/P score/$M"},
+		{120, scoreSourceSWEBench, "QP/$M"},
 	} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 		m.width, m.scoreSource = test.width, test.source
@@ -3118,7 +3196,7 @@ func testTUISeparatorColumns(width, columnCount int) []int {
 		panic(fmt.Sprintf("missing independent TUI geometry contract for %d columns", columnCount))
 	}
 	want, ok := map[int][]int{
-		120: {43, 53, 62, 78, 93, 103, 114},
+		120: {43, 55, 66, 77, 89, 100, 112},
 		40:  {4, 8, 12, 16, 20, 24, 28},
 	}[width]
 	if !ok {

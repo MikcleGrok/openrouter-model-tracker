@@ -989,9 +989,11 @@ func renderTableModeWithIconsAndNameWidthAndGaps(models []model.Model, width int
 		columnHeader = "Note"
 	}
 	scoreHeader := scoreColumnHeader(scoreSource)
-	headers := []string{identityHeader, "Claude", scoreHeader, "Q/P score/$M", "Context tok", "In $/M", "Out $/M", columnHeader}
+	headers := []string{identityHeader, "Claude", scoreHeader, "QP/$M", "Ctx tok", "In $/M", "Out $/M", columnHeader}
 	rows := make([][]string, 0, len(models))
 	maxClaudeWidth := 0
+	maxScoreWidth := 0
+	maxQualityWidth := 0
 	maxNoteWidth := 0
 	for _, m := range models {
 		identity := m.DisplayName
@@ -1007,12 +1009,28 @@ func renderTableModeWithIconsAndNameWidthAndGaps(models []model.Model, width int
 		}
 		rows = append(rows, values)
 		maxClaudeWidth = max(maxClaudeWidth, tableDisplayWidth(values[1]))
+		maxScoreWidth = max(maxScoreWidth, tableDisplayWidth(values[2]))
+		maxQualityWidth = max(maxQualityWidth, tableDisplayWidth(values[3]))
 		maxNoteWidth = max(maxNoteWidth, tableDisplayWidth(values[7]))
 	}
 	nameWidth = max(1, min(nameWidth, config.MaxNameWidth))
-	preferred := []int{nameWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), 8, max(5, tableDisplayWidth(headers[3])), max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
-	minimum := []int{min(30, nameWidth), max(tableDisplayWidth(headers[1]), maxClaudeWidth), 6, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	// Status/score and Quality/Price are content-aware like Claude and Note
+	// below, but capped at diagnosticColumnWidthCap: their normal content is
+	// a short number or percentage, and the occasional much longer value
+	// ("unmapped (no benchmark identity)", a manual override annotation, an
+	// "n/a (variant mismatch)"-style reason) is a rare diagnostic string that
+	// this project already truncates with "..." rather than letting it
+	// consume the rest of the table's width budget — Quality/Price has done
+	// this since before this change; Status/score is newly protected here,
+	// which is the actual bug fix: its hardcoded minimum of 6 was one
+	// character short of a realistic "100.0%v" value.
+	scoreColumnWidth := max(tableDisplayWidth(headers[2]), min(maxScoreWidth, diagnosticColumnWidthCap))
+	qualityColumnWidth := max(tableDisplayWidth(headers[3]), min(maxQualityWidth, diagnosticColumnWidthCap))
+	preferred := []int{nameWidth, max(tableDisplayWidth(headers[1]), maxClaudeWidth), scoreColumnWidth, qualityColumnWidth, max(7, tableDisplayWidth(headers[4])), 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
+	minimum := []int{min(30, nameWidth), max(tableDisplayWidth(headers[1]), maxClaudeWidth), scoreColumnWidth, 5, 7, 9, 10, max(tableDisplayWidth(headers[7]), maxNoteWidth)}
 	// Claude keeps its full width; structural columns and the selected last column use compact fallback.
+	// (Status/score falls back to the same 1-column compact minimum as the other structural columns here —
+	// this extreme-narrow path is unchanged by this fix; only the >minTableWidth preferred/minimum path above is.)
 	compactMinimum := []int{4, max(1, maxClaudeWidth), 1, 3, 1, 1, 1, max(1, maxNoteWidth)}
 	widths := append([]int(nil), preferred...)
 	target := width - (3*len(widths) + 1)
