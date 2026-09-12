@@ -2,7 +2,7 @@
 
 CLI/TUI для сравнения AI-моделей на OpenRouter по качеству и цене.
 
-![TUI: таблица моделей, переключение источника оценки SWE-bench/Arena/GPQA, карточка модели с 4 вкладками, фильтр paid/free](docs/assets/tui-demo.gif)
+![TUI: фильтр доступности paid/any/free, поиск моделей Claude, переключение источника оценки SWE-bench/Arena/GPQA, экран справки по хоткеям, карточка модели](docs/assets/tui-demo.gif)
 
 `openrouter-model-tracker` собирает живой каталог моделей OpenRouter (цены,
 контекст) и сопоставляет его с независимыми оценками качества — SWE-bench
