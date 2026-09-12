@@ -1,5 +1,9 @@
 # What's New
 
+## [1.18.4]
+
+- Add a one-line gloss to each Task fit tag in the Detail screen's Fit & Notes tab (e.g. `implement: write or change production code.`), reusing the exact wording already established in the Hotkeys help's "Task-fit codes" table, in both English and Russian.
+
 ## [1.18.3]
 
 - Fix a test assertion left over from merging the tab-consolidation branch (expected detail-view line count) — no user-facing change; v1.18.0, v1.18.1 and v1.18.2 were tagged before this correction and are superseded by this release.
