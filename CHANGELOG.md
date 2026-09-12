@@ -13,6 +13,7 @@
 - Add a height budget to the detail screen's tests: with no history graphs, every tab fits a 40-row terminal at both 100 and 80 columns, in English and Russian.
 - Highlight the active Detail tab so it survives the ANSI-sanitizing render pipeline, and add a blank line between the model title and the tab bar.
 - Coalesce same-day price/score observations so a frequent `--interval`/`refresh` no longer floods the Detail history with duplicate gap entries or an unlabeled wall of `?` sparkline characters.
+- Add `openrouter history --format report`: a deduplicated price-change table (consecutive unchanged-price days collapsed into one date-range row) plus a labeled terminal bar chart with real axis values, replacing the unreadable repeated-line dump as the readable option for the CLI.
 
 ## [1.17.0]
 
