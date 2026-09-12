@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.19.0]
+
 - Add winget install support: `winget install MikcleGrok.openrouter-model-tracker`. The Windows release zip now packages the executable under a stable name, `openrouter.exe`, instead of the previous versioned filename (`openrouter-<version>-windows-amd64.exe`) — the archive's own download filename is unchanged, only its internal layout. This is load-bearing for winget: it validates the nested installer's `RelativeFilePath` literally against the archive contents, so a versioned inner name would break the manifest on every release.
 - Add `make winget-manifest`, `make winget-submit-check`, and `make winget-submit` targets to generate, verify, and submit the winget-pkgs manifest from local-release evidence, mirroring the existing `sync-homebrew-formula`/`check-homebrew-formula` local, CI-free release flow.
 - Add `LICENSE` (MIT), required for winget-pkgs acceptance.
