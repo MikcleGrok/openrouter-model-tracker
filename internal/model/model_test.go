@@ -2,6 +2,7 @@ package model
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
@@ -941,8 +942,143 @@ func TestMergeStillWorksWithoutArena(t *testing.T) {
 	}
 }
 
+// TestMergeAllKeepsTheThreeSourcesApart is the three-family version of
+// TestMergeWithArenaKeepsTheTwoSourcesApart. The GPQA column is the one that
+// most needs pinning: it is a percentage like SWE-bench Verified, so nothing
+// about the value itself would reveal a leak between the two columns.
+func TestMergeAllKeepsTheThreeSourcesApart(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/all", Tier: "sonnet", Names: map[string]string{"vals": "a/all", "arena": "a-all", "gpqa": "a/all-gpqa"}},
+		{Slug: "a/gpqa-only", Tier: "sonnet", Names: map[string]string{"gpqa": "a/gpqa-only"}},
+		{Slug: "a/swe-only", Tier: "sonnet", Names: map[string]string{"vals": "a/swe-only"}},
+	}
+	prices := map[string]sources.PriceInfo{
+		"a/all":       {Slug: "a/all", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+		"a/gpqa-only": {Slug: "a/gpqa-only", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+		"a/swe-only":  {Slug: "a/swe-only", InPerM: 1, OutPerM: 3, Context: 1000, Found: true},
+	}
+	scores := []sources.ScoreRow{{Slug: "a/all", SourceFamily: "vals", ConfiguredIdentity: "a/all", Metric: sources.MetricSWEBenchVerified, Value: 70, VariantMeasured: "a/all"}}
+	arena := []sources.ScoreRow{{Slug: "a/all", SourceFamily: "arena", ConfiguredIdentity: "a-all", CanonicalID: "a-all", Metric: sources.MetricArenaElo, Value: 1500, VariantMeasured: "a/all"}}
+	general := []sources.ScoreRow{
+		{Slug: "a/all", SourceFamily: "gpqa", ConfiguredIdentity: "a/all-gpqa", Metric: sources.MetricGPQADiamond, Value: 91.5, Unit: "%", VariantMeasured: "a/all-gpqa"},
+		{Slug: "a/gpqa-only", SourceFamily: "gpqa", ConfiguredIdentity: "a/gpqa-only", Metric: sources.MetricGPQADiamond, Value: 88, Unit: "%", VariantMeasured: "a/gpqa-only"},
+	}
+	got := byslug(MergeAll(entries, prices, scores, arena, general, testNotes(t)))
+
+	all := got["a/all"]
+	if all.Score == nil || all.Score.Value != 70 {
+		t.Errorf("a/all SWE-bench cell = %+v, want the untouched 70%%", all.Score)
+	}
+	if all.ArenaScore == nil || all.ArenaScore.Value != 1500 {
+		t.Errorf("a/all ArenaScore = %+v, want the raw Elo 1500", all.ArenaScore)
+	}
+	if all.GeneralScore == nil || all.GeneralScore.Value != 91.5 || all.GeneralLabel != "91.5%" {
+		t.Errorf("a/all general cell = %+v / %q, want 91.5%%", all.GeneralScore, all.GeneralLabel)
+	}
+	if !all.GeneralRankable || all.GeneralQualityPrice == 0 {
+		t.Errorf("a/all general rankable/QP = %v / %v, want an exact-product row with a Q/P", all.GeneralRankable, all.GeneralQualityPrice)
+	}
+
+	// A GPQA percentage must not fill the SWE-bench column of a model that
+	// has no SWE-bench row — the failure mode two same-unit metrics make easy.
+	gpqaOnly := got["a/gpqa-only"]
+	if gpqaOnly.Score != nil || gpqaOnly.ScoreLabel != "n/a" {
+		t.Errorf("a/gpqa-only SWE-bench cell = %+v / %q, want no number at all", gpqaOnly.Score, gpqaOnly.ScoreLabel)
+	}
+	if gpqaOnly.ArenaScore != nil {
+		t.Errorf("a/gpqa-only ArenaScore = %+v, want nothing", gpqaOnly.ArenaScore)
+	}
+	if gpqaOnly.GeneralScore == nil || gpqaOnly.GeneralScore.Value != 88 {
+		t.Errorf("a/gpqa-only GeneralScore = %+v, want 88", gpqaOnly.GeneralScore)
+	}
+	// The `scored` filter reads HasQualityPrice, which belongs to the ACTIVE
+	// view. Un-projected rows are in the SWE-bench view, where this model has
+	// nothing.
+	if gpqaOnly.HasQualityPrice {
+		t.Error("a/gpqa-only HasQualityPrice is true in the default SWE-bench view, where it has no score")
+	}
+
+	sweOnly := got["a/swe-only"]
+	if sweOnly.GeneralScore != nil || sweOnly.GeneralRankable {
+		t.Errorf("a/swe-only general = %+v / rankable %v, want nothing", sweOnly.GeneralScore, sweOnly.GeneralRankable)
+	}
+	if sweOnly.GeneralLabel != "n/a" || sweOnly.GeneralQualityPriceLabel != "n/a (no GPQA score)" {
+		t.Errorf("a/swe-only general labels = %q / %q, want the GPQA-specific reason, not the SWE-bench one", sweOnly.GeneralLabel, sweOnly.GeneralQualityPriceLabel)
+	}
+}
+
+// TestGeneralRowNeedsItsOwnKeyEcho and the !variant test below pin that the
+// third source gets exactly the identity gate the other vals.ai source gets —
+// no weaker, despite being the newest column.
+func TestGeneralRowNeedsItsOwnKeyEcho(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/model", Tier: "sonnet", Names: map[string]string{"gpqa": "a/model-gpqa"}}}
+	prices := map[string]sources.PriceInfo{"a/model": {Slug: "a/model", InPerM: 1, OutPerM: 3, Found: true}}
+	general := []sources.ScoreRow{{Slug: "a/model", SourceFamily: "gpqa", ConfiguredIdentity: "a/model-gpqa", Metric: sources.MetricGPQADiamond, Value: 90, VariantMeasured: "a/someone-elses-checkpoint"}}
+	got := byslug(MergeAll(entries, prices, nil, nil, general, testNotes(t)))["a/model"]
+	if got.GeneralScore == nil || got.GeneralScore.IdentityStatus != IdentityVariantMismatch {
+		t.Errorf("identity = %+v, want variant_mismatch when the row echoes a different key", got.GeneralScore)
+	}
+	if got.GeneralRankable || got.GeneralQualityPrice != 0 {
+		t.Errorf("rankable = %v, Q/P = %v, want neither for a mismatched row", got.GeneralRankable, got.GeneralQualityPrice)
+	}
+}
+
+func TestGeneralMappingHonoursTheVariantMarker(t *testing.T) {
+	entries := []modelmap.Entry{{
+		Slug:     "anthropic/claude-opus-4.6",
+		Tier:     "opus",
+		Names:    map[string]string{"gpqa": "anthropic/claude-opus-4-6-thinking"},
+		Variants: map[string]bool{"gpqa": true},
+	}}
+	prices := map[string]sources.PriceInfo{"anthropic/claude-opus-4.6": {Slug: "anthropic/claude-opus-4.6", InPerM: 5, OutPerM: 25, Found: true}}
+	general := []sources.ScoreRow{{
+		Slug: "anthropic/claude-opus-4.6", SourceFamily: "gpqa",
+		ConfiguredIdentity: "anthropic/claude-opus-4-6-thinking", VariantMeasured: "anthropic/claude-opus-4-6-thinking",
+		Metric: sources.MetricGPQADiamond, Value: 89.646,
+	}}
+	got := byslug(MergeAll(entries, prices, nil, nil, general, testNotes(t)))["anthropic/claude-opus-4.6"]
+	if got.GeneralScore == nil || got.GeneralScore.IdentityStatus != IdentityVariantMismatch {
+		t.Errorf("identity = %+v, want variant_mismatch — the key matched, but the human flagged the configuration", got.GeneralScore)
+	}
+	if got.GeneralRankable {
+		t.Error("GeneralRankable is true; an explicitly flagged variant must never rank")
+	}
+	if !strings.Contains(got.GeneralLabel, IdentityVariantMismatch) {
+		t.Errorf("GeneralLabel = %q, want the status visible next to the number", got.GeneralLabel)
+	}
+}
+
+func TestForScoreSourceProjectsGeneralAndHidesTheOthers(t *testing.T) {
+	models := []Model{{
+		Slug: "a/both", Tier: "sonnet", MixedPrice: 2, Paid: true, HasPrice: true,
+		Score:      &ScoreInfo{Metric: sources.MetricSWEBenchVerified, Value: 70},
+		ScoreLabel: "70.0%", Rankable: true, QualityPrice: 35, QualityPriceLabel: "35.0",
+		ArenaScore: &ScoreInfo{Metric: sources.MetricArenaElo, Value: 1500}, ArenaNormalized: 100, ArenaRankable: true,
+		GeneralScore: &ScoreInfo{Metric: sources.MetricGPQADiamond, Value: 90}, GeneralLabel: "90.0%",
+		GeneralRankable: true, GeneralQualityPrice: 45, GeneralQualityPriceLabel: "45.0",
+	}}
+	got := ForScoreSource(models, ScoreSourceGeneral)[0]
+	if got.Score == nil || got.Score.Value != 90 || got.Score.Metric != sources.MetricGPQADiamond {
+		t.Errorf("projected Score = %+v, want the GPQA row", got.Score)
+	}
+	if got.ScoreLabel != "90.0%" || !got.Rankable {
+		t.Errorf("projected label/rankable = %q / %v, want the GPQA ones", got.ScoreLabel, got.Rankable)
+	}
+	// GPQA already is a percentage, so it ranks through Score.Value like
+	// SWE-bench does — no normalised twin, unlike the Arena projection.
+	if got.HasRankingScore {
+		t.Error("HasRankingScore is true; the general view must rank straight off Score.Value")
+	}
+	if got.QualityPrice != 45 || !got.HasQualityPrice {
+		t.Errorf("projected Q/P = %v / %v, want the general view's own", got.QualityPrice, got.HasQualityPrice)
+	}
+	if models[0].Score.Value != 70 || models[0].ScoreLabel != "70.0%" {
+		t.Error("ForScoreSource mutated its input; the caller must keep a row that still knows all three sources")
+	}
+}
+
 func TestSourceFamilyRegistry(t *testing.T) {
-	for id, want := range map[string]string{"swebench": ScoreSourceSWEBench, "vals": ScoreSourceSWEBench, "arena": ScoreSourceArena} {
+	for id, want := range map[string]string{"swebench": ScoreSourceSWEBench, "vals": ScoreSourceSWEBench, "arena": ScoreSourceArena, "gpqa": ScoreSourceGeneral} {
 		if got := SourceFamily[id]; got != want {
 			t.Errorf("SourceFamily[%q] = %q, want %q", id, got, want)
 		}

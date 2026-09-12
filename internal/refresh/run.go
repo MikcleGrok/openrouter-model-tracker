@@ -42,7 +42,12 @@ type ProgressEvent struct {
 	Err       error
 }
 
-const progressTotal = 4
+// progressJobs is how many logical jobs one run reports progress for: the
+// single catalogue+prices goroutine, plus one per registered score source. It
+// is derived rather than a constant so registering a source cannot leave the
+// bar counting to a total it has already passed ("5/4 completed, -1
+// remaining").
+func progressJobs(d deps) int { return len(d.sources) + 1 }
 
 // scoreSource is one benchmark source, identified by the column name it uses in
 // model-map.tsv.
@@ -114,6 +119,14 @@ func liveDeps(opts Options) deps {
 			{id: "arena", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
 				return sources.FetchArenaElo(ctx, c, names)
 			}},
+			// The general-reasoning family currently has exactly one source,
+			// so there is no priority to express inside it. It shares a site
+			// with vals.ai's SWE-bench leaderboard but not a family: same
+			// publisher, same fixed harness, a different experiment — so the
+			// two never fall back to one another.
+			{id: "gpqa", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+				return sources.FetchValsGPQA(ctx, c, names)
+			}},
 		},
 		now:              time.Now,
 		saveHistory:      func(history *pricehistory.History, path string) error { return history.Save(path) },
@@ -175,6 +188,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	)
 	var progressMu sync.Mutex
 	completed := 0
+	progressTotal := progressJobs(d)
 	emit := func(job string, err error) {
 		if opts.Progress == nil {
 			return
@@ -277,13 +291,15 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	// the SWE-bench branch by default. It is dropped instead, with a warning,
 	// which is the same "safe default" model.SourceFamily itself documents
 	// for an unknown id.
-	var scores, arenaScores []sources.ScoreRow
+	var scores, arenaScores, generalScores []sources.ScoreRow
 	for _, s := range d.sources {
 		switch model.SourceFamily[s.id] {
 		case model.ScoreSourceSWEBench:
 			scores = append(scores, rows[s.id]...)
 		case model.ScoreSourceArena:
 			arenaScores = append(arenaScores, rows[s.id]...)
+		case model.ScoreSourceGeneral:
+			generalScores = append(generalScores, rows[s.id]...)
 		default:
 			if n := len(rows[s.id]); n > 0 {
 				warn("%s: у источника нет записи в model.SourceFamily — %d строк(и) отброшены, а не объединены ни с одним представлением", s.id, n)
@@ -321,8 +337,14 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		}
 	}
 	arenaScores, staleArena := applyArenaFallback(entries, arenaScores, sourceOK, snap)
+	generalScores, staleGeneral := applyGeneralFallback(entries, generalScores, sourceOK, snap)
 
-	models := model.MergeWithArena(entries, prices, scores, arenaScores, nt)
+	models := model.MergeAll(entries, prices, scores, arenaScores, generalScores, nt)
+	// The price history deliberately observes only the two families it has
+	// always observed. It is a time series of price against the ranking
+	// score, and adding a third score series to the same rows is a separate,
+	// schema-changing decision — not something this source should make on
+	// its way in.
 	liveScores, liveArenaScores = model.SelectedScoreRows(entries, prices, liveScores, liveArenaScores)
 	report := BuildReport(reportEntries, catalog, prices, pricesOK, models)
 	report.PriceChanges = priceChanges(history, prices, pricesOK)
@@ -346,7 +368,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 
 	// markStale runs after BuildReport: it appends to Note/ScoreLabel, and
 	// BuildReport's NeedsReview check needs to see the original, unmutated Note.
-	markStale(models, stalePrices, staleScores, staleArena, today)
+	markStale(models, stalePrices, staleScores, staleArena, staleGeneral, today)
 
 	// Report generation above is a cheap, useful diagnostic even on a dry run
 	// (`openrouter check`) — a pure read-only report must never hard-fail, so
@@ -409,7 +431,8 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 	valsFetchedAt := setFreshness(sources.ValsSWEBenchURL, sourceOK["vals"])
 	swebenchFetchedAt := setFreshness(sources.SWEBenchURL, sourceOK["swebench"])
 	arenaFetchedAt := setFreshness(sources.ArenaURL, sourceOK["arena"])
-	if openRouterFetchedAt != "" || valsFetchedAt != "" || swebenchFetchedAt != "" || arenaFetchedAt != "" {
+	gpqaFetchedAt := setFreshness(sources.ValsGPQAURL, sourceOK["gpqa"])
+	if openRouterFetchedAt != "" || valsFetchedAt != "" || swebenchFetchedAt != "" || arenaFetchedAt != "" || gpqaFetchedAt != "" {
 		if newSnapshot.Freshness == nil {
 			newSnapshot.Freshness = &Freshness{}
 		}
@@ -417,6 +440,7 @@ func run(ctx context.Context, opts Options, d deps) (Report, error) {
 		newSnapshot.Freshness.ValsNetworkFetchedAt = nonEmptyOr(valsFetchedAt, newSnapshot.Freshness.ValsNetworkFetchedAt)
 		newSnapshot.Freshness.SWEBenchNetworkFetchedAt = nonEmptyOr(swebenchFetchedAt, newSnapshot.Freshness.SWEBenchNetworkFetchedAt)
 		newSnapshot.Freshness.ArenaNetworkFetchedAt = nonEmptyOr(arenaFetchedAt, newSnapshot.Freshness.ArenaNetworkFetchedAt)
+		newSnapshot.Freshness.GPQANetworkFetchedAt = nonEmptyOr(gpqaFetchedAt, newSnapshot.Freshness.GPQANetworkFetchedAt)
 	}
 	if catalogOK {
 		newSnapshot.CatalogSlugs = append([]string(nil), catalog...)
@@ -450,6 +474,8 @@ func progressJob(id string) string {
 		return "SWE-bench"
 	case "arena":
 		return "Arena"
+	case "gpqa":
+		return "Vals GPQA"
 	default:
 		return id
 	}
@@ -838,14 +864,76 @@ func applyArenaFallback(entries []modelmap.Entry, arena []sources.ScoreRow, sour
 	return arena, staleArena
 }
 
+// applyGeneralFallback does for the general-reasoning column what
+// applyArenaFallback does for the Arena one, and stays a separate function
+// for the same reason the three columns are separate: one source's outage
+// must never put a number into another's view. There is no notes.yaml
+// equivalent to consult here either — manual overrides describe SWE-bench
+// Verified only.
+func applyGeneralFallback(entries []modelmap.Entry, general []sources.ScoreRow, sourceOK map[string]bool, snap *Snapshot) ([]sources.ScoreRow, map[string]bool) {
+	staleGeneral := map[string]bool{}
+	scored := make(map[string]bool, len(general))
+	for _, r := range general {
+		scored[r.Slug] = true
+	}
+	for _, e := range entries {
+		if scored[e.Slug] {
+			continue
+		}
+		failed := false
+		for sourceID := range e.Names {
+			if model.SourceFamily[sourceID] == model.ScoreSourceGeneral && !sourceOK[sourceID] {
+				failed = true
+				break
+			}
+		}
+		if !failed {
+			continue
+		}
+		se, ok := snap.Models[e.Slug]
+		if !ok || se.GeneralScore == nil {
+			continue
+		}
+		identity := se.GeneralScore.IdentityStatus
+		if snapshotIdentityUnavailable(se) {
+			identity = model.IdentityLegacyUnknown
+		}
+		general = append(general, sources.ScoreRow{
+			Slug:               e.Slug,
+			SourceFamily:       se.GeneralScore.SourceFamily,
+			ConfiguredIdentity: se.GeneralScore.ConfiguredIdentity,
+			IdentityAmbiguous:  se.GeneralScore.IdentityAmbiguous,
+			Metric:             se.GeneralScore.Metric,
+			Value:              se.GeneralScore.Value,
+			Unit:               se.GeneralScore.Unit,
+			VariantMeasured:    se.GeneralScore.VariantMeasured,
+			SourceURL:          se.GeneralScore.SourceURL,
+			Checked:            se.GeneralScore.Checked,
+			IdentityStatus:     identity,
+			CanonicalID:        se.GeneralScore.CanonicalID,
+			ReleaseVariant:     se.GeneralScore.ReleaseVariant,
+			ModelVariant:       se.GeneralScore.ModelVariant,
+			Reasoning:          se.GeneralScore.Reasoning,
+			Configuration:      se.GeneralScore.Configuration,
+			Provider:           se.GeneralScore.Provider,
+			Uncertainty:        se.GeneralScore.Uncertainty,
+			SampleSize:         se.GeneralScore.SampleSize,
+			Harness:            se.GeneralScore.Harness,
+			Scaffold:           se.GeneralScore.Scaffold,
+		})
+		staleGeneral[e.Slug] = true
+	}
+	return general, staleGeneral
+}
+
 func snapshotIdentityUnavailable(se SnapshotEntry) bool {
 	return se.CanonicalSlug == "" && se.Provider == "" && se.ReleaseVariant == "" && se.ModelVariant == "" && se.Reasoning == "" && se.Configuration == ""
 }
 
 // markStale labels the rows whose values came from the snapshot rather than
-// from this run, in the document itself. The two score columns are labelled
+// from this run, in the document itself. The three score columns are labelled
 // independently, because they can go stale independently.
-func markStale(models []model.Model, stalePrices, staleScores, staleArena map[string]bool, date string) {
+func markStale(models []model.Model, stalePrices, staleScores, staleArena, staleGeneral map[string]bool, date string) {
 	for i := range models {
 		m := &models[i]
 		if stalePrices[m.Slug] {
@@ -861,6 +949,11 @@ func markStale(models []model.Model, stalePrices, staleScores, staleArena map[st
 			m.ArenaScore.Stale = true
 			m.ArenaScore.Provenance = strings.TrimSpace(m.ArenaScore.Provenance + " [snapshot fallback]")
 			m.ArenaLabel += " (не удалось проверить на " + date + ")"
+		}
+		if staleGeneral[m.Slug] && m.GeneralScore != nil {
+			m.GeneralScore.Stale = true
+			m.GeneralScore.Provenance = strings.TrimSpace(m.GeneralScore.Provenance + " [snapshot fallback]")
+			m.GeneralLabel += " (не удалось проверить на " + date + ")"
 		}
 	}
 }

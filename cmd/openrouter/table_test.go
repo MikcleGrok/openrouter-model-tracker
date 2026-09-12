@@ -2474,3 +2474,139 @@ func TestTableScoreSourceFilterScoredTracksTheActiveSource(t *testing.T) {
 		t.Errorf("swebench --filter scored dropped a row that does have a SWE-bench number:\n%s", swe)
 	}
 }
+
+func TestValidateAndCycleScoreSources(t *testing.T) {
+	for _, source := range []string{scoreSourceSWEBench, scoreSourceArena, scoreSourceGeneral} {
+		if err := validateScoreSource(source); err != nil {
+			t.Errorf("validateScoreSource(%q) = %v, want nil", source, err)
+		}
+	}
+	for _, source := range []string{"auto", "", "gpqa", "GENERAL"} {
+		if err := validateScoreSource(source); err == nil {
+			t.Errorf("validateScoreSource(%q) = nil; there is deliberately no blended or per-row view", source)
+		}
+	}
+	// Space must reach every view and come back, so a third source needs no
+	// second hotkey.
+	seen := map[string]bool{}
+	source := scoreSourceDefault
+	for i := 0; i < len(scoreSourceOrder); i++ {
+		seen[source] = true
+		source = nextScoreSource(source)
+	}
+	if len(seen) != len(scoreSourceOrder) || source != scoreSourceDefault {
+		t.Errorf("cycling from the default visited %v and ended on %q, want every view and a wrap back to %q", seen, source, scoreSourceDefault)
+	}
+	if got := nextScoreSource("not-a-source"); got != scoreSourceDefault {
+		t.Errorf("nextScoreSource(unknown) = %q, want the default rather than a stuck view", got)
+	}
+}
+
+func TestScoreColumnHeaderNamesTheExperiment(t *testing.T) {
+	for source, want := range map[string]string{
+		scoreSourceSWEBench: "SWE %",
+		scoreSourceArena:    "Arena Elo",
+		scoreSourceGeneral:  "GPQA %",
+	} {
+		if got := scoreColumnHeader(source); got != want {
+			t.Errorf("scoreColumnHeader(%q) = %q, want %q", source, got, want)
+		}
+	}
+	// Two of the three print percentages, so a generic header would leave the
+	// reader unable to tell which experiment is on screen.
+	if scoreColumnHeader(scoreSourceGeneral) == scoreColumnHeader(scoreSourceSWEBench) {
+		t.Error("the GPQA and SWE-bench headers are identical; the only cue distinguishing two percentage columns is their name")
+	}
+}
+
+func copyGeneralScoreSourceFixture(t *testing.T, root string) error {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/swe\ttier=sonnet\tvals=demo/swe\ndemo/gpqa\ttier=haiku\tgpqa=demo/gpqa\ndemo/both\ttier=sonnet\tvals=demo/both\tgpqa=demo/both\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/swe:\n    display: Demo SWE\n  demo/gpqa:\n    display: Demo GPQA\n  demo/both:\n    display: Demo Both\n"), 0o644); err != nil {
+		return err
+	}
+	general := func(key string, value float64) *model.ScoreInfo {
+		return &model.ScoreInfo{Metric: "GPQA Diamond", Value: value, Unit: "%", SourceFamily: "gpqa", ConfiguredIdentity: key, VariantMeasured: key, IdentityStatus: model.IdentityExact}
+	}
+	snapshot := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/swe":  {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70, Unit: "%", VariantMeasured: "demo/swe", IdentityStatus: model.IdentityExact}},
+		"demo/gpqa": {InPerM: 1, OutPerM: 3, Context: 128000, GeneralScore: general("demo/gpqa", 88.5)},
+		"demo/both": {InPerM: 1, OutPerM: 3, Context: 128000, Score: &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 60, Unit: "%", VariantMeasured: "demo/both", IdentityStatus: model.IdentityExact}, GeneralScore: general("demo/both", 91.25)},
+	}}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "model-snapshot.json"), body, 0o644)
+}
+
+// TestTableGeneralScoreSourceSwitchesTheWholeView is the end-to-end proof
+// that the third view is a view and not a blend. It matters more than the
+// Arena equivalent: both columns print percentages, so a leak between them
+// produces a table that looks entirely ordinary.
+func TestTableGeneralScoreSourceSwitchesTheWholeView(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\n")
+	if err := copyGeneralScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COLUMNS", "120")
+
+	swe := executeCLI(t, "table", "--config", config, "--slug")
+	if !strings.Contains(swe, "70.0%") || !strings.Contains(swe, "60.0%") {
+		t.Errorf("default view lost its SWE-bench numbers:\n%s", swe)
+	}
+	if strings.Contains(swe, "88.5%") || strings.Contains(swe, "91.2%") {
+		t.Errorf("default view leaked a GPQA number into the SWE-bench column:\n%s", swe)
+	}
+	if got := tableRowCell(t, swe, "demo/gpqa", 2); got != "No score" && got != "n/a" {
+		t.Errorf("swebench-mode Status for demo/gpqa = %q, want no number: it has only a GPQA score:\n%s", got, swe)
+	}
+
+	general := executeCLI(t, "table", "--config", config, "--score-source=general", "--slug")
+	if !strings.Contains(general, "88.5%") || !strings.Contains(general, "91.2%") {
+		t.Errorf("general view lost its GPQA numbers:\n%s", general)
+	}
+	if strings.Contains(general, "70.0%") || strings.Contains(general, "60.0%") {
+		t.Errorf("general view leaked a SWE-bench number:\n%s", general)
+	}
+	if !strings.Contains(general, "Score source: general") || !strings.Contains(general, "GPQA Diamond") {
+		t.Errorf("general view does not say which experiment it is on:\n%s", general)
+	}
+	if !strings.Contains(general, "GPQA %") {
+		t.Errorf("general view header does not name the metric:\n%s", general)
+	}
+	// A percentage from a science-reasoning exam must not be read through
+	// ClaudeEquivalent's SWE-bench-calibrated haiku threshold (>=70).
+	if got := tableRowCell(t, general, "demo/gpqa", 1); got != "n/a" {
+		t.Errorf("general-mode Claude cell for demo/gpqa (GPQA 88.5) = %q, want n/a; there is no GPQA-to-Claude-tier mapping:\n%s", got, general)
+	}
+}
+
+func TestLoadLocalModelsForSourceRestoresTheGeneralColumn(t *testing.T) {
+	root := t.TempDir()
+	if err := copyGeneralScoreSourceFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	models, err := loadLocalModelsForSource(root, scoreSourceGeneral)
+	if err != nil {
+		t.Fatalf("loadLocalModelsForSource: %v", err)
+	}
+	byslug := map[string]model.Model{}
+	for _, m := range models {
+		byslug[m.Slug] = m
+	}
+	both := byslug["demo/both"]
+	if both.Score == nil || both.Score.Value != 91.25 || both.Score.Metric != "GPQA Diamond" {
+		t.Errorf("demo/both projected Score = %+v, want the snapshot's GPQA row", both.Score)
+	}
+	if !both.Rankable || !both.HasQualityPrice {
+		t.Errorf("demo/both rankable/HasQualityPrice = %v / %v, want an exact-product GPQA row to rank in its own view", both.Rankable, both.HasQualityPrice)
+	}
+	swe := byslug["demo/swe"]
+	if swe.Score != nil {
+		t.Errorf("demo/swe projected Score = %+v, want nothing: it has no GPQA row and its SWE-bench number belongs to another view", swe.Score)
+	}
+}

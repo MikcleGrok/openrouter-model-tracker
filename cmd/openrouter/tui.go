@@ -623,10 +623,10 @@ func (m tuiModel) switchScoreSource() (tuiModel, tea.Cmd) {
 	}
 	m.scoreSourceGeneration++
 	m.scoreSourceLoading = true
-	source := scoreSourceArena
-	if m.scoreSource == scoreSourceArena {
-		source = scoreSourceSWEBench
-	}
+	// Space cycles through every registered view rather than toggling two,
+	// so a third source is reachable from the keyboard without a second
+	// hotkey to remember.
+	source := nextScoreSource(m.scoreSource)
 	m.status, m.err = m.t("loading ")+source+m.t(" from local snapshot..."), ""
 	m.advanceFrame()
 	m.pendingScoreSource = source
@@ -694,14 +694,14 @@ var tuiTranslationsRU = map[string]string{
 	"Columns (Space toggle, Enter apply, Esc cancel)": "Столбцы (Space переключить, Enter применить, Esc отмена)",
 
 	"Settings (Enter/Space change, Esc close)": "Настройки (Enter/Space изменить, Esc закрыть)",
-	"Ranking: ":                         "Ранжирование: ",
-	"Score source: ":                    "Источник оценки: ",
-	" (Space switches SWE-bench/Arena)": " (Space переключает SWE-bench/Arena)",
-	"Filter: ":                          "Фильтр: ",
-	"Availability: ":                    "Доступность: ",
-	"Layout: ":                          "Вид: ",
-	" (top N=":                          " (топ N=",
-	"Columns: ":                         "Столбцы: ",
+	"Ranking: ":                            "Ранжирование: ",
+	"Score source: ":                       "Источник оценки: ",
+	" (Space cycles SWE-bench/Arena/GPQA)": " (Space переключает SWE-bench/Arena/GPQA)",
+	"Filter: ":                             "Фильтр: ",
+	"Availability: ":                       "Доступность: ",
+	"Layout: ":                             "Вид: ",
+	" (top N=":                             " (топ N=",
+	"Columns: ":                            "Столбцы: ",
 	"Move Down to Score source, then press Space to switch.": "Стрелка вниз — к источнику оценки, затем Space для переключения.",
 	"Source uses the local snapshot; R refreshes data.":      "Источник использует локальный снапшот; R обновляет данные.",
 	"Select Filter to reuse the structured filter input.":    "Выберите Фильтр, чтобы использовать структурированный ввод фильтра.",
@@ -2028,7 +2028,7 @@ func (m tuiModel) baseView() string {
 			m.t("Settings (Enter/Space change, Esc close)"),
 			"",
 			"> " + m.t("Ranking: ") + rankingName,
-			"  " + m.t("Score source: ") + m.scoreSource + m.t(" (Space switches SWE-bench/Arena)"),
+			"  " + m.t("Score source: ") + m.scoreSource + m.t(" (Space cycles SWE-bench/Arena/GPQA)"),
 			"  " + m.t("Filter: ") + tuiDetailValueForLang(m.filter, m.lang),
 			"  " + m.t("Availability: ") + tuiAvailabilityFromFilter(m.filter),
 			"  " + m.t("Layout: ") + m.layout + m.t(" (top N=") + strconv.Itoa(m.topN) + ")",
@@ -2446,10 +2446,7 @@ func tuiColumnLabel(column tuiColumn, scoreSource string) string {
 	case colCopyrightGuardrail:
 		return "Copyright guardrail"
 	case colStatus:
-		if scoreSource == scoreSourceArena {
-			return "Arena Elo"
-		}
-		return "SWE %"
+		return scoreColumnHeader(scoreSource)
 	case colQuality:
 		return "Q/P score/$M"
 	case colContext:
@@ -2490,10 +2487,7 @@ func tuiColumnLabelForLang(column tuiColumn, scoreSource, lang string) string {
 	case colCopyrightGuardrail:
 		return "Copyright guardrail"
 	case colStatus:
-		if scoreSource == scoreSourceArena {
-			return "Arena Elo"
-		}
-		return "SWE %"
+		return scoreColumnHeader(scoreSource)
 	case colQuality:
 		return "Q/P очки/$M"
 	case colContext:

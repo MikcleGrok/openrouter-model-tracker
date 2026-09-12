@@ -339,9 +339,84 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 	if got := NamesFor(entries, "arena"); !reflect.DeepEqual(got, wantArena) {
 		t.Errorf("NamesFor(arena) =\n  %v\nwant\n  %v", got, wantArena)
 	}
+
+	// Every key below was read off the live vals.ai GPQA Diamond leaderboard,
+	// never transcribed from the vals= column next to it: the two vals.ai
+	// pages do not always name the same model the same way (claude-opus-4.6
+	// is "…-4-6-thinking" here and has no vals= key at all), which is exactly
+	// the mistake this golden map exists to freeze out.
+	wantGPQA := map[string]string{
+		"anthropic/claude-fable-5":               "anthropic/claude-fable-5",
+		"anthropic/claude-fable-5.1":             "anthropic/claude-fable-5-1",
+		"anthropic/claude-haiku-4.5":             "anthropic/claude-haiku-4-5-20251001-thinking",
+		"anthropic/claude-opus-4.6":              "anthropic/claude-opus-4-6-thinking",
+		"anthropic/claude-opus-4.7":              "anthropic/claude-opus-4-7",
+		"anthropic/claude-opus-4.8":              "anthropic/claude-opus-4-8",
+		"anthropic/claude-opus-5":                "anthropic/claude-opus-5",
+		"anthropic/claude-sonnet-4.5":            "anthropic/claude-sonnet-4-5-20250929-thinking",
+		"anthropic/claude-sonnet-4.6":            "anthropic/claude-sonnet-4-6",
+		"anthropic/claude-sonnet-5":              "anthropic/claude-sonnet-5",
+		"deepseek/deepseek-v4-flash":             "deepseek/deepseek-v4-flash-0731",
+		"deepseek/deepseek-v4-pro":               "deepseek/deepseek-v4-pro",
+		"google/gemini-3.1-pro-preview":          "google/gemini-3.1-pro-preview",
+		"google/gemini-3.5-flash":                "google/gemini-3.5-flash",
+		"google/gemini-3.6-flash":                "google/gemini-3.6-flash",
+		"google/gemini-3.7-flash":                "google/gemini-3.7-flash",
+		"google/gemini-3.8-flash":                "google/gemini-3.8-flash",
+		"meta/muse-spark-1.1":                    "meta/muse_spark_1_1",
+		"minimax/minimax-m2.5":                   "minimax/MiniMax-M2.5",
+		"minimax/minimax-m3":                     "minimax/MiniMax-M3",
+		"mistralai/mistral-large-2512":           "mistralai/mistral-large-2512",
+		"mistralai/mistral-medium-3-5":           "mistralai/mistral-medium-3.5",
+		"moonshotai/kimi-k2.5":                   "kimi/kimi-k2.5-thinking",
+		"moonshotai/kimi-k3":                     "kimi/kimi-k3",
+		"nvidia/nemotron-3-ultra-550b-a55b":      "nvidia/nemotron-3-ultra-550b-a55b",
+		"nvidia/nemotron-3-ultra-550b-a55b:free": "nvidia/nemotron-3-ultra-550b-a55b",
+		"openai/gpt-5-mini":                      "openai/gpt-5-mini-2025-08-07",
+		"openai/gpt-5.6-luna":                    "openai/gpt-5.6-luna",
+		"openai/gpt-5.6-sol":                     "openai/gpt-5.6-sol",
+		"openai/gpt-5.6-terra":                   "openai/gpt-5.6-terra",
+		"qwen/qwen3.7-max":                       "alibaba/qwen3.7-max",
+		"qwen/qwen3.8-max-0902":                  "alibaba/qwen3.8-max",
+		"x-ai/grok-4.5":                          "grok/grok-4.5",
+		"x-ai/grok-4.6":                          "grok/grok-4.6",
+		"xiaomi/mimo-v2.5":                       "xiaomi/mimo-v2.5",
+		"xiaomi/mimo-v2.5-pro":                   "xiaomi/mimo-v2.5-pro",
+		"z-ai/glm-4.7":                           "zai/glm-4.7",
+		"z-ai/glm-5.2":                           "zai/glm-5.2",
+		"z-ai/glm-5.3":                           "zai/glm-5.3",
+		"z-ai/glm-5.3-flash":                     "zai/glm-5.3-flash",
+	}
+	if got := NamesFor(entries, "gpqa"); !reflect.DeepEqual(got, wantGPQA) {
+		t.Errorf("NamesFor(gpqa) =\n  %v\nwant\n  %v", got, wantGPQA)
+	}
+
+	// The five !variant markers on gpqa= are load-bearing, not decoration:
+	// vals.ai publishes only an extended-thinking run (or a dated checkpoint)
+	// for these, so the number is shown but must not rank. Dropping a marker
+	// silently promotes another configuration's result into the ranking,
+	// which is the one failure this file exists to prevent — so the set is
+	// pinned exactly, in both directions.
+	wantGPQAVariants := map[string]bool{
+		"anthropic/claude-haiku-4.5":  true,
+		"anthropic/claude-opus-4.6":   true,
+		"anthropic/claude-sonnet-4.5": true,
+		"deepseek/deepseek-v4-flash":  true,
+		"moonshotai/kimi-k2.5":        true,
+	}
+	gotGPQAVariants := map[string]bool{}
+	for _, e := range entries {
+		if e.Variants["gpqa"] {
+			gotGPQAVariants[e.Slug] = true
+		}
+	}
+	if !reflect.DeepEqual(gotGPQAVariants, wantGPQAVariants) {
+		t.Errorf("gpqa !variant markers =\n  %v\nwant\n  %v", gotGPQAVariants, wantGPQAVariants)
+	}
+
 	for _, e := range entries {
 		for sourceID := range e.Names {
-			if sourceID != "swebench" && sourceID != "vals" && sourceID != "arena" {
+			if sourceID != "swebench" && sourceID != "vals" && sourceID != "arena" && sourceID != "gpqa" {
 				t.Errorf("%s declares an unknown source id %q; it would silently feed no view at all", e.Slug, sourceID)
 			}
 		}

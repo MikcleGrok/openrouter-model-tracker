@@ -1487,7 +1487,7 @@ func TestTUISettingsOverlayTransitions(t *testing.T) {
 	if m.overlay != "settings" {
 		t.Fatal("settings overlay not opened")
 	}
-	if view := m.View(); !strings.Contains(view, "Score source: swebench (Space switches SWE-bench/Arena)") || !strings.Contains(view, "Move Down to Score source, then press Space to switch.") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
+	if view := m.View(); !strings.Contains(view, "Score source: swebench (Space cycles SWE-bench/Arena/GPQA)") || !strings.Contains(view, "Move Down to Score source, then press Space to switch.") || !strings.Contains(view, "Filter: paid") || !strings.Contains(view, "Columns:") {
 		t.Fatalf("settings view is missing state: %q", view)
 	}
 	m = tuiKey(m, "down")

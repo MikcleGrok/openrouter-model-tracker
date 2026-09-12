@@ -2,10 +2,17 @@
 
 ## [Unreleased]
 
+- Add GPQA Diamond (vals.ai) as a third, fully independent quality axis, selectable with `--score-source=general` and reachable in the TUI by cycling `Space` through SWE-bench/Arena/GPQA. It never blends with the other two: separate column, separate Q/P, separate snapshot slot and separate staleness fallback.
+- Populate 40 verified `gpqa=` mappings in `model-map.tsv`, five of them flagged `!variant` because vals.ai only publishes an extended-thinking run or a dated checkpoint for those models. `anthropic/claude-fable-5.1`, previously carrying only a crowd-preference Elo, now has a real independent benchmark number.
+- Guard the new source at the page level as well as per row: the fetcher reads the leaderboard's own `metadata.slug` and refuses to read any page that is not GPQA, since every vals.ai benchmark renders through the same component at a near-identical URL and both metrics are percentages.
+- Name the score column after the active experiment (`SWE %` / `Arena Elo` / `GPQA %`), and stop deriving a SWE-bench-calibrated Claude equivalence for haiku/free rows under any non-SWE-bench source.
+- Derive the refresh progress total from the registered sources instead of a hard-coded 4, so adding a source can no longer make the bar count past its own total.
 - Consolidate the TUI model-detail screen from five tabs to four: Provenance and metadata now shares the Identity tab, and the digit keys stay sequential at `1`-`4`.
 - Render Fit & Notes as a list instead of a paragraph — one item per task-fit tag, one item per note claim, with wrapped items aligned under their own text.
 - Move Task fit out of Identity and into the Fit & Notes tab it names, so the same list is not shown twice.
 - Add a height budget to the detail screen's tests: with no history graphs, every tab fits a 40-row terminal at both 100 and 80 columns, in English and Russian.
+- Highlight the active Detail tab so it survives the ANSI-sanitizing render pipeline, and add a blank line between the model title and the tab bar.
+- Coalesce same-day price/score observations so a frequent `--interval`/`refresh` no longer floods the Detail history with duplicate gap entries or an unlabeled wall of `?` sparkline characters.
 
 ## [1.17.0]
 
