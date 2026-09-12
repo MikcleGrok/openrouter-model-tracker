@@ -141,7 +141,7 @@ func DetailLines(data DetailDTO, now time.Time, lang string, localizer DetailLoc
 	}
 	lines = append(lines, l.Description, detailProse(data.Description, l.Placeholder))
 	lines = append(lines, "", l.FitNotes, detailHeading(l.TaskFit))
-	lines = append(lines, detailBullets(data.TaskFit, l.Placeholder)...)
+	lines = append(lines, detailBullets(taskFitBullets(data.TaskFit, lang), l.Placeholder)...)
 	lines = append(lines, l.Note)
 	lines = append(lines, detailBullets(DetailClaims(data.Note), l.Placeholder)...)
 	return lines
@@ -180,6 +180,53 @@ func detailBullets(items []string, placeholder string) []string {
 		lines = append(lines, detailBulletIndent+DetailBulletMarker+item)
 	}
 	return lines
+}
+
+// taskFitGloss is one keyword's one-line explanation, in both languages.
+type taskFitGloss struct{ en, ru string }
+
+// taskFitGlosses gives each task-fit keyword the same one-line explanation
+// already authoritative for this taxonomy: the Hotkeys help section's
+// "Task-fit codes" table (tuiHelpSectionHotkeysBody / …BodyRU in
+// cmd/openrouter/tui.go). Reused verbatim rather than reworded, so the
+// Fit & Notes tab and the help document never carry two competing
+// definitions of the same keyword; keep the two in sync by hand if either
+// changes. The keyword set matches taskFitOrder/taskFitKnown in
+// internal/notes/notes.go.
+var taskFitGlosses = map[string]taskFitGloss{
+	"implement": {"write or change production code.", "написать или изменить продакшен-код."},
+	"plan":      {"define scope, steps, and decisions.", "определить объём, шаги и решения."},
+	"research":  {"investigate options, evidence, or behavior.", "исследовать варианты, свидетельства или поведение."},
+	"debug":     {"find and fix a defect or failure.", "найти и исправить дефект или сбой."},
+	"audit":     {"inspect quality, safety, or compliance.", "проверить качество, безопасность или соответствие требованиям."},
+	"refactor":  {"improve structure without changing behavior.", "улучшить структуру без изменения поведения."},
+	"test":      {"add or improve automated verification.", "добавить или улучшить автоматизированную проверку."},
+}
+
+// taskFitBullets pairs each task-fit keyword with its one-line gloss as
+// "keyword: gloss." — the same "code: gloss." shape the help document's
+// Task-fit codes table already uses for the same pairing. The keyword
+// itself is never translated (see tuiDetailTaskFitForLang in
+// cmd/openrouter/tui.go); only the gloss that follows it varies with lang.
+// A keyword with no known gloss is passed through bare rather than
+// dropped — normalizeTaskFit already restricts notes.yaml to the known
+// set, so this only guards test fixtures and any future keyword added
+// there before its gloss is.
+func taskFitBullets(keywords []string, lang string) []string {
+	items := make([]string, 0, len(keywords))
+	for _, keyword := range keywords {
+		gloss, ok := taskFitGlosses[keyword]
+		if !ok {
+			items = append(items, keyword)
+			continue
+		}
+		text := gloss.en
+		if lang == "ru" {
+			text = gloss.ru
+		}
+		items = append(items, keyword+": "+text)
+	}
+	return items
 }
 
 // DetailClaims splits note prose into the separate claims it is actually

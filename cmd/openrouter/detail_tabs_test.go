@@ -105,18 +105,26 @@ func TestFitAndNotesStaysItsOwnTabBecauseItWouldNotFitInsideIdentity(t *testing.
 // TestFitAndNotesTabIsAListNotAParagraph is the user-visible result of
 // the restructuring, taken off the rendered screen rather than off the
 // line builder: one item per task-fit tag, one item per note claim, and
-// no claim left glued to the next.
+// no claim left glued to the next. Each task-fit item also carries its
+// one-line gloss ("keyword: gloss."), in both languages — the keyword
+// itself stays English in both, only the gloss text and the note heading
+// vary with lang (see taskFitGlosses in internal/tui/screen/output).
 func TestFitAndNotesTabIsAListNotAParagraph(t *testing.T) {
 	row := model.Model{Slug: "vendor/model", DisplayName: "Vendor model", TaskFit: []string{"implement", "plan", "test"}, Note: "Первое утверждение про модель. Второе утверждение про неё же."}
 	for _, test := range []struct {
 		lang        string
 		fitHeading  string
+		fitLines    []string
 		noteHeading string
-	}{{"", "Task fit:", "Note:"}, {"ru", "Task fit:", "Заметка:"}} {
+	}{
+		{"", "Task fit:", []string{"  - implement: write or change production code.", "  - plan: define scope, steps, and decisions.", "  - test: add or improve automated verification."}, "Note:"},
+		{"ru", "Task fit:", []string{"  - implement: написать или изменить продакшен-код.", "  - plan: определить объём, шаги и решения.", "  - test: добавить или улучшить автоматизированную проверку."}, "Заметка:"},
+	} {
 		m := detailBudgetModel(t, row, test.lang, 100, detailScreenBudget)
 		m.detailTab = detailTabFitNotes
 		view := ansi.Strip(m.View())
-		want := []string{test.fitHeading, "  - implement", "  - plan", "  - test", test.noteHeading, "  - Первое утверждение про модель.", "  - Второе утверждение про неё же."}
+		want := append([]string{test.fitHeading}, test.fitLines...)
+		want = append(want, test.noteHeading, "  - Первое утверждение про модель.", "  - Второе утверждение про неё же.")
 		previous := -1
 		for _, line := range want {
 			index := strings.Index(view, "\n"+line)

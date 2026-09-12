@@ -6324,7 +6324,7 @@ func TestTUIDetailOverlayEnglishModeTranslatesFieldLabels(t *testing.T) {
 		"License: нет", // License itself is empty; falls back to the (untranslated, curated) OpenWeights value.
 		"Tier: opus",
 		"Claude reference: ≈ Opus 4.6",
-		"Task fit:\n  - implement\n  - debug",
+		"Task fit:\n  - implement: write or change production code.\n  - debug: find and fix a defect or failure.",
 		"Context: 1M tokens",
 		"Input: $0.50 per M tokens",
 		"Output: $3.00 per M tokens",
