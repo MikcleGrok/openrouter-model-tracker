@@ -1,5 +1,9 @@
 # What's New
 
+## [1.18.1]
+
+- Fix a test assertion left over from merging the tab-consolidation branch (expected detail-view line count) — no user-facing change; v1.18.0 was tagged one commit before this correction and is superseded by this release.
+
 ## [1.18.0]
 
 - Add GPQA Diamond (vals.ai) as a third, fully independent quality axis, selectable with `--score-source=general` and reachable in the TUI by cycling `Space` through SWE-bench/Arena/GPQA. It never blends with the other two: separate column, separate Q/P, separate snapshot slot and separate staleness fallback.
