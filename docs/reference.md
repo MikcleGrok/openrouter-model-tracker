@@ -57,6 +57,25 @@ immutable revision formula до любой reinstall. Stable install не исп
 
 Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
 
+При установке или переустановке через локальную disposable Homebrew formula
+Bash completion генерируется и устанавливается автоматически:
+
+```bash
+brew install bash-completion@2
+brew install --HEAD local/tap/openrouter
+brew reinstall local/tap/openrouter   # обновить бинарник и completion
+```
+
+Один раз убедитесь, что установленный `bash-completion@2` загружает каталог
+completion Homebrew при старте Bash (см. [Bash completion](#bash-completion)
+ниже — тот же startup script нужен для обоих сценариев). Последующая установка
+или переустановка обновляет completion-файл, но не изменяет уже запущенную
+shell-сессию автоматически.
+
+После клонирования полезно выполнить `make install-hooks` — это включает
+pre-commit проверку, которая блокирует коммит приватных ключей и credentials в
+отслеживаемых файлах.
+
 ### Имена установки
 
 Локальный installer имеет один canonical executable: `$(BINDIR)/openrouter`.
@@ -316,6 +335,16 @@ timeout 60 секунд, поэтому concurrent install/upgrade/reinstall с�
 `VERSION` не является только меткой сборки: несовпадение фактического ответа
 бинарника отклоняется. На exact tag грязный checkout с release VERSION
 отклоняется, чтобы изменённый исходный код не выдавался за release.
+
+Для постоянной установки от имени пользователя, например на Linux без root:
+
+```bash
+make install PREFIX="$HOME/.local" BINDIR="$HOME/.local/bin"
+make upgrade PREFIX="$HOME/.local" VERSION=1.15.0
+make reinstall PREFIX="$HOME/.local"
+make uninstall PREFIX="$HOME/.local"
+make install-smoke
+```
 
 `make upgrade` и `make reinstall` вызывают тот же путь установки. Установка также создаёт
 `$(BINDIR)/openrouter.openrouter-owner` mode 600 с фиксированным identifier, точным destination
