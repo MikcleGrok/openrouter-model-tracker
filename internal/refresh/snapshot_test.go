@@ -185,6 +185,57 @@ func TestSnapshotRoundTripsTheArenaScore(t *testing.T) {
 	}
 }
 
+func TestSnapshotRoundTripsTheGeneralScoreApartFromTheOthers(t *testing.T) {
+	models := []model.Model{{
+		Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000,
+		Score:        &model.ScoreInfo{Metric: "SWE-bench Verified", Value: 70, Unit: "%"},
+		ArenaScore:   &model.ScoreInfo{Metric: "LMArena Elo", Value: 1453, Unit: "Elo"},
+		GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 92.424, Unit: "%", SourceFamily: "gpqa", ConfiguredIdentity: "anthropic/claude-opus-4-8", VariantMeasured: "anthropic/claude-opus-4-8", SourceURL: "u", Checked: "2026-09-01", IdentityStatus: model.IdentityExact},
+	}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-09-01").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadSnapshot(path)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry := loaded.Models["a/high"]
+	if entry.Score == nil || entry.Score.Value != 70 {
+		t.Errorf("Score = %+v, want the SWE-bench number preserved", entry.Score)
+	}
+	if entry.ArenaScore == nil || entry.ArenaScore.Value != 1453 {
+		t.Errorf("ArenaScore = %+v, want the raw Elo preserved", entry.ArenaScore)
+	}
+	got := entry.GeneralScore
+	if got == nil || got.Value != 92.424 || got.Metric != "GPQA Diamond" {
+		t.Fatalf("GeneralScore = %+v, want the GPQA number preserved so the next run can fall back to it", got)
+	}
+	// Two percentages, three slots: the persisted form has to keep them in
+	// their own slots, or a fallback would resurrect one under the other's name.
+	if got.ConfiguredIdentity != "anthropic/claude-opus-4-8" || got.IdentityStatus != model.IdentityExact || got.SourceFamily != "gpqa" || got.Checked != "2026-09-01" {
+		t.Errorf("GeneralScore provenance = %+v, want the identity fields the fallback re-checks against", got)
+	}
+	if entry.Score.Value == got.Value || entry.ArenaScore.Value == got.Value {
+		t.Error("a score leaked between two slots of the same snapshot entry")
+	}
+}
+
+func TestSnapshotOmitsAnEmptyGeneralScore(t *testing.T) {
+	models := []model.Model{{Slug: "a/high", InPerM: 1, OutPerM: 3, Context: 1000}}
+	path := filepath.Join(t.TempDir(), "snap.json")
+	if err := NewSnapshot(models, "2026-09-01").Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(body), "general_score") {
+		t.Errorf("an empty GPQA score must not appear in the snapshot:\n%s", body)
+	}
+}
+
 func TestSnapshotRoundTripsCopyrightStatus(t *testing.T) {
 	models := []model.Model{{Slug: "a/model", Copyright: "non_compliant"}}
 	path := filepath.Join(t.TempDir(), "snap.json")

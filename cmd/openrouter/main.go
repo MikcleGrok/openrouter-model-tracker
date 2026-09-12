@@ -287,7 +287,8 @@ func newRootCmd() *cobra.Command {
 		Short:   "Regenerate the OpenRouter model comparison from live prices and benchmark leaderboards",
 		Long: fmt.Sprintf("Version: %s\n\n", version) +
 			"openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com,\n" +
-			"vals.ai and arena.ai using the manual model-map.tsv mapping, then regenerates the markdown document.\n" +
+			"vals.ai (SWE-bench Verified and GPQA Diamond) and arena.ai using the manual model-map.tsv mapping,\n" +
+			"then regenerates the markdown document.\n" +
 			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.",
 		SilenceUsage: true,
 	}
@@ -482,7 +483,7 @@ func newRootCmd() *cobra.Command {
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "utility", "sort by: "+tableSortHelp)
 	tableCmd.Flags().StringVar(&tableRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
-	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
+	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified), arena (LMArena Elo) or general (GPQA Diamond); the three are never mixed")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
 	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: comma-separated or repeated predicates; quality is 0..100 or 0..1 fraction (AND)")
@@ -554,7 +555,7 @@ func newRootCmd() *cobra.Command {
 	tuiCmd.Flags().DurationVar(&tuiRefreshInterval, "refresh-interval", 5*time.Minute, "automatic live refresh interval; 0 disables it (r always refreshes)")
 	tuiCmd.Flags().StringVar(&tuiSort, "sort", "utility", "sort by: "+tableSortHelp)
 	tuiCmd.Flags().StringVar(&tuiRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
-	tuiCmd.Flags().StringVar(&tuiScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified) or arena (LMArena Elo); the two are never mixed")
+	tuiCmd.Flags().StringVar(&tuiScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified), arena (LMArena Elo) or general (GPQA Diamond); the three are never mixed")
 	tuiCmd.Flags().BoolVar(&tuiReverse, "reverse", false, "reverse the primary sort order")
 	tuiCmd.Flags().StringVar(&tuiFilter, "filter", "", "structured comma-separated filter; quality is 0..100 or 0..1 fraction")
 	tuiCmd.Flags().IntVar(&tuiLimit, "limit", 0, "show only the first N models after sorting; 0 means unlimited")

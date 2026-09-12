@@ -47,28 +47,55 @@ const (
 const (
 	scoreSourceSWEBench = model.ScoreSourceSWEBench
 	scoreSourceArena    = model.ScoreSourceArena
+	scoreSourceGeneral  = model.ScoreSourceGeneral
 	scoreSourceDefault  = scoreSourceSWEBench
 )
 
-// validateScoreSource rejects anything but the two registered views. There
-// is deliberately no "auto": picking a source per row, or blending them, is
-// exactly what two separate views exist to prevent — an Elo and a SWE-bench
-// percentage are not the same kind of number and must never share a column.
+// scoreSourceOrder is the cycle order of the registered views, and the order
+// their names are listed in help and error text. It is the one place a fourth
+// view would be added.
+var scoreSourceOrder = []string{scoreSourceSWEBench, scoreSourceArena, scoreSourceGeneral}
+
+// validateScoreSource rejects anything but the registered views. There is
+// deliberately no "auto": picking a source per row, or blending them, is
+// exactly what separate views exist to prevent — an Elo, a SWE-bench
+// percentage and a GPQA percentage are not the same kind of number and must
+// never share a column, the last two least of all, since only their unit
+// makes them look interchangeable.
 func validateScoreSource(source string) error {
-	if source != scoreSourceSWEBench && source != scoreSourceArena {
-		return fmt.Errorf("table: invalid --score-source %q; allowed values: swebench, arena", source)
+	for _, known := range scoreSourceOrder {
+		if source == known {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("table: invalid --score-source %q; allowed values: %s", source, strings.Join(scoreSourceOrder, ", "))
+}
+
+// nextScoreSource returns the view that follows source in scoreSourceOrder,
+// wrapping around. An unknown current value restarts at the default rather
+// than sticking.
+func nextScoreSource(source string) string {
+	for i, known := range scoreSourceOrder {
+		if source == known {
+			return scoreSourceOrder[(i+1)%len(scoreSourceOrder)]
+		}
+	}
+	return scoreSourceDefault
 }
 
 // scoreSourceLabel is the one-line banner that says which scale the Status
 // and Q/P columns are on.
 func scoreSourceLabel(source string) string {
-	if source == scoreSourceArena {
+	switch source {
+	case scoreSourceArena:
 		return "arena (LMArena Elo; нормализован в 0-100 для ранжирования и для " +
 			"показанного Q/P — диапазон зависит от текущего набора моделей)"
+	case scoreSourceGeneral:
+		return "general (GPQA Diamond, %, vals.ai; общее рассуждение/знание — не agentic coding, " +
+			"с SWE-bench не сравнивается, несмотря на одинаковые проценты)"
+	default:
+		return "swebench (SWE-bench Verified, %; v=vals.ai, s=swebench.com — see the Status column)"
 	}
-	return "swebench (SWE-bench Verified, %; v=vals.ai, s=swebench.com — see the Status column)"
 }
 
 func normalizeRanking(ranking string) string {
@@ -108,6 +135,7 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 	prices := make(map[string]sources.PriceInfo, len(snapshot.Models))
 	scores := make([]sources.ScoreRow, 0, len(snapshot.Models))
 	arena := make([]sources.ScoreRow, 0, len(snapshot.Models))
+	general := make([]sources.ScoreRow, 0, len(snapshot.Models))
 	for slug, entry := range snapshot.Models {
 		prices[slug] = sources.PriceInfo{
 			Slug: slug, InPerM: entry.InPerM, OutPerM: entry.OutPerM, Context: entry.Context,
@@ -129,8 +157,11 @@ func loadLocalModelsForSource(dataDir, source string) ([]model.Model, error) {
 			row.License, row.ModelURL, row.MetadataSourceURL = entry.License, entry.ModelURL, entry.MetadataSourceURL
 			arena = append(arena, row)
 		}
+		if entry.GeneralScore != nil {
+			general = append(general, scoreRowFromInfo(slug, entry.GeneralScore, snapshotFallbackIdentity(entry)))
+		}
 	}
-	models := model.MergeWithArena(entries, prices, scores, arena, nt)
+	models := model.MergeAll(entries, prices, scores, arena, general, nt)
 	if len(models) == 0 {
 		return nil, errors.New("table: local snapshot contains no usable tracked model data")
 	}
@@ -775,20 +806,45 @@ func tableClaude(m model.Model) string {
 	return refresh.ClaudeEquivalent(m)
 }
 
+// scoreColumnHeader names the Status column after the experiment it is
+// currently showing. The name is never generic ("Score"): the whole point of
+// separate views is that the reader can tell at a glance which of the three
+// numbers is on screen, and "GPQA %" next to "SWE %" is the only thing that
+// distinguishes two columns that otherwise print identical-looking
+// percentages. It is shared by the CLI table and the TUI list header so the
+// two can never drift apart.
+func scoreColumnHeader(scoreSource string) string {
+	switch scoreSource {
+	case scoreSourceArena:
+		return "Arena Elo"
+	case scoreSourceGeneral:
+		return "GPQA %"
+	default:
+		return "SWE %"
+	}
+}
+
 // tableClaudeForSource neutralizes the Claude cell for haiku/free-tier rows
-// when the active score source is arena. ClaudeEquivalent's haiku/free
-// thresholds (>=70, >=60) are calibrated on SWE-bench Verified percentage
-// points; after projection through model.ForScoreSource, an arena-mode
-// Score.Value instead holds a min-max-normalized Arena position, so running
-// those thresholds on it would silently read an Elo rank as a SWE-bench
-// score — exactly the cross-scale blending --score-source exists to prevent.
-// There is no established mapping from a normalized Arena position onto a
+// when the active score source is not SWE-bench. ClaudeEquivalent's
+// haiku/free thresholds (>=70, >=60) are calibrated on SWE-bench Verified
+// percentage points; after projection through model.ForScoreSource, an
+// arena-mode Score.Value instead holds a min-max-normalized Arena position
+// and a general-mode one holds a GPQA Diamond percentage, so running those
+// thresholds on either would silently read one experiment's result as
+// another's — exactly the cross-scale blending --score-source exists to
+// prevent.
+//
+// The GPQA case is the more dangerous of the two and the reason this is a
+// blanket "not swebench" rule rather than an arena special case: a GPQA
+// percentage would sail through a threshold written for percentages and
+// produce a confident, wrong Claude equivalence, where an Elo at least looks
+// obviously out of range. There is no established mapping from either onto a
 // Claude tier, so this deliberately does not attempt one, regardless of
-// whether the row actually has an Arena number. Opus/sonnet rows are
-// unaffected: ClaudeEquivalent derives their label from Tier alone, never
-// from a score value, so it stays correct under either source.
+// whether the row actually has a number on the active source. Opus/sonnet
+// rows are unaffected: ClaudeEquivalent derives their label from Tier alone,
+// never from a score value, so it stays correct under every source.
 func tableClaudeForSource(m model.Model, source string) string {
-	if source == scoreSourceArena && (m.Tier == "haiku" || m.Tier == "free") {
+	if source != scoreSourceSWEBench && (m.Tier == "haiku" || m.Tier == "free") {
 		return "n/a"
 	}
 	return tableClaude(m)
@@ -932,10 +988,7 @@ func renderTableModeWithIconsAndNameWidthAndGaps(models []model.Model, width int
 	if columnMode == "notes" {
 		columnHeader = "Note"
 	}
-	scoreHeader := "SWE %"
-	if scoreSource == scoreSourceArena {
-		scoreHeader = "Arena Elo"
-	}
+	scoreHeader := scoreColumnHeader(scoreSource)
 	headers := []string{identityHeader, "Claude", scoreHeader, "Q/P score/$M", "Context tok", "In $/M", "Out $/M", columnHeader}
 	rows := make([][]string, 0, len(models))
 	maxClaudeWidth := 0

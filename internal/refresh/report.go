@@ -22,6 +22,7 @@ type Report struct {
 	NeedsReview    []string
 	NoScore        []string
 	NoArenaScore   []string
+	NoGeneralScore []string
 	ArenaOnly      []string
 	Warnings       []string
 	PriceChanges   []PriceChange
@@ -89,11 +90,12 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		}
 	}
 
-	// The two families are counted apart: an arena= token alone must not make
-	// the SWE-bench section shout about a model that never declared a
-	// SWE-bench source, and vice versa.
+	// The three families are counted apart: an arena= token alone must not
+	// make the SWE-bench section shout about a model that never declared a
+	// SWE-bench source, and so on for each pair.
 	hasScoreSource := make(map[string]bool, len(entries))
 	hasArenaSource := make(map[string]bool, len(entries))
+	hasGeneralSource := make(map[string]bool, len(entries))
 	for _, e := range entries {
 		for sourceID := range e.Names {
 			switch model.SourceFamily[sourceID] {
@@ -101,6 +103,8 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 				hasArenaSource[e.Slug] = true
 			case model.ScoreSourceSWEBench:
 				hasScoreSource[e.Slug] = true
+			case model.ScoreSourceGeneral:
+				hasGeneralSource[e.Slug] = true
 			}
 		}
 	}
@@ -116,6 +120,9 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		if m.ArenaScore == nil && hasArenaSource[m.Slug] {
 			r.NoArenaScore = append(r.NoArenaScore, m.Slug)
 		}
+		if m.GeneralScore == nil && hasGeneralSource[m.Slug] {
+			r.NoGeneralScore = append(r.NoGeneralScore, m.Slug)
+		}
 		// A row whose only quality signal is a crowd-sourced Elo is exactly
 		// where a real coding benchmark is still worth looking for.
 		if m.ArenaScore != nil && m.Score == nil {
@@ -130,6 +137,9 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 		if m.ArenaScore != nil && m.ArenaScore.IdentityStatus == model.IdentityVariantMismatch {
 			r.Warnings = append(r.Warnings, m.Slug+": Arena identity is variant_mismatch and excluded from Arena quality/Q/P/ranking")
 		}
+		if m.GeneralScore != nil && m.GeneralScore.IdentityStatus == model.IdentityVariantMismatch {
+			r.Warnings = append(r.Warnings, m.Slug+": GPQA identity is variant_mismatch and excluded from GPQA quality/Q/P/ranking")
+		}
 	}
 
 	sort.Strings(r.NewCandidates)
@@ -137,6 +147,7 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 	sort.Strings(r.NeedsReview)
 	sort.Strings(r.NoScore)
 	sort.Strings(r.NoArenaScore)
+	sort.Strings(r.NoGeneralScore)
 	sort.Strings(r.ArenaOnly)
 	return r
 }
@@ -162,6 +173,7 @@ func (r Report) String() string {
 	section(&b, "📝", "нет прозы в notes.yaml", r.NeedsReview)
 	section(&b, "❓", "нет оценки — проверь имя модели на источнике в model-map.tsv", r.NoScore)
 	section(&b, "🎯", "нет строки на Arena — проверь arena= в model-map.tsv", r.NoArenaScore)
+	section(&b, "🧠", "нет строки на GPQA — проверь gpqa= в model-map.tsv", r.NoGeneralScore)
 	section(&b, "🔍", "только Arena-оценка, настоящего coding-бенчмарка нет", r.ArenaOnly)
 	if len(r.PriceChanges) > 0 {
 		b.WriteString("💰 изменения цен с последнего live-наблюдения:\n")

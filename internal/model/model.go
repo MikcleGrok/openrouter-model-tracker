@@ -52,25 +52,35 @@ const (
 	IdentityMissing         = "missing_identity"
 )
 
-// ScoreSourceSWEBench and ScoreSourceArena name the two independent score
-// sources a rendered table can be built from. They are never blended: one
-// table shows one of them, and a model with no number on the active source
-// shows "n/a" even when it has a number on the other one.
+// ScoreSourceSWEBench, ScoreSourceArena and ScoreSourceGeneral name the three
+// independent score sources a rendered table can be built from. They are
+// never blended: one table shows one of them, and a model with no number on
+// the active source shows "n/a" even when it has a number on the other two.
+//
+// The three answer three different questions, which is the whole point of
+// keeping them apart. SWE-bench Verified asks whether an agent built on the
+// model resolves real pull requests; LMArena asks which of two answers a
+// human preferred; GPQA Diamond asks whether the model knows and can reason
+// about graduate-level science in one turn. Reducing "quality" to any single
+// one of them systematically mis-ranks the models the other two were built
+// to measure.
 const (
 	ScoreSourceSWEBench = "swebench"
 	ScoreSourceArena    = "arena"
+	ScoreSourceGeneral  = "general"
 )
 
-// sourceIDVals, sourceIDSWEBench and sourceIDArena are the model-map.tsv
-// source ids, as stamped into ScoreRow.SourceFamily by each fetcher. They are
-// deliberately kept separate from the ScoreSource* family names above even
-// where the two strings coincide: classifyIdentity treats the two SWE-bench
-// ids differently, so "which site produced this row" is a question the family
-// name cannot answer.
+// sourceIDVals, sourceIDSWEBench, sourceIDArena and sourceIDGPQA are the
+// model-map.tsv source ids, as stamped into ScoreRow.SourceFamily by each
+// fetcher. They are deliberately kept separate from the ScoreSource* family
+// names above even where the two strings coincide: classifyIdentity treats
+// the two SWE-bench ids differently, so "which site produced this row" is a
+// question the family name cannot answer.
 const (
 	sourceIDVals     = "vals"
 	sourceIDSWEBench = "swebench"
 	sourceIDArena    = "arena"
+	sourceIDGPQA     = "gpqa"
 )
 
 // SourceFamily maps a model-map.tsv source id onto the score source it
@@ -82,6 +92,7 @@ var SourceFamily = map[string]string{
 	sourceIDSWEBench: ScoreSourceSWEBench,
 	sourceIDVals:     ScoreSourceSWEBench,
 	sourceIDArena:    ScoreSourceArena,
+	sourceIDGPQA:     ScoreSourceGeneral,
 }
 
 // ScoreSourceMarker returns the single-character marker that distinguishes
@@ -110,11 +121,14 @@ func ScoreSourceMarker(info *ScoreInfo) string {
 	}
 }
 
-// arenaNoScoreLabel fills the quality/price cell of a row the Arena view has
-// no number for. It deliberately does not reuse notes.yaml's NoScoreReason:
-// that text names SWE-bench, which is exactly the confusion two separate
-// views exist to prevent.
-const arenaNoScoreLabel = "n/a (no LMArena score)"
+// arenaNoScoreLabel and generalNoScoreLabel fill the quality/price cell of a
+// row the Arena / general-reasoning view has no number for. Neither reuses
+// notes.yaml's NoScoreReason: that text names SWE-bench, which is exactly the
+// confusion three separate views exist to prevent.
+const (
+	arenaNoScoreLabel   = "n/a (no LMArena score)"
+	generalNoScoreLabel = "n/a (no GPQA score)"
+)
 
 // Model is one rendered row.
 type Model struct {
@@ -233,6 +247,24 @@ type Model struct {
 	ArenaQualityPrice      float64
 	ArenaQualityPriceLabel string
 
+	// GeneralScore is the third, fully independent score source: a broad
+	// reasoning/knowledge benchmark (GPQA Diamond, from vals.ai). It is kept
+	// apart from Score and ArenaScore exactly as those two are kept apart
+	// from each other, and for the same reason — three experiments, three
+	// columns, never one blended number.
+	//
+	// Unlike ArenaScore there is no *Normalized twin: GPQA Diamond is
+	// already a 0–100 percentage, so it enters the ranking formula and the
+	// Q/P cell directly, the way a SWE-bench percentage does. That makes
+	// this view's Q/P stable between runs, which the Arena view's min-max
+	// rescaling cannot be. Being a percentage does NOT make it comparable
+	// with a SWE-bench percentage — see sources.MetricGPQADiamond.
+	GeneralScore             *ScoreInfo
+	GeneralLabel             string
+	GeneralRankable          bool
+	GeneralQualityPrice      float64
+	GeneralQualityPriceLabel string
+
 	// PriceStale is set when the price came from the previous run's snapshot
 	// because the live lookup failed.
 	PriceStale bool
@@ -335,14 +367,21 @@ func Merge(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores
 	return MergeWithArena(entries, prices, scores, nil, nt)
 }
 
-// MergeWithArena builds the rendered rows from both score sources at once,
-// into two separate sets of fields. A slug with no live price entry, or one
-// the catalogue does not know, is dropped: report.go tells the human about it.
+// MergeWithArena builds the rendered rows from the SWE-bench and Arena
+// sources. It stays for callers that have no general-reasoning data to pass.
 func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow, nt *notes.Notes) []Model {
+	return MergeAll(entries, prices, scores, arena, nil, nt)
+}
+
+// MergeAll builds the rendered rows from all three score sources at once,
+// into three separate sets of fields. A slug with no live price entry, or one
+// the catalogue does not know, is dropped: report.go tells the human about it.
+func MergeAll(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena, general []sources.ScoreRow, nt *notes.Notes) []Model {
 	// Every row a slug has, in the caller's order — which inside one family
 	// is that family's source priority. selectRow picks one of them per
-	// slug. The two families keep their own maps and never fall through to
-	// one another: an Elo is not a SWE-bench percentage.
+	// slug. The three families keep their own maps and never fall through to
+	// one another: an Elo is not a SWE-bench percentage, and a GPQA
+	// percentage is not one either despite sharing its unit.
 	rowsBySlug := map[string][]sources.ScoreRow{}
 	for _, r := range scores {
 		rowsBySlug[r.Slug] = append(rowsBySlug[r.Slug], r)
@@ -350,6 +389,10 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 	arenaBySlug := map[string][]sources.ScoreRow{}
 	for _, r := range arena {
 		arenaBySlug[r.Slug] = append(arenaBySlug[r.Slug], r)
+	}
+	generalBySlug := map[string][]sources.ScoreRow{}
+	for _, r := range general {
+		generalBySlug[r.Slug] = append(generalBySlug[r.Slug], r)
 	}
 
 	out := make([]Model, 0, len(entries))
@@ -409,29 +452,7 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 		}
 
 		if row, identity, has := selectRow(rowsBySlug[e.Slug], e, price); has {
-			m.Score = &ScoreInfo{
-				Metric:             row.Metric,
-				Value:              row.Value,
-				Unit:               row.Unit,
-				SourceFamily:       sourceFamilyForRow(row),
-				ConfiguredIdentity: row.ConfiguredIdentity,
-				IdentityAmbiguous:  row.IdentityAmbiguous,
-				VariantMeasured:    row.VariantMeasured,
-				SourceURL:          row.SourceURL,
-				Checked:            row.Checked,
-				IdentityStatus:     identity,
-				Provenance:         row.SourceURL,
-				CanonicalID:        row.CanonicalID,
-				ReleaseVariant:     row.ReleaseVariant,
-				ModelVariant:       row.ModelVariant,
-				Reasoning:          row.Reasoning,
-				Configuration:      row.Configuration,
-				Provider:           row.Provider,
-				Uncertainty:        row.Uncertainty,
-				SampleSize:         row.SampleSize,
-				Harness:            row.Harness,
-				Scaffold:           row.Scaffold,
-			}
+			m.Score = scoreInfoFromRow(row, identity)
 			m.ScoreLabel = FormatScore(row.Value)
 			m.Rankable = identity == IdentityExact
 			if !m.Rankable {
@@ -472,33 +493,27 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 			if row.MetadataSourceURL != "" {
 				m.MetadataSourceURL = row.MetadataSourceURL
 			}
-			m.ArenaScore = &ScoreInfo{
-				Metric:             row.Metric,
-				Value:              row.Value,
-				Unit:               row.Unit,
-				SourceFamily:       sourceFamilyForRow(row),
-				ConfiguredIdentity: row.ConfiguredIdentity,
-				IdentityAmbiguous:  row.IdentityAmbiguous,
-				VariantMeasured:    row.VariantMeasured,
-				SourceURL:          row.SourceURL,
-				Checked:            row.Checked,
-				IdentityStatus:     identity,
-				Provenance:         row.SourceURL,
-				CanonicalID:        row.CanonicalID,
-				ReleaseVariant:     row.ReleaseVariant,
-				ModelVariant:       row.ModelVariant,
-				Reasoning:          row.Reasoning,
-				Configuration:      row.Configuration,
-				Provider:           row.Provider,
-				Uncertainty:        row.Uncertainty,
-				SampleSize:         row.SampleSize,
-				Harness:            row.Harness,
-				Scaffold:           row.Scaffold,
-			}
+			m.ArenaScore = scoreInfoFromRow(row, identity)
 			m.ArenaLabel = FormatArenaScore(row.Value)
 			m.ArenaRankable = identity == IdentityExact
 		} else {
 			m.ArenaLabel = "n/a"
+		}
+
+		// The general-reasoning column has no notes.yaml fallback either,
+		// for the same reason the Arena one has none: a manual override in
+		// notes.yaml is a vendor-claimed SWE-bench Verified number, and
+		// reusing it here would put a coding result under a science-reasoning
+		// heading.
+		if row, identity, has := selectRow(generalBySlug[e.Slug], e, price); has {
+			m.GeneralScore = scoreInfoFromRow(row, identity)
+			m.GeneralLabel = FormatScore(row.Value)
+			m.GeneralRankable = identity == IdentityExact
+			if !m.GeneralRankable {
+				m.GeneralLabel += " [" + identity + "]"
+			}
+		} else {
+			m.GeneralLabel = "n/a"
 		}
 
 		switch {
@@ -524,9 +539,43 @@ func MergeWithArena(entries []modelmap.Entry, prices map[string]sources.PriceInf
 	}
 
 	// Min-max normalisation needs the whole set at once, so the Arena view's
-	// derived numbers are filled after the loop, not inside it.
+	// derived numbers are filled after the loop, not inside it. The general
+	// view needs no normalisation and could be filled in the loop; it is
+	// filled here anyway so every non-default view's derived cells are
+	// computed in one obvious place.
 	fillArenaDerived(out)
+	fillGeneralDerived(out)
 	return out
+}
+
+// scoreInfoFromRow carries one fetched row into the persisted/rendered score
+// value, verbatim plus the identity status the gate just computed. All three
+// views build their ScoreInfo through it, so a field added to ScoreRow can
+// never reach one column and quietly miss the other two.
+func scoreInfoFromRow(row sources.ScoreRow, identity string) *ScoreInfo {
+	return &ScoreInfo{
+		Metric:             row.Metric,
+		Value:              row.Value,
+		Unit:               row.Unit,
+		SourceFamily:       sourceFamilyForRow(row),
+		ConfiguredIdentity: row.ConfiguredIdentity,
+		IdentityAmbiguous:  row.IdentityAmbiguous,
+		VariantMeasured:    row.VariantMeasured,
+		SourceURL:          row.SourceURL,
+		Checked:            row.Checked,
+		IdentityStatus:     identity,
+		Provenance:         row.SourceURL,
+		CanonicalID:        row.CanonicalID,
+		ReleaseVariant:     row.ReleaseVariant,
+		ModelVariant:       row.ModelVariant,
+		Reasoning:          row.Reasoning,
+		Configuration:      row.Configuration,
+		Provider:           row.Provider,
+		Uncertainty:        row.Uncertainty,
+		SampleSize:         row.SampleSize,
+		Harness:            row.Harness,
+		Scaffold:           row.Scaffold,
+	}
 }
 
 // classifyIdentity accepts the catalogue id, its explicit canonical id, or —
@@ -638,10 +687,16 @@ func selectRow(rows []sources.ScoreRow, entry modelmap.Entry, price sources.Pric
 }
 
 // SelectedScoreRows applies the same identity-gated, priority-ordered choice
-// used by MergeWithArena. It is shared by history writers so provenance cannot
+// used by MergeAll. It is shared by history writers so provenance cannot
 // drift from the score visible at runtime.
 func SelectedScoreRows(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena []sources.ScoreRow) (selected, selectedArena []sources.ScoreRow) {
-	selectFamily := func(rows []sources.ScoreRow, arenaFamily bool) []sources.ScoreRow {
+	all, allArena, _ := SelectedScoreRowsAll(entries, prices, scores, arena, nil)
+	return all, allArena
+}
+
+// SelectedScoreRowsAll is SelectedScoreRows for all three families at once.
+func SelectedScoreRowsAll(entries []modelmap.Entry, prices map[string]sources.PriceInfo, scores, arena, general []sources.ScoreRow) (selected, selectedArena, selectedGeneral []sources.ScoreRow) {
+	selectFamily := func(rows []sources.ScoreRow, family string) []sources.ScoreRow {
 		bySlug := make(map[string][]sources.ScoreRow)
 		for _, row := range rows {
 			bySlug[row.Slug] = append(bySlug[row.Slug], row)
@@ -653,14 +708,14 @@ func SelectedScoreRows(entries []modelmap.Entry, prices map[string]sources.Price
 				continue
 			}
 			row, identity, has := selectRow(bySlug[entry.Slug], entry, price)
-			if has && (arenaFamily == (sourceFamilyForRow(row) == ScoreSourceArena)) {
+			if has && viewFamilyForRow(row) == family {
 				row.IdentityStatus = identity
 				out = append(out, row)
 			}
 		}
 		return out
 	}
-	return selectFamily(scores, false), selectFamily(arena, true)
+	return selectFamily(scores, ScoreSourceSWEBench), selectFamily(arena, ScoreSourceArena), selectFamily(general, ScoreSourceGeneral)
 }
 
 func sourceFamilyForRow(row sources.ScoreRow) string {
@@ -672,8 +727,27 @@ func sourceFamilyForRow(row sources.ScoreRow) string {
 		return ScoreSourceArena
 	case sources.MetricSWEBenchVerified:
 		return ScoreSourceSWEBench
+	case sources.MetricGPQADiamond:
+		return ScoreSourceGeneral
 	default:
 		return ""
+	}
+}
+
+// viewFamilyForRow says which of the three views a row belongs to. It reads
+// the source id sourceFamilyForRow reports — which is a model-map.tsv id for
+// a fetched row, and a family name only for a row that carries no id at all —
+// and answers with a family. SWE-bench stays the default for an id nobody
+// registered, exactly as it was before a third family existed; run.go, which
+// routes live rows, is the place that refuses to guess instead.
+func viewFamilyForRow(row sources.ScoreRow) string {
+	switch id := sourceFamilyForRow(row); id {
+	case ScoreSourceArena:
+		return ScoreSourceArena
+	case ScoreSourceGeneral, sourceIDGPQA:
+		return ScoreSourceGeneral
+	default:
+		return ScoreSourceSWEBench
 	}
 }
 
@@ -715,6 +789,31 @@ func fillArenaDerived(models []Model) {
 	}
 }
 
+// fillGeneralDerived computes the general-reasoning view's quality/price
+// cell. There is no rescaling step: GPQA Diamond already is a 0–100
+// percentage, so the raw value feeds Q/P exactly as a SWE-bench percentage
+// does — which is also why this view's Q/P, unlike the Arena view's, means
+// the same thing from one run to the next.
+func fillGeneralDerived(models []Model) {
+	for i := range models {
+		m := &models[i]
+		switch {
+		case m.Free:
+			m.GeneralQualityPriceLabel = "n/a (free)"
+		case m.GeneralRankable && m.GeneralScore != nil && validScore(m.GeneralScore.Value) && m.MixedPrice > 0:
+			m.GeneralQualityPrice = pricing.QualityPrice(m.GeneralScore.Value, m.MixedPrice)
+			m.GeneralQualityPriceLabel = pricing.FormatQualityPrice(m.GeneralQualityPrice)
+			// HasQualityPrice is deliberately NOT set here. It is the
+			// *active* view's flag, read by the `scored` table filter, and
+			// ForScoreSource sets it when this view is the active one — so a
+			// model that has a GPQA number but no SWE-bench one cannot turn
+			// up as "has a Q/P" while the SWE-bench view is showing it n/a.
+		default:
+			m.GeneralQualityPriceLabel = generalNoScoreLabel
+		}
+	}
+}
+
 func validScore(value float64) bool {
 	return value >= 0 && value <= 100
 }
@@ -727,9 +826,15 @@ func validScore(value float64) bool {
 // scales at once.
 //
 // The Arena view keeps raw Elo in Score.Value and carries the normalised value
-// separately for ranking. The input slice is
-// never mutated: the caller keeps a row that still knows both sources.
+// separately for ranking. The general view needs no such split — GPQA Diamond
+// is already a percentage — so it leaves HasRankingScore false and lets the
+// ordinary Score.Value path rank it, exactly as the SWE-bench view does. The
+// input slice is never mutated: the caller keeps a row that still knows all
+// three sources.
 func ForScoreSource(models []Model, source string) []Model {
+	if source == ScoreSourceGeneral {
+		return forGeneralScoreSource(models)
+	}
 	if source != ScoreSourceArena {
 		return models
 	}
@@ -766,6 +871,28 @@ func ForScoreSource(models []Model, source string) []Model {
 			}
 		}
 		m.QualityPrice, m.QualityPriceLabel, m.HasQualityPrice = m.ArenaQualityPrice, m.ArenaQualityPriceLabel, m.ArenaQualityPriceLabel != "" && m.ArenaRankable && m.Paid && m.MixedPrice > 0 && validScore(m.ArenaNormalized)
+	}
+	return out
+}
+
+// forGeneralScoreSource projects the general-reasoning view onto the fields
+// every consumer already reads. It is the Arena projection minus the
+// normalisation step: the GPQA percentage is the ranking score, so Score
+// carries it and HasRankingScore stays false, which is what makes the
+// SWE-bench-shaped code paths downstream behave identically on it.
+func forGeneralScoreSource(models []Model) []Model {
+	out := make([]Model, len(models))
+	copy(out, models)
+	for i := range out {
+		m := &out[i]
+		m.Score, m.Rankable, m.ScoreLabel = nil, m.GeneralRankable, m.GeneralLabel
+		m.RankingScore, m.HasRankingScore = 0, false
+		if m.GeneralScore != nil {
+			info := *m.GeneralScore
+			m.Score = &info
+		}
+		m.QualityPrice, m.QualityPriceLabel = m.GeneralQualityPrice, m.GeneralQualityPriceLabel
+		m.HasQualityPrice = m.GeneralQualityPriceLabel != "" && m.GeneralRankable && m.Paid && m.MixedPrice > 0 && m.GeneralScore != nil && validScore(m.GeneralScore.Value)
 	}
 	return out
 }

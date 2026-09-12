@@ -1339,12 +1339,35 @@ func TestMarkStaleLabelsTheArenaColumn(t *testing.T) {
 		ArenaScore: &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400},
 		ArenaLabel: "1400 Elo",
 	}}
-	markStale(models, nil, nil, map[string]bool{"a/down": true}, "2026-08-08")
+	markStale(models, nil, nil, map[string]bool{"a/down": true}, nil, "2026-08-08")
 	if !models[0].ArenaScore.Stale {
 		t.Error("ArenaScore.Stale is false, want true")
 	}
 	if models[0].ArenaLabel != "1400 Elo (не удалось проверить на 2026-08-08)" {
 		t.Errorf("ArenaLabel = %q, want the staleness suffix", models[0].ArenaLabel)
+	}
+}
+
+// TestMarkStaleLabelsTheGeneralColumnIndependently pins that the third column
+// goes stale on its own: an Arena outage must not put a staleness suffix on a
+// GPQA number that this very run fetched successfully, and vice versa.
+func TestMarkStaleLabelsTheGeneralColumnIndependently(t *testing.T) {
+	models := []model.Model{{
+		Slug:         "a/down",
+		ArenaScore:   &model.ScoreInfo{Metric: "LMArena Elo", Value: 1400},
+		ArenaLabel:   "1400 Elo",
+		GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 90},
+		GeneralLabel: "90.0%",
+	}}
+	markStale(models, nil, nil, nil, map[string]bool{"a/down": true}, "2026-08-08")
+	if !models[0].GeneralScore.Stale {
+		t.Error("GeneralScore.Stale is false, want true")
+	}
+	if models[0].GeneralLabel != "90.0% (не удалось проверить на 2026-08-08)" {
+		t.Errorf("GeneralLabel = %q, want the staleness suffix", models[0].GeneralLabel)
+	}
+	if models[0].ArenaScore.Stale || models[0].ArenaLabel != "1400 Elo" {
+		t.Errorf("Arena column = %v / %q, want it untouched by a GPQA-only outage", models[0].ArenaScore.Stale, models[0].ArenaLabel)
 	}
 }
 
@@ -1494,5 +1517,123 @@ func TestRunSplitsArenaRowsFromSWEBenchRows(t *testing.T) {
 	}
 	if entry.ArenaScore == nil || entry.ArenaScore.Value != 1400 {
 		t.Errorf("ArenaScore = %+v, want the fetched Elo of 1400", entry.ArenaScore)
+	}
+}
+
+// TestRunSplitsGeneralRowsFromSWEBenchRows is the GPQA counterpart of
+// TestRunSplitsArenaRowsFromSWEBenchRows, and the more important of the two:
+// a GPQA row carries a percentage, exactly like a SWE-bench row, so a split
+// that silently concatenated the two families would produce a snapshot that
+// looks completely normal and is wrong.
+func TestRunSplitsGeneralRowsFromSWEBenchRows(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model-map.tsv"), []byte("a/only-gpqa\ttier=sonnet\tgpqa=a/only-gpqa\n"), 0o644); err != nil {
+		t.Fatalf("write model-map.tsv: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.yaml"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("write notes.yaml: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "doc.md")
+
+	d := deps{
+		prices: func(ctx context.Context, slugs []string) (map[string]sources.PriceInfo, error) {
+			return map[string]sources.PriceInfo{"a/only-gpqa": {Slug: "a/only-gpqa", InPerM: 1, OutPerM: 3, Context: 1000, Found: true}}, nil
+		},
+		catalog: func(ctx context.Context) ([]string, error) { return []string{"a/only-gpqa"}, nil },
+		sources: []scoreSource{
+			{id: "vals", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+			{id: "swebench", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+			{id: "arena", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+			{id: "gpqa", fn: func(ctx context.Context, names map[string]string) ([]sources.ScoreRow, error) {
+				return []sources.ScoreRow{{
+					Slug: "a/only-gpqa", SourceFamily: "gpqa", ConfiguredIdentity: "a/only-gpqa",
+					Metric: sources.MetricGPQADiamond, Value: 90.5, Unit: "%", VariantMeasured: "a/only-gpqa",
+				}}, nil
+			}},
+		},
+		now: fixedNow,
+	}
+
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: out}, d); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	snap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	entry, ok := snap.Models["a/only-gpqa"]
+	if !ok {
+		t.Fatalf("snapshot has no entry for a/only-gpqa")
+	}
+	if entry.Score != nil {
+		t.Errorf("Score = %+v, want nil: a source that fed the gpqa= column must never fill the SWE-bench one", entry.Score)
+	}
+	if entry.ArenaScore != nil {
+		t.Errorf("ArenaScore = %+v, want nil", entry.ArenaScore)
+	}
+	if entry.GeneralScore == nil || entry.GeneralScore.Value != 90.5 {
+		t.Errorf("GeneralScore = %+v, want the fetched 90.5", entry.GeneralScore)
+	}
+	if entry.GeneralScore != nil && entry.GeneralScore.Metric != sources.MetricGPQADiamond {
+		t.Errorf("GeneralScore.Metric = %q, want %q", entry.GeneralScore.Metric, sources.MetricGPQADiamond)
+	}
+}
+
+func TestApplyGeneralFallbackUsesTheSnapshotWhenGPQAIsDown(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/down", Tier: "sonnet", Names: map[string]string{"gpqa": "a/down"}},
+		{Slug: "a/swe", Tier: "sonnet", Names: map[string]string{"vals": "a/swe"}},
+	}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/down": {GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 90, VariantMeasured: "a/down"}, Provider: "Vendor"},
+		"a/swe":  {GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 80, VariantMeasured: "a/swe"}, Provider: "Vendor"},
+	}}
+	general, stale := applyGeneralFallback(entries, nil, map[string]bool{"gpqa": false, "vals": true}, snap)
+	if len(general) != 1 || general[0].Slug != "a/down" || general[0].Value != 90 {
+		t.Fatalf("general = %+v, want only the snapshot row for a/down", general)
+	}
+	if !stale["a/down"] || stale["a/swe"] {
+		t.Errorf("stale = %v, want only a/down: a slug whose only declared source is a different family has nothing that could have failed for this column", stale)
+	}
+}
+
+func TestApplyGeneralFallbackKeepsQuietWhenGPQASucceeded(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/gone", Tier: "sonnet", Names: map[string]string{"gpqa": "a/gone"}}}
+	snap := &Snapshot{Models: map[string]SnapshotEntry{
+		"a/gone": {GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 90}},
+	}}
+	general, stale := applyGeneralFallback(entries, nil, map[string]bool{"gpqa": true}, snap)
+	if len(general) != 0 || len(stale) != 0 {
+		t.Errorf("general = %+v, stale = %v; a model that simply dropped off the leaderboard is a genuine absence, not a failure", general, stale)
+	}
+}
+
+// TestProgressTotalTracksTheRegisteredSources pins the derived job count. A
+// hard-coded total silently under-counts the moment a source is registered,
+// and the bar then prints "5/4 completed, -1 remaining".
+func TestProgressTotalTracksTheRegisteredSources(t *testing.T) {
+	live := liveDeps(Options{DataDir: t.TempDir()})
+	if got, want := progressJobs(live), len(live.sources)+1; got != want {
+		t.Fatalf("progressJobs(liveDeps) = %d, want %d", got, want)
+	}
+
+	dir := newDataDir(t)
+	d := okDeps()
+	d.sources = append(d.sources,
+		scoreSource{id: "arena", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+		scoreSource{id: "gpqa", fn: func(context.Context, map[string]string) ([]sources.ScoreRow, error) { return nil, nil }},
+	)
+	var events []ProgressEvent
+	if _, err := run(context.Background(), Options{DataDir: dir, OutputPath: filepath.Join(t.TempDir(), "doc.md"), Progress: func(event ProgressEvent) { events = append(events, event) }}, d); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 5 {
+		t.Fatalf("progress events = %d, want five (catalog+prices, and one per source): %+v", len(events), events)
+	}
+	for _, event := range events {
+		if event.Total != 5 || event.Remaining != event.Total-event.Completed {
+			t.Fatalf("event = %+v, want Total 5 and a consistent Remaining", event)
+		}
 	}
 }

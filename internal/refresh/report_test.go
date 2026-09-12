@@ -162,6 +162,57 @@ func TestBuildReportSeparatesTheTwoSourceFamilies(t *testing.T) {
 	}
 }
 
+// TestBuildReportCountsTheGeneralFamilyApart is the third-family half of the
+// test above: a gpqa= token must not make the SWE-bench or Arena section
+// shout, and a model that declared gpqa= and got nothing back must be named
+// with the same honesty the other two families get — otherwise a mistyped key
+// silently reads as "this model simply has no general-reasoning number".
+func TestBuildReportCountsTheGeneralFamilyApart(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "a/gpqa-token", Tier: "sonnet", Names: map[string]string{"gpqa": "a/gpqa"}},
+		{Slug: "a/gpqa-scored", Tier: "sonnet", Names: map[string]string{"gpqa": "a/scored"}},
+		{Slug: "a/swe-token", Tier: "sonnet", Names: map[string]string{"vals": "a/swe"}},
+	}
+	models := []model.Model{
+		{Slug: "a/gpqa-token"},
+		{Slug: "a/gpqa-scored", GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 90}},
+		{Slug: "a/swe-token"},
+	}
+	r := BuildReport(entries, nil, nil, true, models)
+
+	if len(r.NoGeneralScore) != 1 || r.NoGeneralScore[0] != "a/gpqa-token" {
+		t.Errorf("NoGeneralScore = %v, want only the slug that declared gpqa= and got nothing", r.NoGeneralScore)
+	}
+	if len(r.NoScore) != 1 || r.NoScore[0] != "a/swe-token" {
+		t.Errorf("NoScore = %v, want only the SWE-bench-declaring slug — a gpqa= token alone must not reach this section", r.NoScore)
+	}
+	if len(r.NoArenaScore) != 0 {
+		t.Errorf("NoArenaScore = %v, want nothing: no row declared arena=", r.NoArenaScore)
+	}
+}
+
+func TestBuildReportWarnsOnAGeneralVariantMismatch(t *testing.T) {
+	entries := []modelmap.Entry{{Slug: "a/flagged", Tier: "sonnet", Names: map[string]string{"gpqa": "a/other-checkpoint"}}}
+	models := []model.Model{{Slug: "a/flagged", GeneralScore: &model.ScoreInfo{Metric: "GPQA Diamond", Value: 90, IdentityStatus: model.IdentityVariantMismatch}}}
+	r := BuildReport(entries, nil, nil, true, models)
+	found := false
+	for _, warning := range r.Warnings {
+		if strings.Contains(warning, "a/flagged") && strings.Contains(warning, "GPQA") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Warnings = %v, want the GPQA variant_mismatch called out the way the other two families' are", r.Warnings)
+	}
+}
+
+func TestReportStringShowsTheGeneralSection(t *testing.T) {
+	out := Report{NoGeneralScore: []string{"a/x"}}.String()
+	if !strings.Contains(out, "a/x") || !strings.Contains(out, "gpqa=") {
+		t.Errorf("report does not name the GPQA mapping gap:\n%s", out)
+	}
+}
+
 func TestReportStringShowsTheArenaSections(t *testing.T) {
 	out := Report{NoArenaScore: []string{"a/x"}, ArenaOnly: []string{"a/y"}}.String()
 	if !strings.Contains(out, "a/x") || !strings.Contains(out, "arena=") {

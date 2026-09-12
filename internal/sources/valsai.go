@@ -80,11 +80,23 @@ func benchmarkProps(page []byte) ([]byte, error) {
 	return plain, nil
 }
 
+// valsPage is the shape every vals.ai benchmark page shares — the site
+// renders each benchmark with the same BenchmarkView component, so both
+// vals.ai sources here decode into this one struct.
 type valsPage struct {
 	BenchmarkView struct {
 		Default struct {
 			Metadata struct {
-				Updated string `json:"updated"`
+				// Benchmark and Slug name the leaderboard the page is
+				// actually showing. FetchValsGPQA checks Slug before it
+				// reads a single number: two vals.ai benchmarks differ only
+				// by one path segment, so a redirect or a renamed slug would
+				// otherwise feed another experiment's percentages into the
+				// general-reasoning column, and a percentage from the wrong
+				// benchmark is indistinguishable from a right one by value.
+				Benchmark string `json:"benchmark"`
+				Slug      string `json:"slug"`
+				Updated   string `json:"updated"`
 			} `json:"metadata"`
 			Tasks map[string]map[string]struct {
 				Accuracy float64 `json:"accuracy"`
