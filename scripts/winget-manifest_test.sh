@@ -174,42 +174,133 @@ grep -Fq 'digest cross-verified' "$check_published_out" \
 
 printf '%s\n' 'check (published release, digest cross-verified): OK'
 
-# --- --submit with WINGET_DRY_RUN=1 must not touch the network ------------
-cat > "$fake_bin/gh" <<'EOF'
+manifest_path="manifests/m/MikcleGrok/openrouter-model-tracker/$test_version"
+package_dir="${manifest_path%/*}"
+
+# --- --submit --dry-run when the package does not yet exist upstream ------
+# (the new gh api contents existence check returns 404) -- must compute a
+# "New package:" PR title, print the informational line, and still preview
+# the full command sequence without making any *mutating* gh call.
+cat > "$fake_bin/gh" <<EOF
 #!/usr/bin/env bash
-printf 'gh must not be invoked when WINGET_DRY_RUN=1: %s\n' "$*" >&2
-exit 91
+case "\$1 \$2" in
+  "api repos/microsoft/winget-pkgs/contents/$package_dir")
+    printf 'gh: HTTP 404: Not Found (https://api.github.com/repos/microsoft/winget-pkgs/contents/$package_dir)\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'gh must not be invoked when WINGET_DRY_RUN=1: %s\n' "\$*" >&2
+    exit 91
+    ;;
+esac
 EOF
 chmod 0755 "$fake_bin/gh"
 
-dry_run_out="$fixture_dir/submit-dry-run.out"
+dry_run_out="$fixture_dir/submit-dry-run-new-package.out"
 old_path="$PATH"
 PATH="$fake_bin:$PATH"
 WINGET_DRY_RUN=1
 if ! run_winget --submit > "$dry_run_out" 2>&1; then
   PATH="$old_path"
   cat "$dry_run_out" >&2
-  fail 'winget-manifest.sh --submit WINGET_DRY_RUN=1 exited non-zero'
+  fail 'winget-manifest.sh --submit WINGET_DRY_RUN=1 exited non-zero (package-not-found branch)'
 fi
 PATH="$old_path"
 WINGET_DRY_RUN=0
 
-grep -Fq 'DRY RUN' "$dry_run_out" || fail '--submit WINGET_DRY_RUN=1 did not print a DRY RUN preview'
+grep -Fq 'Package not yet in winget-pkgs -- this will be a New package submission' "$dry_run_out" \
+  || fail '--submit dry run (404 branch) did not print the new-package informational line'
+grep -Fq "New package: MikcleGrok.openrouter-model-tracker version $test_version" "$dry_run_out" \
+  || fail '--submit dry run (404 branch) pr_title is not "New package: ..."'
+grep -Fq 'DRY RUN' "$dry_run_out" || fail '--submit dry run (404 branch) did not print a DRY RUN preview'
 grep -Fq 'gh repo sync MikcleGrok/winget-pkgs --source microsoft/winget-pkgs' "$dry_run_out" \
-  || fail '--submit dry run is missing the fork-sync command'
+  || fail '--submit dry run (404 branch) is missing the fork-sync command'
 grep -Fq 'gh api repos/MikcleGrok/winget-pkgs/git/refs' "$dry_run_out" \
-  || fail '--submit dry run is missing the branch-create command'
-manifest_path="manifests/m/MikcleGrok/openrouter-model-tracker/$test_version"
+  || fail '--submit dry run (404 branch) is missing the branch-create command'
 grep -Fq "gh api repos/MikcleGrok/winget-pkgs/contents/$manifest_path/MikcleGrok.openrouter-model-tracker.yaml" "$dry_run_out" \
-  || fail '--submit dry run is missing the version-file upload command'
+  || fail '--submit dry run (404 branch) is missing the version-file upload command'
 grep -Fq "gh api repos/MikcleGrok/winget-pkgs/contents/$manifest_path/MikcleGrok.openrouter-model-tracker.installer.yaml" "$dry_run_out" \
-  || fail '--submit dry run is missing the installer-file upload command'
+  || fail '--submit dry run (404 branch) is missing the installer-file upload command'
 grep -Fq "gh api repos/MikcleGrok/winget-pkgs/contents/$manifest_path/MikcleGrok.openrouter-model-tracker.locale.en-US.yaml" "$dry_run_out" \
-  || fail '--submit dry run is missing the locale-file upload command'
+  || fail '--submit dry run (404 branch) is missing the locale-file upload command'
 grep -Fq 'gh pr create --repo microsoft/winget-pkgs --head MikcleGrok:' "$dry_run_out" \
-  || fail '--submit dry run is missing the gh pr create command'
+  || fail '--submit dry run (404 branch) is missing the gh pr create command'
 
-printf '%s\n' 'submit --dry-run (offline, no gh call made): OK'
+printf '%s\n' 'submit --dry-run, package not yet upstream (offline, New package title): OK'
+
+# --- --submit --dry-run when the package already exists upstream ----------
+# (the existence check returns success) -- must compute a "New version:" PR
+# title and print the informational line, still with no mutating gh call.
+cat > "$fake_bin/gh" <<EOF
+#!/usr/bin/env bash
+case "\$1 \$2" in
+  "api repos/microsoft/winget-pkgs/contents/$package_dir")
+    printf '[]'
+    exit 0
+    ;;
+  *)
+    printf 'gh must not be invoked when WINGET_DRY_RUN=1: %s\n' "\$*" >&2
+    exit 91
+    ;;
+esac
+EOF
+chmod 0755 "$fake_bin/gh"
+
+dry_run_existing_out="$fixture_dir/submit-dry-run-existing-package.out"
+old_path="$PATH"
+PATH="$fake_bin:$PATH"
+WINGET_DRY_RUN=1
+if ! run_winget --submit > "$dry_run_existing_out" 2>&1; then
+  PATH="$old_path"
+  cat "$dry_run_existing_out" >&2
+  fail 'winget-manifest.sh --submit WINGET_DRY_RUN=1 exited non-zero (package-exists branch)'
+fi
+PATH="$old_path"
+WINGET_DRY_RUN=0
+
+grep -Fq 'Package already in winget-pkgs -- this will be a New version submission' "$dry_run_existing_out" \
+  || fail '--submit dry run (existing-package branch) did not print the new-version informational line'
+grep -Fq "New version: MikcleGrok.openrouter-model-tracker version $test_version" "$dry_run_existing_out" \
+  || fail '--submit dry run (existing-package branch) pr_title is not "New version: ..."'
+grep -Fq 'DRY RUN' "$dry_run_existing_out" \
+  || fail '--submit dry run (existing-package branch) did not print a DRY RUN preview'
+
+printf '%s\n' 'submit --dry-run, package already upstream (offline, New version title): OK'
+
+# --- --submit --dry-run fails closed when the existence check itself fails
+#     for a reason other than 404 (network error, bad auth, etc.) ----------
+cat > "$fake_bin/gh" <<EOF
+#!/usr/bin/env bash
+case "\$1 \$2" in
+  "api repos/microsoft/winget-pkgs/contents/$package_dir")
+    printf 'gh: could not resolve host github.com\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'gh must not be invoked when WINGET_DRY_RUN=1: %s\n' "\$*" >&2
+    exit 91
+    ;;
+esac
+EOF
+chmod 0755 "$fake_bin/gh"
+
+dry_run_error_out="$fixture_dir/submit-dry-run-check-error.out"
+old_path="$PATH"
+PATH="$fake_bin:$PATH"
+WINGET_DRY_RUN=1
+if run_winget --submit > "$dry_run_error_out" 2>&1; then
+  PATH="$old_path"
+  WINGET_DRY_RUN=0
+  cat "$dry_run_error_out" >&2
+  fail '--submit dry run unexpectedly succeeded when the existence check failed for a non-404 reason'
+fi
+PATH="$old_path"
+WINGET_DRY_RUN=0
+
+grep -Fq 'BLOCKED:' "$dry_run_error_out" \
+  || fail '--submit dry run must fail closed with a BLOCKED: message when the existence check fails unexpectedly'
+
+printf '%s\n' 'submit --dry-run, existence check fails unexpectedly (fails closed): OK'
 
 # --- --help exits 0 and does not require any evidence ----------------------
 "$SCRIPT" --help > /dev/null || fail '--help must exit 0'

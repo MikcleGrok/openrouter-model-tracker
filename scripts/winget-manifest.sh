@@ -278,11 +278,38 @@ cmd_submit() {
     test -f "$f" || { printf '%s\n' "BLOCKED: generated manifest is missing: $f (run make winget-manifest first)" >&2; exit 1; }
   done
 
-  local fork_owner branch pr_title pr_body relative_dir
+  local fork_owner branch pr_title pr_body relative_dir package_dir
   fork_owner="${WINGET_FORK%%/*}"
   branch="$PACKAGE_IDENTIFIER-$VERSION"
   relative_dir="manifests/$FIRST_LETTER/$PUBLISHER/$PACKAGE_NAME/$VERSION"
-  pr_title="New version: $PACKAGE_IDENTIFIER version $VERSION"
+  package_dir="${relative_dir%/*}"
+
+  # New-package vs. new-version PR title. This is a read-only lookup (a GET
+  # against the upstream winget-pkgs repository, not $WINGET_FORK -- the fork
+  # may not even exist yet for a first-time submission), so it runs in both
+  # real --submit and --submit --dry-run: dry-run only skips *mutating*
+  # calls, and this isn't one.
+  command -v gh >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: gh is required to check whether this package already exists in winget-pkgs.' >&2; exit 1; }
+
+  local gh_stderr_file api_status
+  gh_stderr_file="$(mktemp)"
+  api_status=0
+  gh api "repos/$WINGET_PKGS_REPOSITORY/contents/$package_dir" >/dev/null 2>"$gh_stderr_file" || api_status=$?
+
+  if test "$api_status" -eq 0; then
+    pr_title="New version: $PACKAGE_IDENTIFIER version $VERSION"
+    printf '%s\n' 'Package already in winget-pkgs -- this will be a New version submission'
+  elif test "$api_status" -eq 1 && grep -Eiq '(^|[^0-9])404([^0-9]|$)|not found' "$gh_stderr_file"; then
+    pr_title="New package: $PACKAGE_IDENTIFIER version $VERSION"
+    printf '%s\n' 'Package not yet in winget-pkgs -- this will be a New package submission'
+  else
+    printf '%s\n' "BLOCKED: could not determine whether $PACKAGE_IDENTIFIER already exists in $WINGET_PKGS_REPOSITORY -- gh api repos/$WINGET_PKGS_REPOSITORY/contents/$package_dir failed unexpectedly (exit $api_status)." >&2
+    cat "$gh_stderr_file" >&2
+    rm -f "$gh_stderr_file"
+    exit 1
+  fi
+  rm -f "$gh_stderr_file"
+
   pr_body="Automated update for $PACKAGE_IDENTIFIER version $VERSION.
 
 - InstallerUrl: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ASSET_NAME
