@@ -62,16 +62,24 @@ func TestDetailClaimsNeverLosesOrDuplicatesText(t *testing.T) {
 
 // TestDetailLinesRendersFitAndNotesAsLists is the user-visible shape: a
 // task-fit list with one item per tag and a note list with one item per
-// claim, both under their own heading, none of it a paragraph.
+// claim, both under their own heading, none of it a paragraph. Each
+// task-fit item also carries its one-line gloss ("keyword: gloss."), in
+// both languages — see taskFitGlosses. The keyword itself stays English in
+// both languages; only the gloss and the surrounding chrome vary with lang.
 func TestDetailLinesRendersFitAndNotesAsLists(t *testing.T) {
 	data := DetailDTO{DisplayName: "Demo", Slug: "demo/model", TaskFit: []string{"implement", "plan", "test"}, Note: "Первое утверждение. Второе утверждение."}
-	lines := DetailLines(data, time.Unix(0, 0), "", nil, nil, nil, nil)
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "-- Fit and notes --\nTask fit:\n  - implement\n  - plan\n  - test\nNote:\n  - Первое утверждение.\n  - Второе утверждение.") {
-		t.Fatalf("fit and notes block is not a list:\n%s", joined)
-	}
-	if strings.Contains(joined, "implement + plan") {
-		t.Fatalf("the joined one-line task fit survived alongside the list:\n%s", joined)
+	for _, test := range []struct{ lang, want string }{
+		{"", "-- Fit and notes --\nTask fit:\n  - implement: write or change production code.\n  - plan: define scope, steps, and decisions.\n  - test: add or improve automated verification.\nNote:\n  - Первое утверждение.\n  - Второе утверждение."},
+		{"ru", "-- Соответствие и заметки --\nTask fit:\n  - implement: написать или изменить продакшен-код.\n  - plan: определить объём, шаги и решения.\n  - test: добавить или улучшить автоматизированную проверку.\nЗаметка:\n  - Первое утверждение.\n  - Второе утверждение."},
+	} {
+		lines := DetailLines(data, time.Unix(0, 0), test.lang, nil, nil, nil, nil)
+		joined := strings.Join(lines, "\n")
+		if !strings.Contains(joined, test.want) {
+			t.Fatalf("lang %q: fit and notes block is not a glossed list:\n%s", test.lang, joined)
+		}
+		if strings.Contains(joined, "implement + plan") {
+			t.Fatalf("lang %q: the joined one-line task fit survived alongside the list:\n%s", test.lang, joined)
+		}
 	}
 }
 
