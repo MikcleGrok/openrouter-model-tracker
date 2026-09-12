@@ -34,7 +34,17 @@ sudo install -m 0755 openrouter-1.18.7-linux-amd64 /usr/local/bin/openrouter
 (для arm64 замените `amd64` на `arm64`; актуальная версия — на странице Releases)
 
 **Windows 10/11** (amd64; на ARM-устройствах работает через встроенную
-x64-эмуляцию) — zip-архив из
+x64-эмуляцию) — через [winget](https://github.com/microsoft/winget-cli):
+
+```powershell
+winget install MikcleGrok.openrouter-model-tracker
+openrouter tui
+```
+
+(winget-установка не запускает `.exe` напрямую, поэтому SmartScreen-предупреждение
+не показывается)
+
+Без winget — zip-архив из
 [GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases),
 в PowerShell:
 
@@ -45,11 +55,21 @@ Move-Item openrouter-1.18.7-windows-amd64.exe openrouter.exe
 .\openrouter.exe tui
 ```
 
+(шаг `Move-Item` нужен по состоянию на текущий опубликованный релиз — `.exe`
+внутри zip-архива всё ещё называется версионированно, как и имя архива.
+Начиная с первого релиза, собранного этой веткой (стабильное имя
+`openrouter.exe` внутри архива при версионированном имени самого архива — см.
+`make release-local` в [docs/reference.md](docs/reference.md)), `Move-Item`
+станет не нужен; не забудьте убрать этот шаг из README при выпуске того
+релиза.)
+
 (чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог из
 `PATH`; TUI рассчитан на Windows Terminal. Сборка из исходников:
 `go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+;
 бинарник не подписан, поэтому при первом запуске SmartScreen покажет
-предупреждение — это ожидаемо, жмите «Подробнее» → «Выполнить в любом случае»)
+предупреждение — это ожидаемо, жмите «Подробнее» → «Выполнить в любом случае».
+Alias `omt` на Windows не создаётся ни через winget, ни через ручную установку —
+используйте `openrouter`; `omt` доступен только через Homebrew/`make install`)
 
 На macOS и Linux доступна и сборка из исходников без Homebrew:
 `git clone ... && cd ... && make install` — подробности (`PREFIX`/`BINDIR`,
