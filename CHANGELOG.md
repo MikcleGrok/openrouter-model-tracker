@@ -1,5 +1,11 @@
 # What's New
 
+## [1.18.7]
+
+- Publish a prebuilt Windows (amd64) binary: `make release-local` now also builds `windows/amd64` and ships it as `openrouter-<version>-windows-amd64.zip` alongside the existing macOS/Linux `tar.gz` archives. Works natively on Windows 10/11 x86-64 and under the built-in x64 emulation on Windows-on-ARM. README documents a PowerShell download-and-run install instead of build-from-source, including a note that the unsigned binary triggers a SmartScreen prompt on first run.
+- Rework `docs/assets/tui-demo.gif`: the previous version's search demo silently pressed `Escape` instead of `Enter`, so the model list was never actually filtered on screen. The new recording clearly shows the availability filter, a real Claude-model search, `Space`-cycling the score source, and the hotkey help screen.
+- Tidy the README usage examples: use the `omt` alias, drop the `--model/--format` flags from the `history` example, and align the comment column.
+
 ## [1.18.6]
 
 - Rewrite README.md to fit one screen (172 → 68 lines): a short pitch, the demo GIF, install for macOS/Linux/Windows, the essential commands, and links to `docs/methodology.md`/`docs/reference.md` for everything else. Correct the documented macOS install to match what the public Homebrew formula actually installs the binary as.
