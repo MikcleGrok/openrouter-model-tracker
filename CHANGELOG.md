@@ -1,5 +1,11 @@
 # What's New
 
+## [Unreleased]
+
+- Add winget install support: `winget install MikcleGrok.openrouter-model-tracker`. The Windows release zip now packages the executable under a stable name, `openrouter.exe`, instead of the previous versioned filename (`openrouter-<version>-windows-amd64.exe`) — the archive's own download filename is unchanged, only its internal layout. This is load-bearing for winget: it validates the nested installer's `RelativeFilePath` literally against the archive contents, so a versioned inner name would break the manifest on every release.
+- Add `make winget-manifest`, `make winget-submit-check`, and `make winget-submit` targets to generate, verify, and submit the winget-pkgs manifest from local-release evidence, mirroring the existing `sync-homebrew-formula`/`check-homebrew-formula` local, CI-free release flow.
+- Add `LICENSE` (MIT), required for winget-pkgs acceptance.
+
 ## [1.18.7]
 
 - Publish a prebuilt Windows (amd64) binary: `make release-local` now also builds `windows/amd64` and ships it as `openrouter-<version>-windows-amd64.zip` alongside the existing macOS/Linux `tar.gz` archives. Works natively on Windows 10/11 x86-64 and under the built-in x64 emulation on Windows-on-ARM. README documents a PowerShell download-and-run install instead of build-from-source, including a note that the unsigned binary triggers a SmartScreen prompt on first run.

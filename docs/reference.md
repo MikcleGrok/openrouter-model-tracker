@@ -14,6 +14,7 @@
   - [Семантика Q/P и utility](#семантика-qp-и-utility)
   - [Настройка mixed utility](#настройка-mixed-utility)
   - [Offline local release](#offline-local-release)
+  - [Winget submission](#winget-submission)
 - [Что правится руками](#что-правится-руками)
 
 ### Локальная разработка
@@ -102,7 +103,7 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | `profiles` | `active`: plain CLI/TUI, build/release и supply-chain; `N/A`: daemon, container runtime |
 | `OS/ARCH` | CI: `linux/amd64`; release-артефакты: `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64` (tar.gz) и `windows/amd64` (zip), кросс-сборка `CGO_ENABLED=0` с macOS-хоста; локальная distribution-проверка: macOS/Homebrew; runtime-верификация Windows не выполняется |
 | `modes` | локальная работа без credentials; CI PR/push; exact-tag release с GitHub Release и static-key provenance |
-| `channels` | active: GitHub Release binary/evidence; local-only: Homebrew formula в disposable tap; `N/A`: опубликованный Homebrew tap и container image |
+| `channels` | active: GitHub Release binary/evidence; публичный Homebrew tap (`mikclegrok/tools`, правится вручную в отдельном репозитории); winget (`MikcleGrok.openrouter-model-tracker`, внешний модерируемый PR-канал в `microsoft/winget-pkgs`, см. «Winget submission»); local-only: disposable Homebrew formula для разработки; `N/A`: container image |
 | `version source` | release version только из clean checkout на exact `vMAJOR.MINOR.PATCH` tag; обычная сборка использует `git describe`; formula синхронизирует tag и revision |
 | `Makefile targets` | baseline: `fmt-check`, `test-unit`, `test-acceptance`, `vet`, `security`, `dependency-check`, `secrets-check`, `sbom`, `check-docs`; release: `release-check`, `release-manifest`, `sign`, `attest`, `verify-provenance`, `checksums`, `verify-release` |
 | `Docker toolchain image` | `N/A`: Docker toolchain не используется и не публикуется |
@@ -113,8 +114,8 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | `SCA cadence` | weekly для publishable profile, а также каждый PR и перед каждым release |
 | `SCA owner` | maintainer |
 | `remediation deadline` | critical/high: 7 календарных дней; остальные findings: 30 календарных дней |
-| `N/A controls/rationale` | Docker/container controls: `N/A`, контейнер не поставляется; published Homebrew tap verification: `N/A`, tap disposable и не публикуется; native macOS CI: `N/A`, release builder Linux, macOS покрывается локальным Homebrew gate |
-| `last reviewed` | 2026-08-10 |
+| `N/A controls/rationale` | Docker/container controls: `N/A`, контейнер не поставляется; published Homebrew tap verification: `N/A` в этом репозитории — публичный tap (`mikclegrok/tools`) правится вручную в отдельном репозитории, здесь нет ни CI, ни автоматической sync/verify для него (в отличие от local-only disposable formula, которую проверяет `make check-homebrew-formula`); winget publication verification: `N/A` за пределами pre-submission проверок — внешний модерируемый PR-канал (`microsoft/winget-pkgs`), merge и итоговая раздача решает внешний модератор, локально `make winget-submit-check` проверяет только совпадение digest/имени asset с `SHA256SUMS` и опубликованным GitHub Release до сабмита; native macOS CI: `N/A`, release builder Linux, macOS покрывается локальным Homebrew gate |
+| `last reviewed` | 2026-09-12 |
 | `review trigger/profile state` | active; пересмотр при изменении release channel, version source, signing/provenance, trust boundary или не позднее 2026-11-08 |
 
 ## Команды
@@ -306,6 +307,11 @@ make openrouter-launchd-refresh-start
 make openrouter-launchd-refresh-uninstall
 make release-check VERSION=1.0.0
 make release-local
+make release-github-check
+make release-github
+make winget-manifest
+make winget-submit-check
+make winget-submit
 make verify-release
 make whats-new
 make security
@@ -647,7 +653,13 @@ make openrouter-launchd-refresh-install
 публикует те же archives вместе с binary/provenance artifacts. LaunchAgent использует
 `cron-refresh.sh` как единственную refresh-логику, поэтому отдельного дублирующего
 расписания в package не создаётся. Для Windows-архива проверяется, что он содержит
-ровно одну запись — `.exe`.
+ровно одну запись, и имя этой записи — стабильное `openrouter.exe`, не зависящее от
+версии (имя архива при этом остаётся версионированным,
+`openrouter-<version>-windows-amd64.zip`). Это несущее условие для winget: winget
+валидирует `RelativeFilePath` буквально против содержимого архива, а update-логика
+`wingetcreate` матчит nested installer файлы по имени файла — версионированное
+внутреннее имя означало бы, что апдейт манифеста на каждый релиз матчит пустое
+множество, то есть сломанный манифест. См. «Winget submission» ниже.
 
 `make release-check VERSION=1.0.0` — непубликующий pre-tag gate: проверяет чистоту
 checkout, формат release-версии, локальный commit SHA, diff hygiene, форматирование,
@@ -787,6 +799,55 @@ suffix для commit после тега или `-dirty` для изменённ
 версию через `git describe` из checkout в `buildpath`, поэтому Homebrew больше не подставляет
 свой `HEAD-<sha>` в Go ldflags. Exact tag показывает чистую версию, а commit после тега —
 describe suffix.
+
+### Winget submission
+
+Публичное распространение через winget возможно только одним способом — PR в
+`microsoft/winget-pkgs` (community-репозиторий, ревью модератора плюс ~30-40
+минут автоматической валидации). Как и Homebrew tap, этот процесс полностью
+локальный: никакого CI, `gh`-driven скрипт по аналогии с
+`sync-homebrew-formula.sh`, никаких новых секретов (обычный интерактивный `gh
+auth` с `public_repo`, cosign-ключ не участвует).
+
+**Строгий порядок: только после `make release-github`.** `winget-submit-check`
+проверяет, что GitHub Release с этим тегом уже опубликован и его asset
+совпадает по имени (и, если API его отдаёт, по digest) с `SHA256SUMS` —
+иначе winget-валидация скачает несуществующий release asset и упадёт. Этот
+порядок закреплён механически (`BLOCKED:` + ненулевой exit), а не памяткой.
+
+`PackageIdentifier` — `MikcleGrok.openrouter-model-tracker`
+(`WINGET_PACKAGE_IDENTIFIER`), путь в winget-pkgs —
+`manifests/m/MikcleGrok/openrouter-model-tracker/<version>/`. Сгенерированные
+файлы (версия/installer/локаль, все три требуются winget-pkgs) лежат в
+`dist/local-release/<version>/winget/` — этот каталог, как и весь `dist/`,
+игнорируется Git и не коммитится.
+
+Каждый релиз, после `make release-local && make release-github`:
+
+```bash
+make winget-manifest        # сгенерировать 3 YAML из local-release evidence
+make winget-submit-check    # sanity: файлы совпадают с SHA256SUMS и опубликованным release asset
+WINGET_DRY_RUN=1 make winget-submit   # превью команд gh, ничего не мутирует
+make winget-submit          # sync форка → ветка → 3 файла через contents API → gh pr create
+```
+
+Разовый bootstrap (один раз на весь проект, до первого `winget-submit`):
+
+```bash
+gh repo fork microsoft/winget-pkgs --clone=false --remote=false
+```
+
+Первый PR (`New package: MikcleGrok.openrouter-model-tracker version <v>`)
+проходит ревью первого паблишера и может занять дольше обычного и вызвать
+вопросы про лицензию, описание или `Moniker`; последующие релизы — это `New
+version: …` PR того же вида.
+
+**Явные не-гарантии.** Смёрж и таймлайн публикации решают внешние модераторы
+`winget-pkgs`, репозиторий на это не влияет. Никакой подписи `.exe`
+(Authenticode/cosign) не добавляется — принятый риск, см.
+[docs/security.md](security.md). Никакой Windows runtime-верификации в этом
+репозитории не выполняется — то же ограничение, что и для остальных
+Windows-артефактов (см. onboarding record выше).
 
 ## Что правится руками
 
