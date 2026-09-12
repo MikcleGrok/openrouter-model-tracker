@@ -4,11 +4,17 @@
 # Формат: <openrouter-slug>\ttier=<opus|sonnet|haiku|free>\t<source>=<точное имя на источнике>...
 #
 # tier — обязателен, задаётся вручную: с каким Claude reference сравнивать модель.
-# <source> — идентификатор источника: swebench | vals | arena.
+# <source> — идентификатор источника: swebench | vals | arena | gpqa.
 #   swebench=<значение тега целиком, ВМЕСТЕ с префиксом "Model: ">
 #   vals=<ключ модели в tasks.overall на vals.ai, например openai/gpt-5.6-luna>
 #   arena=<modelKey на arena.ai/leaderboard/text, например hy3-tencent-cloud-text;
 #          часть ключей — анонимные кодовые имена, сверяй по modelDisplayName>
+#   gpqa=<ключ модели в tasks.overall на vals.ai/benchmarks/gpqa, например
+#          anthropic/claude-opus-4-8; тот же формат ключей, что у vals=, но НЕ тот
+#          же набор: у одной и той же модели ключ на двух страницах vals.ai может
+#          различаться (например vals=anthropic/claude-opus-4-8 против
+#          gpqa=anthropic/claude-opus-4-8-thinking), поэтому ключ gpqa= всегда
+#          сверяется по самой странице GPQA, а не копируется из vals=>
 # swebench и vals — одно семейство: это две альтернативы для одного и того же числа
 # SWE-bench Verified. Побеждает vals (независимый прогон на одном фиксированном
 # харнессе) — swebench.com используется как запасной источник, если vals не дал
@@ -19,6 +25,12 @@
 # измерение.
 # arena — отдельное семейство и отдельное представление таблицы (--score-source=arena);
 # с SWE-bench оно не смешивается никогда.
+# gpqa — третье, тоже полностью отдельное семейство и представление
+# (--score-source=general): GPQA Diamond, graduate-level рассуждение/знание, а не
+# agentic coding и не crowd preference. Оно измеряется в процентах, как и SWE-bench
+# Verified, и это единственное, что у них общего: 90% там и 90% здесь — два разных
+# экзамена, а не «одинаково хорошо». Именно поэтому совпадение единицы измерения
+# ничего не разрешает: смешивать по-прежнему нельзя никогда.
 # Источник не указан → у модели нет автоматически собираемой оценки;
 # число можно задать вручную блоком score: в notes.yaml.
 #
@@ -34,92 +46,102 @@
 # возьмётся из него. Маркер обязан стоять на имени источника: голый
 # !variant=... (без source перед ним) — ошибка, Load её не пропустит.
 #
-# ВАЖНО, постоянная обязанность редактора файла: для swebench/vals сопоставлённый
+# ВАЖНО, постоянная обязанность редактора файла: для swebench/vals/gpqa сопоставлённый
 # ключ — единственная защита от показа результата чужого чекпоинта под видом
 # нужного продукта. В отличие от Arena, здесь нет отдельного CanonicalID/provider/
 # variant поля, которое код сверял бы автоматически, — сверка ограничивается тем,
-# что для vals.ai сама строка обязана эхом вернуть тот же ключ (иначе mismatch), а
-# для swebench.com даже этой проверки нет: measured variant там — имя скаффолда, а
-# не эхо ключа. Значит, верность ЛЮБОЙ vals=/swebench= строки конкретному продукту
-# OpenRouter — ручная, постоянная обязанность человека, а не что-то, что поймает
-# код. При добавлении или правке такой строки сверяйте сопоставленный ключ с
-# canonical_slug модели (каталог/model-snapshot.json) и ставьте !variant при любом
-# расхождении чекпоинта/варианта — ошибка здесь пройдёт в ranking молча.
+# что для vals.ai и gpqa сама строка обязана эхом вернуть тот же ключ (иначе
+# mismatch), а для swebench.com даже этой проверки нет: measured variant там — имя
+# скаффолда, а не эхо ключа. Значит, верность ЛЮБОЙ vals=/swebench=/gpqa= строки
+# конкретному продукту OpenRouter — ручная, постоянная обязанность человека, а не
+# что-то, что поймает код. При добавлении или правке такой строки сверяйте
+# сопоставленный ключ с canonical_slug модели (каталог/model-snapshot.json) и
+# ставьте !variant при любом расхождении чекпоинта/варианта — ошибка здесь пройдёт
+# в ranking молча.
+#
+# Сегодня 5 строк gpqa= помечены !variant, и все по одной причине: vals.ai публикует
+# для этой модели только прогон в extended-thinking режиме (или датированный
+# чекпоинт), а OpenRouter продаёт модель без такой оговорки —
+# claude-opus-4.6/sonnet-4.5/haiku-4.5, kimi-k2.5 и deepseek-v4-flash. Число видно в
+# таблице со статусом, но в ранжирование не идёт. Это осознанно консервативный
+# выбор: если окажется, что режим совпадает с тем, что отдаёт OpenRouter по
+# умолчанию, маркер надо снять — но снимать его должен человек, проверивший это,
+# а не тот, кому хочется, чтобы в колонке было больше чисел.
 
 # ── >≈ Opus 5 ────────────────────────────────────────────────────────────────
-anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5	arena=claude-fable-5-text
-anthropic/claude-fable-5.1	tier=opus	arena=claude-fable-5.1-max-text
-anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5	arena=claude-opus-5-high-text
-anthropic/claude-opus-4.6	tier=opus	swebench=Model: claude-opus-4-6
-anthropic/claude-opus-4.7	tier=opus	vals=anthropic/claude-opus-4-7
-anthropic/claude-opus-4.8	tier=opus	vals=anthropic/claude-opus-4-8	arena=claude-opus-4-8-text
-openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna	arena=gpt-5.6-luna-xhigh-text
-openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol	arena=gpt-5.6-sol-xhigh-text
+anthropic/claude-fable-5	tier=opus	vals=anthropic/claude-fable-5	arena=claude-fable-5-text	gpqa=anthropic/claude-fable-5
+anthropic/claude-fable-5.1	tier=opus	arena=claude-fable-5.1-max-text	gpqa=anthropic/claude-fable-5-1
+anthropic/claude-opus-5	tier=opus	vals=anthropic/claude-opus-5	arena=claude-opus-5-high-text	gpqa=anthropic/claude-opus-5
+anthropic/claude-opus-4.6	tier=opus	swebench=Model: claude-opus-4-6	gpqa!variant=anthropic/claude-opus-4-6-thinking
+anthropic/claude-opus-4.7	tier=opus	vals=anthropic/claude-opus-4-7	gpqa=anthropic/claude-opus-4-7
+anthropic/claude-opus-4.8	tier=opus	vals=anthropic/claude-opus-4-8	arena=claude-opus-4-8-text	gpqa=anthropic/claude-opus-4-8
+openai/gpt-5.6-luna	tier=opus	vals=openai/gpt-5.6-luna	arena=gpt-5.6-luna-xhigh-text	gpqa=openai/gpt-5.6-luna
+openai/gpt-5.6-sol	tier=opus	vals=openai/gpt-5.6-sol	arena=gpt-5.6-sol-xhigh-text	gpqa=openai/gpt-5.6-sol
 openai/gpt-5.6-luna-pro	tier=opus
 openai/gpt-5.6-sol-pro	tier=opus
-openai/gpt-5.6-terra	tier=opus	vals=openai/gpt-5.6-terra	arena=gpt-5.6-terra-xhigh-text
+openai/gpt-5.6-terra	tier=opus	vals=openai/gpt-5.6-terra	arena=gpt-5.6-terra-xhigh-text	gpqa=openai/gpt-5.6-terra
 openai/gpt-5.6-terra-pro	tier=opus
 openai/gpt-6-astra	tier=opus
 
 # ── ≈ Sonnet 5 ───────────────────────────────────────────────────────────────
-anthropic/claude-sonnet-5	tier=sonnet	vals=anthropic/claude-sonnet-5	arena=claude-sonnet-5-text
-anthropic/claude-sonnet-4.6	tier=sonnet	vals=anthropic/claude-sonnet-4-6
-anthropic/claude-sonnet-4.5	tier=sonnet	swebench=Model: claude-sonnet-4-5
-minimax/minimax-m3	tier=sonnet	vals=minimax/MiniMax-M3	arena=minimax-m3
-meta/muse-spark-1.1	tier=sonnet	vals=meta/muse_spark_1_1	arena=super-nova-ext-3tam-text
-qwen/qwen3.7-max	tier=sonnet	vals=alibaba/qwen3.7-max
+anthropic/claude-sonnet-5	tier=sonnet	vals=anthropic/claude-sonnet-5	arena=claude-sonnet-5-text	gpqa=anthropic/claude-sonnet-5
+anthropic/claude-sonnet-4.6	tier=sonnet	vals=anthropic/claude-sonnet-4-6	gpqa=anthropic/claude-sonnet-4-6
+anthropic/claude-sonnet-4.5	tier=sonnet	swebench=Model: claude-sonnet-4-5	gpqa!variant=anthropic/claude-sonnet-4-5-20250929-thinking
+minimax/minimax-m3	tier=sonnet	vals=minimax/MiniMax-M3	arena=minimax-m3	gpqa=minimax/MiniMax-M3
+meta/muse-spark-1.1	tier=sonnet	vals=meta/muse_spark_1_1	arena=super-nova-ext-3tam-text	gpqa=meta/muse_spark_1_1
+qwen/qwen3.7-max	tier=sonnet	vals=alibaba/qwen3.7-max	gpqa=alibaba/qwen3.7-max
 qwen/qwen3.7-flash	tier=sonnet
 qwen/qwen3.7-plus	tier=sonnet	arena=qwen3.7-plus
-qwen/qwen3.8-max-0902	tier=sonnet	vals=alibaba/qwen3.8-max	arena=kinsley-mrp8
-x-ai/grok-4.5	tier=sonnet	vals=grok/grok-4.5	arena=grok-4.5-text
-x-ai/grok-4.6	tier=sonnet	vals=grok/grok-4.6	arena=grok-4.6-high-text
-mistralai/mistral-medium-3-5	tier=sonnet	vals=mistralai/mistral-medium-3.5	arena=mistral-medium-3.5-text
-google/gemini-3.1-pro-preview	tier=sonnet	vals=google/gemini-3.1-pro-preview	arena=gemini-3.1-pro-preview
-moonshotai/kimi-k3	tier=sonnet	vals=kimi/kimi-k3
-deepseek/deepseek-v4-pro	tier=sonnet	vals=deepseek/deepseek-v4-pro	arena=deepseek-v4-pro-ch1-text
-z-ai/glm-5.2	tier=sonnet	vals=zai/glm-5.2
-z-ai/glm-5.3	tier=sonnet	vals=zai/glm-5.3
-google/gemini-3.6-flash	tier=sonnet	vals=google/gemini-3.6-flash	arena=gemini-3.6-flash
-google/gemini-3.5-flash	tier=sonnet	vals=google/gemini-3.5-flash	arena=gemini-3.5-flash-medium
-google/gemini-3.7-flash	tier=sonnet	vals=google/gemini-3.7-flash
-google/gemini-3.8-flash	tier=sonnet	vals=google/gemini-3.8-flash
+qwen/qwen3.8-max-0902	tier=sonnet	vals=alibaba/qwen3.8-max	arena=kinsley-mrp8	gpqa=alibaba/qwen3.8-max
+x-ai/grok-4.5	tier=sonnet	vals=grok/grok-4.5	arena=grok-4.5-text	gpqa=grok/grok-4.5
+x-ai/grok-4.6	tier=sonnet	vals=grok/grok-4.6	arena=grok-4.6-high-text	gpqa=grok/grok-4.6
+mistralai/mistral-medium-3-5	tier=sonnet	vals=mistralai/mistral-medium-3.5	arena=mistral-medium-3.5-text	gpqa=mistralai/mistral-medium-3.5
+google/gemini-3.1-pro-preview	tier=sonnet	vals=google/gemini-3.1-pro-preview	arena=gemini-3.1-pro-preview	gpqa=google/gemini-3.1-pro-preview
+moonshotai/kimi-k3	tier=sonnet	vals=kimi/kimi-k3	gpqa=kimi/kimi-k3
+deepseek/deepseek-v4-pro	tier=sonnet	vals=deepseek/deepseek-v4-pro	arena=deepseek-v4-pro-ch1-text	gpqa=deepseek/deepseek-v4-pro
+z-ai/glm-5.2	tier=sonnet	vals=zai/glm-5.2	gpqa=zai/glm-5.2
+z-ai/glm-5.3	tier=sonnet	vals=zai/glm-5.3	gpqa=zai/glm-5.3
+google/gemini-3.6-flash	tier=sonnet	vals=google/gemini-3.6-flash	arena=gemini-3.6-flash	gpqa=google/gemini-3.6-flash
+google/gemini-3.5-flash	tier=sonnet	vals=google/gemini-3.5-flash	arena=gemini-3.5-flash-medium	gpqa=google/gemini-3.5-flash
+google/gemini-3.7-flash	tier=sonnet	vals=google/gemini-3.7-flash	gpqa=google/gemini-3.7-flash
+google/gemini-3.8-flash	tier=sonnet	vals=google/gemini-3.8-flash	gpqa=google/gemini-3.8-flash
 
 # ── <≈ Haiku 4.5 ─────────────────────────────────────────────────────────────
-anthropic/claude-haiku-4.5	tier=haiku	swebench=Model: claude-haiku-4-5-20251001
-deepseek/deepseek-v4-flash	tier=haiku	vals!variant=deepseek/deepseek-v4-flash-0731	arena=deepseek-v4-ch3-text
+anthropic/claude-haiku-4.5	tier=haiku	swebench=Model: claude-haiku-4-5-20251001	gpqa!variant=anthropic/claude-haiku-4-5-20251001-thinking
+deepseek/deepseek-v4-flash	tier=haiku	vals!variant=deepseek/deepseek-v4-flash-0731	arena=deepseek-v4-ch3-text	gpqa!variant=deepseek/deepseek-v4-flash-0731
 tencent/hy3	tier=haiku	arena=hy3-tencent-cloud-text
 qwen/qwen3-coder-next	tier=haiku
 deepseek/deepseek-v3.2	tier=haiku	swebench=Model: deepseek-v3.2	arena=deepseek-v3.2
 qwen/qwen3-coder	tier=haiku	swebench=Model: Qwen3-Coder-480B-A35B-Instruct	arena=qwen3-coder-480b-a35b-instruct
-xiaomi/mimo-v2.5-pro	tier=haiku	vals=xiaomi/mimo-v2.5-pro	arena=mimo-v2.5-pro-text
-moonshotai/kimi-k2.5	tier=haiku	swebench=Model: kimi-k2.5
+xiaomi/mimo-v2.5-pro	tier=haiku	vals=xiaomi/mimo-v2.5-pro	arena=mimo-v2.5-pro-text	gpqa=xiaomi/mimo-v2.5-pro
+moonshotai/kimi-k2.5	tier=haiku	swebench=Model: kimi-k2.5	gpqa!variant=kimi/kimi-k2.5-thinking
 moonshotai/kimi-k2.7-code	tier=haiku	vals=kimi/kimi-k2.7-code
 kwaipilot/kat-coder-pro-v2.5	tier=haiku
-xiaomi/mimo-v2.5	tier=haiku	vals=xiaomi/mimo-v2.5	arena=mimo-v2.5-text
+xiaomi/mimo-v2.5	tier=haiku	vals=xiaomi/mimo-v2.5	arena=mimo-v2.5-text	gpqa=xiaomi/mimo-v2.5
 meta-llama/llama-4-maverick	tier=haiku	swebench=Model: llama-4-maverick-instruct	arena=llama-4-maverick-17b-128e-instruct
 meta-llama/llama-4-scout	tier=haiku	swebench=Model: llama-4-scout-instruct	arena=llama-4-scout-17b-16e-instruct
 mistralai/codestral-2508	tier=haiku
 meituan/longcat-2.0	tier=haiku
-openai/gpt-5-mini	tier=haiku	swebench=Model: gpt-5-mini-2025-08-07	arena=gpt-5-mini-high
-mistralai/mistral-large-2512	tier=haiku	vals=mistralai/mistral-large-2512
+openai/gpt-5-mini	tier=haiku	swebench=Model: gpt-5-mini-2025-08-07	arena=gpt-5-mini-high	gpqa=openai/gpt-5-mini-2025-08-07
+mistralai/mistral-large-2512	tier=haiku	vals=mistralai/mistral-large-2512	gpqa=mistralai/mistral-large-2512
 google/gemma-4-26b-a4b-it	tier=haiku	arena=significant-otter-text
 google/gemma-4-31b-it	tier=haiku	arena=pteronura-text
-nvidia/nemotron-3-ultra-550b-a55b	tier=haiku	vals=nvidia/nemotron-3-ultra-550b-a55b	arena=may26-chatbot4-3x57
+nvidia/nemotron-3-ultra-550b-a55b	tier=haiku	vals=nvidia/nemotron-3-ultra-550b-a55b	arena=may26-chatbot4-3x57	gpqa=nvidia/nemotron-3-ultra-550b-a55b
 nvidia/nemotron-3-super-120b-a12b	tier=haiku	arena=march26-chatbot1
 nvidia/nemotron-3-nano-30b-a3b	tier=haiku	arena=nvidia-nemotron-3-nano-30b-a3b-bf16
 poolside/laguna-s-2.1	tier=haiku
 poolside/laguna-xs-2.1	tier=haiku
-z-ai/glm-4.7	tier=haiku	vals=zai/glm-4.7
+z-ai/glm-4.7	tier=haiku	vals=zai/glm-4.7	gpqa=zai/glm-4.7
 z-ai/glm-4.7-flash	tier=haiku	arena=glm-4.7-flash-fireworks
-z-ai/glm-5.3-flash	tier=haiku	vals=zai/glm-5.3-flash	arena=glm-5.3-flash-text
-minimax/minimax-m2.5	tier=haiku	vals=minimax/MiniMax-M2.5	arena=minimax-m2.5
+z-ai/glm-5.3-flash	tier=haiku	vals=zai/glm-5.3-flash	arena=glm-5.3-flash-text	gpqa=zai/glm-5.3-flash
+minimax/minimax-m2.5	tier=haiku	vals=minimax/MiniMax-M2.5	arena=minimax-m2.5	gpqa=minimax/MiniMax-M2.5
 minimax/minimax-m2	tier=haiku	swebench=Model: minimax-m2	arena=minimax-m2
 qwen/qwen3-next-80b-a3b-instruct	tier=haiku	arena=qwen3-next-80b-a3b-instruct
 qwen/qwen3-235b-a22b-2507	tier=haiku	arena=qwen3-235b-a22b-instruct-2507
 
 # ── Бесплатные ───────────────────────────────────────────────────────────────
 nvidia/nemotron-3.5-content-safety:free	tier=free
-nvidia/nemotron-3-ultra-550b-a55b:free	tier=free	vals=nvidia/nemotron-3-ultra-550b-a55b	arena=may26-chatbot4-3x57
+nvidia/nemotron-3-ultra-550b-a55b:free	tier=free	vals=nvidia/nemotron-3-ultra-550b-a55b	arena=may26-chatbot4-3x57	gpqa=nvidia/nemotron-3-ultra-550b-a55b
 poolside/laguna-xs-2.1:free	tier=free
 cohere/north-mini-code:free	tier=free
 poolside/laguna-s-2.1:free	tier=free
