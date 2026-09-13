@@ -183,7 +183,13 @@ type Model struct {
 	InputPrice      float64
 	OutputPrice     float64
 
-	Note        string
+	Note string
+	// NoteEN is the curated English translation of Note, straight from
+	// notes.yaml's note.en — empty when nobody has translated this model's
+	// note yet. Unlike Note it carries no NeedsReview fallback: "empty"
+	// here is a fact the run report and the TUI's language-aware renderer
+	// both need to see, not something to paper over.
+	NoteEN      string
 	TaskFit     []string
 	Owner       string
 	OpenWeights string
@@ -425,6 +431,7 @@ func MergeAll(entries []modelmap.Entry, prices map[string]sources.PriceInfo, sco
 			HuggingFaceID:      price.HuggingFaceID,
 			Provider:           ProviderLabel(e.Slug, price.Provider),
 			Note:               nt.ModelNote(e.Slug),
+			NoteEN:             nt.ModelNoteEN(e.Slug),
 			TaskFit:            nt.TaskFit(e.Slug),
 			Owner:              nt.Owner(e.Slug),
 			OpenWeights:        nt.OpenWeights(e.Slug),

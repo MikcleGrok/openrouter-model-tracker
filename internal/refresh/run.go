@@ -939,6 +939,17 @@ func markStale(models []model.Model, stalePrices, staleScores, staleArena, stale
 		if stalePrices[m.Slug] {
 			m.PriceStale = true
 			m.Note = strings.TrimSpace(m.Note + " Цену не удалось проверить на " + date + " — значение из прошлого прогона.")
+			// Guarded on NoteEN already being non-empty: this sentence is
+			// code-generated, so it can simply be written well in English
+			// rather than translated, but appending it to an untranslated
+			// (empty) NoteEN would leave NoteEN holding only this one
+			// sentence — the render-time "EN non-empty -> use EN" rule
+			// would then show a one-sentence English note in place of the
+			// full Russian one, strictly worse than the Russian fallback it
+			// bypassed.
+			if strings.TrimSpace(m.NoteEN) != "" {
+				m.NoteEN = strings.TrimSpace(m.NoteEN + " Price could not be verified on " + date + " — value carried over from the previous run.")
+			}
 		}
 		if staleScores[m.Slug] && m.Score != nil {
 			m.Score.Stale = true

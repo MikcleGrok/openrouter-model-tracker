@@ -37,6 +37,38 @@ const (
 // rankable SWE-bench Verified number.
 const defaultNoScoreReason = "n/a (no SWE-bench Verified score)"
 
+// LocalizedText is one curated prose value written in both interface
+// languages. RU is canonical: it is what the generated document and the CLI
+// render, and it is what the TUI falls back to when EN is not written yet.
+//
+// UnmarshalYAML accepts two shapes so notes.yaml and this struct never have
+// to change in the same commit: a bare scalar ("legacy" shape) becomes RU
+// with EN left empty, and a {ru, en} mapping decodes normally. Anything else
+// is a malformed note field and fails loudly rather than silently losing
+// data.
+type LocalizedText struct {
+	RU string `yaml:"ru"`
+	EN string `yaml:"en"`
+}
+
+func (t *LocalizedText) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		t.RU, t.EN = node.Value, ""
+		return nil
+	case yaml.MappingNode:
+		type plain LocalizedText
+		var decoded plain
+		if err := node.Decode(&decoded); err != nil {
+			return fmt.Errorf("note: %w", err)
+		}
+		*t = LocalizedText(decoded)
+		return nil
+	default:
+		return fmt.Errorf("note: must be a plain string or a {ru, en} mapping, not %s", node.Tag)
+	}
+}
+
 // ScoreOverride is a manually entered benchmark number for a model no automated
 // source covers — typically a vendor-published figure.
 type ScoreOverride struct {
@@ -75,7 +107,7 @@ type modelNote struct {
 	Owner              string         `yaml:"owner"`
 	OpenWeights        string         `yaml:"open_weights"`
 	ClaudeRef          string         `yaml:"claude_ref"`
-	Note               string         `yaml:"note"`
+	Note               LocalizedText  `yaml:"note"`
 	NoScoreReason      string         `yaml:"no_score_reason"`
 	Score              *ScoreOverride `yaml:"score"`
 	TaskFit            []string       `yaml:"task_fit"`
@@ -118,7 +150,8 @@ func Load(path string) (*Notes, error) {
 		m.Owner = normalizeMissingLabels(m.Owner)
 		m.OpenWeights = normalizeMissingLabels(m.OpenWeights)
 		m.ClaudeRef = normalizeMissingLabels(m.ClaudeRef)
-		m.Note = normalizeMissingLabels(m.Note)
+		m.Note.RU = normalizeMissingLabels(m.Note.RU)
+		m.Note.EN = normalizeMissingLabels(m.Note.EN)
 		m.NoScoreReason = normalizeMissingLabels(m.NoScoreReason)
 		m.Copyright, err = normalizeCopyright(m.Copyright)
 		if err != nil {
@@ -261,8 +294,17 @@ func isDisplayPlaceholder(value string) bool {
 	return strings.HasPrefix(normalized, "n/a (") || strings.HasPrefix(normalized, "n/d (") || strings.HasPrefix(normalized, "н/д (") || strings.HasPrefix(normalized, strings.ToLower(NeedsReview)+" ") || strings.HasPrefix(normalized, strings.ToLower(NeedsReview)+"(")
 }
 
-// ModelNote returns the per-model commentary shown in the Примечание column.
-func (n *Notes) ModelNote(slug string) string { return orNeedsReview(n.model(slug).Note) }
+// ModelNote returns the per-model commentary shown in the Примечание column —
+// the Russian text, which is canonical: what the generated document and the
+// CLI table render, with the NeedsReview fallback intact.
+func (n *Notes) ModelNote(slug string) string { return orNeedsReview(n.model(slug).Note.RU) }
+
+// ModelNoteEN returns the English translation exactly as written — raw, with
+// no NeedsReview fallback and no fall back to Russian. Empty means "not
+// translated yet", a fact the run report and the TUI's language-aware
+// renderer both need to see, so unlike ModelNote this never substitutes
+// anything for an empty value.
+func (n *Notes) ModelNoteEN(slug string) string { return n.model(slug).Note.EN }
 
 // TaskFit returns normalized manual task-fit keywords for a model.
 func (n *Notes) TaskFit(slug string) []string {

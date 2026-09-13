@@ -1371,6 +1371,37 @@ func TestMarkStaleLabelsTheGeneralColumnIndependently(t *testing.T) {
 	}
 }
 
+// TestMarkStaleAppendsEnglishSentenceOnlyWhenNoteENAlreadyHasContent pins the
+// guard: the English stale-price sentence is appended to NoteEN only when
+// NoteEN was already non-empty going in. Without the guard, an untranslated
+// model with a stale price would end up with NoteEN containing *only* the
+// generated stale-price sentence — the render-time "EN non-empty -> use EN"
+// rule would then show a one-sentence English note in place of the full
+// Russian one, strictly worse than the Russian fallback it bypassed.
+func TestMarkStaleAppendsEnglishSentenceOnlyWhenNoteENAlreadyHasContent(t *testing.T) {
+	models := []model.Model{
+		{Slug: "a/translated", Note: "Оценка независимая.", NoteEN: "Independently measured."},
+		{Slug: "a/untranslated", Note: "Оценка независимая."},
+	}
+	markStale(models, map[string]bool{"a/translated": true, "a/untranslated": true}, nil, nil, nil, "2026-08-08")
+
+	translated := models[0]
+	if !strings.Contains(translated.NoteEN, "Independently measured.") || !strings.Contains(translated.NoteEN, "2026-08-08") {
+		t.Errorf("NoteEN(translated) = %q, want the original text plus the English stale-price sentence", translated.NoteEN)
+	}
+	if !strings.Contains(translated.Note, "2026-08-08") {
+		t.Errorf("Note(translated) = %q, want the Russian stale-price sentence appended as before", translated.Note)
+	}
+
+	untranslated := models[1]
+	if untranslated.NoteEN != "" {
+		t.Errorf("NoteEN(untranslated) = %q, want it to stay empty rather than hold only the generated sentence", untranslated.NoteEN)
+	}
+	if !strings.Contains(untranslated.Note, "2026-08-08") {
+		t.Errorf("Note(untranslated) = %q, want the Russian stale-price sentence appended regardless of NoteEN", untranslated.Note)
+	}
+}
+
 // TestLiveDepsSourcesAllHaveASourceFamily guards the registration in liveDeps
 // against a source id with no matching model.SourceFamily entry. Such an id
 // would fall into the split's default branch — its rows dropped rather than

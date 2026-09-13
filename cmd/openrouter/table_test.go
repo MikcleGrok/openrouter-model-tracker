@@ -1049,6 +1049,57 @@ func TestRenderTableSeparatesStatusQualityPriceAndNote(t *testing.T) {
 	}
 }
 
+// TestTableNoteForLang pins tableNoteForLang's four cases: Russian always
+// gets tableNote verbatim regardless of NoteEN; English prefers a real
+// NoteEN translation; English silently falls back to the Russian text when
+// NoteEN is empty; and a NeedsReview/empty Note renders as "" in both
+// languages, exactly like tableNote itself.
+func TestTableNoteForLang(t *testing.T) {
+	translated := model.Model{Note: "русский текст", NoteEN: "english text"}
+	untranslated := model.Model{Note: "русский текст"}
+	// A model with no notes.yaml entry at all: ModelNote falls back to
+	// NeedsReview and ModelNoteEN — which never applies that fallback —
+	// stays empty, so this is the only combination real data can produce
+	// for a "nobody wrote this note" row.
+	needsReview := model.Model{Note: notes.NeedsReview}
+	empty := model.Model{}
+	// Defensive: NoteEN itself never actually carries notes.NeedsReview in
+	// practice (ModelNoteEN applies no such fallback), but tableNoteForLang
+	// still guards against it directly, the same defensive shape tableNote
+	// applies to Note.
+	noteENSentinel := model.Model{Note: "русский текст", NoteEN: notes.NeedsReview}
+
+	cases := []struct {
+		name string
+		m    model.Model
+		lang string
+		want string
+	}{
+		{"ru always gets tableNote verbatim, even with a NoteEN present", translated, "ru", "русский текст"},
+		{"en prefers the NoteEN translation", translated, "", "english text"},
+		{"en falls back to Russian when untranslated", untranslated, "", "русский текст"},
+		{"ru on the untranslated model is unaffected", untranslated, "ru", "русский текст"},
+		{"NeedsReview renders empty in ru", needsReview, "ru", ""},
+		{"NeedsReview renders empty in en too, empty NoteEN falls back to tableNote which also strips it", needsReview, "", ""},
+		{"empty model renders empty in ru", empty, "ru", ""},
+		{"empty model renders empty in en", empty, "", ""},
+		{"NoteEN == notes.NeedsReview falls back to the Russian text, not the sentinel", noteENSentinel, "", "русский текст"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tableNoteForLang(c.m, c.lang); got != c.want {
+				t.Errorf("tableNoteForLang(%+v, %q) = %q, want %q", c.m, c.lang, got, c.want)
+			}
+		})
+	}
+
+	// tableNote itself must stay untouched: byte-identical for the Russian
+	// case, independent of tableNoteForLang's existence.
+	if got, want := tableNoteForLang(translated, "ru"), tableNote(translated); got != want {
+		t.Errorf("tableNoteForLang(ru) = %q, want tableNote(m) verbatim = %q", got, want)
+	}
+}
+
 func TestRenderTableKeepsQualityPriceWithinReadableColumn(t *testing.T) {
 	models := []model.Model{{DisplayName: "paid", ScoreLabel: "93.0%", QualityPriceLabel: "436", Note: "status note"}, {DisplayName: "free", ScoreLabel: "н/д", QualityPriceLabel: "н/д (цена $0)"}, {DisplayName: "missing", ScoreLabel: "н/д", QualityPriceLabel: "н/д (оценка не для этого варианта)"}}
 	for _, width := range []int{120, 40} {

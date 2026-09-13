@@ -35,6 +35,19 @@ func TestModelAccessors(t *testing.T) {
 	if got := n.ModelNote("openai/gpt-5.6-luna"); got != "Оценка независимая (vals.ai)." {
 		t.Errorf("ModelNote = %q", got)
 	}
+	// The three states LocalizedText's UnmarshalYAML has to support: a
+	// nested {ru, en} entry with a real translation, a nested entry with an
+	// explicit en: "" (translated-nothing-yet), and a bare legacy scalar
+	// (no en key at all — the backward-compatible shape).
+	if got := n.ModelNoteEN("openai/gpt-5.6-luna"); got != "Independently measured (vals.ai)." {
+		t.Errorf("ModelNoteEN(luna, nested + translated) = %q", got)
+	}
+	if got := n.ModelNoteEN("minimax/minimax-m3"); got != "" {
+		t.Errorf("ModelNoteEN(minimax, nested + untranslated) = %q, want empty", got)
+	}
+	if got := n.ModelNoteEN("deepseek/deepseek-v4-pro"); got != "" {
+		t.Errorf("ModelNoteEN(deepseek, legacy bare scalar) = %q, want empty", got)
+	}
 	if got := n.TaskFit("openai/gpt-5.6-luna"); len(got) != 3 || got[0] != "implement" || got[1] != "audit" || got[2] != "test" {
 		t.Errorf("TaskFit = %v, want canonical deduplicated order", got)
 	}
@@ -60,6 +73,16 @@ func TestCopyrightRejectsUnknownValue(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown value") {
 		t.Fatalf("Load error = %v, want unknown value", err)
+	}
+}
+
+func TestNoteRejectsMalformedShape(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    note: [a, b]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "note") {
+		t.Fatalf("Load error = %v, want an error naming the malformed note field", err)
 	}
 }
 

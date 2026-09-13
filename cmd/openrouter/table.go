@@ -857,6 +857,29 @@ func tableNote(m model.Model) string {
 	return plainTableText(m.Note)
 }
 
+// tableNoteForLang is tableNote for a chosen display language. tableNote
+// itself is left untouched — it has a direct test call site pinned to its
+// exact 1-argument signature (the TUI list's own Note column, out of scope
+// here — see docs/agents' notes on the Detail-screen-only bilingual note
+// design) — so this is a sibling, not a change, matching the *ForLang
+// convention used throughout the detail screen.
+//
+// Russian returns tableNote(m) verbatim, byte-identical to today. Any other
+// language prefers the curated NoteEN translation, run through the same
+// empty/NeedsReview guard and plainTableText treatment tableNote applies to
+// Note, and silently falls back to the Russian text when no translation has
+// been written yet — see notes.LocalizedText for why silent fallback, not a
+// marker, is the chosen behavior.
+func tableNoteForLang(m model.Model, lang string) string {
+	if lang == "ru" {
+		return tableNote(m)
+	}
+	if m.NoteEN == "" || m.NoteEN == notes.NeedsReview {
+		return tableNote(m)
+	}
+	return plainTableText(m.NoteEN)
+}
+
 func manufacturerName(m model.Model) string {
 	if provider := strings.TrimSpace(m.Provider); provider != "" && !model.IsPlaceholder(provider) {
 		return provider

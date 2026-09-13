@@ -15,17 +15,18 @@ import (
 // adding a model to the map, writing its prose, dropping a retired slug —
 // stays a human/LLM job; the tool only detects.
 type Report struct {
-	NewCandidates  []string
-	CatalogAdded   []string
-	CatalogRemoved []string
-	Retired        []string
-	NeedsReview    []string
-	NoScore        []string
-	NoArenaScore   []string
-	NoGeneralScore []string
-	ArenaOnly      []string
-	Warnings       []string
-	PriceChanges   []PriceChange
+	NewCandidates    []string
+	CatalogAdded     []string
+	CatalogRemoved   []string
+	Retired          []string
+	NeedsReview      []string
+	NeedsTranslation []string
+	NoScore          []string
+	NoArenaScore     []string
+	NoGeneralScore   []string
+	ArenaOnly        []string
+	Warnings         []string
+	PriceChanges     []PriceChange
 }
 
 func vendorOf(slug string) string {
@@ -114,6 +115,13 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 			(m.Free && m.ClaudeRef == notes.NeedsReview) {
 			r.NeedsReview = append(r.NeedsReview, m.Slug)
 		}
+		// Mutually exclusive with NeedsReview by construction: a note that
+		// never got written at all is a NeedsReview content gap, not a
+		// translation gap — a different problem for a different person at a
+		// different stage of authoring the same field.
+		if m.Note != "" && m.Note != notes.NeedsReview && strings.TrimSpace(m.NoteEN) == "" {
+			r.NeedsTranslation = append(r.NeedsTranslation, m.Slug)
+		}
 		if m.Score == nil && hasScoreSource[m.Slug] {
 			r.NoScore = append(r.NoScore, m.Slug)
 		}
@@ -145,6 +153,7 @@ func BuildReport(entries []modelmap.Entry, catalog []string, prices map[string]s
 	sort.Strings(r.NewCandidates)
 	sort.Strings(r.Retired)
 	sort.Strings(r.NeedsReview)
+	sort.Strings(r.NeedsTranslation)
 	sort.Strings(r.NoScore)
 	sort.Strings(r.NoArenaScore)
 	sort.Strings(r.NoGeneralScore)
@@ -171,6 +180,7 @@ func (r Report) String() string {
 	section(&b, "🗑️", "модели, исчезнувшие после последнего refresh", r.CatalogRemoved)
 	section(&b, "➖", "slug'ов больше нет в каталоге OpenRouter", r.Retired)
 	section(&b, "📝", "нет прозы в notes.yaml", r.NeedsReview)
+	section(&b, "🌐", "нет английского перевода note в notes.yaml", r.NeedsTranslation)
 	section(&b, "❓", "нет оценки — проверь имя модели на источнике в model-map.tsv", r.NoScore)
 	section(&b, "🎯", "нет строки на Arena — проверь arena= в model-map.tsv", r.NoArenaScore)
 	section(&b, "🧠", "нет строки на GPQA — проверь gpqa= в model-map.tsv", r.NoGeneralScore)
