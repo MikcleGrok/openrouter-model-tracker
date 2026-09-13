@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -28,7 +27,6 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
 	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 	tierpkg "github.com/sboborikin/openrouter-model-tracker/internal/tier"
-	"golang.org/x/term"
 )
 
 const defaultTableWidth = 120
@@ -1127,37 +1125,6 @@ func min(left, right int) int {
 		return left
 	}
 	return right
-}
-
-var tableIsTTY = func(stdout io.Writer) bool {
-	file, ok := stdout.(*os.File)
-	if !ok {
-		return false
-	}
-	return term.IsTerminal(int(file.Fd()))
-}
-
-func tableShouldPage(stdout io.Writer, noPager bool) bool {
-	return !noPager && tableIsTTY(stdout)
-}
-
-var runTablePager = func(output string, stdout, stderr io.Writer) error {
-	pager := exec.Command("less", "-S")
-	pager.Stdin = strings.NewReader(output)
-	pager.Stdout = stdout
-	pager.Stderr = stderr
-	if err := pager.Run(); err != nil {
-		return fmt.Errorf("table: run less -S: %w", err)
-	}
-	return nil
-}
-
-func writeTableOutput(output string, stdout, stderr io.Writer, shouldPage bool) error {
-	if shouldPage {
-		return runTablePager(output, stdout, stderr)
-	}
-	_, err := io.WriteString(stdout, output)
-	return err
 }
 
 func sum(values []int) int {

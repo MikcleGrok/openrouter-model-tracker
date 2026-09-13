@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func day(t *testing.T, y int, m time.Month, d int) time.Time {
@@ -105,6 +106,9 @@ func TestFormatRunsTableCollapsesRangeAndKeepsSingleDayRows(t *testing.T) {
 	if !strings.Contains(table, "7") {
 		t.Errorf("table is missing the 7-day count for the collapsed run:\n%s", table)
 	}
+	if strings.Contains(table, "Slug") {
+		t.Errorf("FormatRunsTable must not render a Slug column:\n%s", table)
+	}
 }
 
 func TestFormatRunsTableNotesLongContextOverrideOnlyWhenPresent(t *testing.T) {
@@ -165,5 +169,127 @@ func TestFilterSinceKeepsOnlyObservationsAtOrAfterCutoff(t *testing.T) {
 	}
 	if FilterSince(h, time.Time{}) != h {
 		t.Errorf("a zero cutoff should return h unchanged")
+	}
+}
+
+// TestAllRunsEnumeratesEverySlugSortedWithPerModelDedup covers three models
+// at once: one stable (single run), one that changes price mid-range (two
+// runs), and one with a Found:false gap that must not split its run — same
+// per-model semantics Runs already guarantees, now aggregated and ordered
+// slug-ascending-then-chronological.
+func TestAllRunsEnumeratesEverySlugSortedWithPerModelDedup(t *testing.T) {
+	h := &History{Observations: []Observation{
+		{ObservedAt: day(t, 2026, 9, 1), Prices: map[string]Price{
+			"z/model": {Found: true, InPerM: 1, OutPerM: 2},
+			"a/model": {Found: true, InPerM: 3, OutPerM: 6},
+			"m/model": {Found: true, InPerM: 5, OutPerM: 10},
+		}},
+		{ObservedAt: day(t, 2026, 9, 2), Prices: map[string]Price{
+			"z/model": {Found: true, InPerM: 1, OutPerM: 2},
+			"a/model": {Found: true, InPerM: 4, OutPerM: 8},
+			"m/model": {Found: false},
+		}},
+		{ObservedAt: day(t, 2026, 9, 3), Prices: map[string]Price{
+			"z/model": {Found: true, InPerM: 1, OutPerM: 2},
+			"m/model": {Found: true, InPerM: 5, OutPerM: 10},
+		}},
+	}}
+	runs := AllRuns(h)
+	if len(runs) != 4 {
+		t.Fatalf("AllRuns returned %d rows, want 4 (a/model x2, m/model x1, z/model x1): %+v", len(runs), runs)
+	}
+	wantSlugs := []string{"a/model", "a/model", "m/model", "z/model"}
+	for i, want := range wantSlugs {
+		if runs[i].Slug != want {
+			t.Errorf("runs[%d].Slug = %q, want %q (slug-ascending, then chronological within slug)", i, runs[i].Slug, want)
+		}
+	}
+	if runs[0].Run.Price.InPerM != 3 || runs[1].Run.Price.InPerM != 4 {
+		t.Errorf("a/model runs out of chronological/price order: %+v, %+v", runs[0].Run, runs[1].Run)
+	}
+	if runs[2].Run.From.Format("2006-01-02") != "2026-09-01" || runs[2].Run.To.Format("2006-01-02") != "2026-09-03" || runs[2].Run.Days != 2 {
+		t.Errorf("m/model run = %+v, want From=09-01 To=09-03 Days=2 (a Found:false gap must not split the run)", runs[2].Run)
+	}
+}
+
+// TestFormatModelRunsTableAlignsSlugColumnAcrossModels uses mixed slug
+// lengths and checks that every row's Date range column starts at the same
+// rune offset as the header's — computed in runes, not bytes, since a naive
+// byte-offset comparison would be silently wrong for a row containing a
+// multi-byte "→" range separator (see report.go's displayWidth comment).
+func TestFormatModelRunsTableAlignsSlugColumnAcrossModels(t *testing.T) {
+	rows := []ModelRun{
+		{Slug: "a/short", Run: PriceRun{Price: Price{Found: true, InPerM: 1, OutPerM: 2}, From: day(t, 2026, 9, 1), To: day(t, 2026, 9, 1), Days: 1}},
+		{Slug: "very-long-vendor/a-much-longer-model-name", Run: PriceRun{Price: Price{Found: true, InPerM: 3, OutPerM: 15}, From: day(t, 2026, 9, 3), To: day(t, 2026, 9, 10), Days: 7}},
+	}
+	table := FormatModelRunsTable(rows)
+	lines := strings.Split(strings.TrimRight(table, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("table has %d lines, want 4 (header, separator, 2 rows):\n%s", len(lines), table)
+	}
+	headerByteOffset := strings.Index(lines[0], "Date range")
+	if headerByteOffset < 0 {
+		t.Fatalf("header is missing the Date range column:\n%s", lines[0])
+	}
+	wantRuneOffset := utf8.RuneCountInString(lines[0][:headerByteOffset])
+
+	dates := []string{"2026-09-01", "2026-09-03"} // the From date of each row, in order
+	for i, dataLine := range lines[2:] {
+		byteOffset := strings.Index(dataLine, dates[i])
+		if byteOffset < 0 {
+			t.Fatalf("row %d is missing its expected date %q:\n%s", i, dates[i], dataLine)
+		}
+		gotRuneOffset := utf8.RuneCountInString(dataLine[:byteOffset])
+		if gotRuneOffset != wantRuneOffset {
+			t.Errorf("row %d Date range column starts at rune offset %d, want %d (header offset) — Slug column misaligned:\nheader: %q\nrow:    %q", i, gotRuneOffset, wantRuneOffset, lines[0], dataLine)
+		}
+	}
+}
+
+func TestFormatModelRunsTableEmpty(t *testing.T) {
+	if got := FormatModelRunsTable(nil); got != "no price history\n" {
+		t.Errorf("FormatModelRunsTable(nil) = %q", got)
+	}
+}
+
+// TestRenderAllModelsReportHasNoCharts proves the aggregate report never
+// renders a per-model bar chart. It uses a newline-anchored check, since a
+// bare "Input $/M" substring check would be vacuous — that text is also the
+// table's own column header (mirrors cmd/openrouter/history_test.go's
+// strings.Cut(report, "\nInput $/M") idiom for the same reason).
+func TestRenderAllModelsReportHasNoCharts(t *testing.T) {
+	h := &History{Observations: []Observation{
+		{ObservedAt: day(t, 2026, 9, 1), Prices: map[string]Price{
+			"a/model": {Found: true, InPerM: 1, OutPerM: 2},
+			"b/model": {Found: true, InPerM: 3, OutPerM: 6},
+		}},
+	}}
+	out := RenderAllModelsReport(h)
+	if strings.Contains(out, "\nInput $/M") {
+		t.Errorf("aggregate report should have no per-model bar charts, but found a chart title line:\n%s", out)
+	}
+	if !strings.Contains(out, "Input $/M") {
+		t.Errorf("aggregate report is missing its Input $/M column header:\n%s", out)
+	}
+}
+
+// TestRenderAllModelsReportRespectsSinceThroughFilterSince confirms
+// FilterSince composes with RenderAllModelsReport for free — no new
+// filtering logic is needed in RenderAllModelsReport itself.
+func TestRenderAllModelsReportRespectsSinceThroughFilterSince(t *testing.T) {
+	h := &History{Observations: []Observation{
+		{ObservedAt: day(t, 2026, 9, 1), Prices: map[string]Price{"a/model": {Found: true, InPerM: 1, OutPerM: 2}}},
+		{ObservedAt: day(t, 2026, 9, 5), Prices: map[string]Price{"a/model": {Found: true, InPerM: 1, OutPerM: 2}}},
+	}}
+	full := RenderAllModelsReport(h)
+	if !strings.Contains(full, "2026-09-01") {
+		t.Fatalf("unfiltered report should include the early observation:\n%s", full)
+	}
+	filtered := RenderAllModelsReport(FilterSince(h, day(t, 2026, 9, 5)))
+	if strings.Contains(filtered, "2026-09-01") {
+		t.Errorf("filtered report should not include the pre-cutoff observation:\n%s", filtered)
+	}
+	if !strings.Contains(filtered, "2026-09-05") {
+		t.Errorf("filtered report should include the retained observation:\n%s", filtered)
 	}
 }

@@ -215,9 +215,12 @@ func parseSince(value string) (time.Time, error) {
 // renderHistory implements the `history` CLI command's three formats:
 // "markdown"/"tsv" dump every observation (across all models unless
 // --model narrows it) as a machine-friendly change log, and "report"
-// renders a single model's price history as a human-readable deduplicated
-// table plus a labeled bar chart (pricehistory.RenderModelReport) — width
-// caps the report's chart columns and is ignored by the other two formats.
+// renders a human-readable deduplicated price table — every tracked model
+// aggregated into one flat table by default, or, with --model, a single
+// model's table plus a labeled bar chart
+// (pricehistory.RenderModelReport) — width caps the single-model report's
+// chart columns and is ignored by the other two formats and by the
+// aggregate report.
 func renderHistory(h *pricehistory.History, modelSlug, since, format string, width int) (string, error) {
 	if format != "markdown" && format != "tsv" && format != "report" {
 		return "", fmt.Errorf("--format must be markdown, tsv, or report")
@@ -227,10 +230,17 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string, wid
 		return "", err
 	}
 	if format == "report" {
+		filtered := pricehistory.FilterSince(h, cutoff)
 		if modelSlug == "" {
-			return "", fmt.Errorf("--format report requires --model <slug>")
+			// Unlike `table`, `history` needs no shouldPage-dependent width
+			// bounding here: the pager doesn't change cmd.OutOrStdout(), a
+			// single-model chart already sizes itself via
+			// chartWidth(cmd.OutOrStdout()), and the aggregate table is
+			// *meant* to exceed the terminal width and be scrolled with
+			// less -S — that's intentional, not a bug to fix later.
+			return pricehistory.RenderAllModelsReport(filtered), nil
 		}
-		return pricehistory.RenderModelReport(pricehistory.FilterSince(h, cutoff), modelSlug, width), nil
+		return pricehistory.RenderModelReport(filtered, modelSlug, width), nil
 	}
 	previous := make(map[string]pricehistory.Price)
 	var b strings.Builder
@@ -286,7 +296,7 @@ func renderHistory(h *pricehistory.History, modelSlug, since, format string, wid
 		}
 	}
 	if rows == 0 {
-		return "История цен пуста или не содержит подходящих наблюдений.\n", nil
+		return "No price history, or no observations match the current filters.\n", nil
 	}
 	return b.String(), nil
 }
@@ -388,6 +398,7 @@ func newRootCmd() *cobra.Command {
 	checkCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (used only to validate config)")
 
 	var historyModel, historySince, historyFormat string
+	var historyNoPager bool
 	historyCmd := &cobra.Command{
 		Use:   "history",
 		Short: "Show price history",
@@ -405,13 +416,21 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), output)
-			return nil
+			// Paging applies to all three formats, not just report: it's an
+			// output-transport concern, and markdown (tens of thousands of
+			// lines across all models) needs it most. Piped/redirected
+			// output bypasses the pager automatically via shouldPage.
+			page := shouldPage(cmd.OutOrStdout(), historyNoPager)
+			return writePagedOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), page)
 		},
 	}
 	historyCmd.Flags().StringVar(&historyModel, "model", "", "filter by slug")
 	historyCmd.Flags().StringVar(&historySince, "since", "", "show observations after RFC3339 or YYYY-MM-DD")
-	historyCmd.Flags().StringVar(&historyFormat, "format", "markdown", "format: markdown (full change log), tsv (machine-readable change log), or report (one model's deduplicated price table + bar chart; requires --model)")
+	historyCmd.Flags().StringVar(&historyFormat, "format", "report",
+		"format: report (deduplicated, column-aligned price table; all models, or one "+
+			"model plus bar charts with --model), markdown (full per-observation change "+
+			"log), or tsv (machine-readable change log)")
+	historyCmd.Flags().BoolVar(&historyNoPager, "no-pager", false, "do not use less in a TTY")
 
 	tableCmd := &cobra.Command{
 		Use:                "table",
@@ -494,7 +513,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			shouldPage := tableShouldPage(cmd.OutOrStdout(), tableNoPager)
+			shouldPage := shouldPage(cmd.OutOrStdout(), tableNoPager)
 			mode := tableTaskFit
 			if tableNotes {
 				mode = "notes"
@@ -507,7 +526,7 @@ func newRootCmd() *cobra.Command {
 			if tableScoreSource != scoreSourceDefault {
 				output += "\nScore source: " + scoreSourceLabel(tableScoreSource)
 			}
-			return writeTableOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
+			return writePagedOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "utility", "sort by: "+tableSortHelp)
