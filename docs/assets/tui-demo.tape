@@ -1,8 +1,8 @@
 Output docs/assets/tui-demo.gif
-Set FontSize 20
+Set FontSize 24
 Set FontFamily "JetBrainsMono Nerd Font Mono"
-Set Width 1875
-Set Height 1025
+Set Width 2250
+Set Height 1230
 Set Theme "Catppuccin Frappe"
 Set Padding 12
 
