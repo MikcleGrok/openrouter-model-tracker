@@ -25,7 +25,9 @@
 Основной путь для каждой платформы — в README.md. Здесь — то, что не влезло в
 одну команду.
 
-**winget** (Windows) — `winget install MikcleGrok.openrouter-model-tracker`.
+**winget** (Windows) — `winget install MikcleGrok.openrouter-model-tracker`,
+затем `openrouter-model-tracker tui` (winget разрешает только один alias на
+установщик, поэтому здесь нет короткого `omt` — только полное имя).
 На момент написания PR в `microsoft/winget-pkgs` ещё не смёржен (ждёт CLA и
 ревью модератора, статус — [PR #433872](https://github.com/microsoft/winget-pkgs/pull/433872));
 команда заработает после публикации. winget-установка не запускает `.exe`
@@ -41,11 +43,12 @@ Expand-Archive openrouter.zip -DestinationPath .
 .\openrouter.exe tui
 ```
 
-(чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог
-из `PATH`; TUI рассчитан на Windows Terminal. Бинарник не подписан, поэтому при
-первом запуске SmartScreen покажет предупреждение — это ожидаемо, жмите
-«Подробнее» → «Выполнить в любом случае». Alias `omt` этим путём не создаётся —
-используйте `openrouter`)
+(чтобы запускать просто `openrouter-model-tracker`, переименуйте `openrouter.exe`
+в `openrouter-model-tracker.exe` и положите в любой каталог из `PATH`; TUI
+рассчитан на Windows Terminal. Бинарник не подписан, поэтому при первом запуске
+SmartScreen покажет предупреждение — это ожидаемо, жмите «Подробнее» →
+«Выполнить в любом случае». Alias `omt` этим путём не создаётся — используйте
+`openrouter-model-tracker`)
 
 **Сборка из исходников** (macOS/Linux/Windows) — `go build -o openrouter
 ./cmd/openrouter` (Windows: `-o openrouter.exe`), нужен [Go](https://go.dev)

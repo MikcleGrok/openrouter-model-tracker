@@ -101,12 +101,12 @@ grep -Fq "InstallerUrl: https://github.com/MikcleGrok/openrouter-model-tracker/r
   || fail 'installer manifest InstallerUrl does not match the expected release asset URL'
 grep -Fq 'License: MIT' "$locale_file" || fail 'locale manifest missing License: MIT'
 
-grep -Fqx -- '  PortableCommandAlias: openrouter' "$installer_file" \
-  || fail "installer manifest missing '  PortableCommandAlias: openrouter'"
+grep -Fqx -- '  PortableCommandAlias: openrouter-model-tracker' "$installer_file" \
+  || fail "installer manifest missing '  PortableCommandAlias: openrouter-model-tracker'"
 grep -Fqx -- 'Commands:' "$installer_file" \
   || fail "installer manifest missing 'Commands:'"
-grep -Fqx -- '- openrouter' "$installer_file" \
-  || fail "installer manifest missing '- openrouter' under Commands:"
+grep -Fqx -- '- openrouter-model-tracker' "$installer_file" \
+  || fail "installer manifest missing '- openrouter-model-tracker' under Commands:"
 grep -Fqx 'ReleaseDate: 2026-09-01' "$installer_file" \
   || fail "installer manifest ReleaseDate does not match manifest.json's built_at date"
 grep -Fqx 'Moniker: omt' "$locale_file" \
