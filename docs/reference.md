@@ -15,6 +15,7 @@
   - [Настройка mixed utility](#настройка-mixed-utility)
   - [Offline local release](#offline-local-release)
   - [Winget submission](#winget-submission)
+  - [Scoop bucket](#scoop-bucket)
 - [Что правится руками](#что-правится-руками)
 
 ### Локальная разработка
@@ -103,7 +104,7 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | `profiles` | `active`: plain CLI/TUI, build/release и supply-chain; `N/A`: daemon, container runtime |
 | `OS/ARCH` | CI: `linux/amd64`; release-артефакты: `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64` (tar.gz) и `windows/amd64` (zip), кросс-сборка `CGO_ENABLED=0` с macOS-хоста; локальная distribution-проверка: macOS/Homebrew; runtime-верификация Windows не выполняется |
 | `modes` | локальная работа без credentials; CI PR/push; exact-tag release с GitHub Release и static-key provenance |
-| `channels` | active: GitHub Release binary/evidence; публичный Homebrew tap (`mikclegrok/tools`, правится вручную в отдельном репозитории); winget (`MikcleGrok.openrouter-model-tracker`, внешний модерируемый PR-канал в `microsoft/winget-pkgs`, см. «Winget submission»); local-only: disposable Homebrew formula для разработки; `N/A`: container image |
+| `channels` | active: GitHub Release binary/evidence; публичный Homebrew tap (`mikclegrok/tools`, правится вручную в отдельном репозитории); winget (`MikcleGrok.openrouter-model-tracker`, внешний модерируемый PR-канал в `microsoft/winget-pkgs`, см. «Winget submission»); Scoop bucket (`MikcleGrok/scoop-bucket`, собственный репозиторий, без внешней модерации, см. «Scoop bucket»); local-only: disposable Homebrew formula для разработки; `N/A`: container image |
 | `version source` | release version только из clean checkout на exact `vMAJOR.MINOR.PATCH` tag; обычная сборка использует `git describe`; formula синхронизирует tag и revision |
 | `Makefile targets` | baseline: `fmt-check`, `test-unit`, `test-acceptance`, `vet`, `security`, `dependency-check`, `secrets-check`, `sbom`, `check-docs`; release: `release-check`, `release-manifest`, `sign`, `attest`, `verify-provenance`, `checksums`, `verify-release` |
 | `Docker toolchain image` | `N/A`: Docker toolchain не используется и не публикуется |
@@ -114,7 +115,7 @@ unmanaged `omt` сохраняется. После миграции alias ста
 | `SCA cadence` | weekly для publishable profile, а также каждый PR и перед каждым release |
 | `SCA owner` | maintainer |
 | `remediation deadline` | critical/high: 7 календарных дней; остальные findings: 30 календарных дней |
-| `N/A controls/rationale` | Docker/container controls: `N/A`, контейнер не поставляется; published Homebrew tap verification: `N/A` в этом репозитории — публичный tap (`mikclegrok/tools`) правится вручную в отдельном репозитории, здесь нет ни CI, ни автоматической sync/verify для него (в отличие от local-only disposable formula, которую проверяет `make check-homebrew-formula`); winget publication verification: `N/A` за пределами pre-submission проверок — внешний модерируемый PR-канал (`microsoft/winget-pkgs`), merge и итоговая раздача решает внешний модератор, локально `make winget-submit-check` проверяет только совпадение digest/имени asset с `SHA256SUMS` и опубликованным GitHub Release до сабмита; native macOS CI: `N/A`, release builder Linux, macOS покрывается локальным Homebrew gate |
+| `N/A controls/rationale` | Docker/container controls: `N/A`, контейнер не поставляется; published Homebrew tap verification: `N/A` в этом репозитории — публичный tap (`mikclegrok/tools`) правится вручную в отдельном репозитории, здесь нет ни CI, ни автоматической sync/verify для него (в отличие от local-only disposable formula, которую проверяет `make check-homebrew-formula`); winget publication verification: `N/A` за пределами pre-submission проверок — внешний модерируемый PR-канал (`microsoft/winget-pkgs`), merge и итоговая раздача решает внешний модератор, локально `make winget-submit-check` проверяет только совпадение digest/имени asset с `SHA256SUMS` и опубликованным GitHub Release до сабмита; Scoop bucket verification: verified — `hash`/`version`/`url` в сгенерированном манифесте сверяются с `SHA256SUMS` и опубликованным GitHub Release через `make scoop-submit-check` до любой записи в bucket-репозиторий; `N/A` — Windows runtime-верификация здесь так же отсутствует, как и для winget, а внешнего CI на bucket-репозитории тоже нет (в отличие от `winget-pkgs`, где смёрженный PR проходит собственную валидацию модератора); native macOS CI: `N/A`, release builder Linux, macOS покрывается локальным Homebrew gate |
 | `last reviewed` | 2026-09-12 |
 | `review trigger/profile state` | active; пересмотр при изменении release channel, version source, signing/provenance, trust boundary или не позднее 2026-11-08 |
 
@@ -312,6 +313,9 @@ make release-github
 make winget-manifest
 make winget-submit-check
 make winget-submit
+make scoop-manifest
+make scoop-submit-check
+make scoop-submit
 make verify-release
 make whats-new
 make security
@@ -848,6 +852,65 @@ version: …` PR того же вида.
 [docs/security.md](security.md). Никакой Windows runtime-верификации в этом
 репозитории не выполняется — то же ограничение, что и для остальных
 Windows-артефактов (см. onboarding record выше).
+
+### Scoop bucket
+
+Третий Windows-канал — в отличие от winget, не в общем `ScoopInstaller/Extras`,
+а в собственном репозитории: `scoop bucket add` принимает произвольный
+git-репозиторий, без центрального индекса и без приёмки, поэтому канал можно
+держать целиком у себя — ноль внешней модерации, полный контроль, та же
+локальная `gh`-driven логика без CI, что и у winget и Homebrew tap.
+
+**Строгий порядок: только после `make release-github`**, по той же причине,
+что и у winget. `scoop-submit-check` проверяет, что GitHub Release с этим
+тегом уже опубликован и его asset совпадает по имени (и, если API его отдаёт,
+по digest) с `SHA256SUMS` — иначе `scoop install` получит 404 на
+несуществующий release asset. Этот порядок закреплён механически (`BLOCKED:` +
+ненулевой exit), а не памяткой.
+
+Bucket-репозиторий — `MikcleGrok/scoop-bucket` (`SCOOP_BUCKET_REPOSITORY`),
+путь манифеста — `bucket/openrouter-model-tracker.json` (`SCOOP_APP_ID`);
+переменные `SCOOP_BUCKET_BRANCH`, `SCOOP_DIR` и `SCOOP_DRY_RUN` управляют
+default branch bucket-репозитория, локальным каталогом вывода и режимом
+превью соответственно. Сгенерированный манифест лежит в
+`dist/local-release/<version>/scoop/bucket/openrouter-model-tracker.json` —
+этот каталог, как и весь `dist/`, игнорируется Git и не коммитится.
+
+Каждый релиз, после `make release-local && make release-github`:
+
+```bash
+make scoop-manifest         # сгенерировать JSON из local-release evidence
+make scoop-submit-check     # sanity: hash/version/url против SHA256SUMS и опубликованного релиза
+SCOOP_DRY_RUN=1 make scoop-submit   # превью gh-команд, ничего не мутирует
+make scoop-submit           # GET (sha/404) → PUT в bucket/, либо no-op если уже актуально
+```
+
+`--submit` идемпотентен: `sha`, который возвращает GitHub contents API, — это
+git blob SHA уже существующего файла; он сравнивается с `git hash-object`
+локально сгенерированного манифеста, и при совпадении PUT пропускается без
+единой мутации. Повторный `make scoop-submit` безопасен.
+
+Разовый bootstrap (один раз на весь проект, до первого `scoop-submit`) —
+создание нового публичного внешнего репозитория, полу-необратимое действие,
+которое **требует явного «да» пользователя в момент исполнения**, а не
+выполняется само по себе:
+
+```bash
+gh repo create MikcleGrok/scoop-bucket --public --description "Scoop bucket for MikcleGrok tools"
+```
+
+После создания нужно проверить фактический `default_branch` нового
+репозитория и, если он не `main`, поправить `SCOOP_BUCKET_BRANCH`.
+
+**Явные не-гарантии.** Никакой подписи `.exe` (Authenticode/cosign) не
+добавляется — тот же принятый риск, что и для winget, см.
+[docs/security.md](security.md). Никакой Windows runtime-верификации в этом
+репозитории не выполняется — то же ограничение, что и для остальных
+Windows-артефактов (см. onboarding record выше). Алиас `omt` в `bin`
+манифеста — Scoop, в отличие от winget, поддерживает несколько шимов на один
+`.exe`, поэтому на Windows он впервые появляется именно этим каналом — но
+проверить его на реальной Windows-машине мы не можем: то же known-ограничение,
+а не гарантия.
 
 ## Что правится руками
 
