@@ -138,6 +138,46 @@ Sleep 3.5s
 Escape
 Sleep 1.5s
 
+# 6. Language toggle: "l" (language_toggle, config.go:190) flips m.lang
+# between "" and "ru" GLOBALLY -- every screen, not just this overlay's own
+# bilingual help text -- so the beat needs to prove that on more than the
+# list. First hold on the list long enough to actually read the column
+# headers and the bottom hotkey-hint line flip to Russian (mirrors the
+# "hold on the immediate result" pacing used for the sort keypresses in
+# part 2), then reopen Detail and Help in turn to show the same toggle
+# reaching the tab names, section titles and body prose everywhere else.
+# "1" is pressed explicitly on each open, same as parts 4 and 5 already
+# do, but for two different reasons confirmed by reading the key handler
+# (tui.go:1190-1198, 1169-1189): opening Detail via Enter always resets
+# detailTab to 0 regardless of what was open before, so its "1" is
+# belt-and-suspenders like part 4's own; opening Help via "?" hardcodes
+# landing on section index 2 ("Хоткеи"/Hotkeys), never index 0, so its "1"
+# is the only thing that puts "Обзор" on screen at all. Only "Обзор" is
+# shown (not all 6 RU sections, which would roughly double the GIF for no
+# extra proof) since one short, prose-bearing section already demonstrates
+# whole-screen translation. Finish by flipping back to English so the GIF
+# ends in the same clean English state it did before this part existed,
+# ahead of the unchanged quit sequence below.
+Type "l"
+Sleep 3s
+
+Enter
+Sleep 2.5s
+Type "1"
+Sleep 3s
+Type "h"
+Sleep 1s
+
+Type "?"
+Sleep 1.5s
+Type "1"
+Sleep 3.5s
+Escape
+Sleep 1.5s
+
+Type "l"
+Sleep 2.5s
+
 # Quit cleanly from the bare list with the universal, always-safe quit key.
 # Hidden, mirroring the opening Hide/Show: the GIF must end on the TUI's own
 # last visible screen, never on the bash prompt that reappears once the
