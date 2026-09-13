@@ -2,7 +2,7 @@ Output docs/assets/tui-demo.gif
 Set FontSize 16
 Set FontFamily "JetBrainsMono Nerd Font Mono"
 Set Width 1500
-Set Height 480
+Set Height 820
 Set Theme "Catppuccin Frappe"
 Set Padding 12
 
@@ -45,11 +45,36 @@ Enter
 Sleep 4s
 
 # 3. Sorting: two different sorts applied in sequence via the direct-jump
-# keys, each producing a visible row-order change on the now-narrowed list.
+# keys. "g" (bound to the same "home" action as the Home key in the
+# main-list context, tui.go:1111-1112) resets the cursor to the top row
+# both before AND after each sort keypress: rebuild() re-locates the
+# cursor by following the *previously selected model* to its new row
+# (confirmed empirically -- pressing "g" only beforehand left the cursor on
+# row 1, not row 0, after the second sort, because the model selected by
+# the first "g" wasn't top-of-list under the new order), so only the
+# post-sort "g" reliably anchors the following Down-trace at row 0. Hold
+# long enough to read the "sort:" label change in the meta line
+# (tui.go:670/2074) before stepping through the new top few rows.
+Type "g"
+Sleep 500ms
 Type "q"
-Sleep 3s
+Sleep 2.5s
+Type "g"
+Sleep 500ms
+Down
+Sleep 700ms
+Down
+Sleep 700ms
+Type "g"
+Sleep 500ms
 Type "r"
-Sleep 3s
+Sleep 2.5s
+Type "g"
+Sleep 500ms
+Down
+Sleep 700ms
+Down
+Sleep 700ms
 
 # 4. Detail screen: open it on the top row and step through all 4 tabs in
 # order, pausing meaningfully on each. Digit keys are explicit and
@@ -91,8 +116,12 @@ Sleep 3.5s
 # Close the help overlay. Escape is context-scoped to the overlay here (it
 # only quits from the bare list, which we are not at).
 Escape
-Sleep 1s
+Sleep 1.5s
 
 # Quit cleanly from the bare list with the universal, always-safe quit key.
+# Hidden, mirroring the opening Hide/Show: the GIF must end on the TUI's own
+# last visible screen, never on the bash prompt that reappears once the
+# program exits.
+Hide
 Type "x"
 Sleep 1s

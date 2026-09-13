@@ -18,6 +18,7 @@
   - [Offline local release](#offline-local-release)
   - [Winget submission](#winget-submission)
   - [Scoop bucket](#scoop-bucket)
+  - [Demo GIF](#demo-gif)
 - [Что правится руками](#что-правится-руками)
 
 ### Альтернативные способы установки
@@ -364,6 +365,7 @@ make checksums
 make verify-provenance
 make signature
 make check-docs
+make demo-gif
 ```
 
 #### Локальный installer
@@ -949,6 +951,27 @@ Windows-артефактов (см. onboarding record выше). Алиас `omt
 `.exe`, поэтому на Windows он впервые появляется именно этим каналом — но
 проверить его на реальной Windows-машине мы не можем: то же known-ограничение,
 а не гарантия.
+
+### Demo GIF
+
+`docs/assets/tui-demo.gif` — шесть частей: список моделей с фильтром
+`availability:paid` → структурный редактор фильтра (`f`, `quality>=80` и
+`input<=1`) → два сорта (`q` — quality, `r` — q/p), со сбросом курсора на
+верхнюю строку перед каждым → все 4 вкладки Detail (`1`-`4`: Identity,
+Pricing, Benchmarks, Fit & Notes) → все 6 секций Help (`?`, затем `1`-`6`:
+Overview, Score Sources, Hotkeys, Filters, Model Detail, Methodology).
+Сценарий записи — `docs/assets/tui-demo.tape`.
+
+Перегенерировать:
+
+```bash
+make demo-gif
+```
+
+Цель собирает `bin/openrouter` с реальной версией через существующую `build`
+(тот же ldflags-механизм, никакой отдельной копии), затем прогоняет через
+него `vhs`. Требуется установленный `vhs` (`brew install vhs`); без него цель
+завершается `BLOCKED:` до сборки.
 
 ## Что правится руками
 
