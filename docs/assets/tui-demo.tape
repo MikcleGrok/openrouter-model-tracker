@@ -14,26 +14,35 @@ Show
 Sleep 1s
 
 # 1. Establish the models list: this is a paid-model catalog, default
-# "utility" sort. A long establishing pause before anything else changes.
-Sleep 3.5s
+# "utility" sort. Short pause -- just long enough to register "here is a
+# list", not long enough to read as its own inert scene before sorting
+# (previously 3.5s, which made sorting feel buried rather than the
+# opening act).
+Sleep 1.2s
 
 # 2. Sorting: two different sorts applied in sequence via the direct-jump
 # keys, against the full unfiltered paid-models list (~423 rows) -- this
-# now runs BEFORE the filter demo below, so nothing has narrowed the row
-# count yet. "g" (bound to the same "home" action as the Home key in the
+# runs BEFORE the filter demo below, so nothing has narrowed the row count
+# yet. "g" (bound to the same "home" action as the Home key in the
 # main-list context, tui.go:1111-1112) resets the cursor to the top row
 # both before AND after each sort keypress: rebuild() re-locates the
 # cursor by following the *previously selected model* to its new row
 # (confirmed empirically -- pressing "g" only beforehand left the cursor on
 # row 1, not row 0, after the second sort, because the model selected by
 # the first "g" wasn't top-of-list under the new order), so only the
-# post-sort "g" reliably anchors the following Down-trace at row 0. Hold
-# long enough to read the "sort:" label change in the meta line
-# (tui.go:670/2074) before stepping through the new top few rows.
+# post-sort "g" reliably anchors the following Down-trace at row 0.
+#
+# The sort keypress itself is the whole point, so it gets its own
+# unmistakable beat: pause on the pre-sort (utility) top row for long
+# enough to register as "the starting order", THEN press the sort key,
+# THEN hold on the immediate result before doing anything else (moving
+# the cursor, reading the label) -- so a viewer sees list -> keypress ->
+# reordered list as one legible beat instead of a blink between two
+# already-settled states.
 Type "g"
-Sleep 500ms
+Sleep 1.5s
 Type "q"
-Sleep 2.5s
+Sleep 3s
 Type "g"
 Sleep 500ms
 Down
@@ -41,9 +50,9 @@ Sleep 700ms
 Down
 Sleep 700ms
 Type "g"
-Sleep 500ms
+Sleep 1.2s
 Type "r"
-Sleep 2.5s
+Sleep 3s
 Type "g"
 Sleep 500ms
 Down
