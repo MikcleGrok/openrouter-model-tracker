@@ -94,7 +94,11 @@ grep -Fq "\"hash\": \"$digest_lower\"" "$manifest_file" \
   || fail 'bucket manifest architecture.64bit.hash is not the expected lowercase digest, straight from SHA256SUMS'
 grep -Fq '"bin": [' "$manifest_file" || fail 'bucket manifest missing bin array'
 grep -Fq '"openrouter.exe"' "$manifest_file" || fail 'bucket manifest bin array missing openrouter.exe'
+grep -Fq '"openrouter-model-tracker"' "$manifest_file" \
+  || fail 'bucket manifest bin array missing openrouter-model-tracker shim name'
 grep -Fq '"omt"' "$manifest_file" || fail 'bucket manifest bin array missing omt alias'
+grep -Fq '"openrouter",' "$manifest_file" \
+  && fail 'bucket manifest must not shim a bare "openrouter" command name'
 grep -Fq '"github": "https://github.com/MikcleGrok/openrouter-model-tracker"' "$manifest_file" \
   || fail 'bucket manifest missing checkver.github'
 

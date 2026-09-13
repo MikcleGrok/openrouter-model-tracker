@@ -160,7 +160,7 @@ cmd_generate() {
           hash: $hash
         }
       },
-      bin: ["openrouter.exe", ["openrouter.exe", "omt"]],
+      bin: [["openrouter.exe", "openrouter-model-tracker"], ["openrouter.exe", "omt"]],
       checkver: { github: $checkver_github },
       autoupdate: {
         architecture: {
