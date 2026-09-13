@@ -42,7 +42,9 @@ openrouter tui
 ```
 
 (winget-установка не запускает `.exe` напрямую, поэтому SmartScreen-предупреждение
-не показывается)
+не показывается. На данный момент PR в microsoft/winget-pkgs ещё не смёржен —
+ждёт модерации, команда выше пока не работает; актуальный статус:
+[PR #433872](https://github.com/microsoft/winget-pkgs/pull/433872))
 
 Scoop — через собственный bucket
 [MikcleGrok/scoop-bucket](https://github.com/MikcleGrok/scoop-bucket) (без
