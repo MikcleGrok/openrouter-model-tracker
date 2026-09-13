@@ -15,73 +15,31 @@ Markdown-отчёт.
 
 ## Установка
 
-**macOS** — публичный Homebrew tap (бинарник ставится как
-`openrouter-model-tracker`, короткий alias — `omt`):
+**macOS**:
 
 ```bash
 brew install mikclegrok/tools/openrouter-model-tracker
+omt tui
 ```
 
-**Linux** (amd64/arm64) — бинарник из
-[GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases):
+**Linux** (amd64; для arm64 замените `amd64` на `arm64`):
 
 ```bash
-curl -LO https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-linux-amd64.tar.gz
-tar xzf openrouter-1.19.0-linux-amd64.tar.gz
-sudo install -m 0755 openrouter-1.19.0-linux-amd64 /usr/local/bin/openrouter
-```
-
-(для arm64 замените `amd64` на `arm64`; актуальная версия — на странице Releases)
-
-**Windows 10/11** (amd64; на ARM-устройствах работает через встроенную
-x64-эмуляцию) — через [winget](https://github.com/microsoft/winget-cli):
-
-```powershell
-winget install MikcleGrok.openrouter-model-tracker
+curl -L https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-linux-amd64.tar.gz | sudo tar xzf - -C /usr/local/bin --transform 's,.*,openrouter,'
 openrouter tui
 ```
 
-(winget-установка не запускает `.exe` напрямую, поэтому SmartScreen-предупреждение
-не показывается. На данный момент PR в microsoft/winget-pkgs ещё не смёржен —
-ждёт модерации, команда выше пока не работает; актуальный статус:
-[PR #433872](https://github.com/microsoft/winget-pkgs/pull/433872))
-
-Scoop — через собственный bucket
-[MikcleGrok/scoop-bucket](https://github.com/MikcleGrok/scoop-bucket) (без
-модерации стороннего индекса):
+**Windows 10/11** (amd64; на ARM работает через встроенную x64-эмуляцию) —
+через [Scoop](https://scoop.sh):
 
 ```powershell
-scoop bucket add mikclegrok https://github.com/MikcleGrok/scoop-bucket
-scoop install mikclegrok/openrouter-model-tracker
+scoop bucket add mikclegrok https://github.com/MikcleGrok/scoop-bucket; scoop install mikclegrok/openrouter-model-tracker
 openrouter tui
 ```
 
-(в отличие от winget, Scoop умеет цеплять несколько шимов на один `.exe` —
-поэтому через него доступны сразу оба имени, `openrouter` и короткий alias `omt`)
-
-Без winget и без Scoop — zip-архив из
-[GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases),
-в PowerShell:
-
-```powershell
-Invoke-WebRequest https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-windows-amd64.zip -OutFile openrouter.zip
-Expand-Archive openrouter.zip -DestinationPath .
-.\openrouter.exe tui
-```
-
-(чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог из
-`PATH`; TUI рассчитан на Windows Terminal. Сборка из исходников:
-`go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+;
-бинарник не подписан, поэтому при первом запуске SmartScreen покажет
-предупреждение — это ожидаемо, жмите «Подробнее» → «Выполнить в любом случае».
-Alias `omt` через winget или через ручную установку (zip) не создаётся —
-используйте `openrouter`; на Windows `omt` доступен через Scoop (см. выше), а
-на macOS/Linux — через Homebrew/`make install`)
-
-На macOS и Linux доступна и сборка из исходников без Homebrew:
-`git clone ... && cd ... && make install` — подробности (`PREFIX`/`BINDIR`,
-локальный disposable tap для разработки) в
-[docs/reference.md](docs/reference.md).
+Короткий alias `omt` доступен везде, кроме сборки вручную. Другие способы
+установки (winget, сборка из исходников, ручная установка без пакетного
+менеджера) — в [docs/reference.md](docs/reference.md).
 
 ## Использование
 
