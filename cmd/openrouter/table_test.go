@@ -2206,7 +2206,7 @@ func TestCanonicalQPUsesProjectedSWEBenchOrArenaScore(t *testing.T) {
 
 func TestTablePagerDecision(t *testing.T) {
 	var output strings.Builder
-	if tableShouldPage(&output, false) || tableShouldPage(&output, true) {
+	if shouldPage(&output, false) || shouldPage(&output, true) {
 		t.Fatal("buffer output must never use pager")
 	}
 	device, err := os.Open("/dev/null")
@@ -2214,30 +2214,30 @@ func TestTablePagerDecision(t *testing.T) {
 		t.Skipf("/dev/null is unavailable: %v", err)
 	}
 	t.Cleanup(func() { device.Close() })
-	if tableShouldPage(device, false) {
+	if shouldPage(device, false) {
 		t.Fatal("character device without a TTY must not use pager")
 	}
-	previous := tableIsTTY
-	tableIsTTY = func(io.Writer) bool { return true }
-	t.Cleanup(func() { tableIsTTY = previous })
-	if !tableShouldPage(&output, false) {
+	previous := pagerIsTTY
+	pagerIsTTY = func(io.Writer) bool { return true }
+	t.Cleanup(func() { pagerIsTTY = previous })
+	if !shouldPage(&output, false) {
 		t.Fatal("TTY output should use pager")
 	}
-	if tableShouldPage(&output, true) {
+	if shouldPage(&output, true) {
 		t.Fatal("no-pager must disable pager in TTY")
 	}
 }
 
 func TestTablePagerBoundsIdentityFields(t *testing.T) {
-	previousTTY := tableIsTTY
-	previousPager := runTablePager
+	previousTTY := pagerIsTTY
+	previousPager := runPager
 	t.Cleanup(func() {
-		tableIsTTY = previousTTY
-		runTablePager = previousPager
+		pagerIsTTY = previousTTY
+		runPager = previousPager
 	})
-	tableIsTTY = func(io.Writer) bool { return true }
+	pagerIsTTY = func(io.Writer) bool { return true }
 	var paged, stdout, stderr strings.Builder
-	runTablePager = func(output string, out, errOut io.Writer) error {
+	runPager = func(output string, out, errOut io.Writer) error {
 		paged.WriteString(output)
 		_, _ = io.WriteString(out, "pager stdout")
 		_, _ = io.WriteString(errOut, "pager stderr")
@@ -2247,12 +2247,12 @@ func TestTablePagerBoundsIdentityFields(t *testing.T) {
 		{DisplayName: "A model name longer than the preferred column", Slug: "vendor/a-model-slug-longer-than-the-column"},
 		{DisplayName: "Short name", Slug: "vendor/another-model-with-a-different-long-slug"},
 	}
-	shouldPage := tableShouldPage(&stdout, false)
+	shouldPage := shouldPage(&stdout, false)
 	if !shouldPage {
 		t.Fatal("TTY output should use pager")
 	}
-	if err := writeTableOutput(renderTable(models, 40, shouldPage), &stdout, &stderr, shouldPage); err != nil {
-		t.Fatalf("writeTableOutput: %v", err)
+	if err := writePagedOutput(renderTable(models, 40, shouldPage), &stdout, &stderr, shouldPage); err != nil {
+		t.Fatalf("writePagedOutput: %v", err)
 	}
 	if strings.Contains(paged.String(), models[0].DisplayName) || strings.Contains(paged.String(), models[1].DisplayName) {
 		t.Fatalf("pager preserved unbounded identity fields:\n%s", paged.String())

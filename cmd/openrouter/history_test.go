@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestRenderHistoryFormatsAndFilters(t *testing.T) {
 
 func TestRenderHistoryEmpty(t *testing.T) {
 	output, err := renderHistory(&pricehistory.History{}, "", "", "markdown", 0)
-	if err != nil || !strings.Contains(output, "История цен пуста") {
+	if err != nil || !strings.Contains(output, "No price history, or no observations match the current filters.") {
 		t.Fatalf("output = %q, err = %v", output, err)
 	}
 }
@@ -42,15 +43,6 @@ func TestRenderHistoryEmpty(t *testing.T) {
 func TestRenderHistoryInvalidFormat(t *testing.T) {
 	if _, err := renderHistory(&pricehistory.History{}, "", "", "csv", 0); err == nil || !strings.Contains(err.Error(), "--format must be markdown, tsv, or report") {
 		t.Fatalf("err = %v, want a format error", err)
-	}
-}
-
-// TestRenderHistoryReportRequiresModel guards --format report's one hard
-// requirement: unlike markdown/tsv (which happily dump every model), a
-// deduplicated table + chart only makes sense for one named model.
-func TestRenderHistoryReportRequiresModel(t *testing.T) {
-	if _, err := renderHistory(&pricehistory.History{}, "", "", "report", 0); err == nil || !strings.Contains(err.Error(), "--format report requires --model") {
-		t.Fatalf("err = %v, want the missing-model error", err)
 	}
 }
 
@@ -114,5 +106,169 @@ func TestRenderHistoryReportDedupesRepeatedDailyObservations(t *testing.T) {
 	}
 	if strings.Count(report, "input $3 / output $15") > 1 {
 		t.Fatalf("report still repeats a raw per-day observation line:\n%s", report)
+	}
+}
+
+// TestRenderHistoryReportWithoutModelAggregatesAllModels is the direct
+// regression test for report's new no-`--model` behavior: instead of
+// erroring, it must aggregate every tracked model into one flat table —
+// stable models keep one row, a model that changed price gets one row per
+// run, and a Found:false gap must not split a model's run into extra rows.
+func TestRenderHistoryReportWithoutModelAggregatesAllModels(t *testing.T) {
+	const stableSlug = "aaa/stable-model"
+	const changingSlug = "bbb/changing-model"
+	const gappedSlug = "ccc/gapped-model"
+	observations := []pricehistory.Observation{
+		{ObservedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{
+			stableSlug:   {Found: true, InPerM: 1, OutPerM: 2, Context: 1000},
+			changingSlug: {Found: true, InPerM: 5, OutPerM: 10, Context: 2000},
+			gappedSlug:   {Found: true, InPerM: 3, OutPerM: 6, Context: 500},
+		}},
+		{ObservedAt: time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{
+			stableSlug:   {Found: true, InPerM: 1, OutPerM: 2, Context: 1000},
+			changingSlug: {Found: true, InPerM: 5, OutPerM: 10, Context: 2000},
+			gappedSlug:   {Found: false},
+		}},
+		{ObservedAt: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{
+			stableSlug:   {Found: true, InPerM: 1, OutPerM: 2, Context: 1000},
+			changingSlug: {Found: true, InPerM: 7, OutPerM: 14, Context: 2000},
+			gappedSlug:   {Found: true, InPerM: 3, OutPerM: 6, Context: 500},
+		}},
+		{ObservedAt: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), Prices: map[string]pricehistory.Price{
+			stableSlug:   {Found: true, InPerM: 1, OutPerM: 2, Context: 1000},
+			changingSlug: {Found: true, InPerM: 7, OutPerM: 14, Context: 2000},
+			gappedSlug:   {Found: true, InPerM: 3, OutPerM: 6, Context: 500},
+		}},
+	}
+	history := &pricehistory.History{SchemaVersion: pricehistory.SchemaVersion, Observations: observations}
+	out, err := renderHistory(history, "", "", "report", 0)
+	if err != nil {
+		t.Fatalf("renderHistory report without --model: %v", err)
+	}
+	if !strings.Contains(out, "Slug") || !strings.Contains(out, "Date range") {
+		t.Fatalf("aggregate report header is missing Slug/Date range columns:\n%s", out)
+	}
+	for _, slug := range []string{stableSlug, changingSlug, gappedSlug} {
+		if !strings.Contains(out, slug) {
+			t.Fatalf("aggregate report is missing slug %q:\n%s", slug, out)
+		}
+	}
+	if count := strings.Count(out, stableSlug); count != 1 {
+		t.Errorf("stable model %q appears %d times, want exactly 1 (one run):\n%s", stableSlug, count, out)
+	}
+	if count := strings.Count(out, changingSlug); count < 2 {
+		t.Errorf("changing model %q appears %d times, want at least 2 (two runs):\n%s", changingSlug, count, out)
+	}
+	if count := strings.Count(out, gappedSlug); count != 1 {
+		t.Errorf("gapped model %q appears %d times, want exactly 1 (gap must not split the run):\n%s", gappedSlug, count, out)
+	}
+	// The newline-anchored check proves no bar charts appear in aggregate
+	// mode — a bare "Input $/M" substring check would be vacuous, since
+	// that text is also the table's own column header.
+	if strings.Contains(out, "\nInput $/M") {
+		t.Fatalf("aggregate report unexpectedly contains a bar chart section:\n%s", out)
+	}
+}
+
+// TestRenderHistoryReportWithoutModelIsEmptyStateInEnglish confirms empty
+// history reaches pricehistory.RenderAllModelsReport's own English
+// empty-string through renderHistory's routing.
+func TestRenderHistoryReportWithoutModelIsEmptyStateInEnglish(t *testing.T) {
+	out, err := renderHistory(&pricehistory.History{}, "", "", "report", 0)
+	if err != nil || out != "No price history.\n" {
+		t.Fatalf("renderHistory report on empty history = %q, %v, want \"No price history.\\n\"", out, err)
+	}
+}
+
+// TestRenderHistoryDefaultFormatIsReport confirms the --format flag's new
+// default and that a bare `history` invocation with no --format flag at
+// all actually takes the report code path (the empty-state string), not
+// the old markdown pipe-table.
+func TestRenderHistoryDefaultFormatIsReport(t *testing.T) {
+	root := newRootCmd()
+	historyCmd, _, err := root.Find([]string{"history"})
+	if err != nil {
+		t.Fatalf("find history: %v", err)
+	}
+	formatFlag := historyCmd.Flags().Lookup("format")
+	if formatFlag == nil || formatFlag.DefValue != "report" {
+		t.Fatalf("history --format flag = %+v, want DefValue \"report\"", formatFlag)
+	}
+
+	dataDir := t.TempDir()
+	config := writeConfig(t, "data_dir: "+dataDir+"\n")
+	output := executeCLI(t, "history", "--config", config)
+	if output != "No price history.\n" {
+		t.Fatalf("history with no --format = %q, want the report format's empty state", output)
+	}
+}
+
+// TestHistoryPagerDecision mirrors TestTablePagerDecision, applied to
+// history's own --no-pager flag wiring: the flag exists, defaults to
+// false, and shouldPage (the shared decision function history's RunE
+// calls) behaves the same way regardless of which command wired it up.
+func TestHistoryPagerDecision(t *testing.T) {
+	root := newRootCmd()
+	historyCmd, _, err := root.Find([]string{"history"})
+	if err != nil {
+		t.Fatalf("find history: %v", err)
+	}
+	noPagerFlag := historyCmd.Flags().Lookup("no-pager")
+	if noPagerFlag == nil || noPagerFlag.DefValue != "false" {
+		t.Fatalf("history --no-pager flag = %+v, want a bool flag defaulting to false", noPagerFlag)
+	}
+
+	var output strings.Builder
+	if shouldPage(&output, false) || shouldPage(&output, true) {
+		t.Fatal("buffer output must never use pager")
+	}
+	previous := pagerIsTTY
+	pagerIsTTY = func(io.Writer) bool { return true }
+	t.Cleanup(func() { pagerIsTTY = previous })
+	if !shouldPage(&output, false) {
+		t.Fatal("TTY output should use pager when --no-pager is not set")
+	}
+	if shouldPage(&output, true) {
+		t.Fatal("--no-pager must disable the pager in a TTY")
+	}
+}
+
+// TestHistoryUsesPagerInTTY mirrors TestTablePagerBoundsIdentityFields's
+// swap-seam pattern: with pagerIsTTY forced true and runPager swapped to
+// capture instead of exec'ing less, running `history` must land its
+// output in the captured pager buffer instead of stdout — and --no-pager
+// must reverse that, sending output straight to stdout instead.
+func TestHistoryUsesPagerInTTY(t *testing.T) {
+	previousTTY := pagerIsTTY
+	previousPager := runPager
+	t.Cleanup(func() {
+		pagerIsTTY = previousTTY
+		runPager = previousPager
+	})
+	pagerIsTTY = func(io.Writer) bool { return true }
+	var paged strings.Builder
+	runPager = func(output string, _, _ io.Writer) error {
+		paged.WriteString(output)
+		return nil
+	}
+
+	dataDir := t.TempDir()
+	config := writeConfig(t, "data_dir: "+dataDir+"\n")
+
+	stdout := executeCLI(t, "history", "--config", config)
+	if stdout != "" {
+		t.Fatalf("history output went to stdout instead of the pager: %q", stdout)
+	}
+	if !strings.Contains(paged.String(), "No price history.") {
+		t.Fatalf("history output did not reach the pager: %q", paged.String())
+	}
+
+	paged.Reset()
+	stdout = executeCLI(t, "history", "--config", config, "--no-pager")
+	if stdout != "No price history.\n" {
+		t.Fatalf("history --no-pager output = %q, want it printed directly to stdout", stdout)
+	}
+	if paged.Len() != 0 {
+		t.Fatalf("--no-pager still routed output through the pager: %q", paged.String())
 	}
 }

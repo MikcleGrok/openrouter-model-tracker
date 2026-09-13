@@ -2,6 +2,7 @@ package pricehistory
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,43 @@ func Runs(h *History, slug string) []PriceRun {
 	return out
 }
 
+// ModelRun is one PriceRun tagged with the slug it belongs to, so runs from
+// many models can share one column-aligned table.
+type ModelRun struct {
+	Slug string
+	Run  PriceRun
+}
+
+// AllRuns collapses every slug in h into deduplicated runs, ordered by slug
+// then chronologically, using Runs' exact per-model semantics. Deliberately
+// not a fused single-pass implementation (O(slugs × observations) map
+// lookups instead) so the aggregate can never drift from Runs' own
+// definition of what a run is; fine at this project's scale (hundreds of
+// slugs, hundreds of observations).
+func AllRuns(h *History) []ModelRun {
+	if h == nil {
+		return nil
+	}
+	slugSet := make(map[string]bool)
+	for _, observation := range h.Observations {
+		for slug := range observation.Prices {
+			slugSet[slug] = true
+		}
+	}
+	slugs := make([]string, 0, len(slugSet))
+	for slug := range slugSet {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	var out []ModelRun
+	for _, slug := range slugs {
+		for _, run := range Runs(h, slug) {
+			out = append(out, ModelRun{Slug: slug, Run: run})
+		}
+	}
+	return out
+}
+
 // FormatRunsTable renders runs as a column-aligned table: one row per
 // distinct price, with the calendar-date range it held and how many
 // distinct days it was observed on. A single-day run shows just that one
@@ -72,12 +110,32 @@ func Runs(h *History, slug string) []PriceRun {
 // deduplicated replacement for dumping one line per daily observation
 // regardless of whether the price actually changed.
 func FormatRunsTable(runs []PriceRun) string {
-	if len(runs) == 0 {
+	rows := make([]ModelRun, len(runs))
+	for i, r := range runs {
+		rows[i] = ModelRun{Run: r}
+	}
+	return formatRunsTable(rows, false)
+}
+
+// FormatModelRunsTable renders rows as a column-aligned table like
+// FormatRunsTable, with a leading Slug column so runs from many models can
+// share one table.
+func FormatModelRunsTable(rows []ModelRun) string {
+	return formatRunsTable(rows, true)
+}
+
+// formatRunsTable is the one real implementation behind both FormatRunsTable
+// and FormatModelRunsTable. showSlug controls whether the leading Slug
+// column is measured and rendered; with it false, output is byte-identical
+// to the original single-model table.
+func formatRunsTable(rows []ModelRun, showSlug bool) string {
+	if len(rows) == 0 {
 		return "no price history\n"
 	}
-	type row struct{ dateRange, input, output, context, days, note string }
-	rows := make([]row, len(runs))
-	for i, r := range runs {
+	type row struct{ slug, dateRange, input, output, context, days, note string }
+	out := make([]row, len(rows))
+	for i, mr := range rows {
+		r := mr.Run
 		// Compare calendar dates, not exact instants: a run can carry
 		// several same-day observations before the next real change, so
 		// From and To are rarely bit-identical even within one calendar
@@ -92,7 +150,8 @@ func FormatRunsTable(runs []PriceRun) string {
 		if r.Price.HasOverride {
 			note = fmt.Sprintf("long-context %s/%s from %s+", formatDollarG(r.Price.OverrideInPerM), formatDollarG(r.Price.OverrideOutPerM), pricing.FormatContext(r.Price.OverrideMinTokens))
 		}
-		rows[i] = row{
+		out[i] = row{
+			slug:      mr.Slug,
 			dateRange: dateRange,
 			input:     formatDollarG(r.Price.InPerM),
 			output:    formatDollarG(r.Price.OutPerM),
@@ -101,21 +160,29 @@ func FormatRunsTable(runs []PriceRun) string {
 			note:      note,
 		}
 	}
-	headers := row{dateRange: "Date range", input: "Input $/M", output: "Output $/M", context: "Context", days: "Days", note: "Notes"}
+	headers := row{slug: "Slug", dateRange: "Date range", input: "Input $/M", output: "Output $/M", context: "Context", days: "Days", note: "Notes"}
 	widths := [5]int{displayWidth(headers.dateRange), displayWidth(headers.input), displayWidth(headers.output), displayWidth(headers.context), displayWidth(headers.days)}
+	slugWidth := displayWidth(headers.slug)
 	hasNotes := false
-	for _, r := range rows {
+	for _, r := range out {
 		widths[0] = max(widths[0], displayWidth(r.dateRange))
 		widths[1] = max(widths[1], displayWidth(r.input))
 		widths[2] = max(widths[2], displayWidth(r.output))
 		widths[3] = max(widths[3], displayWidth(r.context))
 		widths[4] = max(widths[4], displayWidth(r.days))
+		if showSlug {
+			slugWidth = max(slugWidth, displayWidth(r.slug))
+		}
 		if r.note != "" {
 			hasNotes = true
 		}
 	}
 	var b strings.Builder
 	writeRow := func(r row) {
+		if showSlug {
+			b.WriteString(padRight(r.slug, slugWidth))
+			b.WriteString("  ")
+		}
 		b.WriteString(padRight(r.dateRange, widths[0]))
 		b.WriteString("  ")
 		b.WriteString(padLeft(r.input, widths[1]))
@@ -133,9 +200,12 @@ func FormatRunsTable(runs []PriceRun) string {
 	}
 	writeRow(headers)
 	total := widths[0] + widths[1] + widths[2] + widths[3] + widths[4] + 8
+	if showSlug {
+		total += slugWidth + 2
+	}
 	b.WriteString(strings.Repeat("-", total))
 	b.WriteByte('\n')
-	for _, r := range rows {
+	for _, r := range out {
 		writeRow(r)
 	}
 	return b.String()
@@ -162,6 +232,9 @@ func formatDollarG(v float64) string {
 // display name can elsewhere in this project, so a straight rune count is
 // enough — no need for cmd/openrouter/table.go's full grapheme-cluster
 // width oracle (which this package cannot import without a cycle anyway).
+// OpenRouter slugs (the ModelRun.Slug column) are plain ASCII "vendor/name"
+// identifiers — verified against the live price-history data file — so they
+// fit this same ASCII-except-"→" assumption and need no extra handling.
 func displayWidth(s string) int { return utf8.RuneCountInString(s) }
 
 func padRight(s string, width int) string {
@@ -258,5 +331,32 @@ func RenderModelReport(h *History, slug string, width int) string {
 	b.WriteString(RenderChart("Input $/M", days, input, width))
 	b.WriteByte('\n')
 	b.WriteString(RenderChart("Output $/M", days, output, width))
+	return b.String()
+}
+
+// RenderAllModelsReport renders every tracked model's deduplicated price
+// runs as one column-aligned table. No bar charts: one chart per model
+// across hundreds of models is not a view; the table is what less -S
+// scrolls.
+func RenderAllModelsReport(h *History) string {
+	runs := AllRuns(h)
+	if len(runs) == 0 {
+		return "No price history.\n"
+	}
+	slugs := make(map[string]bool, len(runs))
+	runsPerSlug := make(map[string]int, len(runs))
+	for _, r := range runs {
+		slugs[r.Slug] = true
+		runsPerSlug[r.Slug]++
+	}
+	changed := 0
+	for _, count := range runsPerSlug {
+		if count > 1 {
+			changed++
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Price history for all %d tracked models (%d changed price)\n\n", len(slugs), changed)
+	b.WriteString(FormatModelRunsTable(runs))
 	return b.String()
 }
