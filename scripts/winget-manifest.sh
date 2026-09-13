@@ -166,9 +166,9 @@ InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
 - RelativeFilePath: openrouter.exe
-  PortableCommandAlias: openrouter
+  PortableCommandAlias: openrouter-model-tracker
 Commands:
-- openrouter
+- openrouter-model-tracker
 ReleaseDate: $RELEASE_DATE
 Installers:
 - Architecture: x64
