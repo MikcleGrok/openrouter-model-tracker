@@ -954,14 +954,19 @@ Windows-артефактов (см. onboarding record выше). Алиас `omt
 
 ### Demo GIF
 
-`docs/assets/tui-demo.gif` — шесть частей: список моделей с фильтром
-`availability:paid` → два сорта (`q` — quality, `r` — q/p) по полному
-неотфильтрованному списку, со сбросом курсора на верхнюю строку перед
-каждым → структурный редактор фильтра (`f`, `quality>=80` и `input<=1`),
-сужающий тот же список, что оставил последний сорт → все 4 вкладки Detail
-(`1`-`4`: Identity, Pricing, Benchmarks, Fit & Notes) → все 6 секций Help
-(`?`, затем `1`-`6`: Overview, Score Sources, Hotkeys, Filters, Model
-Detail, Methodology). Сценарий записи — `docs/assets/tui-demo.tape`.
+`docs/assets/tui-demo.gif` — пять частей (совпадают с комментариями `# 1.`–`# 5.`
+в самом `docs/assets/tui-demo.tape`):
+
+1. список моделей с фильтром `availability:paid`
+2. два сорта (`q` — quality, `r` — q/p) по полному неотфильтрованному списку,
+   со сбросом курсора на верхнюю строку перед каждым
+3. структурный редактор фильтра (`f`, `quality>=80` и `input<=1`), сужающий
+   тот же список, что оставил последний сорт
+4. все 4 вкладки Detail (`1`-`4`: Identity, Pricing, Benchmarks, Fit & Notes)
+5. все 6 секций Help (`?`, затем `1`-`6`: Overview, Score Sources, Hotkeys,
+   Filters, Model Detail, Methodology)
+
+Сценарий записи — `docs/assets/tui-demo.tape`.
 
 Перегенерировать:
 
