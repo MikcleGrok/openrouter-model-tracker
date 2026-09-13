@@ -513,7 +513,7 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			shouldPage := shouldPage(cmd.OutOrStdout(), tableNoPager)
+			page := shouldPage(cmd.OutOrStdout(), tableNoPager)
 			mode := tableTaskFit
 			if tableNotes {
 				mode = "notes"
@@ -526,7 +526,7 @@ func newRootCmd() *cobra.Command {
 			if tableScoreSource != scoreSourceDefault {
 				output += "\nScore source: " + scoreSourceLabel(tableScoreSource)
 			}
-			return writePagedOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), shouldPage)
+			return writePagedOutput(output, cmd.OutOrStdout(), cmd.ErrOrStderr(), page)
 		},
 	}
 	tableCmd.Flags().StringVarP(&tableSort, "sort", "s", "utility", "sort by: "+tableSortHelp)
