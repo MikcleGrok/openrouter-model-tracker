@@ -100,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit scoop-manifest-check scoop-manifest scoop-submit-check scoop-submit docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit scoop-manifest-check scoop-manifest scoop-submit-check scoop-submit docs check-docs demo-gif clean help FORCE
 
 build: $(BINARY)
 
@@ -448,6 +448,13 @@ docs check-docs:
 	@test -f $(ROOT)README.md && test -f $(ROOT)CHANGELOG.md && test -f $(ROOT)docs/security.md
 	@printf '%s\n' 'Documentation contract passed.'
 
+demo-gif:
+	@command -v vhs >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: vhs is required to regenerate the demo GIF (brew install vhs)' >&2; exit 1; }
+	@version="$$(git -C $(ROOT) tag --list 'v[0-9]*' --sort=-v:refname | head -1 | sed 's/^v//')"; \
+	test -n "$$version" || { printf '%s\n' 'BLOCKED: no vMAJOR.MINOR.PATCH release tag found to derive the demo version from' >&2; exit 1; }; \
+	$(MAKE) -C $(ROOT) build VERSION="$$version"
+	cd $(ROOT) && vhs docs/assets/tui-demo.tape
+
 clean:
 	rm -f $(BINARY)
 
@@ -524,5 +531,6 @@ help:
 		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \
 		'docs           Validate required project documentation' \
+		'demo-gif       Rebuild with the real version and regenerate docs/assets/tui-demo.gif via vhs' \
 		'clean           Remove only bin/openrouter' \
 		'help            Show this list of targets'
