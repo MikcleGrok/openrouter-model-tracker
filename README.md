@@ -25,8 +25,8 @@ omt tui
 **Linux** (amd64; для arm64 замените `amd64` на `arm64`):
 
 ```bash
-curl -L https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-linux-amd64.tar.gz | sudo tar xzf - -C /usr/local/bin --transform 's,.*,openrouter,'
-openrouter tui
+curl -L https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-linux-amd64.tar.gz | sudo tar xzf - -C /usr/local/bin --transform 's,.*,openrouter,' && sudo ln -sf /usr/local/bin/openrouter /usr/local/bin/omt
+omt tui
 ```
 
 **Windows 10/11** (amd64; на ARM работает через встроенную x64-эмуляцию) —
@@ -34,7 +34,7 @@ openrouter tui
 
 ```powershell
 scoop bucket add mikclegrok https://github.com/MikcleGrok/scoop-bucket; scoop install mikclegrok/openrouter-model-tracker
-openrouter tui
+omt tui
 ```
 
 Короткий alias `omt` доступен везде, кроме сборки вручную. Другие способы
