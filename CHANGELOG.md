@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Add a Scoop bucket install channel: `scoop install mikclegrok/openrouter-model-tracker` from our own bucket repository (`MikcleGrok/scoop-bucket`), alongside the existing winget channel. Unlike winget's PR-moderated `microsoft/winget-pkgs`, the bucket repository is ours, so submission needs no external review.
+- Add `make scoop-manifest`, `make scoop-submit-check`, and `make scoop-submit` targets to generate, verify, and submit the Scoop bucket manifest from local-release evidence, mirroring the existing winget/Homebrew local, CI-free release flow.
+- README Windows section: drop the now-dead `Move-Item` step from the zip-install instructions — the release zip has packaged a stable `openrouter.exe` name since v1.19.0 — and add the Scoop install instructions above it.
+
 ## [1.19.0]
 
 - Add winget install support: `winget install MikcleGrok.openrouter-model-tracker`. The Windows release zip now packages the executable under a stable name, `openrouter.exe`, instead of the previous versioned filename (`openrouter-<version>-windows-amd64.exe`) — the archive's own download filename is unchanged, only its internal layout. This is load-bearing for winget: it validates the nested installer's `RelativeFilePath` literally against the archive contents, so a versioned inner name would break the manifest on every release.

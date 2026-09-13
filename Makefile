@@ -84,6 +84,15 @@ WINGET_FORK ?= MikcleGrok/winget-pkgs
 WINGET_PKGS_REPOSITORY ?= microsoft/winget-pkgs
 WINGET_DIR ?= $(RELEASE_ARTIFACT_DIR)/winget
 
+# Scoop bucket publication (see docs/reference.md "Scoop bucket" and
+# .task/scoop-install-support/plan.md): own bucket repository, no fork, no
+# PR, no moderator -- local generation + `gh`-driven contents-API submission,
+# same no-CI local/manual pattern as winget above.
+SCOOP_BUCKET_REPOSITORY ?= MikcleGrok/scoop-bucket
+SCOOP_BUCKET_BRANCH ?= main
+SCOOP_APP_ID ?= openrouter-model-tracker
+SCOOP_DIR ?= $(RELEASE_ARTIFACT_DIR)/scoop
+
 VALID_PROVENANCE_PROFILES := local candidate external published
 ifneq ($(filter $(PROVENANCE_PROFILE),$(VALID_PROVENANCE_PROFILES)),$(PROVENANCE_PROFILE))
 $(error BLOCKED: unknown PROVENANCE_PROFILE '$(PROVENANCE_PROFILE)' (expected local|candidate|external|published))
@@ -91,7 +100,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit docs check-docs clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit scoop-manifest-check scoop-manifest scoop-submit-check scoop-submit docs check-docs clean help FORCE
 
 build: $(BINARY)
 
@@ -116,7 +125,7 @@ completion-check: build
 test-acceptance: build
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -count=1 ./tests/...
 
-test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check winget-manifest-check
+test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check winget-manifest-check scoop-manifest-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -161,6 +170,9 @@ provenance-profile-check:
 
 winget-manifest-check:
 	@$(ROOT)scripts/winget-manifest_test.sh
+
+scoop-manifest-check:
+	@$(ROOT)scripts/scoop-manifest_test.sh
 
 openrouter-launchd-refresh-check:
 	@$(ROOT)scripts/launchd-refresh_test.sh
@@ -414,6 +426,15 @@ winget-submit-check:
 winget-submit: winget-submit-check
 	@cd $(ROOT) && WINGET_PACKAGE_IDENTIFIER='$(WINGET_PACKAGE_IDENTIFIER)' WINGET_FORK='$(WINGET_FORK)' WINGET_PKGS_REPOSITORY='$(WINGET_PKGS_REPOSITORY)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' WINGET_DIR='$(WINGET_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' WINGET_DRY_RUN='$(WINGET_DRY_RUN)' ./scripts/winget-manifest.sh --submit
 
+scoop-manifest:
+	@cd $(ROOT) && SCOOP_BUCKET_REPOSITORY='$(SCOOP_BUCKET_REPOSITORY)' SCOOP_BUCKET_BRANCH='$(SCOOP_BUCKET_BRANCH)' SCOOP_APP_ID='$(SCOOP_APP_ID)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' SCOOP_DIR='$(SCOOP_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' ./scripts/scoop-manifest.sh --generate
+
+scoop-submit-check:
+	@cd $(ROOT) && SCOOP_BUCKET_REPOSITORY='$(SCOOP_BUCKET_REPOSITORY)' SCOOP_BUCKET_BRANCH='$(SCOOP_BUCKET_BRANCH)' SCOOP_APP_ID='$(SCOOP_APP_ID)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' SCOOP_DIR='$(SCOOP_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' ./scripts/scoop-manifest.sh --check
+
+scoop-submit: scoop-submit-check
+	@cd $(ROOT) && SCOOP_BUCKET_REPOSITORY='$(SCOOP_BUCKET_REPOSITORY)' SCOOP_BUCKET_BRANCH='$(SCOOP_BUCKET_BRANCH)' SCOOP_APP_ID='$(SCOOP_APP_ID)' GITHUB_REPOSITORY='$(GITHUB_REPOSITORY)' RELEASE_ARTIFACT_DIR='$(RELEASE_ARTIFACT_DIR)' SCOOP_DIR='$(SCOOP_DIR)' VERSION='$(VERSION)' TAG_VERSION='$(TAG_VERSION)' SCOOP_DRY_RUN='$(SCOOP_DRY_RUN)' ./scripts/scoop-manifest.sh --submit
+
 release-github: release-github-check
 	@set -eu; \
 		source_dir="$$(cd '$(RELEASE_SOURCE_DIR)' && pwd -P)"; artifact_dir="$$(cd '$(RELEASE_ARTIFACT_DIR)' && pwd -P)"; tag='$(TAG_VERSION)'; repository='$(GITHUB_REPOSITORY)'; notes="$$artifact_dir/RELEASE_NOTES.md"; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
@@ -496,6 +517,9 @@ help:
 		'winget-manifest Generate the winget-pkgs manifest YAML from local-release evidence (run after release-github)' \
 		'winget-submit-check Verify the generated manifest against SHA256SUMS and the published GitHub Release' \
 		'winget-submit  Fork sync, branch, upload manifest, open a winget-pkgs PR (WINGET_DRY_RUN=1 for command preview)' \
+		'scoop-manifest Generate the Scoop bucket manifest JSON from local-release evidence (run after release-github)' \
+		'scoop-submit-check Verify the generated manifest against SHA256SUMS and the published GitHub Release' \
+		'scoop-submit   GET, plan Add/Update, PUT the manifest to the Scoop bucket repository (SCOOP_DRY_RUN=1 for command preview)' \
 		'verify-local-artifact Verify strict local exact-tag artifact evidence' \
 		'verify-release Verify the local stable Homebrew channel read-only' \
 		'whats-new      Print exact-version release notes from CHANGELOG.md' \

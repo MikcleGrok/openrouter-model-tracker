@@ -26,9 +26,9 @@ brew install mikclegrok/tools/openrouter-model-tracker
 [GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases):
 
 ```bash
-curl -LO https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.18.7/openrouter-1.18.7-linux-amd64.tar.gz
-tar xzf openrouter-1.18.7-linux-amd64.tar.gz
-sudo install -m 0755 openrouter-1.18.7-linux-amd64 /usr/local/bin/openrouter
+curl -LO https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-linux-amd64.tar.gz
+tar xzf openrouter-1.19.0-linux-amd64.tar.gz
+sudo install -m 0755 openrouter-1.19.0-linux-amd64 /usr/local/bin/openrouter
 ```
 
 (для arm64 замените `amd64` на `arm64`; актуальная версия — на странице Releases)
@@ -44,32 +44,37 @@ openrouter tui
 (winget-установка не запускает `.exe` напрямую, поэтому SmartScreen-предупреждение
 не показывается)
 
-Без winget — zip-архив из
+Scoop — через собственный bucket
+[MikcleGrok/scoop-bucket](https://github.com/MikcleGrok/scoop-bucket) (без
+модерации стороннего индекса):
+
+```powershell
+scoop bucket add mikclegrok https://github.com/MikcleGrok/scoop-bucket
+scoop install mikclegrok/openrouter-model-tracker
+openrouter tui
+```
+
+(в отличие от winget, Scoop умеет цеплять несколько шимов на один `.exe` —
+поэтому через него доступны сразу оба имени, `openrouter` и короткий alias `omt`)
+
+Без winget и без Scoop — zip-архив из
 [GitHub Releases](https://github.com/MikcleGrok/openrouter-model-tracker/releases),
 в PowerShell:
 
 ```powershell
-Invoke-WebRequest https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.18.7/openrouter-1.18.7-windows-amd64.zip -OutFile openrouter.zip
+Invoke-WebRequest https://github.com/MikcleGrok/openrouter-model-tracker/releases/download/v1.19.0/openrouter-1.19.0-windows-amd64.zip -OutFile openrouter.zip
 Expand-Archive openrouter.zip -DestinationPath .
-Move-Item openrouter-1.18.7-windows-amd64.exe openrouter.exe
 .\openrouter.exe tui
 ```
-
-(шаг `Move-Item` нужен по состоянию на текущий опубликованный релиз — `.exe`
-внутри zip-архива всё ещё называется версионированно, как и имя архива.
-Начиная с первого релиза, собранного этой веткой (стабильное имя
-`openrouter.exe` внутри архива при версионированном имени самого архива — см.
-`make release-local` в [docs/reference.md](docs/reference.md)), `Move-Item`
-станет не нужен; не забудьте убрать этот шаг из README при выпуске того
-релиза.)
 
 (чтобы запускать просто `openrouter`, положите `openrouter.exe` в любой каталог из
 `PATH`; TUI рассчитан на Windows Terminal. Сборка из исходников:
 `go build -o openrouter.exe ./cmd/openrouter`, нужен [Go](https://go.dev) 1.26.5+;
 бинарник не подписан, поэтому при первом запуске SmartScreen покажет
 предупреждение — это ожидаемо, жмите «Подробнее» → «Выполнить в любом случае».
-Alias `omt` на Windows не создаётся ни через winget, ни через ручную установку —
-используйте `openrouter`; `omt` доступен только через Homebrew/`make install`)
+Alias `omt` через winget или через ручную установку (zip) не создаётся —
+используйте `openrouter`; на Windows `omt` доступен через Scoop (см. выше), а
+на macOS/Linux — через Homebrew/`make install`)
 
 На macOS и Linux доступна и сборка из исходников без Homebrew:
 `git clone ... && cd ... && make install` — подробности (`PREFIX`/`BINDIR`,
