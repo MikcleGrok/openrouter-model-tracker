@@ -50,6 +50,41 @@ func TestBuildReport(t *testing.T) {
 	}
 }
 
+// TestBuildReportNeedsTranslationAndNeedsReviewAreMutuallyExclusive locks
+// down the two note-gap signals BuildReport distinguishes: a note that was
+// written but never translated into English (NeedsTranslation), and a note
+// that was never written at all (NeedsReview) — a different gap, for a
+// different person, at a different authoring stage. Neither model may land
+// in both lists.
+func TestBuildReportNeedsTranslationAndNeedsReviewAreMutuallyExclusive(t *testing.T) {
+	entries := []modelmap.Entry{
+		{Slug: "openai/gpt-5.6-luna", Tier: "opus"},
+		{Slug: "openai/gpt-5.6-sol", Tier: "opus"},
+	}
+	models := []model.Model{
+		// RU written, EN empty -> NeedsTranslation, not NeedsReview.
+		{Slug: "openai/gpt-5.6-luna", Note: "Оценка независимая (vals.ai).", NoteEN: "", Owner: "OpenAI (C)", OpenWeights: "нет"},
+		// No note at all -> NeedsReview, not NeedsTranslation.
+		{Slug: "openai/gpt-5.6-sol", Note: notes.NeedsReview, Owner: "OpenAI (C)", OpenWeights: "нет"},
+	}
+
+	r := BuildReport(entries, nil, nil, true, models)
+
+	if len(r.NeedsTranslation) != 1 || r.NeedsTranslation[0] != "openai/gpt-5.6-luna" {
+		t.Errorf("NeedsTranslation = %v, want only the model with a written but untranslated note", r.NeedsTranslation)
+	}
+	if len(r.NeedsReview) != 1 || r.NeedsReview[0] != "openai/gpt-5.6-sol" {
+		t.Errorf("NeedsReview = %v, want only the model with no note at all", r.NeedsReview)
+	}
+	for _, slug := range r.NeedsTranslation {
+		for _, other := range r.NeedsReview {
+			if slug == other {
+				t.Fatalf("%q appears in both NeedsTranslation and NeedsReview, want mutually exclusive", slug)
+			}
+		}
+	}
+}
+
 func TestBuildReportNoScoreOnlyFlagsModelsWithADeclaredSource(t *testing.T) {
 	entries := []modelmap.Entry{
 		// Declares a vals= source but ended the run with no score — the real
@@ -210,6 +245,13 @@ func TestReportStringShowsTheGeneralSection(t *testing.T) {
 	out := Report{NoGeneralScore: []string{"a/x"}}.String()
 	if !strings.Contains(out, "a/x") || !strings.Contains(out, "gpqa=") {
 		t.Errorf("report does not name the GPQA mapping gap:\n%s", out)
+	}
+}
+
+func TestReportStringShowsTheNeedsTranslationSection(t *testing.T) {
+	out := Report{NeedsTranslation: []string{"openai/gpt-5.6-luna"}}.String()
+	if !strings.Contains(out, "openai/gpt-5.6-luna") || !strings.Contains(out, "английского перевода") {
+		t.Errorf("report does not show the needs-translation section:\n%s", out)
 	}
 }
 

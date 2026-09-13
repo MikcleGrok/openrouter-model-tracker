@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add a bilingual `note` field to `notes.yaml` (`note: {ru, en}`, alongside the existing bare-string shape for backward compatibility): the TUI Detail screen's Fit & Notes tab now follows the `l` language toggle for the model note, showing the curated English translation when one is written and silently falling back to the Russian text otherwise, with no "untranslated" marker. `openrouter check` gains a new `🌐 нет английского перевода note в notes.yaml` bullet listing every model whose note has no English translation yet. `table`/`tui`'s `--notes` output and the generated `docs/openrouter-model-comparison.md` are unaffected — both stay Russian, byte-identical to before.
 - Add a Scoop bucket install channel: `scoop install mikclegrok/openrouter-model-tracker` from our own bucket repository (`MikcleGrok/scoop-bucket`), alongside the existing winget channel. Unlike winget's PR-moderated `microsoft/winget-pkgs`, the bucket repository is ours, so submission needs no external review.
 - Add `make scoop-manifest`, `make scoop-submit-check`, and `make scoop-submit` targets to generate, verify, and submit the Scoop bucket manifest from local-release evidence, mirroring the existing winget/Homebrew local, CI-free release flow.
 - README Windows section: drop the now-dead `Move-Item` step from the zip-install instructions — the release zip has packaged a stable `openrouter.exe` name since v1.19.0 — and add the Scoop install instructions above it.

@@ -48,13 +48,17 @@ models:
     owner: OpenAI (C)
     open_weights: "нет"
     copyright: compliant
-    note: "Оценка независимая (vals.ai)."
+    note:
+      ru: "Оценка независимая (vals.ai)."
+      en: "Independently measured (vals.ai)."
     task_fit: [test, implement, implement, audit]
   minimax/minimax-m3:
     display: MiniMax M3
     owner: MiniMax (н/д)
     open_weights: "**да** (кастомная лицензия)"
-    note: "Оценка — только из блога вендора."
+    note:
+      ru: "Оценка — только из блога вендора."
+      en: ""
     score:
       label: "80.5% (только вендор)"
       value: 80.5
