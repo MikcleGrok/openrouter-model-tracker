@@ -1,8 +1,8 @@
 Output docs/assets/tui-demo.gif
-Set FontSize 16
+Set FontSize 20
 Set FontFamily "JetBrainsMono Nerd Font Mono"
-Set Width 1500
-Set Height 820
+Set Width 1875
+Set Height 1025
 Set Theme "Catppuccin Frappe"
 Set Padding 12
 
@@ -17,35 +17,10 @@ Sleep 1s
 # "utility" sort. A long establishing pause before anything else changes.
 Sleep 3.5s
 
-# 2. Filtering: open the real structured filter editor ("f") and set BOTH
-# a quality predicate and a price predicate before applying once with
-# Enter, so the row list visibly narrows in one deliberate step.
-#   quality>=80 (SWE-bench Verified, the default score source) and
-#   input<=1 ($/M tokens) together leave a small, real, non-empty subset
-#   of the paid catalog (confirmed by extracting and reading actual GIF
-#   frames: 5 rows — gpt-5.6-luna, glm-5.2, glm-5.3-flash, gemini-3.7-flash,
-#   gemini-3.8-flash; no deepseek model made this particular cut).
-# Cursor starts at field 0 ("free") on open (openFilterEditor sets
-# m.filterCursor = 0, tui.go:1524). Field order (tui.go:1532-1596,
-# tui.go:1950): 0=free 1=paid 2=scored 3=tier 4=quality 5=context
-# 6=input 7=output 8=has-q/p 9=availability 10=copyright_guardrail.
-# The current filter (availability:paid from the launch flag) is already
-# parsed into the draft on open, so field 9 needs no touching.
-Type "f"
-Sleep 2.5s
-Down 4
-Sleep 800ms
-Type "80"
-Sleep 1.8s
-Down 2
-Sleep 800ms
-Type "1"
-Sleep 1.8s
-Enter
-Sleep 4s
-
-# 3. Sorting: two different sorts applied in sequence via the direct-jump
-# keys. "g" (bound to the same "home" action as the Home key in the
+# 2. Sorting: two different sorts applied in sequence via the direct-jump
+# keys, against the full unfiltered paid-models list (~423 rows) -- this
+# now runs BEFORE the filter demo below, so nothing has narrowed the row
+# count yet. "g" (bound to the same "home" action as the Home key in the
 # main-list context, tui.go:1111-1112) resets the cursor to the top row
 # both before AND after each sort keypress: rebuild() re-locates the
 # cursor by following the *previously selected model* to its new row
@@ -76,8 +51,44 @@ Sleep 700ms
 Down
 Sleep 700ms
 
-# 4. Detail screen: open it on the top row and step through all 4 tabs in
-# order, pausing meaningfully on each. Digit keys are explicit and
+# 3. Filtering: open the real structured filter editor ("f") and set BOTH
+# a quality predicate and a price predicate before applying once with
+# Enter, so the row list visibly narrows in one deliberate step. Sort
+# state persists across a filter being applied -- applyFilterDraft
+# (tui.go:1601-1619) and rebuild() (tui.go:411-423) never touch
+# m.sortKey -- and filterTableModels' predicate match (tui.go:443-451)
+# never depends on the current sort key either, so this filter narrows to
+# exactly the same 5-row result below regardless of running after the
+# sorting block above instead of before it; only the *display order* of
+# the surviving rows (now q/p, the sort left in place by the block above,
+# instead of the original "utility" default) and the carried-over cursor
+# position differ from the pre-reorder tape.
+#   quality>=80 (SWE-bench Verified, the default score source) and
+#   input<=1 ($/M tokens) together leave a small, real, non-empty subset
+#   of the paid catalog (confirmed by extracting and reading actual GIF
+#   frames: 5 rows -- gpt-5.6-luna, glm-5.2, glm-5.3-flash, gemini-3.7-flash,
+#   gemini-3.8-flash; no deepseek model made this particular cut).
+# Cursor starts at field 0 ("free") on open (openFilterEditor sets
+# m.filterCursor = 0, tui.go:1524). Field order (tui.go:1532-1596,
+# tui.go:1950): 0=free 1=paid 2=scored 3=tier 4=quality 5=context
+# 6=input 7=output 8=has-q/p 9=availability 10=copyright_guardrail.
+# The current filter (availability:paid from the launch flag) is already
+# parsed into the draft on open, so field 9 needs no touching.
+Type "f"
+Sleep 2.5s
+Down 4
+Sleep 800ms
+Type "80"
+Sleep 1.8s
+Down 2
+Sleep 800ms
+Type "1"
+Sleep 1.8s
+Enter
+Sleep 4s
+
+# 4. Detail screen: open it on the current row and step through all 4 tabs
+# in order, pausing meaningfully on each. Digit keys are explicit and
 # deliberate (Identity is already the default tab on open, tui.go:1197;
 # "1" is pressed anyway to make the walk-through unambiguous).
 Enter
@@ -96,7 +107,7 @@ Sleep 3.5s
 Type "h"
 Sleep 1s
 
-# 6. Help overlay, last: open it and page through all 6 sections in
+# 5. Help overlay, last: open it and page through all 6 sections in
 # ascending order via the direct-jump digit keys, then close cleanly.
 Type "?"
 Sleep 1.5s
