@@ -13,7 +13,7 @@ fuzzy-match по имени. Платные модели ранжируются 
 доступны в интерактивном TUI, как plain-text CLI-таблица и как готовый
 Markdown-отчёт.
 
-## Установка
+## Installation
 
 **macOS**:
 
@@ -54,7 +54,7 @@ winget разрешает только один alias на установщик,
 Другие способы установки (сборка из исходников, ручная установка без
 пакетного менеджера) — в [docs/reference.md](docs/reference.md).
 
-## Использование
+## Usage
 
 ```bash
 omt tui                        # интерактивный TUI
@@ -68,19 +68,19 @@ omt check                      # что изменилось в каталоге
 
 (также можно использовать полное имя `openrouter-model-tracker`)
 
-## Пример отчёта
+## Example Report
 
 - [Markdown](docs/examples/openrouter-model-comparison.md) — пример вывода `omt report`
 - [HTML](https://htmlpreview.github.io/?https://raw.githubusercontent.com/MikcleGrok/openrouter-model-tracker/master/docs/examples/openrouter-model-comparison.html) — тот же отчёт в самостоятельном HTML
 
-## Предложения и идеи
+## Feedback & Ideas
 
 Нашли баг, хотите новую функцию или просто есть идея — welcome:
 
 - **Идеи и пожелания** — [GitHub Discussions](https://github.com/MikcleGrok/openrouter-model-tracker/discussions/categories/ideas), не обязательно быть программистом.
 - **Баг или конкретный запрос функции** — [Issues](https://github.com/MikcleGrok/openrouter-model-tracker/issues/new/choose).
 
-## Подробнее
+## Learn More
 
 - [docs/methodology.md](docs/methodology.md) — identity gate, три независимых измерения качества, формула ранжирования
 - [docs/reference.md](docs/reference.md) — полный список команд, конфиг, Makefile-таргеты, релиз-процесс
