@@ -77,6 +77,8 @@ omt check                      # что изменилось в каталоге
 
 ## Подробнее
 
+- [docs/examples/openrouter-model-comparison.md](docs/examples/openrouter-model-comparison.md) — пример Markdown-отчёта `omt report`
+- [docs/examples/openrouter-model-comparison.html](docs/examples/openrouter-model-comparison.html) — тот же отчёт в самостоятельном HTML
 - [docs/methodology.md](docs/methodology.md) — identity gate, три независимых измерения качества, формула ранжирования
 - [docs/reference.md](docs/reference.md) — полный список команд, конфиг, Makefile-таргеты, релиз-процесс
 - [docs/contributing.md](docs/contributing.md) — процесс приёмки изменений: ветка, PR с историей, гейты, ревью, merge
