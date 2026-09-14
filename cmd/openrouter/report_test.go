@@ -1,10 +1,16 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
+	"github.com/sboborikin/openrouter-model-tracker/internal/sources"
 )
 
 func TestReportCommandWritesDefaultOutput(t *testing.T) {
@@ -220,6 +226,134 @@ func TestReportCommandFormatBothRejectsAnHTMLOutputPath(t *testing.T) {
 	}
 	if _, statErr := os.Stat(htmlLikeOutput); statErr == nil {
 		t.Fatalf("--format both must not have overwritten the markdown-shaped output path %s", htmlLikeOutput)
+	}
+}
+
+// redirectSources points the four upstream source URLs refresh.Run's live
+// deps hit at test servers and restores the originals on cleanup — the same
+// pattern TestEnsureLocalSnapshotFetchesOnceWhenMissing uses.
+func redirectSources(t *testing.T, catalog, valsSWEBench, sweBench, arena string) {
+	t.Helper()
+	oldCatalog, oldVals, oldSWEBench, oldArena := sources.CatalogURL, sources.ValsSWEBenchURL, sources.SWEBenchURL, sources.ArenaURL
+	sources.CatalogURL, sources.ValsSWEBenchURL, sources.SWEBenchURL, sources.ArenaURL = catalog, valsSWEBench, sweBench, arena
+	t.Cleanup(func() {
+		sources.CatalogURL, sources.ValsSWEBenchURL, sources.SWEBenchURL, sources.ArenaURL = oldCatalog, oldVals, oldSWEBench, oldArena
+	})
+}
+
+// TestReportCommandRefreshFetchesFreshDataBeforeRendering proves --refresh
+// actually runs the network fetch/merge/publish path before rendering, not
+// just re-reads whatever snapshot is already on disk: the local snapshot
+// starts with a stale price, a fake OpenRouter catalog server reports a
+// different one, and only the freshly fetched price is expected to survive
+// into the rendered document.
+func TestReportCommandRefreshFetchesFreshDataBeforeRendering(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "output.md")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+out+"\n")
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/refresh\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/refresh:\n    display: Demo Refresh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := refresh.Snapshot{Models: map[string]refresh.SnapshotEntry{
+		"demo/refresh": {InPerM: 1, OutPerM: 1, Context: 128000},
+	}}
+	staleBody, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "model-snapshot.json"), staleBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"demo/refresh","name":"Demo Refresh","context_length":128000,"pricing":{"prompt":"0.00003","completion":"0.00006"}}]}`))
+	}))
+	t.Cleanup(catalog.Close)
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(empty.Close)
+	redirectSources(t, catalog.URL, empty.URL, empty.URL, empty.URL)
+
+	output := executeCLI(t, "report", "--config", config, "--refresh")
+	if !strings.Contains(output, "📄 Записано: "+out) {
+		t.Fatalf("report --refresh output = %q, want a written-path line for %s", output, out)
+	}
+	doc, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !strings.Contains(string(doc), "$30.00") {
+		t.Fatalf("report --refresh document does not reflect the freshly fetched price:\n%s", doc)
+	}
+	if strings.Contains(string(doc), "$1.00") {
+		t.Fatalf("report --refresh document still shows the stale pre-refresh price:\n%s", doc)
+	}
+}
+
+// TestReportCommandWithoutRefreshNeverTouchesTheNetwork proves the absence
+// of --refresh leaves report's existing offline behavior (design decision D1
+// in .task/omt-report/plan.md) completely unchanged: every upstream source
+// URL is pointed at a server that fails the test the instant it is hit, so
+// a single stray network call turns this red.
+func TestReportCommandWithoutRefreshNeverTouchesTheNetwork(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "output.md")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+out+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+
+	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected network call to %s while --refresh was not requested", r.URL)
+	}))
+	t.Cleanup(fail.Close)
+	redirectSources(t, fail.URL, fail.URL, fail.URL, fail.URL)
+
+	output := executeCLI(t, "report", "--config", config)
+	if !strings.Contains(output, "📄 Записано: "+out) {
+		t.Fatalf("report output = %q, want a written-path line for %s", output, out)
+	}
+}
+
+// TestReportCommandRefreshComposesWithFormatHTML proves --refresh composes
+// cleanly with --format: the refresh runs once, then both artifacts are
+// rendered from the freshly fetched data.
+func TestReportCommandRefreshComposesWithFormatHTML(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "output.md")
+	wantHTML := filepath.Join(root, "output.html")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+out+"\n")
+	if err := os.WriteFile(filepath.Join(root, "model-map.tsv"), []byte("demo/refresh\ttier=sonnet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.yaml"), []byte("models:\n  demo/refresh:\n    display: Demo Refresh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"demo/refresh","name":"Demo Refresh","context_length":128000,"pricing":{"prompt":"0.00003","completion":"0.00006"}}]}`))
+	}))
+	t.Cleanup(catalog.Close)
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(empty.Close)
+	redirectSources(t, catalog.URL, empty.URL, empty.URL, empty.URL)
+
+	output := executeCLI(t, "report", "--config", config, "--refresh", "--format", "both")
+	if !strings.Contains(output, "📄 Записано: "+out) || !strings.Contains(output, "📄 Записано: "+wantHTML) {
+		t.Fatalf("report --refresh --format both output = %q, want both paths written", output)
+	}
+	htmlBody, err := os.ReadFile(wantHTML)
+	if err != nil {
+		t.Fatalf("read html output: %v", err)
+	}
+	if !strings.Contains(string(htmlBody), "30.00") {
+		t.Fatalf("report --refresh --format both html output does not reflect the freshly fetched price:\n%s", htmlBody)
 	}
 }
 

@@ -335,6 +335,7 @@ func newRootCmd() *cobra.Command {
 		forceRefresh     bool
 
 		reportOpen        bool
+		reportRefresh     bool
 		reportSort        string
 		reportRanking     string
 		reportScoreSource string
@@ -679,6 +680,15 @@ func newRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if reportRefresh {
+				// Reuses runRefresh verbatim — the same fetch/merge/publish
+				// path `omt refresh` runs — so the local snapshot
+				// ensureLocalSnapshot/loadLocalModelsForSource read below is
+				// already current; report never grows a second network path.
+				if err := runRefresh(cmd, false); err != nil {
+					return err
+				}
+			}
 			if err := ensureLocalSnapshot(cmd.Context(), cmd.OutOrStdout(), opts.DataDir, opts); err != nil {
 				return err
 			}
@@ -766,6 +776,7 @@ func newRootCmd() *cobra.Command {
 	}
 	reportCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (overrides config)")
 	reportCmd.Flags().BoolVar(&reportOpen, "open", false, "open the generated document with the system handler after writing it")
+	reportCmd.Flags().BoolVar(&reportRefresh, "refresh", false, "fetch fresh data and update the local snapshot first (equivalent to running refresh before report)")
 	reportCmd.Flags().StringVarP(&reportSort, "sort", "s", "q/p", "sort the ranked list by: "+tableSortHelp)
 	reportCmd.Flags().StringVar(&reportRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	reportCmd.Flags().StringVar(&reportScoreSource, "score-source", scoreSourceDefault, "score source for the ranked list and Benchmark score column: swebench, arena or general")
