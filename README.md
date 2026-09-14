@@ -61,6 +61,7 @@ omt tui                        # интерактивный TUI
 omt table                      # та же таблица как plain-text (без сети, для скриптов)
 omt refresh                    # обновить цены и оценки
 omt report                     # перегенерировать Markdown/HTML-документ офлайн, без сети
+omt report --refresh           # то же, но сначала обновить данные (как omt refresh)
 omt history                    # история цен
 omt check                      # что изменилось в каталоге/карте, без записи
 ```

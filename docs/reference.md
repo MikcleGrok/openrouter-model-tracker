@@ -264,11 +264,18 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
 - `openrouter refresh|update|up [--output PATH] [--dry-run] [--force]` — собрать данные и перезаписать документ. Обычный refresh сохраняет fallback из предыдущего snapshot. `--force` обходит TTL HTTP-кэша, выполняет сетевые GET и требует успешной обработки всех четырёх source jobs; при ошибке возвращает failed jobs и не публикует document, snapshot или price history. `--force --dry-run` также валидирует все источники и возвращает ошибку при их сбое, но не публикует durable model outputs; успешные raw HTTP cache body/metadata могут обновиться. Progress считает job обработанным после success или failure, а итоговый результат отдельно сообщает об ошибке.
 - `openrouter check` — только отчёт, без записи; кроме ручной карты показывает
   изменения полного каталога OpenRouter с момента последнего успешного `refresh`
-- `openrouter report [-s|--sort KEY] [--ranking=legacy|tier|mixed-utility] [--score-source=swebench|arena|general] [--output PATH] [--open] [--format=markdown|html|both]` —
+- `openrouter report [-s|--sort KEY] [--ranking=legacy|tier|mixed-utility] [--score-source=swebench|arena|general] [--output PATH] [--open] [--format=markdown|html|both] [--refresh]` —
   офлайн перегенерировать `docs/openrouter-model-comparison.md` (и, с
   `--format html`/`both`, HTML-версию рядом) из последнего локального снимка,
   без обращения к сети; при отсутствующем снимке выполняется тот же
-  однократный сетевой bootstrap, что у `table`/`tui` (см. ниже). По умолчанию
+  однократный сетевой bootstrap, что у `table`/`tui` (см. ниже). `--refresh` —
+  единственное исключение из офлайн-поведения, строго опциональное: сначала
+  выполняет тот же fetch/merge/publish-путь, что и `openrouter refresh`
+  (та же функция, `runRefresh`, то же поведение ошибок и progress-вывод), и
+  только затем рендерит отчёт из уже обновлённого снимка — эквивалент
+  `openrouter refresh && openrouter report`, но одной командой. Без
+  `--refresh` поведение `report` не меняется ни на байт: сеть не
+  затрагивается. По умолчанию
   `--sort` равен `q/p`, `--ranking` — `mixed-utility`, `--score-source` —
   `swebench`, `--format` — `markdown`. `--sort`/`--ranking`/`--score-source`
   задают порядок и заголовок только новой секции «Рейтинг моделей по цене и
