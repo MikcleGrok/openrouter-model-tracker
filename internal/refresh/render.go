@@ -117,6 +117,31 @@ func ClaudeEquivalent(m model.Model) string {
 	return "n/a"
 }
 
+// ClaudeEquivalentForSource neutralizes the haiku/free Claude labels under a
+// non-SWE-bench score source: ClaudeEquivalent's haiku/free thresholds
+// (>=70, >=60) are calibrated on SWE-bench Verified percentage points; after
+// projection through model.ForScoreSource, an arena-mode Score.Value instead
+// holds a min-max-normalized Arena position and a general-mode one holds a
+// GPQA Diamond percentage, so running those thresholds on either would
+// silently read one experiment's result as another's — exactly the
+// cross-scale blending --score-source exists to prevent.
+//
+// The GPQA case is the more dangerous of the two and the reason this is a
+// blanket "not swebench" rule rather than an arena special case: a GPQA
+// percentage would sail through a threshold written for percentages and
+// produce a confident, wrong Claude equivalence, where an Elo at least looks
+// obviously out of range. There is no established mapping from either onto a
+// Claude tier, so this deliberately does not attempt one, regardless of
+// whether the row actually has a number on the active source. Opus/sonnet
+// rows are unaffected: ClaudeEquivalent derives their label from Tier alone,
+// never from a score value, so it stays correct under every source.
+func ClaudeEquivalentForSource(m model.Model, source string) string {
+	if source != model.ScoreSourceSWEBench && (m.Tier == "haiku" || m.Tier == "free") {
+		return "n/a"
+	}
+	return ClaudeEquivalent(m)
+}
+
 func scoreValue(m model.Model) float64 {
 	if m.HasRankingScore {
 		return m.RankingScore
