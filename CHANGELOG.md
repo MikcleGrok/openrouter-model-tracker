@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Future release changes will be documented here.
+- Fix the HTML report's comparison table looking cut off on the right: the table always scrolled horizontally, but nothing showed the scrollbar or hinted more columns were off-screen. Added an always-visible thin scrollbar, an edge fade shown only while there's hidden content in that direction, and a sticky first column on the ranked table so the row stays identifiable while scrolling.
 
 ## [1.21.1]
 
