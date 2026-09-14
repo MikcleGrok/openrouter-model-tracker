@@ -4,6 +4,7 @@ bin/
 /release-notes.md
 /dist/
 /docs/openrouter-model-comparison.md
+/docs/openrouter-model-comparison.html
 /model-snapshot.json
 
 # Tracked pre-commit hooks (installed via `make install-hooks`); a personal

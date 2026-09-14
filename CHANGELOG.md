@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- Future release changes will be documented here.
+- Add `openrouter report [-s|--sort] [--ranking] [--score-source] [--output] [--open] [--format=markdown|html|both]`: regenerate `docs/openrouter-model-comparison.md` offline, from the local `model-snapshot.json`, with no network access — the same local-load/sort pipeline `table` already uses, plus `refresh`'s own render/publish machinery. `--open` opens the written document with the system's default handler (new `internal/open` package, cross-platform, `OPENROUTER_OPEN` override/disable) and never fails the command — a document that was already written successfully is still a success even if nothing could open it.
+- Fix a real GFM-breaking bug in the generated document's template: it printed `  Provenance: raw=...; ...` as a bare, non-`|`-prefixed line right after every table row, which breaks that row's own table (84 breaks on 728 lines in the live document — GFM reads a non-`|` line as the end of the table). Redesigned the whole document into a three-level information hierarchy mirroring the TUI (overview: a new ranked-list table with a bare score + source marker; check: tier/free tables with a short `93.0% · [vals.ai](url), date` provenance reference; audit: one appendix at the end with the full provenance dump per model) instead of dumping raw provenance inline. `refresh` renders through the same redesigned template, so its own output gets the fix and the new appendix automatically, with no other behavior change.
+- Add `--format markdown|html|both` to `report` (default `markdown`, unchanged behavior): `html`/`both` also write a second, self-contained HTML file — inline CSS/JS, zero external assets, zero new Go dependencies — with the exact same sections and columns as the Markdown document, plus click-to-sort on the ranked-list and free-models tables and internal overview→check→audit cross-links. `--format both` publishes both files in one atomic transaction, so they can never disagree on disk.
 
 ## [1.20.1]
 
