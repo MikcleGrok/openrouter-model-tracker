@@ -40,9 +40,19 @@ scoop install mikclegrok/openrouter-model-tracker
 omt tui
 ```
 
-Короткий alias `omt` доступен везде, кроме сборки вручную. Другие способы
-установки (winget, сборка из исходников, ручная установка без пакетного
-менеджера) — в [docs/reference.md](docs/reference.md).
+Через [winget](https://learn.microsoft.com/windows/package-manager/winget/):
+
+```powershell
+winget install MikcleGrok.openrouter-model-tracker
+openrouter-model-tracker tui
+```
+
+winget разрешает только один alias на установщик, поэтому здесь нет
+короткого `omt` — только полное имя.
+
+Короткий alias `omt` доступен везде, кроме сборки вручную и winget-установки.
+Другие способы установки (сборка из исходников, ручная установка без
+пакетного менеджера) — в [docs/reference.md](docs/reference.md).
 
 ## Использование
 
