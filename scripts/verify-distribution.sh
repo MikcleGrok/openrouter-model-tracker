@@ -3,7 +3,7 @@ set -euo pipefail
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 guide_tools_root=${GUIDE_TOOLS_ROOT:-$(CDPATH= cd -- "$root/../guide-tools" && pwd)}
 if test -n "${FORMULA_PATH:-}"; then formula=$FORMULA_PATH
-elif command -v brew >/dev/null 2>&1; then formula="$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
+elif command -v brew >/dev/null 2>&1; then formula="$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter-devtap.rb"
 else printf '%s\n' 'ERROR: brew is unavailable; set FORMULA_PATH explicitly.' >&2; exit 2; fi
 safe_args=()
 while test "$#" -gt 0; do

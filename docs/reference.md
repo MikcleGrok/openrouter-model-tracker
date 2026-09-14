@@ -60,51 +60,83 @@ install` — подробности (`PREFIX`/`BINDIR`, локальный dispo
 ### Локальная разработка
 
 Этот раздел — не для обычной установки, а для мейнтейнера и контрибьюторов
-этого репозитория: локальный disposable tap без публикации на GitHub,
-используемый только внутри существующего checkout.
+этого репозитория: локальный disposable dev-tap без публикации на GitHub,
+используемый только внутри существующего checkout, чтобы проверить
+`make homebrew-reinstall`/`verify-release` перед реальным релизом.
 
-Формула `openrouter` должна быть закреплена на том же exact release tag и
-immutable commit revision, что и checkout проекта. Источник синхронизации не
-хранит старую версию в Makefile или скрипте:
+Формула `openrouter-devtap` не редактируется руками и не хранится как
+отдельно поддерживаемый файл — она целиком рендерится из in-repo шаблона
+(`render_formula()` в `scripts/sync-homebrew-formula.sh`) при каждом вызове,
+поэтому не может незаметно разойтись с этим репозиторием. `make
+sync-homebrew-formula` требует exact `vMAJOR.MINOR.PATCH` tag, вычисляет его
+commit через Git и атомарно перезаписывает файл формулы целиком — но только
+если рендер действительно отличается от того, что лежит на диске (иначе
+no-op). Если формулы ещё нет, эта команда её создаёт; tap не публикуется и
+remote не изменяется. Для read-only проверки byte-identity без создания
+файла — сравнить отрендеренный шаблон с тем, что лежит на диске, ничего не
+трогая:
 
 ```bash
-TAP_FORMULA="$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
-make sync-homebrew-formula
-make homebrew-reinstall
+./scripts/sync-homebrew-formula.sh --check
 ```
 
-`make sync-homebrew-formula` требует exact `vMAJOR.MINOR.PATCH` tag и вычисляет
-его commit через Git. Он атомарно меняет только `tag` и `revision` в локальной
-формуле; tap не публикуется и remote не изменяется. Для read-only проверки:
-
-```bash
-make check-homebrew-formula
-```
+(`make check-homebrew-formula` — это другая проверка: она вызывает внешний
+`verify-distribution.sh`, который сверяет только `url`/`version`/`tag`/
+`revision` и отсутствие HEAD-источника, и не знает о byte-identity
+рендеринга вовсе.)
 
 `make homebrew-reinstall` сначала синхронизирует формулу, затем выполняет
-`brew reinstall --build-from-source`, проверяет `brew list`, `openrouter --version`
-и `brew test`. Для первой установки вместо reinstall используйте:
+`brew reinstall --build-from-source`, проверяет `brew list --versions
+openrouter-devtap` и версию бинарника (по explicit path, см. ниже), и `brew
+test`. Для первой установки вместо reinstall используйте:
 
 ```bash
 make sync-homebrew-formula
-brew install --formula --build-from-source "$TAP_FORMULA"
+brew install --formula --build-from-source "$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter-devtap.rb"
+```
+
+Формула `openrouter-devtap` — `keg_only`: ничего из неё не линкуется в
+`$(brew --prefix)/bin`. Поэтому она структурно не может столкнуться с
+публичным каналом (`openrouter-model-tracker`/`omt`), даже если обе формулы
+установлены одновременно — а не только по факту разных имён. Следствие:
+бинарник не появляется на `PATH`, все проверки и ручные вызовы обращаются к
+нему по explicit path:
+
+```bash
+"$(brew --prefix local/tap/openrouter-devtap)/bin/openrouter-devtap" --version
 ```
 
 Этот workflow является distribution contract: после exact tag он проверяет tag и
 immutable revision formula до любой reinstall. Stable install не использует
-`--HEAD`, branch или hardcoded old version. Если локального tap или formula
-нет, `make check-homebrew-formula` завершается blocker вместо проверки
-случайного текущего checkout.
+`--HEAD`, branch или hardcoded old version — у `keg_only`-формулы без
+задекларированного HEAD-источника `--HEAD` тем более невалиден. Если
+локального tap или formula нет, `make check-homebrew-formula` завершается
+blocker вместо проверки случайного текущего checkout.
 
-Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb`.
+Формула: `$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter-devtap.rb`.
+
+**Legacy-latch.** Пока в том же каталоге `Formula/` существует старый файл
+`openrouter.rb` (коллизионная форма: bare `openrouter` binary + alias `omt`,
+ровно то, что рисковало столкнуться с реальным `/opt/homebrew/bin/omt`), и
+`make sync-homebrew-formula`, и `./scripts/sync-homebrew-formula.sh --check`
+завершаются `BLOCKED:` и ничего не делают — латч встроен в сам
+`scripts/sync-homebrew-formula.sh` (в оба его режима, sync и `--check`), а
+не в `make check-homebrew-formula`: та цель идёт через отдельный, не
+связанный с этим latch'ем `verify-distribution.sh` и его вообще не
+затрагивает. Это одноразовая миграция, которую нельзя случайно пропустить.
+Remediation: убедитесь, что `openrouter` сейчас не установлен (`brew list
+--versions openrouter`), затем в tap-checkout выполните `git rm
+Formula/openrouter.rb && git commit`; после этого `make
+sync-homebrew-formula` создаёт `openrouter-devtap.rb` как обычно.
 
 При установке или переустановке через локальную disposable Homebrew formula
 Bash completion генерируется и устанавливается автоматически:
 
 ```bash
 brew install bash-completion@2
-brew install --HEAD local/tap/openrouter
-brew reinstall local/tap/openrouter   # обновить бинарник и completion
+make sync-homebrew-formula
+brew install --formula --build-from-source "$(brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter-devtap.rb"
+make homebrew-reinstall   # обновить бинарник и completion
 ```
 
 Один раз убедитесь, что установленный `bash-completion@2` загружает каталог

@@ -20,8 +20,14 @@
   считается успешным gate.
 - `make sbom` требует Syft и генерирует SPDX JSON в `.release/sbom.spdx.json`.
 - `make checksums` создаёт SHA-256 checksum локального бинарника.
-- `make verify-local-artifact` проверяет строгую схему manifest/checksum, exact tag и
-  commit, а также digest самого локального бинарника.
+- `make verify-local-artifact` теперь сначала регенерирует `.release/manifest.json` и
+  checksum через prerequisite `manifest` (устраняя риск устаревшей копии от прошлого
+  релиза), а затем проверяет строгую схему manifest/checksum, exact tag и commit, а
+  также digest самого локального бинарника. Это безопасно именно потому, что ни
+  `.release/manifest.json`, ни его checksum нигде не подписываются и не публикуются —
+  в отличие от `.release/release-manifest.json`, который несёт криптографическую
+  подпись поверх своих текущих байт и который `release-github-check` никогда не
+  регенерирует автоматически.
 - `make release-check` не создаёт manifest/checksum и не утверждает опубликованное
   evidence; эти локальные артефакты проверяются только после exact tag через
   `make verify-local-artifact`.

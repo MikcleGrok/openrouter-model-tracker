@@ -19,6 +19,16 @@ VERSIONCHECK := $(GO) run ./cmd/versioncheck
 PUBLISHED_EVIDENCE ?= $(EVIDENCE_DIR)/published-evidence.json
 FORMULA_TAG ?=
 HOMEBREW_VERSION := $(patsubst v%,%,$(if $(FORMULA_TAG),$(FORMULA_TAG),$(TAG_VERSION)))
+# Disposable local dev-tap (test-only, never published): keg_only so nothing
+# it installs ever lands in $(BINDIR) or PATH, and structurally cannot
+# collide with the published openrouter-model-tracker/omt names. Recursive
+# `=`, not `:=`, for HOMEBREW_DEVTAP_FORMULA -- a simply-expanded `:=` would
+# shell out to `brew --repository` on every make invocation, including ones
+# on a machine without Homebrew; recursive expansion defers it to only the
+# recipe that actually references it.
+HOMEBREW_DEVTAP_NAME ?= openrouter-devtap
+HOMEBREW_DEVTAP_REF ?= local/tap/$(HOMEBREW_DEVTAP_NAME)
+HOMEBREW_DEVTAP_FORMULA = $(shell brew --repository)/Library/Taps/local/homebrew-tap/Formula/$(HOMEBREW_DEVTAP_NAME).rb
 LOCAL_RELEASE_DIR ?= $(ROOT)dist/local-release
 LOCAL_RELEASE_PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
 LOCAL_RELEASE_BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -100,7 +110,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit scoop-manifest-check scoop-manifest scoop-submit-check scoop-submit docs check-docs demo-gif clean help FORCE
+.PHONY: setup check-env toolchain build test test-unit test-acceptance test-all race coverage lint vet fmt format fmt-check security dependency-check secrets-check install-hooks sign-flags-check provenance-profile-check winget-manifest-check openrouter-launchd-refresh-check openrouter-launchd-refresh-install openrouter-launchd-refresh-uninstall openrouter-launchd-refresh-status openrouter-launchd-refresh-start sbom release-manifest provenance-predicate cosign-key-check cosign-sign-release sign attest verify-provenance signature checksums artifact manifest check-package check-install-paths install reinstall upgrade uninstall verify-install install-smoke smoke check completion-check init refresh history table version check-version check-tag check-homebrew-formula sync-homebrew-formula homebrew-formula-check homebrew-reinstall release-check release-build verify-local-artifact verify-release release-local local-release release-github-check release-github winget-manifest winget-submit-check winget-submit scoop-manifest-check scoop-manifest scoop-submit-check scoop-submit docs check-docs demo-gif clean help FORCE
 
 build: $(BINARY)
 
@@ -125,7 +135,7 @@ completion-check: build
 test-acceptance: build
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -count=1 ./tests/...
 
-test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check winget-manifest-check scoop-manifest-check
+test-all: test-unit test-acceptance sign-flags-check provenance-profile-check completion-check winget-manifest-check scoop-manifest-check homebrew-formula-check
 
 race:
 	cd $(ROOT) && OPENROUTER_EXPECTED_VERSION="$(VERSION)" $(GO) test -race -count=1 ./...
@@ -173,6 +183,9 @@ winget-manifest-check:
 
 scoop-manifest-check:
 	@$(ROOT)scripts/scoop-manifest_test.sh
+
+homebrew-formula-check:
+	@$(ROOT)scripts/sync-homebrew-formula_test.sh
 
 openrouter-launchd-refresh-check:
 	@$(ROOT)scripts/launchd-refresh_test.sh
@@ -318,13 +331,16 @@ sync-homebrew-formula:
 	@cd $(ROOT) && ./scripts/sync-homebrew-formula.sh $(FORMULA_TAG)
 
 homebrew-reinstall: sync-homebrew-formula
-	@test -f "$(shell brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb" || { printf '%s\n' 'Local Homebrew formula is missing'; exit 1; }
-	brew reinstall --formula --build-from-source "$(shell brew --repository)/Library/Taps/local/homebrew-tap/Formula/openrouter.rb"
-	@cd $(ROOT) && ./scripts/sync-homebrew-formula.sh --check
-	@test -n "$(HOMEBREW_VERSION)" || { printf '%s\n' 'An exact formula tag is required for installed-version verification'; exit 1; }
-	@test "$$(brew list --versions openrouter)" = "openrouter $(HOMEBREW_VERSION)" || { printf '%s\n' 'Installed Homebrew version does not match the formula tag'; exit 1; }
-	@test "$$(openrouter --version)" = "openrouter version $(HOMEBREW_VERSION)" || { printf '%s\n' 'Installed CLI version does not match the formula tag'; exit 1; }
-	brew test local/tap/openrouter
+	@test -f "$(HOMEBREW_DEVTAP_FORMULA)" || { printf '%s\n' 'BLOCKED: local Homebrew dev-tap formula is missing' >&2; printf '%s\n' "DETAIL: expected $(HOMEBREW_DEVTAP_FORMULA); run make sync-homebrew-formula first" >&2; exit 1; }
+	brew reinstall --formula --build-from-source "$(HOMEBREW_DEVTAP_FORMULA)"
+	@cd $(ROOT) && ./scripts/sync-homebrew-formula.sh --check $(FORMULA_TAG)
+	@test -n "$(HOMEBREW_VERSION)" || { printf '%s\n' 'BLOCKED: an exact formula tag is required for installed-version verification' >&2; exit 1; }
+	@test "$$(brew list --versions $(HOMEBREW_DEVTAP_NAME))" = "$(HOMEBREW_DEVTAP_NAME) $(HOMEBREW_VERSION)" || { printf '%s\n' 'BLOCKED: installed Homebrew dev-tap version does not match the formula tag' >&2; exit 1; }
+	@devtap_bin="$$(brew --prefix $(HOMEBREW_DEVTAP_REF))/bin/$(HOMEBREW_DEVTAP_NAME)"; \
+		test -x "$$devtap_bin" || { printf '%s\n' "BLOCKED: dev-tap binary not found at $$devtap_bin (formula is keg_only; nothing is linked into PATH)" >&2; exit 1; }; \
+		test "$$("$$devtap_bin" --version)" = "openrouter version $(HOMEBREW_VERSION)" || { printf '%s\n' 'BLOCKED: installed dev-tap CLI --version does not match the formula tag' >&2; exit 1; }; \
+		test "$$("$$devtap_bin" version)" = "openrouter $(HOMEBREW_VERSION)" || { printf '%s\n' 'BLOCKED: installed dev-tap CLI version does not match the formula tag' >&2; exit 1; }
+	brew test $(HOMEBREW_DEVTAP_REF)
 
 release-check: check-version build
 	@test -f $(ROOT)CHANGELOG.md && awk '/^## \[Unreleased\]$$/{found=1; next} /^## /{if(found) exit} found && /^- /{bullet=1} END{exit !(found && bullet)}' $(ROOT)CHANGELOG.md || { printf '%s\n' 'CHANGELOG.md must contain a non-empty Unreleased section with bullet notes'; exit 1; }
@@ -338,7 +354,17 @@ release-build: check-tag check-homebrew-formula
 	@mkdir -p $(dir $(BINARY))
 	cd $(ROOT) && $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) ./cmd/openrouter
 
-verify-local-artifact: check-tag check-homebrew-formula
+# manifest is a real prerequisite here (and on release-github-check below),
+# not just something these targets happen to read off disk, because
+# .release/manifest.json is derived evidence with no independent value: it
+# is never uploaded, never signed, and a stale copy left over from an
+# earlier release run carries zero signal -- regenerating it costs one
+# deterministic local build plus one checksum. Do NOT apply the same
+# treatment to .release/release-manifest.json: that file gets cryptographic
+# signatures (sign/attest) over its exact bytes, so silently regenerating it
+# here would invalidate an already-signed release with no error. See
+# release-github-check's own stale-signed-manifest BLOCKED message below.
+verify-local-artifact: check-tag check-homebrew-formula manifest
 	@test -x "$(BINARY)" || { printf '%s\n' 'local release artifact is missing or not executable'; exit 1; }
 	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$(TAG_VERSION)" --commit "$$(git rev-parse HEAD)" --version "$(VERSION)"
 	@cd $(ROOT) && test "$$(./bin/openrouter --version)" = "openrouter version $(VERSION)" && test "$$(./bin/openrouter version)" = "openrouter $(VERSION)" && ./bin/openrouter --help >/dev/null
@@ -346,9 +372,11 @@ verify-local-artifact: check-tag check-homebrew-formula
 	@printf '%s\n' 'Verified local exact-tag artifact only.'
 
 verify-release: check-tag
-	@cd $(ROOT) && ./scripts/verify-distribution.sh --tag "$(TAG_VERSION)" --version "$(VERSION)" --installed-package openrouter --installed-version "$(VERSION)" --brew-test local/tap/openrouter
-	@cd $(ROOT) && test "$$(openrouter --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'Installed CLI --version does not match VERSION'; exit 1; }
-	@cd $(ROOT) && test "$$(openrouter version)" = "openrouter $(VERSION)" || { printf '%s\n' 'Installed CLI version does not match VERSION'; exit 1; }
+	@cd $(ROOT) && ./scripts/verify-distribution.sh --tag "$(TAG_VERSION)" --version "$(VERSION)" --installed-package "$(HOMEBREW_DEVTAP_NAME)" --installed-version "$(VERSION)" --brew-test "$(HOMEBREW_DEVTAP_REF)"
+	@devtap_bin="$$(brew --prefix $(HOMEBREW_DEVTAP_REF))/bin/$(HOMEBREW_DEVTAP_NAME)"; \
+		test -x "$$devtap_bin" || { printf '%s\n' "BLOCKED: dev-tap binary not found at $$devtap_bin (formula is keg_only; nothing is linked into PATH)" >&2; exit 1; }; \
+		test "$$("$$devtap_bin" --version)" = "openrouter version $(VERSION)" || { printf '%s\n' 'BLOCKED: installed dev-tap CLI --version does not match VERSION' >&2; exit 1; }; \
+		test "$$("$$devtap_bin" version)" = "openrouter $(VERSION)" || { printf '%s\n' 'BLOCKED: installed dev-tap CLI version does not match VERSION' >&2; exit 1; }
 	@printf '%s\n' 'Verified local stable Homebrew channel only; no GitHub publication or provenance claim made.'
 
 whats-new:
@@ -398,7 +426,7 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
 	printf '%s\n' "Local release written to $$out"
 
-release-github-check:
+release-github-check: manifest
 	@set -eu; \
 		command -v jq >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: jq is required for GitHub release evidence validation' >&2; exit 1; }; \
 		source_dir="$$(cd '$(RELEASE_SOURCE_DIR)' 2>/dev/null && pwd -P)" || { printf '%s\n' 'BLOCKED: RELEASE_SOURCE_DIR is not an accessible directory: $(RELEASE_SOURCE_DIR)' >&2; exit 1; }; \
@@ -410,7 +438,15 @@ release-github-check:
 		direct="$$(awk -v ref="refs/tags/$$tag" '$$2 == ref { print $$1 }' "$$remote_tmp/record")"; peeled="$$(awk -v ref="refs/tags/$$tag^{}" '$$2 == ref { print $$1 }' "$$remote_tmp/record")"; test -n "$$direct" -o -n "$$peeled" || { printf '%s\n' "BLOCKED: exact tag $$tag is missing on origin" >&2; exit 1; }; remote_commit="$$peeled"; test -n "$$remote_commit" || remote_commit="$$direct"; test "$$remote_commit" = "$$commit" || { printf '%s\n' "BLOCKED: origin tag $$tag does not match source commit $$commit" >&2; exit 1; }; \
 		manifest="$$source_dir/.release/release-manifest.json"; signature="$$source_dir/.release/release-manifest.json.sig.bundle.json"; attestation="$$source_dir/.release/release-manifest.json.att.bundle.json"; sbom="$$source_dir/.release/sbom.spdx.json"; dependency_evidence="$$source_dir/.release/dependency-evidence.json"; published_evidence="$$source_dir/.release/published-evidence.json"; \
 		test -s "$$manifest" || { printf '%s\n' "BLOCKED: release manifest is missing or empty: $$manifest" >&2; exit 1; }; test -s "$$signature" || { printf '%s\n' "BLOCKED: GitHub release requires signed provenance; signature bundle is missing: $$signature" >&2; printf '%s\n' "DETAIL: set COSIGN_PRIVATE_KEY securely, then run PROVENANCE_PROFILE=published TAG_VERSION=$$tag VERSION=$$version make -C $$source_dir sign attest verify-provenance" >&2; exit 1; }; test -s "$$attestation" || { printf '%s\n' "BLOCKED: GitHub release requires signed provenance; attestation bundle is missing: $$attestation" >&2; printf '%s\n' "DETAIL: set COSIGN_PRIVATE_KEY securely, then run PROVENANCE_PROFILE=published TAG_VERSION=$$tag VERSION=$$version make -C $$source_dir attest verify-provenance" >&2; exit 1; }; for evidence in "$$sbom" "$$dependency_evidence"; do test -s "$$evidence" || { printf '%s\n' "BLOCKED: required release evidence is missing or empty: $$evidence" >&2; exit 1; }; done; \
-		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (.artifacts | length == 1) and (.artifacts[0].path == "bin/openrouter")' "$$manifest" >/dev/null || { printf '%s\n' 'BLOCKED: signed release manifest identity does not match exact tag checkout' >&2; exit 1; }; \
+		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (.artifacts | length == 1) and (.artifacts[0].path == "bin/openrouter")' "$$manifest" >/dev/null || { \
+			printf '%s\n' 'BLOCKED: signed release manifest identity does not match exact tag checkout' >&2; \
+			stale_tag="$$(jq -r '.tag // "?"' "$$manifest" 2>/dev/null || printf '?')"; stale_commit="$$(jq -r '.commit // "?"' "$$manifest" 2>/dev/null || printf '?')"; stale_version="$$(jq -r '.version // "?"' "$$manifest" 2>/dev/null || printf '?')"; stale_artifact="$$(jq -r '.artifacts[0].path // "?"' "$$manifest" 2>/dev/null || printf '?')"; \
+			printf '%s\n' "DETAIL: signed manifest has tag=$$stale_tag commit=$$stale_commit version=$$stale_version artifact=$$stale_artifact" >&2; \
+			printf '%s\n' "DETAIL: current checkout expects tag=$$tag commit=$$commit version=$$version artifact=bin/openrouter" >&2; \
+			printf '%s\n' "DETAIL: set COSIGN_PRIVATE_KEY securely, then run PROVENANCE_PROFILE=published TAG_VERSION=$$tag VERSION=$$version make -C $$source_dir sign attest verify-provenance" >&2; \
+			printf '%s\n' 'DETAIL: this must be a human decision, not an automatic regeneration -- a signed manifest for a different release could be re-signing evidence for the wrong tree, so it is left for you to confirm and re-sign explicitly' >&2; \
+			exit 1; \
+		}; \
 		cd "$$artifact_dir"; test -s RELEASE_NOTES.md && test -s manifest.json && test -s SHA256SUMS || { printf '%s\n' 'BLOCKED: local release notes, manifest, or checksums are missing' >&2; exit 1; }; \
 		jq -e --arg version "$$version" --arg tag "$$tag" --arg commit "$$commit" '(.version == $$version) and (.tag == $$tag) and (.commit == $$commit) and (. as $$manifest | ($$manifest.artifacts | length > 0) and ([$$manifest.artifacts[].artifact] | all(test("^artifacts/[A-Za-z0-9._-]+\\.(tar\\.gz|zip)$$"))) and ([$$manifest.artifacts[].artifact] | unique | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | length == ($$manifest.artifacts | length)) and ([$$manifest.artifacts[].sha256] | all(test("^[0-9a-f]{64}$$"))))' manifest.json >/dev/null || { printf '%s\n' 'BLOCKED: local release manifest has invalid identity, archive paths, or digests' >&2; exit 1; }; \
 		tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$remote_tmp" "$$tmp_dir"' EXIT; jq -r '.artifacts[] | "\(.sha256)  \(.artifact)"' manifest.json | sort > "$$tmp_dir/manifest"; sort SHA256SUMS > "$$tmp_dir/checksums"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/checksums" || { printf '%s\n' 'BLOCKED: SHA256SUMS differs from release manifest' >&2; exit 1; }; : > "$$tmp_dir/actual"; set -- artifacts/*; test -f "$$1" || { printf '%s\n' 'BLOCKED: no local release archives found' >&2; exit 1; }; for archive; do test -s "$$archive" || { printf '%s\n' "BLOCKED: release archive is missing or empty: $$archive" >&2; exit 1; }; shasum -a 256 "$$archive" >> "$$tmp_dir/actual"; done; sort "$$tmp_dir/actual" > "$$tmp_dir/actual.sorted"; cmp -s "$$tmp_dir/manifest" "$$tmp_dir/actual.sorted" || { printf '%s\n' 'BLOCKED: local archive set or digest differs from release manifest' >&2; exit 1; }; shasum -a 256 -c SHA256SUMS >/dev/null || { printf '%s\n' 'BLOCKED: local release archive checksum verification failed' >&2; exit 1; }; \
