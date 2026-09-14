@@ -13,6 +13,7 @@ import (
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 )
 
 func TestRenderHTMLGolden(t *testing.T) {
@@ -145,10 +146,10 @@ func TestMarkdownAndHTMLCoverTheSameModels(t *testing.T) {
 
 // TestRenderHTMLEscapesAngleBracketLabels exercises the exact hostile shape
 // notes.yaml already contains in spirit ("<≈ Haiku 4.5") plus a literal tag
-// and an ampersand, on both Note and ClaudeRef, and checks html/template's
-// auto-escaping (ClaudeRef) and inlineHTML's explicit escaping (Note) both
-// neutralize it: no live <b> tag reaches the page, and the special
-// characters show up as their named/numeric entities.
+// and an ampersand, on both Note and ClaudeRef — both routed through
+// inlineHTML's explicit escaping in the free-models table — and checks
+// neither lets it through: no live <b> tag reaches the page, and the
+// special characters show up as their named/numeric entities.
 func TestRenderHTMLEscapesAngleBracketLabels(t *testing.T) {
 	hostile := `<≈ Haiku 4.5 <b>x</b> & "q"`
 	m := model.Model{
@@ -174,9 +175,10 @@ func TestRenderHTMLEscapesAngleBracketLabels(t *testing.T) {
 	}
 }
 
-// TestInlineHTMLIsTotal checks inlineHTML always produces a balanced
-// <code>/</code> count, including on deliberately unbalanced backtick input
-// — an unpaired backtick must never open a <code> span with no closing tag.
+// TestInlineHTMLIsTotal checks inlineHTML always produces balanced
+// <code>/</code>, <strong>/</strong> and <em>/</em> counts, including on
+// deliberately unbalanced backtick/asterisk/underscore input — an unpaired
+// delimiter must never open a span with no closing tag.
 func TestInlineHTMLIsTotal(t *testing.T) {
 	cases := []string{
 		"",
@@ -190,14 +192,90 @@ func TestInlineHTMLIsTotal(t *testing.T) {
 		"```",
 		"a`b`c`d`e`f`g",
 		"<already> & \"escaped\" `code`",
+		"**bold**",
+		"_italic_",
+		"one ** here",
+		"trailing unpaired **bold",
+		"leading unpaired bold** trailing text",
+		"**",
+		"****",
+		"trailing unpaired _italic",
+		"leading unpaired italic_ trailing text",
+		"_",
+		"__",
+		"**bold _and italic_ text**",
+		"`code with _underscore_`",
+		"`code with *asterisk*`",
+		"hugging_face_id and reasoning_effort stay literal",
+		notes.NeedsReview,
+		"a**b**c**d**e**f**g",
+		"a_b_c_d_e_f_g",
 	}
 	for _, in := range cases {
 		out := string(inlineHTML(in))
-		opens := strings.Count(out, "<code>")
-		closes := strings.Count(out, "</code>")
-		if opens != closes {
-			t.Errorf("inlineHTML(%q) = %q, <code> count %d != </code> count %d", in, out, opens, closes)
+		for _, tag := range []string{"code", "strong", "em"} {
+			opens := strings.Count(out, "<"+tag+">")
+			closes := strings.Count(out, "</"+tag+">")
+			if opens != closes {
+				t.Errorf("inlineHTML(%q) = %q, <%s> count %d != </%s> count %d", in, out, tag, opens, tag, closes)
+			}
 		}
+	}
+}
+
+// TestInlineHTMLBoldAndItalic checks the exact conversion for **bold** and
+// _italic_ spans, including the interactions D3/D7.2 and the review that
+// found this bug both called out as the easy-to-get-wrong cases: emphasis
+// nested inside bold, a code span's content staying fully literal even when
+// it looks like it contains emphasis markers, unmatched delimiters falling
+// back to literal text, and the real snake_case collision this feature's
+// review turned up in notes.yaml itself (canonical_slug, hugging_face_id,
+// reasoning_effort — all in the z-ai/glm-5.2:free note).
+func TestInlineHTMLBoldAndItalic(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bold", "**bold**", "<strong>bold</strong>"},
+		{"italic", "_italic_", "<em>italic</em>"},
+		{"needs review fixture", notes.NeedsReview, "<em>нужен обзор</em>"},
+		{"needs review with trailing note", notes.NeedsReview + " (нет данных)", "<em>нужен обзор</em> (нет данных)"},
+		{"real bold example from notes.yaml", "**да, MIT**", "<strong>да, MIT</strong>"},
+		{"unmatched bold, no closing pair", "one ** here", "one ** here"},
+		{"trailing unpaired bold", "trailing unpaired **bold", "trailing unpaired **bold"},
+		{"leading unpaired bold", "leading unpaired bold** trailing text", "leading unpaired bold** trailing text"},
+		{"bold marker alone", "**", "**"},
+		{"unmatched italic, no closing pair", "trailing unpaired text _italic", "trailing unpaired text _italic"},
+		{"stray italic with no opener candidate", "leading unpaired italic_ trailing text", "leading unpaired italic_ trailing text"},
+		{"italic marker alone", "_", "_"},
+		{"italic nested inside bold", "**bold _and italic_ text**", "<strong>bold <em>and italic</em> text</strong>"},
+		{"code span content is never further interpreted: underscore", "`code with _underscore_`", "<code>code with _underscore_</code>"},
+		{"code span content is never further interpreted: asterisk", "`code with **asterisk**`", "<code>code with **asterisk**</code>"},
+		{"empty string", "", ""},
+		{
+			"snake_case identifiers stay literal, single underscore each",
+			"canonical_slug and reasoning_effort are not italic",
+			"canonical_slug and reasoning_effort are not italic",
+		},
+		{
+			"snake_case identifier with two underscores stays fully literal",
+			"hugging_face_id stays literal",
+			"hugging_face_id stays literal",
+		},
+		{
+			"real notes.yaml sentence mixing bold, a genuine no-op underscore run, and snake_case",
+			`**Бесплатный маршрут** того же продукта: canonical_slug совпадает с hugging_face_id, а reasoning_effort — дефолтный.`,
+			`<strong>Бесплатный маршрут</strong> того же продукта: canonical_slug совпадает с hugging_face_id, а reasoning_effort — дефолтный.`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(inlineHTML(tc.in))
+			if got != tc.want {
+				t.Errorf("inlineHTML(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

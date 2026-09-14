@@ -98,7 +98,7 @@ ul.provenance-list { font-size:.86rem; color:#435258; }
 <tbody>
 {{- range .Favorites}}
 {{- if .Model}}
-<tr><td>{{.TierLabel}}</td><td>{{.Model.DisplayName}}</td><td>{{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}}</td><td>{{.Model.ScoreLabel}}{{marker .Model.Score}}</td><td>{{.Model.QualityPriceLabel}}</td><td>{{.Model.Owner}}</td><td>{{.Model.OpenWeights}}</td><td>{{.Model.Copyright}}</td><td>{{inline .Reason}}</td></tr>
+<tr><td>{{.TierLabel}}</td><td>{{.Model.DisplayName}}</td><td>{{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}}</td><td>{{.Model.ScoreLabel}}{{marker .Model.Score}}</td><td>{{.Model.QualityPriceLabel}}</td><td>{{inline .Model.Owner}}</td><td>{{inline .Model.OpenWeights}}</td><td>{{.Model.Copyright}}</td><td>{{inline .Reason}}</td></tr>
 {{- else}}
 <tr><td>{{.TierLabel}}</td><td>{{.Fallback}}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>unknown</td><td>{{inline .Reason}}</td></tr>
 {{- end}}
@@ -163,7 +163,7 @@ ul.provenance-list { font-size:.86rem; color:#435258; }
 <thead><tr><th scope="col">Компания</th><th scope="col">Грейд FLI</th><th scope="col">Комментарий</th></tr></thead>
 <tbody>
 {{- range .Companies}}
-<tr><td>{{.Name}}</td><td>{{.Grade}}</td><td>{{inline .Comment}}</td></tr>
+<tr><td>{{.Name}}</td><td>{{inline .Grade}}</td><td>{{inline .Comment}}</td></tr>
 {{- end}}
 </tbody>
 </table></div>
@@ -189,8 +189,8 @@ ul.provenance-list { font-size:.86rem; color:#435258; }
 <td>{{ctx .Context}}</td>
 <td>{{.ScoreLabel}}{{scoreref .Score}}{{if .Score}} · <a class="prov-link" href="#prov-{{anchor .Slug}}">аудит</a>{{end}}</td>
 <td>{{.QualityPriceLabel}}</td>
-<td>{{.Owner}}</td>
-<td>{{.OpenWeights}}</td>
+<td>{{inline .Owner}}</td>
+<td>{{inline .OpenWeights}}</td>
 <td>{{.Copyright}}</td>
 </tr>
 {{- end}}
@@ -262,9 +262,9 @@ ul.provenance-list { font-size:.86rem; color:#435258; }
 <td><code>{{.Slug}}</code></td>
 <td data-value="{{ctxval .Context}}">{{ctx .Context}}</td>
 <td data-value="{{optval (scorevalue .) .Rankable}}">{{.ScoreLabel}}{{scoreref .Score}}{{if .Score}} · <a class="prov-link" href="#prov-{{anchor .Slug}}">аудит</a>{{end}}</td>
-<td>{{.ClaudeRef}}</td>
-<td>{{.Owner}}</td>
-<td>{{.OpenWeights}}</td>
+<td>{{inline .ClaudeRef}}</td>
+<td>{{inline .Owner}}</td>
+<td>{{inline .OpenWeights}}</td>
 <td>{{.Copyright}}</td>
 </tr>
 {{- end}}
