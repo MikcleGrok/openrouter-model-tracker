@@ -110,8 +110,8 @@ if run_sync --check "$test_tag" > "$check_stale_out" 2>&1; then
   cat "$check_stale_out" >&2
   fail '--check unexpectedly passed against a mutated formula'
 fi
-grep -Fq 'BLOCKED:' "$check_stale_out" \
-  || fail '--check against a mutated formula did not print a BLOCKED: message'
+grep -Fq 'BLOCKED: formula is stale for' "$check_stale_out" \
+  || fail '--check against a mutated formula did not print the expected "formula is stale for" BLOCKED: message'
 
 printf '%s\n' '--check fails BLOCKED on a one-byte mutation: OK'
 
@@ -138,16 +138,16 @@ if run_sync "$test_tag" > "$latch_sync_out" 2>&1; then
   cat "$latch_sync_out" >&2
   fail 'sync unexpectedly succeeded while a legacy Formula/openrouter.rb exists'
 fi
-grep -Fq 'BLOCKED:' "$latch_sync_out" \
-  || fail 'legacy-latch sync failure did not print a BLOCKED: message'
+grep -Fq 'BLOCKED: legacy colliding formula still exists:' "$latch_sync_out" \
+  || fail 'legacy-latch sync failure did not print the expected "legacy colliding formula still exists" BLOCKED: message'
 
 latch_check_out="$fixture_dir/latch-check.out"
 if run_sync --check "$test_tag" > "$latch_check_out" 2>&1; then
   cat "$latch_check_out" >&2
   fail '--check unexpectedly succeeded while a legacy Formula/openrouter.rb exists'
 fi
-grep -Fq 'BLOCKED:' "$latch_check_out" \
-  || fail 'legacy-latch --check failure did not print a BLOCKED: message'
+grep -Fq 'BLOCKED: legacy colliding formula still exists:' "$latch_check_out" \
+  || fail 'legacy-latch --check failure did not print the expected "legacy colliding formula still exists" BLOCKED: message'
 
 rm -f "$legacy_path"
 
@@ -161,12 +161,29 @@ if run_sync --check "$test_tag" > "$missing_check_out" 2>&1; then
   cat "$missing_check_out" >&2
   fail '--check unexpectedly succeeded against a missing formula file'
 fi
-grep -Fq 'BLOCKED:' "$missing_check_out" \
-  || fail '--check against a missing formula did not print a BLOCKED: message'
+grep -Fq 'BLOCKED: formula not found:' "$missing_check_out" \
+  || fail '--check against a missing formula did not print the expected "formula not found" BLOCKED: message'
 test ! -e "$formula_path" \
   || fail '--check must never create the formula file, but it now exists'
 
 printf '%s\n' '--check against a missing file fails without creating it: OK'
+
+# --- --print renders to stdout and never touches the filesystem -----------
+# formula_path was just removed by the --check-against-missing-file block
+# above, so its continued absence after --print is proof --print wrote
+# nothing to disk.
+test ! -e "$formula_path" || fail 'fixture setup: formula_path must not pre-exist before the --print test'
+print_out="$fixture_dir/print.out"
+run_sync --print "$test_tag" > "$print_out" 2>&1 \
+  || { cat "$print_out" >&2; fail '--print failed'; }
+grep -Fq 'class OpenrouterDevtap' "$print_out" \
+  || fail '--print did not emit the rendered formula to stdout'
+grep -Fq "tag: \"$test_tag\"" "$print_out" \
+  || fail '--print output does not contain the resolved tag'
+test ! -e "$formula_path" \
+  || fail '--print must never create the formula file, but it now exists'
+
+printf '%s\n' '--print renders to stdout without touching the filesystem: OK'
 
 # --- --help exits 0 and does not require any evidence ----------------------
 "$SCRIPT" --help > /dev/null || fail '--help must exit 0'

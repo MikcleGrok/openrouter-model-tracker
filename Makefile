@@ -364,7 +364,9 @@ release-build: check-tag check-homebrew-formula
 # signatures (sign/attest) over its exact bytes, so silently regenerating it
 # here would invalidate an already-signed release with no error. See
 # release-github-check's own stale-signed-manifest BLOCKED message below.
-verify-local-artifact: check-tag check-homebrew-formula manifest
+verify-local-artifact:
+	$(MAKE) check-tag
+	$(MAKE) check-homebrew-formula manifest
 	@test -x "$(BINARY)" || { printf '%s\n' 'local release artifact is missing or not executable'; exit 1; }
 	@cd $(ROOT) && $(GO) run ./cmd/evidencecheck --manifest .release/manifest.json --checksum .release/openrouter.sha256 --artifact bin/openrouter --tag "$(TAG_VERSION)" --commit "$$(git rev-parse HEAD)" --version "$(VERSION)"
 	@cd $(ROOT) && test "$$(./bin/openrouter --version)" = "openrouter version $(VERSION)" && test "$$(./bin/openrouter version)" = "openrouter $(VERSION)" && ./bin/openrouter --help >/dev/null
@@ -426,6 +428,11 @@ release-local local-release: check-tag fmt-check test-all vet security secrets-c
 	printf '{"schema":"openrouter-model-tracker/local-release-v1","version":"%s","tag":"%s","commit":"%s","built_at":"%s","artifacts":[%s]}\n' "$$version" "$$tag" "$$commit" '$(LOCAL_RELEASE_BUILT_AT)' "$$artifacts_json" > "$$out/manifest.json"; \
 	printf '%s\n' "Local release written to $$out"
 
+# NOTE: this `manifest` prerequisite regenerates $(ROOT)/.release/manifest.json,
+# but the recipe below reads $$source_dir/.release/manifest.json instead. If
+# RELEASE_SOURCE_DIR is overridden to a different checkout, this prerequisite
+# does not help a stale manifest.json there -- that would require `manifest`
+# itself to respect RELEASE_SOURCE_DIR, out of scope for this fix.
 release-github-check: manifest
 	@set -eu; \
 		command -v jq >/dev/null 2>&1 || { printf '%s\n' 'BLOCKED: jq is required for GitHub release evidence validation' >&2; exit 1; }; \
