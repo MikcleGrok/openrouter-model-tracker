@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Future release changes will be documented here.
+- Rename the local disposable Homebrew dev-tap formula to `openrouter-devtap` (keg-only, no `omt` alias, whole file rendered from an in-repo template in `scripts/sync-homebrew-formula.sh`), so it can no longer collide with the published `openrouter-model-tracker`/`omt` names even when both are installed at once. Byte-identity of the live formula against that template is checked with `./scripts/sync-homebrew-formula.sh --check` (also run internally by `make homebrew-reinstall`); the new `homebrew-formula-check` Makefile target instead runs an offline unit test against a temp fixture, not a check of the live formula. A one-time legacy-collision latch refuses to run while the old `Formula/openrouter.rb` still exists. Also close a Makefile dependency gap that let `.release/manifest.json` go stale across separate release runs: `verify-local-artifact` and `release-github-check` now regenerate it as a real prerequisite, and a genuinely stale *signed* `release-manifest.json` now fails with actionable `DETAIL:` lines instead of a bare identity-mismatch message.
 
 ## [1.20.0]
 
