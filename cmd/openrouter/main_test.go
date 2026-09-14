@@ -293,6 +293,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
 		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "default mixed-utility", "automatic live refresh interval"}},
+		{command: "report", wanted: []string{"Regenerate the Markdown comparison document from local data", "sort the ranked list by", "score source for the ranked list", "open the generated document with the system handler"}},
 	}
 
 	for _, tt := range tests {

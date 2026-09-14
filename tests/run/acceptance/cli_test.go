@@ -3,6 +3,7 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -75,6 +76,64 @@ func TestE2E_Check(t *testing.T) {
 	assert.Success(t, result)
 	assert.StillUnchanged(t, before)
 	assert.Missing(t, output)
+}
+
+// tableBreakingLine matches a bare line that starts a GFM table cell without
+// a leading "|" — the exact shape of the bug this feature fixes (the old
+// template's "  Provenance: ...").
+var tableBreakingLine = regexp.MustCompile(`(?m)^  Provenance:`)
+
+func TestE2E_Report(t *testing.T) {
+	t.Parallel()
+	marker := arrange.UniqueID(t, "report")
+	dataDir := arrange.DataDir(t, marker)
+	config := arrange.Config(t, dataDir)
+	output := filepath.Join(dataDir, "output.md")
+
+	result := act.Run(t, binary(t), "report", "--config", config, "--output", output)
+	assert.Success(t, result)
+
+	body, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	doc := string(body)
+	if !strings.Contains(doc, "## Приложение") {
+		t.Fatalf("report output has no provenance appendix:\n%s", doc)
+	}
+	if tableBreakingLine.MatchString(doc) {
+		t.Fatalf("report output still has a table-breaking bare Provenance line:\n%s", doc)
+	}
+}
+
+func TestE2E_ReportHTML(t *testing.T) {
+	t.Parallel()
+	marker := arrange.UniqueID(t, "report-html")
+	dataDir := arrange.DataDir(t, marker)
+	config := arrange.Config(t, dataDir)
+	mdOutput := filepath.Join(dataDir, "out.md")
+	htmlOutput := filepath.Join(dataDir, "out.html")
+
+	result := act.Run(t, binary(t), "report", "--format", "both", "--config", config, "--output", mdOutput)
+	assert.Success(t, result)
+
+	if _, err := os.Stat(mdOutput); err != nil {
+		t.Fatalf("markdown output missing: %v", err)
+	}
+	htmlBody, err := os.ReadFile(htmlOutput)
+	if err != nil {
+		t.Fatalf("read html output: %v", err)
+	}
+	html := string(htmlBody)
+	if !strings.Contains(html, `id="ranked"`) {
+		t.Fatalf("html output has no id=\"ranked\" section:\n%s", html)
+	}
+	if !strings.Contains(html, `class="sortable"`) {
+		t.Fatalf("html output has no sortable table:\n%s", html)
+	}
+	if strings.Contains(html, "[vals.ai](") {
+		t.Fatalf("html output leaked a Markdown link:\n%s", html)
+	}
 }
 
 func TestE2E_InvalidCommandWritesErrorToStderr(t *testing.T) {

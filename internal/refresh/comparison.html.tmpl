@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Сравнение моделей OpenRouter</title>
+<style>
+:root {
+  --ink:#172226; --muted:#617176; --paper:#f4f1e8; --panel:#fffdf7; --line:#d8d7cd;
+  --opus:#405aa8; --sonnet:#267a69; --haiku:#8b621f; --free:#6f4e92; --danger:#a13d35;
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; color:var(--ink); background:var(--paper); font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.55; }
+.wrap { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:32px 0 72px; }
+h1,h2,h3 { font-family:Georgia,"Times New Roman",serif; font-weight:500; letter-spacing:-.02em; }
+h1 { font-size:clamp(2rem,5vw,3.2rem); margin:0 0 12px; }
+h2 { font-size:clamp(1.35rem,3vw,1.9rem); margin:0 0 8px; }
+h3 { font-size:1.15rem; margin:24px 0 6px; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:rgba(23,34,38,.07); padding:2px 5px; }
+a { color:var(--sonnet); }
+p { margin:10px 0; }
+p.meta { color:var(--muted); margin:4px 0; }
+p.legend { color:#435258; font-size:.92rem; }
+nav.toc { background:var(--panel); border:1px solid var(--line); padding:16px 22px; margin:24px 0 36px; }
+nav.toc h2 { font-size:.82rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:10px; }
+nav.toc ul { margin:0; padding-left:20px; columns:2; column-gap:28px; }
+nav.toc li { break-inside:avoid; margin:4px 0; }
+section { padding:36px 0; border-top:1px solid var(--line); }
+section > h2 { border-left:6px solid var(--tier,var(--line)); padding-left:14px; }
+.tier-opus { --tier:var(--opus); } .tier-sonnet { --tier:var(--sonnet); }
+.tier-haiku { --tier:var(--haiku); } .tier-free { --tier:var(--free); } .tier-none { --tier:var(--muted); }
+tr[class^="tier-"] td:first-child { border-left:4px solid var(--tier); }
+.tablewrap { overflow-x:auto; overflow-y:clip; margin:14px 0; border:1px solid var(--line); background:var(--panel); }
+table { width:100%; min-width:640px; border-collapse:collapse; font-size:.9rem; }
+th,td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+table.sortable thead th { position:sticky; top:0; z-index:2; background:#f0eee5; }
+th { color:var(--muted); background:#f0eee5; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; }
+tr:last-child td { border-bottom:0; }
+th[data-sortable] { cursor:pointer; user-select:none; }
+th[data-sortable]::after { content:"↕"; opacity:.35; margin-left:6px; }
+th[aria-sort="ascending"]::after  { content:"▲"; opacity:1; }
+th[aria-sort="descending"]::after { content:"▼"; opacity:1; }
+th[data-sortable]:focus-visible { outline:3px solid #e8b949; outline-offset:-3px; }
+.prov-link { font-size:.82em; white-space:nowrap; }
+ul.notes, ul.caveats, ul.provenance-list { padding-left:20px; }
+ul.notes li, ul.caveats li, ul.provenance-list li { margin:5px 0; }
+ul.provenance-list { font-size:.86rem; color:#435258; }
+.totop { position:fixed; right:20px; bottom:20px; width:38px; height:38px; display:flex; align-items:center; justify-content:center; background:var(--ink); color:#f5f3eb; text-decoration:none; border-radius:50%; font-size:1.2rem; box-shadow:0 6px 18px rgba(23,34,38,.25); }
+@media (max-width:900px) { nav.toc ul { columns:1; } }
+@media (max-width:620px) { .wrap { width:min(calc(100% - 28px),520px); } section { padding:26px 0; } th,td { padding:7px 9px; font-size:.85rem; } }
+@media print {
+  body { background:#fff; }
+  nav.toc, .totop { display:none; }
+  .tablewrap { overflow:visible; }
+  table.sortable thead th { position:static; }
+  thead { display:table-header-group; } tr { break-inside:avoid; }
+  a[href^="http"]::after { content:" (" attr(href) ")"; font-size:.8em; color:#617176; }
+}
+</style>
+</head>
+<body id="top">
+<div class="wrap">
+<header>
+<h1>Сравнение моделей OpenRouter</h1>
+<p class="meta">Обновлено: {{.UpdatedDate}}{{with .UpdatedNote}} ({{.}}){{end}}</p>
+{{with .GenerationLine}}<p class="meta">{{.}}</p>{{end}}
+<p class="legend"><code>Copyright</code> — ручная классификация поведения модели при запросе на защищённый контент: <code>compliant</code> — соблюдает ограничения, <code>non_compliant</code> — может обойти ограничения, <code>unknown</code> — проверяемого результата нет. Значение не выводится из лицензии.</p>
+</header>
+
+<nav class="toc" aria-label="Содержание">
+<h2>Содержание</h2>
+<ul>
+<li><a href="#favorites">Фавориты по категориям (относительно уровня Claude)</a></li>
+{{- if .Ranked}}
+<li><a href="#ranked">Рейтинг моделей по цене и качеству</a></li>
+{{- end}}
+<li><a href="#claude-prices">Цены Claude (справочно)</a></li>
+<li><a href="#owners">Владельцы, открытость весов и рейтинг безопасности</a></li>
+<li><a href="#tiers">Модели по capability estimate</a></li>
+<li><a href="#tokens10">Сколько токенов даст $10</a></li>
+<li><a href="#caveats">На что обратить внимание</a></li>
+<li><a href="#free">Бесплатные модели (рейтинг по качеству)</a></li>
+{{- if .Unmapped}}
+<li><a href="#unmapped">Актуальные модели без ручного сопоставления</a></li>
+{{- end}}
+{{- if .Provenance}}
+<li><a href="#provenance">Приложение: происхождение оценок</a></li>
+{{- end}}
+</ul>
+</nav>
+
+<section id="favorites">
+<h2>Фавориты по категориям (относительно уровня Claude)</h2>
+<p>{{inline .FavoritesIntro}}</p>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Capability estimate</th><th scope="col">Модель</th><th scope="col">Цена вход/выход, контекст</th><th scope="col">Benchmark score</th><th scope="col">Quality / price</th><th scope="col">Владелец (FLI)</th><th scope="col">Открытые веса</th><th scope="col">Copyright</th><th scope="col">Почему фаворит</th></tr></thead>
+<tbody>
+{{- range .Favorites}}
+{{- if .Model}}
+<tr><td>{{.TierLabel}}</td><td>{{.Model.DisplayName}}</td><td>{{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}}</td><td>{{.Model.ScoreLabel}}{{marker .Model.Score}}</td><td>{{.Model.QualityPriceLabel}}</td><td>{{inline .Model.Owner}}</td><td>{{inline .Model.OpenWeights}}</td><td>{{.Model.Copyright}}</td><td>{{inline .Reason}}</td></tr>
+{{- else}}
+<tr><td>{{.TierLabel}}</td><td>{{.Fallback}}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>unknown</td><td>{{inline .Reason}}</td></tr>
+{{- end}}
+{{- end}}
+</tbody>
+</table></div>
+</section>
+
+{{- if .Ranked}}
+<section id="ranked">
+<h2>Рейтинг моделей по цене и качеству</h2>
+<div class="tablewrap"><table class="sortable">
+<thead><tr>
+<th data-sortable="true" tabindex="0" scope="col">#</th>
+<th data-sortable="true" tabindex="0" scope="col">Модель</th>
+<th data-sortable="true" tabindex="0" scope="col">Slug</th>
+<th data-sortable="true" tabindex="0" scope="col">Claude</th>
+<th data-sortable="true" tabindex="0" scope="col">{{.ScoreColumnHeader}}</th>
+<th data-sortable="true" tabindex="0" scope="col">Q/P</th>
+<th data-sortable="true" tabindex="0" scope="col">Контекст</th>
+<th data-sortable="true" tabindex="0" scope="col">Вход $/M</th>
+<th data-sortable="true" tabindex="0" scope="col">Выход $/M</th>
+<th data-sortable="true" tabindex="0" scope="col">Task fit</th>
+</tr></thead>
+<tbody>
+{{- range .Ranked}}
+<tr class="{{tierclass .Model.Tier}}">
+<td data-value="{{.Index}}">{{.Index}}</td>
+<td>{{if anchored .Model.Tier}}<a href="#{{anchor .Model.Slug}}">{{.Model.DisplayName}}</a>{{else}}{{.Model.DisplayName}}{{end}}</td>
+<td><code>{{.Model.Slug}}</code></td>
+<td data-value="{{tierrank .Model.Tier}}">{{claude .Model $.ScoreSource}}</td>
+<td data-value="{{optval (scorevalue .Model) .Model.Rankable}}">{{.Model.ScoreLabel}}{{marker .Model.Score}}</td>
+<td data-value="{{optval .Model.QualityPrice .Model.HasQualityPrice}}">{{.Model.QualityPriceLabel}}</td>
+<td data-value="{{ctxval .Model.Context}}">{{ctx .Model.Context}}</td>
+<td data-value="{{numval .Model.InPerM}}">{{price .Model.InPerM}}</td>
+<td data-value="{{numval .Model.OutPerM}}">{{price .Model.OutPerM}}</td>
+<td>{{taskfit .Model.TaskFit}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table></div>
+</section>
+{{- end}}
+
+<section id="claude-prices">
+<h2>Цены Claude (справочно)</h2>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Модель</th><th scope="col">Цена вход ($/M токенов)</th><th scope="col">Цена выход ($/M токенов)</th><th scope="col">Контекст</th><th scope="col">Заметка</th></tr></thead>
+<tbody>
+{{- range .ClaudePrices}}
+<tr><td>{{.Model}}</td><td>{{.In}}</td><td>{{.Out}}</td><td>{{.Context}}</td><td>{{inline .Note}}</td></tr>
+{{- end}}
+</tbody>
+</table></div>
+<p>{{inline .ClaudeNote}}</p>
+</section>
+
+<section id="owners">
+<h2>Владельцы, открытость весов и рейтинг безопасности</h2>
+<p>{{inline .SafetyIntro}}</p>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Компания</th><th scope="col">Грейд FLI</th><th scope="col">Комментарий</th></tr></thead>
+<tbody>
+{{- range .Companies}}
+<tr><td>{{.Name}}</td><td>{{inline .Grade}}</td><td>{{inline .Comment}}</td></tr>
+{{- end}}
+</tbody>
+</table></div>
+<p>{{inline .SaferAI}}</p>
+<p>{{inline .OpenWeights}}</p>
+</section>
+
+<section id="tiers">
+<h2>Модели по capability estimate (ranked by valid benchmark quality / price)</h2>
+<p>{{inline .TiersIntro}}</p>
+{{range .Tiers}}
+<div class="{{tierclass .Tier}}">
+<h3 id="tier-{{.Tier}}">{{.Heading}}</h3>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Модель</th><th scope="col">Slug на OpenRouter</th><th scope="col">Вход $/M</th><th scope="col">Выход $/M</th><th scope="col">Контекст</th><th scope="col">Benchmark score</th><th scope="col">Quality / price</th><th scope="col">Владелец (FLI)</th><th scope="col">Открытые веса</th><th scope="col">Copyright</th></tr></thead>
+<tbody>
+{{- range .Rows}}
+<tr id="{{anchor .Slug}}" class="{{tierclass .Tier}}">
+<td>{{.DisplayName}}</td>
+<td><code>{{.Slug}}</code></td>
+<td>{{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}}</td>
+<td>{{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}}</td>
+<td>{{ctx .Context}}</td>
+<td>{{.ScoreLabel}}{{scoreref .Score}}{{if .Score}} · <a class="prov-link" href="#prov-{{anchor .Slug}}">аудит</a>{{end}}</td>
+<td>{{.QualityPriceLabel}}</td>
+<td>{{inline .Owner}}</td>
+<td>{{inline .OpenWeights}}</td>
+<td>{{.Copyright}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table></div>
+{{- if .Notes}}
+<ul class="notes">
+{{- range .Notes}}
+<li><strong>{{.Model.DisplayName}}</strong> (<code>{{.Model.Slug}}</code>) — {{inline .Note}}</li>
+{{- end}}
+</ul>
+{{- end}}
+</div>
+{{end}}
+</section>
+
+<section id="tokens10">
+<h2>Сколько токенов даст $10</h2>
+<p>{{inline .Tokens10Intro}}</p>
+{{range .Tiers}}
+<h3>{{.Heading}}</h3>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Модель</th><th scope="col">Чисто вход (M на $10)</th><th scope="col">Чисто выход (M на $10)</th><th scope="col">Смешанный (M на $10)</th></tr></thead>
+<tbody>
+{{- range .Rows}}
+<tr><td>{{.DisplayName}}</td><td>{{tok .Tokens10In}}</td><td>{{tok .Tokens10Out}}</td><td>{{tok .Tokens10Mixed}}</td></tr>
+{{- end}}
+</tbody>
+</table></div>
+{{end}}
+<h3>Claude (для сравнения)</h3>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Модель</th><th scope="col">Чисто вход (M на $10)</th><th scope="col">Чисто выход (M на $10)</th><th scope="col">Смешанный (M на $10)</th></tr></thead>
+<tbody>
+{{- range .ClaudeTokens}}
+<tr><td>{{.Model}}</td><td>{{.In}}</td><td>{{.Out}}</td><td>{{.Mixed}}</td></tr>
+{{- end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="caveats">
+<h2>На что обратить внимание</h2>
+<ul class="caveats">
+{{- range .Caveats}}
+<li>{{inline .}}</li>
+{{- end}}
+</ul>
+</section>
+
+<section id="free" class="tier-free">
+<h2>Бесплатные модели (рейтинг по качеству)</h2>
+<p>{{inline .FreeIntro}}</p>
+<div class="tablewrap"><table class="sortable">
+<thead><tr>
+<th data-sortable="true" tabindex="0" scope="col">Модель</th>
+<th data-sortable="true" tabindex="0" scope="col">Slug на OpenRouter</th>
+<th data-sortable="true" tabindex="0" scope="col">Контекст</th>
+<th data-sortable="true" tabindex="0" scope="col">Benchmark score</th>
+<th data-sortable="true" tabindex="0" scope="col">Capability estimate</th>
+<th data-sortable="true" tabindex="0" scope="col">Владелец</th>
+<th data-sortable="true" tabindex="0" scope="col">Открытые веса</th>
+<th data-sortable="true" tabindex="0" scope="col">Copyright</th>
+</tr></thead>
+<tbody>
+{{- range .FreeModels}}
+<tr id="{{anchor .Slug}}" class="{{tierclass .Tier}}">
+<td>{{.DisplayName}}</td>
+<td><code>{{.Slug}}</code></td>
+<td data-value="{{ctxval .Context}}">{{ctx .Context}}</td>
+<td data-value="{{optval (scorevalue .) .Rankable}}">{{.ScoreLabel}}{{scoreref .Score}}{{if .Score}} · <a class="prov-link" href="#prov-{{anchor .Slug}}">аудит</a>{{end}}</td>
+<td>{{inline .ClaudeRef}}</td>
+<td>{{inline .Owner}}</td>
+<td>{{inline .OpenWeights}}</td>
+<td>{{.Copyright}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table></div>
+{{- if .FreeNotes}}
+<ul class="notes">
+{{- range .FreeNotes}}
+<li><strong>{{.Model.DisplayName}}</strong> (<code>{{.Model.Slug}}</code>) — {{inline .Note}}</li>
+{{- end}}
+</ul>
+{{- end}}
+<p>{{inline .FreeTerms}}</p>
+</section>
+
+{{- if .Unmapped}}
+<section id="unmapped">
+<h2>Актуальные модели без ручного сопоставления</h2>
+<p>{{inline .UnmappedIntro}}</p>
+<p>Эти строки пришли из актуального каталога OpenRouter. Отсутствие ручной identity-записи не даёт benchmark identity, tier или ranking.</p>
+<div class="tablewrap"><table>
+<thead><tr><th scope="col">Модель</th><th scope="col">Slug на OpenRouter</th><th scope="col">Вход $/M</th><th scope="col">Выход $/M</th><th scope="col">Контекст</th><th scope="col">Benchmark</th><th scope="col">Ranking</th></tr></thead>
+<tbody>
+{{- range .Unmapped}}
+<tr><td>{{.DisplayName}}</td><td><code>{{.Slug}}</code></td><td>{{price .InPerM}}</td><td>{{price .OutPerM}}</td><td>{{ctx .Context}}</td><td>n/a (missing identity)</td><td>n/a</td></tr>
+{{- end}}
+</tbody>
+</table></div>
+</section>
+{{- end}}
+
+{{- if .Provenance}}
+<section id="provenance">
+<h2>Приложение: происхождение оценок</h2>
+<p>Служебный раздел для аудита: полная provenance каждого опубликованного наблюдения. Для чтения и выбора модели он не нужен — смотрите таблицы выше.</p>
+<ul class="provenance-list">
+{{- range .Provenance}}
+<li id="prov-{{anchor .Model.Slug}}"><code>{{.Model.Slug}}</code>{{if anchored .Model.Tier}} — <a href="#{{anchor .Model.Slug}}">к таблице</a>{{end}} — {{.Dump}}</li>
+{{- end}}
+</ul>
+</section>
+{{- end}}
+
+</div>
+<a class="totop" href="#top" aria-label="Наверх">↑</a>
+<script>
+(function () {
+  var coll = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' });
+
+  function key(row, i) {
+    var cell = row.cells[i];
+    if (!cell) return null;
+    var raw = cell.getAttribute('data-value');
+    if (raw === null) return { text: cell.textContent.trim() };
+    if (raw === '') return null;                       // n/a -> всегда в конец
+    var n = parseFloat(raw);
+    return isNaN(n) ? null : { num: n };
+  }
+
+  function apply(table, index, dir) {
+    var body = table.tBodies[0];
+    var rows = Array.prototype.slice.call(body.rows);
+    var original = function (a, b) { return (+a.dataset.i) - (+b.dataset.i); };
+    rows.sort(dir === 0 ? original : function (a, b) {
+      var x = key(a, index), y = key(b, index);
+      if (x === null && y === null) return original(a, b);
+      if (x === null) return 1;
+      if (y === null) return -1;
+      var c = ('num' in x) ? x.num - y.num : coll.compare(x.text, y.text);
+      return c === 0 ? original(a, b) : dir * c;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  }
+
+  function activate(table, th) {
+    var state = th.getAttribute('aria-sort');
+    var dir = state === 'ascending' ? -1 : state === 'descending' ? 0 : 1;
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (c) { c.removeAttribute('aria-sort'); });
+    if (dir !== 0) th.setAttribute('aria-sort', dir === 1 ? 'ascending' : 'descending');
+    apply(table, th.cellIndex, dir);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('table.sortable'), function (table) {
+    Array.prototype.forEach.call(table.tBodies[0].rows, function (r, i) { r.dataset.i = i; });
+    table.tHead.addEventListener('click', function (ev) {
+      var th = ev.target.closest('th[data-sortable]');
+      if (th) activate(table, th);
+    });
+    table.tHead.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var th = ev.target.closest('th[data-sortable]');
+      if (th) { ev.preventDefault(); activate(table, th); }
+    });
+  });
+}());
+</script>
+</body>
+</html>

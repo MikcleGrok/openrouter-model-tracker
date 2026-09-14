@@ -128,13 +128,14 @@ func TestRunWritesDocumentAndSnapshot(t *testing.T) {
 	doc := string(body)
 	for _, want := range []string{
 		"Обновлено: 2026-08-04 (автоматический прогон)",
-		"| GPT-5.6 Luna | openai/gpt-5.6-luna | $0.50 | $3.00 | 1M | 93.0% | 82.7 |",
-		"| MiniMax M3 | minimax/minimax-m3 | $0.30 | $1.20 | 1M | 80.5% (только вендор) | n/a (observation only) |",
+		"| GPT-5.6 Luna | `openai/gpt-5.6-luna` | $0.50 | $3.00 | 1M | 93.0% · [swebench.com](https://www.vals.ai/benchmarks/swebench), 2026-08-03 | 82.7 |",
+		"| MiniMax M3 | `minimax/minimax-m3` | $0.30 | $1.20 | 1M | 80.5% (только вендор) · [источник](https://minimax.io/), n/a | n/a (observation only) |",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("output does not contain %q\n---\n%s", want, doc)
 		}
 	}
+	assertNoTableBreakingLines(t, doc)
 
 	snap, err := LoadSnapshot(filepath.Join(dir, "model-snapshot.json"))
 	if err != nil {

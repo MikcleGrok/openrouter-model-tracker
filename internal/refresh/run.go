@@ -541,6 +541,25 @@ type publishFile struct {
 	errPrefix string
 }
 
+// Artifact is one generated file to publish.
+type Artifact struct {
+	Path string
+	Data []byte
+}
+
+// PublishDocuments writes every generated file through the same prepare/
+// backup/rename/rollback protocol refresh uses for the document, snapshot and
+// price history, so every writer of a document path gives identical
+// guarantees. All files commit as one transaction: under --format both,
+// Markdown and HTML can never end up disagreeing on disk.
+func PublishDocuments(ctx context.Context, files ...Artifact) error {
+	out := make([]publishFile, len(files))
+	for i, f := range files {
+		out[i] = publishFile{path: f.Path, data: f.Data}
+	}
+	return publishContext(ctx, out, os.Rename, os.Remove)
+}
+
 type publishedFile struct {
 	publishFile
 	temp        string
