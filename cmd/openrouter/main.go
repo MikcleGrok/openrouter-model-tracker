@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,9 @@ import (
 	"golang.org/x/term"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	"github.com/sboborikin/openrouter-model-tracker/internal/model"
+	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
+	"github.com/sboborikin/openrouter-model-tracker/internal/open"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
@@ -318,6 +322,11 @@ func newRootCmd() *cobra.Command {
 		tableRanking     string
 		tableScoreSource string
 		forceRefresh     bool
+
+		reportOpen        bool
+		reportSort        string
+		reportRanking     string
+		reportScoreSource string
 	)
 
 	root := &cobra.Command{
@@ -634,7 +643,88 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd)
+	reportCmd := &cobra.Command{
+		Use:   "report",
+		Short: "Regenerate the Markdown comparison document from local data",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts, err := resolveOptions(cfgPath, dataDir, output)
+			if err != nil {
+				return err
+			}
+			if err := validateScoreSource(reportScoreSource); err != nil {
+				return err
+			}
+			reportRanking = normalizeRanking(reportRanking)
+			compiledRanking, err := resolveMixedUtilityConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+			mixInputWeight, mixOutputWeight, err := resolvePricingMixWeights(cfgPath)
+			if err != nil {
+				return err
+			}
+			if err := ensureLocalSnapshot(cmd.Context(), cmd.OutOrStdout(), opts.DataDir, opts); err != nil {
+				return err
+			}
+			models, err := loadLocalModelsForSource(opts.DataDir, reportScoreSource)
+			if err != nil {
+				return err
+			}
+			if err := sortTableModelsWithRankingAndConfig(models, reportSort, false, reportRanking, compiledRanking, mixInputWeight, mixOutputWeight); err != nil {
+				return err
+			}
+			ranked := append([]model.Model(nil), models...)
+			nt, err := notes.Load(filepath.Join(opts.DataDir, "notes.yaml"))
+			if err != nil {
+				return err
+			}
+			snap, err := refresh.LoadSnapshot(refresh.SnapshotPath(opts.DataDir))
+			if err != nil {
+				return err
+			}
+			updated := snap.FetchedAt
+			if updated == "" {
+				updated = time.Now().Format("2006-01-02")
+			}
+			data := refresh.BuildRenderDataWithOptions(models, nt, updated, refresh.RenderOptions{
+				ScoreSource:  reportScoreSource,
+				SortLabel:    reportSort,
+				RankingLabel: rankingLabel(reportRanking),
+				Ranked:       ranked,
+			})
+
+			var md bytes.Buffer
+			if err := refresh.Render(&md, data); err != nil {
+				return err
+			}
+			artifacts := []refresh.Artifact{{Path: opts.OutputPath, Data: md.Bytes()}}
+
+			if err := refresh.PublishDocuments(cmd.Context(), artifacts...); err != nil {
+				if refresh.IsPostCommitCleanupError(err) {
+					fmt.Fprintln(cmd.OutOrStdout(), "⚠️ Данные опубликованы, но очистка временных и резервных файлов не завершилась.")
+				}
+				return err
+			}
+			for _, artifact := range artifacts {
+				fmt.Fprintf(cmd.OutOrStdout(), "📄 Записано: %s\n", artifact.Path)
+			}
+			if reportOpen {
+				target := opts.OutputPath
+				if err := open.File(target); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "⚠️ Не удалось открыть документ (%v); файл записан: %s\n", err, target)
+				}
+			}
+			return nil
+		},
+	}
+	reportCmd.Flags().StringVar(&output, "output", "", "path to generated markdown (overrides config)")
+	reportCmd.Flags().BoolVar(&reportOpen, "open", false, "open the generated document with the system handler after writing it")
+	reportCmd.Flags().StringVarP(&reportSort, "sort", "s", "q/p", "sort the ranked list by: "+tableSortHelp)
+	reportCmd.Flags().StringVar(&reportRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
+	reportCmd.Flags().StringVar(&reportScoreSource, "score-source", scoreSourceDefault, "score source for the ranked list and Benchmark score column: swebench, arena or general")
+
+	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd, reportCmd)
 	root.AddCommand(tableCmd)
 	completionCmd := &cobra.Command{Use: "completion", Short: "Generate the autocompletion script for the specified shell", Args: cobra.NoArgs}
 	noDescriptions := false
