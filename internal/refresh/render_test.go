@@ -92,7 +92,7 @@ func goldenData() RenderData {
 		SaferAI:      "SaferAI Frontier Risk Management Tracker: OpenAI 34%.",
 		OpenWeights:  "Полностью закрытые: всё OpenAI.",
 		TiersIntro:   "Категории — по примерному уровню качества относительно Claude.",
-		Tiers: []TierSection{{Heading: ">≈ Opus 5", Rows: []model.Model{luna, sol}, Notes: []ModelNote{
+		Tiers: []TierSection{{Heading: ">≈ Opus 5", Tier: "opus", Rows: []model.Model{luna, sol}, Notes: []ModelNote{
 			{Model: luna, Note: luna.Note},
 			{Model: sol, Note: sol.Note},
 		}}},

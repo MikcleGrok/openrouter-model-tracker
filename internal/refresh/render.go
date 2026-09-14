@@ -35,9 +35,13 @@ type ModelNote struct {
 }
 
 // TierSection is one quality tier: its heading, its rows in table order, and
-// the subset of those rows that have a real note to show underneath.
+// the subset of those rows that have a real note to show underneath. Tier is
+// the raw tier key ("opus"/"sonnet"/"haiku") — unused by the Markdown
+// template, which only ever prints Heading, but needed by the HTML
+// template's per-tier section id ("#tier-opus") and its tier-colour class.
 type TierSection struct {
 	Heading string
+	Tier    string
 	Rows    []model.Model
 	Notes   []ModelNote
 }
@@ -389,7 +393,7 @@ func BuildRenderDataWithOptions(models []model.Model, nt *notes.Notes, updated s
 		if len(rows) == 0 {
 			continue
 		}
-		d.Tiers = append(d.Tiers, TierSection{Heading: tierHeadings[tier], Rows: rows, Notes: modelNotesFor(rows)})
+		d.Tiers = append(d.Tiers, TierSection{Heading: tierHeadings[tier], Tier: tier, Rows: rows, Notes: modelNotesFor(rows)})
 	}
 	d.FreeModels = model.TierRows(models, "free")
 	d.FreeNotes = modelNotesFor(d.FreeModels)

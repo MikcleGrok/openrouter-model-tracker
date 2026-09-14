@@ -194,6 +194,17 @@ func isLegacyTUIFilter(value string) bool {
 	return strings.TrimSpace(value) == "" || strings.TrimSpace(value) == "has-q/p"
 }
 
+// htmlPathFor returns the sibling HTML path for a document path by replacing
+// its extension. It refuses to return the input unchanged: under --format
+// both that would publish the HTML over the Markdown artifact and destroy it.
+func htmlPathFor(p string) (string, error) {
+	out := strings.TrimSuffix(p, filepath.Ext(p)) + ".html"
+	if out == p {
+		return "", fmt.Errorf("--format both нужен markdown-путь вывода, получен %s: передай --format html --output %s", p, p)
+	}
+	return out, nil
+}
+
 // Config-relative paths are anchored to the config file, not the caller's cwd.
 func resolveConfigPath(cfgPath, value string) string {
 	if value == "" || filepath.IsAbs(value) {
@@ -327,6 +338,7 @@ func newRootCmd() *cobra.Command {
 		reportSort        string
 		reportRanking     string
 		reportScoreSource string
+		reportFormat      string
 	)
 
 	root := &cobra.Command{
@@ -655,6 +667,9 @@ func newRootCmd() *cobra.Command {
 			if err := validateScoreSource(reportScoreSource); err != nil {
 				return err
 			}
+			if err := validateReportFormat(reportFormat); err != nil {
+				return err
+			}
 			reportRanking = normalizeRanking(reportRanking)
 			compiledRanking, err := resolveMixedUtilityConfig(cfgPath)
 			if err != nil {
@@ -694,11 +709,36 @@ func newRootCmd() *cobra.Command {
 				Ranked:       ranked,
 			})
 
-			var md bytes.Buffer
-			if err := refresh.Render(&md, data); err != nil {
-				return err
+			var artifacts []refresh.Artifact
+			if reportFormat == formatMarkdown || reportFormat == formatBoth {
+				var md bytes.Buffer
+				if err := refresh.Render(&md, data); err != nil {
+					return err
+				}
+				artifacts = append(artifacts, refresh.Artifact{Path: opts.OutputPath, Data: md.Bytes()})
 			}
-			artifacts := []refresh.Artifact{{Path: opts.OutputPath, Data: md.Bytes()}}
+			var htmlWritten string
+			if reportFormat == formatHTML || reportFormat == formatBoth {
+				htmlPath := opts.OutputPath
+				// --format both always derives the HTML path from the
+				// Markdown one (there is no --output-html — see D7.1 in
+				// .task/omt-report/plan.md); --format html alone honours an
+				// explicit --output literally, and only falls back to
+				// extension-replacement when the caller left --output unset.
+				if reportFormat == formatBoth || !cmd.Flags().Changed("output") {
+					p, err := htmlPathFor(opts.OutputPath)
+					if err != nil {
+						return err
+					}
+					htmlPath = p
+				}
+				var html bytes.Buffer
+				if err := refresh.RenderHTML(&html, data); err != nil {
+					return err
+				}
+				artifacts = append(artifacts, refresh.Artifact{Path: htmlPath, Data: html.Bytes()})
+				htmlWritten = htmlPath
+			}
 
 			if err := refresh.PublishDocuments(cmd.Context(), artifacts...); err != nil {
 				if refresh.IsPostCommitCleanupError(err) {
@@ -710,7 +750,13 @@ func newRootCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "📄 Записано: %s\n", artifact.Path)
 			}
 			if reportOpen {
+				// Reading both artifacts, prefer HTML: it is the richer
+				// format, and Markdown is kept around for git/GitHub, not
+				// for a human to read via the system opener.
 				target := opts.OutputPath
+				if htmlWritten != "" {
+					target = htmlWritten
+				}
 				if err := open.File(target); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "⚠️ Не удалось открыть документ (%v); файл записан: %s\n", err, target)
 				}
@@ -723,6 +769,7 @@ func newRootCmd() *cobra.Command {
 	reportCmd.Flags().StringVarP(&reportSort, "sort", "s", "q/p", "sort the ranked list by: "+tableSortHelp)
 	reportCmd.Flags().StringVar(&reportRanking, "ranking", rankingDefault, "ranking mode: legacy (q/p); tier or tier-priority; mixed or mixed-utility; default mixed-utility")
 	reportCmd.Flags().StringVar(&reportScoreSource, "score-source", scoreSourceDefault, "score source for the ranked list and Benchmark score column: swebench, arena or general")
+	reportCmd.Flags().StringVar(&reportFormat, "format", formatMarkdown, "output format: markdown, html or both; html and both write an .html sibling of --output")
 
 	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd, reportCmd)
 	root.AddCommand(tableCmd)

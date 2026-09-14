@@ -49,6 +49,26 @@ const (
 	scoreSourceDefault  = scoreSourceSWEBench
 )
 
+// formatMarkdown, formatHTML and formatBoth are report's --format values.
+// formatMarkdown is the default: it reproduces refresh's own document
+// exactly, so a plain `openrouter report` changes nothing about today's
+// output shape beyond the D3 redesign every format shares.
+const (
+	formatMarkdown = "markdown"
+	formatHTML     = "html"
+	formatBoth     = "both"
+)
+
+// validateReportFormat rejects anything but the three registered formats.
+func validateReportFormat(format string) error {
+	switch format {
+	case formatMarkdown, formatHTML, formatBoth:
+		return nil
+	default:
+		return fmt.Errorf("report: invalid --format %q; allowed values: markdown, html, both", format)
+	}
+}
+
 // scoreSourceOrder is the cycle order of the registered views, and the order
 // their names are listed in help and error text. It is the one place a fourth
 // view would be added.

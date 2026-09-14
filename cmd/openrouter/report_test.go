@@ -110,6 +110,119 @@ func TestReportCommandFailsWithoutDefaultOutput(t *testing.T) {
 	}
 }
 
+func TestReportCommandFormatHTMLWritesExtensionReplacedPath(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "output.md")
+	wantHTML := filepath.Join(root, "output.html")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+out+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+
+	output := executeCLI(t, "report", "--config", config, "--format", "html")
+	if !strings.Contains(output, "📄 Записано: "+wantHTML) {
+		t.Fatalf("report --format html output = %q, want a written-path line for %s", output, wantHTML)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Fatalf("--format html unexpectedly wrote the markdown path %s", out)
+	}
+	body, err := os.ReadFile(wantHTML)
+	if err != nil {
+		t.Fatalf("read html output: %v", err)
+	}
+	if !strings.HasPrefix(string(body), "<!doctype html") {
+		t.Fatalf("html output does not start with <!doctype html:\n%s", string(body)[:min(200, len(body))])
+	}
+}
+
+func TestReportCommandFormatBothWritesBothFilesIdenticalMarkdown(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "output.md")
+	wantHTML := filepath.Join(root, "output.html")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+out+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+
+	executeCLI(t, "report", "--config", config, "--format", "markdown")
+	mdOnly, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read markdown-only output: %v", err)
+	}
+
+	output := executeCLI(t, "report", "--config", config, "--format", "both")
+	if !strings.Contains(output, "📄 Записано: "+out) || !strings.Contains(output, "📄 Записано: "+wantHTML) {
+		t.Fatalf("report --format both output = %q, want both paths written", output)
+	}
+	mdBoth, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read markdown (both) output: %v", err)
+	}
+	if string(mdBoth) != string(mdOnly) {
+		t.Fatalf("--format both markdown differs from --format markdown output")
+	}
+	htmlBody, err := os.ReadFile(wantHTML)
+	if err != nil {
+		t.Fatalf("read html (both) output: %v", err)
+	}
+	if !strings.HasPrefix(string(htmlBody), "<!doctype html") {
+		t.Fatalf("html output does not start with <!doctype html")
+	}
+}
+
+func TestReportCommandRejectsInvalidFormat(t *testing.T) {
+	root := t.TempDir()
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+filepath.Join(root, "output.md")+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	err := executeCLIError(t, "report", "--config", config, "--format", "bogus")
+	if err == nil || !strings.Contains(err.Error(), "invalid --format") {
+		t.Fatalf("error = %v, want invalid --format", err)
+	}
+}
+
+func TestReportCommandFormatHTMLWithExplicitOutputIsLiteral(t *testing.T) {
+	root := t.TempDir()
+	defaultOut := filepath.Join(root, "output.md")
+	explicit := filepath.Join(root, "custom.txt")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+defaultOut+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+
+	output := executeCLI(t, "report", "--config", config, "--format", "html", "--output", explicit)
+	if !strings.Contains(output, "📄 Записано: "+explicit) {
+		t.Fatalf("report --format html --output output = %q, want the literal path %s written", output, explicit)
+	}
+	if _, err := os.Stat(explicit); err != nil {
+		t.Fatalf("literal --output path not written: %v", err)
+	}
+	body, err := os.ReadFile(explicit)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !strings.HasPrefix(string(body), "<!doctype html") {
+		t.Fatalf("html output at the literal path does not start with <!doctype html")
+	}
+}
+
+func TestReportCommandFormatBothRejectsAnHTMLOutputPath(t *testing.T) {
+	root := t.TempDir()
+	htmlLikeOutput := filepath.Join(root, "already.html")
+	config := writeConfig(t, "data_dir: "+root+"\ndefault_output: "+filepath.Join(root, "output.md")+"\n")
+	if err := copyTableFixture(t, root); err != nil {
+		t.Fatal(err)
+	}
+	err := executeCLIError(t, "report", "--config", config, "--format", "both", "--output", htmlLikeOutput)
+	if err == nil || !strings.Contains(err.Error(), "--format both") {
+		t.Fatalf("error = %v, want the --format both guard message", err)
+	}
+	if _, statErr := os.Stat(htmlLikeOutput); statErr == nil {
+		t.Fatalf("--format both must not have overwritten the markdown-shaped output path %s", htmlLikeOutput)
+	}
+}
+
 func TestReportCommandOpenWarnsAndStillSucceedsOnAFailingOpener(t *testing.T) {
 	root := t.TempDir()
 	out := filepath.Join(root, "output.md")
