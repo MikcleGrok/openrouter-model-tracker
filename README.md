@@ -71,7 +71,7 @@ omt check                      # что изменилось в каталоге
 ## Example Report
 
 - [Markdown](docs/examples/openrouter-model-comparison.md) — пример вывода `omt report`
-- [HTML](https://htmlpreview.github.io/?https://raw.githubusercontent.com/MikcleGrok/openrouter-model-tracker/master/docs/examples/openrouter-model-comparison.html) — тот же отчёт в самостоятельном HTML
+- [HTML](https://mikclegrok.github.io/openrouter-model-tracker/examples/openrouter-model-comparison.html) — тот же отчёт в самостоятельном HTML
 
 ## Feedback & Ideas
 
