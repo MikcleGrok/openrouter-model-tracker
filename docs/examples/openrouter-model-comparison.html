@@ -31,10 +31,26 @@ section > h2 { border-left:6px solid var(--tier,var(--line)); padding-left:14px;
 .tier-opus { --tier:var(--opus); } .tier-sonnet { --tier:var(--sonnet); }
 .tier-haiku { --tier:var(--haiku); } .tier-free { --tier:var(--free); } .tier-none { --tier:var(--muted); }
 tr[class^="tier-"] td:first-child { border-left:4px solid var(--tier); }
-.tablewrap { overflow-x:auto; overflow-y:clip; margin:14px 0; border:1px solid var(--line); background:var(--panel); }
+.tablewrap {
+  position:relative; overflow-x:auto; overflow-y:clip; margin:14px 0; border:1px solid var(--line);
+  background:var(--panel); -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin; scrollbar-color:var(--muted) var(--panel);
+}
+.tablewrap::-webkit-scrollbar { height:10px; }
+.tablewrap::-webkit-scrollbar-track { background:var(--panel); }
+.tablewrap::-webkit-scrollbar-thumb { background:var(--muted); border-radius:6px; }
+.tablewrap.can-scroll-left  { box-shadow:inset  22px 0 14px -14px rgba(23,34,38,.35); }
+.tablewrap.can-scroll-right { box-shadow:inset -22px 0 14px -14px rgba(23,34,38,.35); }
+.tablewrap.can-scroll-left.can-scroll-right {
+  box-shadow:inset 22px 0 14px -14px rgba(23,34,38,.35), inset -22px 0 14px -14px rgba(23,34,38,.35);
+}
 table { width:100%; min-width:640px; border-collapse:collapse; font-size:.9rem; }
 th,td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
 table.sortable thead th { position:sticky; top:0; z-index:2; background:#f0eee5; }
+table.sortable td:first-child, table.sortable th:first-child {
+  position:sticky; left:0; z-index:1; background:var(--panel); border-right:1px solid var(--line);
+}
+table.sortable thead th:first-child { z-index:3; background:#f0eee5; }
 th { color:var(--muted); background:#f0eee5; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; }
 tr:last-child td { border-bottom:0; }
 th[data-sortable] { cursor:pointer; user-select:none; }
@@ -48,12 +64,20 @@ ul.notes li, ul.caveats li, ul.provenance-list li { margin:5px 0; }
 ul.provenance-list { font-size:.86rem; color:#435258; }
 .totop { position:fixed; right:20px; bottom:20px; width:38px; height:38px; display:flex; align-items:center; justify-content:center; background:var(--ink); color:#f5f3eb; text-decoration:none; border-radius:50%; font-size:1.2rem; box-shadow:0 6px 18px rgba(23,34,38,.25); }
 @media (max-width:900px) { nav.toc ul { columns:1; } }
-@media (max-width:620px) { .wrap { width:min(calc(100% - 28px),520px); } section { padding:26px 0; } th,td { padding:7px 9px; font-size:.85rem; } }
+@media (max-width:620px) {
+  .wrap { width:min(calc(100% - 28px),520px); } section { padding:26px 0; }
+  th,td { padding:7px 9px; font-size:.85rem; }
+  .tablewrap.can-scroll-left  { box-shadow:inset  14px 0 10px -10px rgba(23,34,38,.35); }
+  .tablewrap.can-scroll-right { box-shadow:inset -14px 0 10px -10px rgba(23,34,38,.35); }
+  .tablewrap.can-scroll-left.can-scroll-right {
+    box-shadow:inset 14px 0 10px -10px rgba(23,34,38,.35), inset -14px 0 10px -10px rgba(23,34,38,.35);
+  }
+}
 @media print {
   body { background:#fff; }
   nav.toc, .totop { display:none; }
-  .tablewrap { overflow:visible; }
-  table.sortable thead th { position:static; }
+  .tablewrap { overflow:visible; box-shadow:none !important; }
+  table.sortable thead th, table.sortable td:first-child, table.sortable th:first-child { position:static; }
   thead { display:table-header-group; } tr { break-inside:avoid; }
   a[href^="http"]::after { content:" (" attr(href) ")"; font-size:.8em; color:#617176; }
 }
@@ -7093,6 +7117,17 @@ ul.provenance-list { font-size:.86rem; color:#435258; }
       var th = ev.target.closest('th[data-sortable]');
       if (th) { ev.preventDefault(); activate(table, th); }
     });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tablewrap'), function (el) {
+    function update() {
+      var max = el.scrollWidth - el.clientWidth;
+      el.classList.toggle('can-scroll-left', el.scrollLeft > 1);
+      el.classList.toggle('can-scroll-right', max > 1 && el.scrollLeft < max - 1);
+    }
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
   });
 }());
 </script>
