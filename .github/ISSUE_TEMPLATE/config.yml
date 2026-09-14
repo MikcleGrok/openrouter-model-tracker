@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💡 Предложить идею
+    url: https://github.com/MikcleGrok/openrouter-model-tracker/discussions/categories/ideas
+    about: Идеи, пожелания, "было бы круто если бы..." — сюда, не в Issues.

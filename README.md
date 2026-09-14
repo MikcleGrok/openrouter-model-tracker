@@ -66,6 +66,13 @@ omt check                      # что изменилось в каталоге
 
 (также можно использовать полное имя `openrouter-model-tracker`)
 
+## Предложения и идеи
+
+Нашли баг, хотите новую функцию или просто есть идея — welcome:
+
+- **Идеи и пожелания** — [GitHub Discussions](https://github.com/MikcleGrok/openrouter-model-tracker/discussions/categories/ideas), не обязательно быть программистом.
+- **Баг или конкретный запрос функции** — [Issues](https://github.com/MikcleGrok/openrouter-model-tracker/issues/new/choose).
+
 ## Подробнее
 
 - [docs/methodology.md](docs/methodology.md) — identity gate, три независимых измерения качества, формула ранжирования

@@ -1,0 +1,32 @@
+name: Запрос функции
+description: Конкретное предложение — что добавить или изменить
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Если это не конкретная просьба, а просто идея/мысль вслух — лучше в
+        [Discussions → Ideas](https://github.com/MikcleGrok/openrouter-model-tracker/discussions/categories/ideas),
+        там удобнее обсуждать и голосовать.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему это решает?
+      description: Что сейчас неудобно или невозможно сделать
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Что предлагаете?
+      description: Как вы это себе представляете
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст
+      description: Скриншоты, примеры, ссылки — необязательно
+    validations:
+      required: false
