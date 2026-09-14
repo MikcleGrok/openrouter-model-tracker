@@ -1,6 +1,9 @@
 ## Содержание
 
 - [Фавориты по категориям (относительно уровня Claude)](#фавориты-по-категориям-относительно-уровня-claude)
+{{- if .Ranked}}
+- [Рейтинг моделей по цене и качеству](#рейтинг-моделей-по-цене-и-качеству)
+{{- end}}
 - [Цены Claude (справочно)](#цены-claude-справочно)
 - [Владельцы, открытость весов и рейтинг безопасности](#владельцы-открытость-весов-и-рейтинг-безопасности)
 - [Модели по capability estimate (ranked by valid benchmark quality / price)](#модели-по-capability-estimate-ranked-by-valid-benchmark-quality--price)
@@ -10,8 +13,14 @@
 {{- if .Unmapped}}
 - [Актуальные модели без ручного сопоставления](#актуальные-модели-без-ручного-сопоставления)
 {{- end}}
+{{- if .Provenance}}
+- [Приложение: происхождение оценок](#приложение-происхождение-оценок)
+{{- end}}
 
 Обновлено: {{.UpdatedDate}}{{with .UpdatedNote}} ({{.}}){{end}}
+{{- with .GenerationLine}}
+{{.}}
+{{- end}}
 
 `Copyright` — ручная классификация поведения модели при запросе на защищённый контент: `compliant` — соблюдает ограничения, `non_compliant` — может обойти ограничения, `unknown` — проверяемого результата нет. Значение не выводится из лицензии.
 
@@ -23,12 +32,19 @@
 |---|---|---|---|---|---|---|---|---|
 {{- range .Favorites}}
 {{- if .Model}}
-| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Model.Copyright}} | {{.Reason}} |
-{{- if .Model}}
-  Provenance: {{provenance .Model.Score}}
-{{- end}}
+| {{.TierLabel}} | {{.Model.DisplayName}} | {{price .Model.InPerM}} / {{price .Model.OutPerM}}{{with .Model.LongContextPriceLabel}} ({{.}}){{end}} · {{ctx .Model.Context}} | {{.Model.ScoreLabel}}{{marker .Model.Score}} | {{.Model.QualityPriceLabel}} | {{.Model.Owner}} | {{.Model.OpenWeights}} | {{.Model.Copyright}} | {{.Reason}} |
 {{- else}}
 | {{.TierLabel}} | {{.Fallback}} | — | — | — | — | — | unknown | {{.Reason}} |
+{{- end}}
+{{- end}}
+{{- if .Ranked}}
+
+## Рейтинг моделей по цене и качеству
+
+| # | Модель | Slug | Claude | {{.ScoreColumnHeader}} | Q/P | Контекст | Вход $/M | Выход $/M | Task fit |
+|---:|---|---|---|---:|---:|---:|---:|---:|---|
+{{- range .Ranked}}
+| {{.Index}} | {{.Model.DisplayName}} | `{{.Model.Slug}}` | {{claude .Model $.ScoreSource}} | {{.Model.ScoreLabel}}{{marker .Model.Score}} | {{.Model.QualityPriceLabel}} | {{ctx .Model.Context}} | {{price .Model.InPerM}} | {{price .Model.OutPerM}} | {{taskfit .Model.TaskFit}} |
 {{- end}}
 {{- end}}
 
@@ -62,11 +78,17 @@
 {{range .Tiers}}
 ### {{.Heading}}
 
-| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright | Примечание |
-|---|---|---|---|---|---|---|---|---|---|---|
+| Модель | Slug на OpenRouter | Вход $/M | Выход $/M | Контекст | Benchmark score | Quality / price | Владелец (FLI) | Открытые веса | Copyright |
+|---|---|---|---|---|---|---|---|---|---|
 {{- range .Rows}}
-| {{.DisplayName}} | {{.Slug}} | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
-  Provenance: {{provenance .Score}}
+| {{.DisplayName}} | `{{.Slug}}` | {{price .InPerM}}{{with .LongContextInLabel}} ({{.}}){{end}} | {{price .OutPerM}}{{with .LongContextOutLabel}} ({{.}}){{end}} | {{ctx .Context}} | {{.ScoreLabel}}{{scoreref .Score}} | {{.QualityPriceLabel}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} |
+{{- end}}
+{{- if .Notes}}
+
+**Заметки**
+{{range .Notes}}
+- **{{.Model.DisplayName}}** (`{{.Model.Slug}}`) — {{.Note}}
+{{- end}}
 {{- end}}
 {{end}}
 ## Сколько токенов даст $10
@@ -97,11 +119,17 @@
 
 {{.FreeIntro}}
 
-| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright | Примечание |
-|---|---|---|---|---|---|---|---|---|
+| Модель | Slug на OpenRouter | Контекст | Benchmark score | Capability estimate | Владелец | Открытые веса | Copyright |
+|---|---|---|---|---|---|---|---|
 {{- range .FreeModels}}
-| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} | {{.Note}} |
-  Provenance: {{provenance .Score}}
+| {{.DisplayName}} | `{{.Slug}}` | {{ctx .Context}} | {{.ScoreLabel}}{{scoreref .Score}} | {{.ClaudeRef}} | {{.Owner}} | {{.OpenWeights}} | {{.Copyright}} |
+{{- end}}
+{{- if .FreeNotes}}
+
+**Заметки**
+{{range .FreeNotes}}
+- **{{.Model.DisplayName}}** (`{{.Model.Slug}}`) — {{.Note}}
+{{- end}}
 {{- end}}
 
 {{.FreeTerms}}
@@ -117,5 +145,15 @@
 |---|---|---:|---:|---:|---|---|
 {{- range .Unmapped}}
 | {{.DisplayName}} | `{{.Slug}}` | {{price .InPerM}} | {{price .OutPerM}} | {{ctx .Context}} | n/a (missing identity) | n/a |
+{{- end}}
+{{- end}}
+{{- if .Provenance}}
+
+## Приложение: происхождение оценок
+
+Служебный раздел для аудита: полная provenance каждого опубликованного
+наблюдения. Для чтения и выбора модели он не нужен — смотрите таблицы выше.
+{{range .Provenance}}
+- `{{.Model.Slug}}` — {{.Dump}}
 {{- end}}
 {{- end}}
