@@ -12,6 +12,9 @@ bin/
 !.githooks
 !.githooks/**
 
+# GitHub Pages (serves this repo's docs/ folder) must not run Jekyll over it.
+!/docs/.nojekyll
+
 # Static cosign signing key material MUST never be committed. Only the
 # public half (cosign.pub, tracked in the repo root) is a source artifact.
 # The private key is generated and stored outside this repo entirely; these
