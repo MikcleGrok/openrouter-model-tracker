@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -528,6 +529,104 @@ func TestTUIFilterDraftCopyrightGuardrailRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTUIFilterDraftTaskFitRoundTrip(t *testing.T) {
+	draft := tuiFilterDraftFromString("task_fit: implement, debug")
+	if draft.taskFit != "implement,debug" || !draft.taskFitSet || tuiFilterDraftFromString(draft.string()).taskFit != draft.taskFit || !tuiFilterDraftFromString(draft.string()).taskFitSet {
+		t.Fatalf("task fit draft = %+v, serialized %q", draft, draft.string())
+	}
+	emptyPredicate := tuiFilterDraftFromString("task_fit:")
+	if !emptyPredicate.taskFitSet || emptyPredicate.string() != "task_fit:" || !tuiFilterDraftFromString(emptyPredicate.string()).taskFitSet {
+		t.Fatalf("empty task fit predicate draft = %+v, serialized %q", emptyPredicate, emptyPredicate.string())
+	}
+	empty := tuiFilterDraftFromString(tuiFilterDraft{}.string())
+	if empty.taskFit != "" || empty.taskFitSet {
+		t.Fatalf("empty task fit draft = %+v", empty)
+	}
+	repeated := tuiFilterDraftFromString("task_fit:implement,task_fit:debug")
+	got := repeated.string()
+	if got != "task_fit:implement,task_fit:debug" {
+		t.Fatalf("repeated task fit serialization = %q", got)
+	}
+	if reparsed := tuiFilterDraftFromString(repeated.string()); reparsed.string() != got {
+		t.Fatalf("repeated task fit round-trip = %q, want %q", reparsed.string(), got)
+	}
+	withEmptyAlternate := tuiFilterDraftFromString("task_fit:implement,task_fit:,task_fit:debug")
+	if got := withEmptyAlternate.string(); got != "task_fit:implement,task_fit:,task_fit:debug" {
+		t.Fatalf("repeated task fit with empty alternate = %q", got)
+	}
+	if reparsed := tuiFilterDraftFromString(withEmptyAlternate.string()); reparsed.string() != withEmptyAlternate.string() {
+		t.Fatalf("repeated task fit with empty alternate round-trip = %q", reparsed.string())
+	}
+}
+
+func TestTUIFilterDraftTaskFitEditSetsPresenceAndKeepsExplicitEmpty(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 11}
+	m, _ = m.filterKey("i", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m, _ = m.filterKey("m", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:im" {
+		t.Fatalf("typed task fit draft = %+v, serialized %q", m.filterDraft, m.filterDraft.string())
+	}
+	m, _ = m.filterKey("backspace", tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.filterKey("backspace", tea.KeyMsg{Type: tea.KeyBackspace})
+	if !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:" {
+		t.Fatalf("cleared task fit draft = %+v, serialized %q", m.filterDraft, m.filterDraft.string())
+	}
+}
+
+func TestTUIFilterViewShowsTaskFitAlternatesAndExplicitEmpty(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 100, height: 30, filterDraft: tuiFilterDraftFromString("task_fit:,task_fit:implement,task_fit:debug")}
+	view := m.View()
+	if !strings.Contains(view, "Task fit: (no task fit) OR implement OR debug") {
+		t.Fatalf("task fit filter view = %q, want all alternatives and explicit empty predicate", view)
+	}
+	if strings.Contains(view, "Task fit: (any)") {
+		t.Fatalf("explicit empty task fit rendered as any: %q", view)
+	}
+}
+
+func TestTUIFilterViewKeepsTaskFitVisibleAtTwentyRows(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 100, height: 20, filterDraft: tuiFilterDraftFromString("task_fit:implement")}
+	view := m.View()
+	if !strings.Contains(view, "Task fit: implement") {
+		t.Fatalf("twenty-row filter view clipped Task fit: %q", view)
+	}
+	if got := len(strings.Split(view, "\n")); got != 20 {
+		t.Fatalf("twenty-row filter view has %d rows, want 20", got)
+	}
+}
+
+func TestTUIFilterViewKeepsFocusedFieldVisibleAtVerySmallHeight(t *testing.T) {
+	for _, test := range []struct {
+		cursor int
+		want   string
+	}{
+		{cursor: 0, want: "Free:"},
+		{cursor: 11, want: "Task fit:"},
+	} {
+		m := tuiModel{overlay: "filter", width: 100, height: 5, filterCursor: test.cursor}
+		view := m.View()
+		if !strings.Contains(view, test.want) {
+			t.Fatalf("height-five filter cursor %d = %q, want focused field %q", test.cursor, view, test.want)
+		}
+	}
+}
+
+func TestTUIFilterViewKeepsFocusedFieldVisibleAtHeightSix(t *testing.T) {
+	for _, test := range []struct {
+		cursor int
+		want   string
+	}{
+		{cursor: 0, want: "Free:"},
+		{cursor: 11, want: "Task fit:"},
+	} {
+		m := tuiModel{overlay: "filter", width: 100, height: 6, filterCursor: test.cursor}
+		view := m.View()
+		if !strings.Contains(view, test.want) {
+			t.Fatalf("height-six filter cursor %d = %q, want focused field %q", test.cursor, view, test.want)
+		}
+	}
+}
+
 // TestTUIStatusColumnShowsScoreSourceMarker checks Fix 1's marker reaches
 // the TUI list view: colStatus renders through the same tableStatus helper
 // the CLI table uses, so a vals.ai row and a swebench.com row must be
@@ -658,6 +757,34 @@ func TestTUIInteractiveFilterPersistsAndClears(t *testing.T) {
 	}
 	if cfg.TUIFilterSet || cfg.TUIFilter != "" || len(m.visible) != 2 {
 		t.Fatalf("cleared filter = %q, visible = %+v", cfg.TUIFilter, m.visible)
+	}
+}
+
+func TestTUIInteractiveTaskFitFilterUsesSharedParser(t *testing.T) {
+	rows := []model.Model{{Slug: "implement", TaskFit: []string{"implement"}}, {Slug: "debug", TaskFit: []string{"debug"}}, {Slug: "both", TaskFit: []string{"implement", "debug"}}, {Slug: "empty"}}
+	for _, test := range []struct {
+		filter string
+		want   []string
+	}{
+		{"task_fit:implement,debug", []string{"both"}},
+		{"task_fit:implement,task_fit:debug", []string{"implement", "debug", "both"}},
+		{"task_fit:", []string{"empty"}},
+	} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+		m.inputMode, m.input = "filter", test.filter
+		m, _ = m.inputKey(tea.KeyMsg{Type: tea.KeyEnter})
+		if m.err != "" {
+			t.Fatalf("filter %q error = %q", test.filter, m.err)
+		}
+		got := make([]string, 0, len(m.visible))
+		for _, row := range m.visible {
+			got = append(got, row.Slug)
+		}
+		sort.Strings(got)
+		sort.Strings(test.want)
+		if !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("filter %q visible = %v, want %v", test.filter, got, test.want)
+		}
 	}
 }
 
@@ -2101,9 +2228,12 @@ func TestTUIFilterHelpDocumentsExamplesOperatorsAndScoreSource(t *testing.T) {
 		"omt table --filter 'paid,quality>=80'",
 		"press f",
 		"Predicates:",
+		"task_fit:K1,K2,...",
+		"Within one task_fit predicate, keywords use AND",
+		"repeated task_fit predicates use OR",
 		"Operators:",
 		"repeated with CLI --filter",
-		"always use AND",
+		"only repeated task_fit predicates use OR",
 		"active score source",
 		"quality>=0.8 means quality>=80",
 	} {

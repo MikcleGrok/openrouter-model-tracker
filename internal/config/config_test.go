@@ -633,6 +633,33 @@ func TestLoadAcceptsNewAvailabilityAndQualityPriceFilters(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsTaskFitFilters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := "default_filter: \"paid, task_fit:implement, debug,quality>=80\"\ntui_filter: \"task_fit:\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || got.DefaultFilter != "paid, task_fit:implement, debug,quality>=80" || got.TUIFilter != "task_fit:" {
+		t.Fatalf("filters = %+v, err %v", got, err)
+	}
+}
+
+func TestLoadRejectsUnknownTaskFitInFilters(t *testing.T) {
+	for _, field := range []string{"default_filter", "tui_filter"} {
+		t.Run(field, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(field+": \"paid, task_fit:implement, unknown\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), "unknown task fit keyword") || !strings.Contains(err.Error(), `"unknown"`) {
+				t.Fatalf("Load error = %v, want unknown task fit keyword", err)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsUnknownTierInFilters(t *testing.T) {
 	for _, field := range []string{"default_filter", "tui_filter"} {
 		t.Run(field, func(t *testing.T) {

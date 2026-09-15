@@ -749,6 +749,9 @@ func Load(path string) (Config, error) {
 		if err := filter.ValidateAvailability(value); err != nil {
 			return Config{}, fmt.Errorf("config: %s: invalid %s: %w", path, name, err)
 		}
+		if err := filter.ValidateTaskFit(value); err != nil {
+			return Config{}, fmt.Errorf("config: %s: invalid %s: %w", path, name, err)
+		}
 	}
 	if _, err := ranking.Compile(c.Ranking.MixedUtility); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)

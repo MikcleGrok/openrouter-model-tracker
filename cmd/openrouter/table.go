@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	filterpkg "github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/modelmap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -488,6 +489,7 @@ func tableFlagExpectsValue(arg string, flags *pflag.FlagSet) bool {
 
 func filterTableModels(models []model.Model, filters []string) ([]model.Model, error) {
 	parsed := make([]func(model.Model) bool, 0, len(filters))
+	taskFitPredicates := make([]func(model.Model) bool, 0)
 	for _, input := range filters {
 		for _, raw := range splitFilter(input) {
 			filter := strings.ToLower(strings.TrimSpace(raw))
@@ -520,6 +522,31 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 					return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", tier, raw, tierpkg.ValuesString())
 				}
 				parsed = append(parsed, func(m model.Model) bool { return tierpkg.AtLeast(m.Tier, tier) })
+			case strings.HasPrefix(filter, "task_fit:"):
+				keywords := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "task_fit:")), ",")
+				if len(keywords) == 1 && strings.TrimSpace(keywords[0]) == "" {
+					taskFitPredicates = append(taskFitPredicates, func(m model.Model) bool { return len(m.TaskFit) == 0 })
+					continue
+				}
+				wanted := make([]string, 0, len(keywords))
+				for _, keyword := range keywords {
+					keyword = strings.TrimSpace(keyword)
+					if keyword == "" {
+						return nil, fmt.Errorf("table: malformed filter %q; task_fit keyword must not be empty", raw)
+					}
+					if !isTaskFitKeyword(keyword) {
+						return nil, fmt.Errorf("table: unknown task fit keyword %q in filter %q; allowed values: implement, plan, research, debug, audit, refactor, test", keyword, raw)
+					}
+					wanted = append(wanted, keyword)
+				}
+				taskFitPredicates = append(taskFitPredicates, func(m model.Model) bool {
+					for _, keyword := range wanted {
+						if !containsString(m.TaskFit, keyword) {
+							return false
+						}
+					}
+					return true
+				})
 			case strings.HasPrefix(filter, "copyright_guardrail:"):
 				values := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "copyright_guardrail:")), ",")
 				allowed := make(map[string]bool, len(values))
@@ -562,7 +589,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				}
 				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
 			default:
-				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:MIN, copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:MIN, task_fit:K1,K2,..., copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
 		}
 	}
@@ -575,6 +602,15 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				break
 			}
 		}
+		if matches && len(taskFitPredicates) > 0 {
+			matches = false
+			for _, predicate := range taskFitPredicates {
+				if predicate(candidate) {
+					matches = true
+					break
+				}
+			}
+		}
 		if matches {
 			filtered = append(filtered, candidate)
 		}
@@ -583,29 +619,25 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 }
 
 func splitFilter(filter string) []string {
-	if strings.TrimSpace(filter) == "" {
-		return nil
-	}
-	parts := strings.Split(filter, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if len(result) > 0 && isCopyrightGuardrailValue(trimmed) && strings.HasPrefix(strings.ToLower(result[len(result)-1]), "copyright_guardrail:") {
-			result[len(result)-1] += "," + trimmed
-			continue
-		}
-		result = append(result, part)
-	}
-	return result
+	return filterpkg.Split(filter)
 }
 
-func isCopyrightGuardrailValue(value string) bool {
+func isTaskFitKeyword(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case notes.CopyrightGuardrailEnforces, notes.CopyrightGuardrailBypasses, notes.CopyrightGuardrailUnknown:
+	case "implement", "plan", "research", "debug", "audit", "refactor", "test":
 		return true
 	default:
 		return false
 	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeCopyrightGuardrail(value string) string {

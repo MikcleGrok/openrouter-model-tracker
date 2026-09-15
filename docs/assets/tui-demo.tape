@@ -86,7 +86,7 @@ Sleep 700ms
 # Cursor starts at field 0 ("free") on open (openFilterEditor sets
 # m.filterCursor = 0, tui.go:1524). Field order (tui.go:1532-1596,
 # tui.go:1950): 0=free 1=paid 2=scored 3=tier 4=quality 5=context
-# 6=input 7=output 8=has-q/p 9=availability 10=copyright_guardrail.
+# 6=input 7=output 8=has-q/p 9=availability 10=copyright_guardrail 11=task_fit.
 # The current filter (availability:paid from the launch flag) is already
 # parsed into the draft on open, so field 9 needs no touching.
 Type "f"
@@ -170,7 +170,7 @@ Sleep 1.5s
 #   Down 9 - filterCursor 0->9 (Availability field; field order tui.go:1532-
 #     1596/1950, same as part 3's own comment above: 0=free 1=paid 2=scored
 #     3=tier 4=quality 5=context 6=input 7=output 8=has-q/p 9=availability
-#     10=copyright_guardrail).
+#     10=copyright_guardrail 11=task_fit).
 #   Right 3 - "" -> "any" -> "free" -> "paid" (tuiNextAvailability, tui.go:
 #     1759-1767).
 #   Enter - applies; candidate == "availability:paid" == config.DefaultFilter,

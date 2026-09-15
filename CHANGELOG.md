@@ -4,6 +4,10 @@
 
 - Future release changes will be documented here.
 
+## [1.21.4]
+
+- Add the `task_fit:K1,K2,...` table and TUI filter. Keywords inside one predicate use AND semantics, repeated `task_fit:` predicates use OR semantics, and an empty `task_fit:` selects models without task-fit metadata. Other filters still combine through AND; the TUI filter editor round-trips the task-fit predicate, including the explicit empty form.
+
 ## [1.21.3]
 
 - Fix the real cause of the ranked comparison table overflowing horizontally: `table-layout:auto` sizes a column to fit its single widest cell across all rows, and one outlier value (`67.6% [observation_only]`) was inflating the score column to ~160px on every one of the 445 rows, pushing the table past the viewport. Switched the ranked table to `table-layout:fixed` with explicit per-column width percentages and `overflow-wrap:anywhere`, so long values wrap within their own column instead of stretching it — the table now fits without scrolling at normal desktop widths. The v1.21.2 scroll-affordance fix (visible scrollbar, edge fade) stays as the fallback for genuinely narrow viewports.

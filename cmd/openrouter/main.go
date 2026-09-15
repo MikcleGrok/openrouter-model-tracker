@@ -556,7 +556,7 @@ func newRootCmd() *cobra.Command {
 	tableCmd.Flags().StringVar(&tableScoreSource, "score-source", scoreSourceDefault, "score source for Status and ranking: swebench (SWE-bench Verified), arena (LMArena Elo) or general (GPQA Diamond); the three are never mixed")
 	tableCmd.Flags().BoolVarP(&tableReverse, "reverse", "R", false, "reverse the primary sort order")
 	tableCmd.Flags().IntVarP(&tableLimit, "limit", "n", -1, "show only the first N models after sorting; 0 means unlimited; standalone -N is shorthand for -n N")
-	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: comma-separated or repeated predicates; quality is 0..100 or 0..1 fraction (AND)")
+	tableCmd.Flags().StringArrayVarP(&tableFilters, "filter", "f", nil, "filter: paid/free/scored, tier:MIN, task_fit:K1,K2,... or task_fit:; task_fit keywords use AND, repeated task_fit predicates use OR, other filters use AND; quality is 0..100 or 0..1 fraction")
 	tableCmd.Flags().BoolVar(&tableNoPager, "no-pager", false, "do not use less in a TTY")
 	tableCmd.Flags().BoolVarP(&tableShowSlug, "slug", "S", false, "show Slug instead of Name as the first column")
 	tableCmd.Flags().StringVar(&tableTaskFit, "task-fit", "short", "task-fit display: short (IDFT, no plus signs); long: implement + debug + refactor + test; taxonomy: implement, plan, research, debug, audit, refactor, test")

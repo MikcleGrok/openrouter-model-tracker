@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
@@ -857,6 +858,46 @@ func TestFilterTableModelsCopyrightGuardrailCSVAndMissingValues(t *testing.T) {
 	}
 	if _, err := filterTableModels(models, []string{"copyright_guardrail:license"}); err == nil {
 		t.Fatal("invalid copyright guardrail unexpectedly accepted")
+	}
+}
+
+func TestFilterTableModelsTaskFitPredicates(t *testing.T) {
+	models := []model.Model{{Slug: "implement", Paid: true, TaskFit: []string{"implement", "test"}}, {Slug: "debug", NoPrice: true, TaskFit: []string{"debug"}}, {Slug: "both", NoPrice: true, TaskFit: []string{"implement", "debug"}}, {Slug: "empty", NoPrice: true}}
+	for _, test := range []struct {
+		filter string
+		want   []string
+	}{
+		{"task_fit:implement", []string{"implement", "both"}},
+		{"task_fit:implement,debug", []string{"both"}},
+		{"task_fit:", []string{"empty"}},
+		{"task_fit: implement , debug", []string{"both"}},
+		{"task_fit:implement,task_fit:debug", []string{"implement", "debug", "both"}},
+	} {
+		got, err := filterTableModels(models, []string{test.filter})
+		if err != nil {
+			t.Fatalf("filter %q: %v", test.filter, err)
+		}
+		gotSlugs := make([]string, 0, len(got))
+		for _, row := range got {
+			gotSlugs = append(gotSlugs, row.Slug)
+		}
+		if !reflect.DeepEqual(gotSlugs, test.want) {
+			t.Errorf("filter %q = %v, want %v", test.filter, gotSlugs, test.want)
+		}
+	}
+	got, err := filterTableModels(models, []string{"task_fit:implement", "paid"})
+	if err != nil || len(got) != 1 || got[0].Slug != "implement" {
+		t.Fatalf("task fit with another filter = %+v, error %v; want implement only", got, err)
+	}
+	got, err = filterTableModels(models, []string{"paid, task_fit:implement, test"})
+	if err != nil || len(got) != 1 || got[0].Slug != "implement" {
+		t.Fatalf("whitespace task fit filter = %+v, error %v; want implement only", got, err)
+	}
+	if _, err := filterTableModels(models, []string{"paid, task_fit:implement, unknown"}); err == nil {
+		t.Fatal("unknown task fit keyword unexpectedly accepted")
+	}
+	if err := filter.ValidateTaskFit("task_fit:unknown"); err == nil || !strings.Contains(err.Error(), `"unknown"`) {
+		t.Fatalf("ValidateTaskFit error = %v, want unknown keyword", err)
 	}
 }
 
