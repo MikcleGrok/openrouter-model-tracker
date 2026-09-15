@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricehistory"
@@ -570,6 +571,55 @@ func TestTUIFilterDraftTaskFitEditSetsPresenceAndKeepsExplicitEmpty(t *testing.T
 	m, _ = m.filterKey("backspace", tea.KeyMsg{Type: tea.KeyBackspace})
 	if !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:" {
 		t.Fatalf("cleared task fit draft = %+v, serialized %q", m.filterDraft, m.filterDraft.string())
+	}
+}
+
+func TestTUIFilterTaskFitArrowsChangePrimaryPredicateAndPreserveAlternates(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:implement,task_fit:debug")}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "plan" || !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:plan,task_fit:debug" {
+		t.Fatalf("right task fit state = %+v, serialized %q; want plan with debug alternate", m.filterDraft, m.filterDraft.string())
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "implement" || m.filterDraft.string() != "task_fit:implement,task_fit:debug" {
+		t.Fatalf("left task fit state = %+v, serialized %q; want implement with debug alternate", m.filterDraft, m.filterDraft.string())
+	}
+}
+
+func TestTUIFilterTaskFitArrowsCycleBoundariesAndExplicitEmpty(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:")}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "test" || m.filterDraft.string() != "task_fit:test" {
+		t.Fatalf("left from empty task fit = %+v, serialized %q; want test", m.filterDraft, m.filterDraft.string())
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:" {
+		t.Fatalf("right at task fit boundary = %+v, serialized %q; want explicit empty predicate", m.filterDraft, m.filterDraft.string())
+	}
+	m = tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:implement,debug")}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(tuiModel)
+	if m.filterDraft.string() != "task_fit:implement,debug" {
+		t.Fatalf("arrow changed compound task fit predicate = %q, want unchanged AND predicate", m.filterDraft.string())
+	}
+}
+
+func TestTUIFilterTaskFitArrowsRepairInvalidSingleValue(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:unknown")}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet {
+		t.Fatalf("right from invalid task fit = %+v, want explicit empty value", m.filterDraft)
+	}
+	m = tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:unknown")}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet {
+		t.Fatalf("left from invalid task fit = %+v, want explicit empty value", m.filterDraft)
 	}
 }
 
@@ -1877,6 +1927,52 @@ func TestTUIFilterTierSelectArrowsThroughUpdateAndPersists(t *testing.T) {
 	}
 	if cfg.TUIFilter != "tier:haiku" {
 		t.Fatalf("persisted arrow tier filter = %q, want tier:haiku", cfg.TUIFilter)
+	}
+}
+
+func TestTUIFilterTaskFitArrowsThroughUpdateAndPersists(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Model{
+		{Slug: "implement", TaskFit: []string{"implement"}},
+		{Slug: "plan", TaskFit: []string{"plan"}},
+		{Slug: "both", TaskFit: []string{"implement", "plan"}},
+		{Slug: "empty"},
+	}
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
+	m.configPath = configPath
+	m.filter = "task_fit:implement"
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	m = next.(tuiModel)
+	if m.overlay != "filter" {
+		t.Fatalf("filter overlay after f = %q, want filter", m.overlay)
+	}
+	for i := 0; i < 11; i++ {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(tuiModel)
+	}
+	if m.filterCursor != 11 || m.filterDraft.taskFit != "implement" {
+		t.Fatalf("task fit navigation state = cursor %d, task fit %q, want cursor 11 and implement", m.filterCursor, m.filterDraft.taskFit)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(tuiModel)
+	if m.filterDraft.taskFit != "plan" {
+		t.Fatalf("task fit arrow state = %q, want plan", m.filterDraft.taskFit)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(tuiModel)
+	want := "task_fit:plan"
+	if m.filter != want || len(m.visible) != 2 || !containsModelSlug(m.visible, "plan") || !containsModelSlug(m.visible, "both") || containsModelSlug(m.visible, "implement") {
+		t.Fatalf("applied task fit filter = %q, visible %+v, want %q and plan/both", m.filter, m.visible, want)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUIFilter != want {
+		t.Fatalf("persisted task fit filter = %q, want %q", cfg.TUIFilter, want)
 	}
 }
 
@@ -3531,6 +3627,29 @@ func TestTUIHelpHotkeysKeepActionsGroupedAndTaskFitCodesSeparate(t *testing.T) {
 	groupedEquivalentKeys := `\tq / p / r\tsort\tquality, price, or quality/price ratio.`
 	if fields := strings.Split(groupedEquivalentKeys, `\t`); len(fields) != 4 {
 		t.Fatalf("equivalent hotkeys must share one action row: %q", groupedEquivalentKeys)
+	}
+}
+
+func TestTUITaskFitHelpBodiesCoverCanonicalKeywordsAndCodes(t *testing.T) {
+	bodies := map[string]string{"EN": tuiHelpSectionHotkeysBody, "RU": tuiHelpSectionHotkeysBodyRU}
+	for _, keyword := range filter.TaskFitKeywords() {
+		code, ok := filter.TaskFitCode(keyword)
+		if !ok {
+			t.Fatalf("canonical task-fit keyword %q has no code", keyword)
+		}
+		for name, body := range bodies {
+			found := false
+			for _, line := range strings.Split(body, "\n") {
+				key, _, description, ok := tuiHelpRowColumns(line)
+				if ok && key == code && strings.HasPrefix(description, keyword+": ") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s task-fit help is missing %s/%s", name, keyword, code)
+			}
+		}
 	}
 }
 

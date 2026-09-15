@@ -1,6 +1,29 @@
 package filter
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestTaskFitKeywordsAreOrderedAndCopied(t *testing.T) {
+	want := []string{"implement", "plan", "research", "debug", "audit", "refactor", "test"}
+	got := TaskFitKeywords()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("TaskFitKeywords = %v, want %v", got, want)
+	}
+	got[0] = "changed"
+	if TaskFitKeywords()[0] != want[0] {
+		t.Fatalf("TaskFitKeywords returned mutable backing storage")
+	}
+	for _, keyword := range want {
+		if !IsTaskFitKeyword(keyword) {
+			t.Errorf("IsTaskFitKeyword(%q) = false, want true", keyword)
+		}
+	}
+	if code, ok := TaskFitCode(" IMPLEMENT "); !ok || code != "I" {
+		t.Fatalf("TaskFitCode(IMPLEMENT) = %q, %t; want I, true", code, ok)
+	}
+}
 
 func TestValidateTaskFitBoundaries(t *testing.T) {
 	for _, value := range []string{

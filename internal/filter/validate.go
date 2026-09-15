@@ -8,7 +8,46 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
 )
 
-var taskFitKeywords = map[string]bool{"implement": true, "plan": true, "research": true, "debug": true, "audit": true, "refactor": true, "test": true}
+type taskFitDefinition struct {
+	keyword string
+	code    string
+}
+
+var taskFitDefinitions = []taskFitDefinition{
+	{keyword: "implement", code: "I"},
+	{keyword: "plan", code: "P"},
+	{keyword: "research", code: "R"},
+	{keyword: "debug", code: "D"},
+	{keyword: "audit", code: "A"},
+	{keyword: "refactor", code: "F"},
+	{keyword: "test", code: "T"},
+}
+
+// TaskFitKeywords returns the canonical task-fit keyword order.
+func TaskFitKeywords() []string {
+	keywords := make([]string, 0, len(taskFitDefinitions))
+	for _, definition := range taskFitDefinitions {
+		keywords = append(keywords, definition.keyword)
+	}
+	return keywords
+}
+
+// TaskFitCode returns the canonical short display code for a task-fit keyword.
+func TaskFitCode(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	for _, definition := range taskFitDefinitions {
+		if definition.keyword == value {
+			return definition.code, true
+		}
+	}
+	return "", false
+}
+
+// IsTaskFitKeyword reports whether value is a valid task-fit keyword.
+func IsTaskFitKeyword(value string) bool {
+	_, ok := TaskFitCode(value)
+	return ok
+}
 
 // Split separates comma-delimited predicates while keeping task_fit values in one predicate.
 func Split(value string) []string {
@@ -90,8 +129,8 @@ func ValidateTaskFit(value string) error {
 		}
 		for _, rawKeyword := range strings.Split(body, ",") {
 			keyword := strings.TrimSpace(rawKeyword)
-			if keyword == "" || !taskFitKeywords[strings.ToLower(keyword)] {
-				return fmt.Errorf("unknown task fit keyword %q; allowed values: implement, plan, research, debug, audit, refactor, test", keyword)
+			if keyword == "" || !IsTaskFitKeyword(keyword) {
+				return fmt.Errorf("unknown task fit keyword %q; allowed values: %s", keyword, strings.Join(TaskFitKeywords(), ", "))
 			}
 		}
 	}

@@ -66,6 +66,21 @@ func TestTaskFitRejectsUnknownKeyword(t *testing.T) {
 	}
 }
 
+func TestTaskFitNormalizesCaseAndWhitespace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.yaml")
+	body := "models:\n  demo/model:\n    task_fit: [' IMPLEMENT ', TEST]\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := n.TaskFit("demo/model"); !reflect.DeepEqual(got, []string{"implement", "test"}) {
+		t.Fatalf("normalized TaskFit = %v, want [implement test]", got)
+	}
+}
+
 func TestCopyrightRejectsUnknownValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.yaml")
 	if err := os.WriteFile(path, []byte("models:\n  demo/model:\n    copyright: unclear\n"), 0o644); err != nil {

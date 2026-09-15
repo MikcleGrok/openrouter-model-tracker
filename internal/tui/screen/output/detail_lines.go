@@ -191,8 +191,8 @@ type taskFitGloss struct{ en, ru string }
 // cmd/openrouter/tui.go). Reused verbatim rather than reworded, so the
 // Fit & Notes tab and the help document never carry two competing
 // definitions of the same keyword; keep the two in sync by hand if either
-// changes. The keyword set matches taskFitOrder/taskFitKnown in
-// internal/notes/notes.go.
+// changes. The keyword set matches filter.TaskFitKeywords in
+// internal/filter/validate.go.
 var taskFitGlosses = map[string]taskFitGloss{
 	"implement": {"write or change production code.", "написать или изменить продакшен-код."},
 	"plan":      {"define scope, steps, and decisions.", "определить объём, шаги и решения."},

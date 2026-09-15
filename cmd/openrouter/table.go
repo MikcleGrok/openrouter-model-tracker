@@ -535,7 +535,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 						return nil, fmt.Errorf("table: malformed filter %q; task_fit keyword must not be empty", raw)
 					}
 					if !isTaskFitKeyword(keyword) {
-						return nil, fmt.Errorf("table: unknown task fit keyword %q in filter %q; allowed values: implement, plan, research, debug, audit, refactor, test", keyword, raw)
+						return nil, fmt.Errorf("table: unknown task fit keyword %q in filter %q; allowed values: %s", keyword, raw, strings.Join(filterpkg.TaskFitKeywords(), ", "))
 					}
 					wanted = append(wanted, keyword)
 				}
@@ -623,12 +623,7 @@ func splitFilter(filter string) []string {
 }
 
 func isTaskFitKeyword(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "implement", "plan", "research", "debug", "audit", "refactor", "test":
-		return true
-	default:
-		return false
-	}
+	return filterpkg.IsTaskFitKeyword(value)
 }
 
 func containsString(values []string, wanted string) bool {
@@ -1147,9 +1142,9 @@ func tableTaskFit(m model.Model, mode string) string {
 		return strings.Join(m.TaskFit, " + ")
 	}
 	short := make([]string, 0, len(m.TaskFit))
-	tokens := map[string]string{"implement": "I", "plan": "P", "research": "R", "debug": "D", "audit": "A", "refactor": "F", "test": "T"}
 	for _, keyword := range m.TaskFit {
-		short = append(short, tokens[keyword])
+		code, _ := filterpkg.TaskFitCode(keyword)
+		short = append(short, code)
 	}
 	return strings.Join(short, "")
 }
