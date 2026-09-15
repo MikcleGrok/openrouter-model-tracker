@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 )
 
 // TestDetailClaimsSplitsOnlyWhereAClaimReallyEnds is the claim splitter's
@@ -79,6 +80,23 @@ func TestDetailLinesRendersFitAndNotesAsLists(t *testing.T) {
 		}
 		if strings.Contains(joined, "implement + plan") {
 			t.Fatalf("lang %q: the joined one-line task fit survived alongside the list:\n%s", test.lang, joined)
+		}
+	}
+}
+
+func TestTaskFitGlossesCoverCanonicalKeywordsExactly(t *testing.T) {
+	keywords := filter.TaskFitKeywords()
+	if len(taskFitGlosses) != len(keywords) {
+		t.Fatalf("taskFitGlosses has %d entries, want %d", len(taskFitGlosses), len(keywords))
+	}
+	for _, keyword := range keywords {
+		if _, ok := taskFitGlosses[keyword]; !ok {
+			t.Errorf("taskFitGlosses is missing canonical keyword %q", keyword)
+		}
+	}
+	for keyword := range taskFitGlosses {
+		if !filter.IsTaskFitKeyword(keyword) {
+			t.Errorf("taskFitGlosses contains non-canonical keyword %q", keyword)
 		}
 	}
 }

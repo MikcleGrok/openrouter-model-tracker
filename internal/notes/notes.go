@@ -10,15 +10,9 @@ import (
 	"os"
 	"strings"
 
+	filterpkg "github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"gopkg.in/yaml.v3"
 )
-
-var taskFitOrder = []string{"implement", "plan", "research", "debug", "audit", "refactor", "test"}
-
-var taskFitKnown = map[string]bool{
-	"implement": true, "plan": true, "research": true, "debug": true,
-	"audit": true, "refactor": true, "test": true,
-}
 
 // NeedsReview is what the renderer prints where a prose key is missing. The
 // same slug also lands in the run report.
@@ -235,13 +229,14 @@ func normalizeMissingLabels(value string) string {
 func normalizeTaskFit(values []string) ([]string, error) {
 	present := make(map[string]bool, len(values))
 	for _, value := range values {
-		if !taskFitKnown[value] {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if !filterpkg.IsTaskFitKeyword(value) {
 			return nil, fmt.Errorf("unknown keyword %q; allowed values: %s", value, joinTaskFitKeywords())
 		}
 		present[value] = true
 	}
 	result := make([]string, 0, len(present))
-	for _, value := range taskFitOrder {
+	for _, value := range filterpkg.TaskFitKeywords() {
 		if present[value] {
 			result = append(result, value)
 		}
@@ -275,7 +270,7 @@ func normalizeCopyrightGuardrail(value string) (string, error) {
 	}
 }
 
-func joinTaskFitKeywords() string { return "implement, plan, research, debug, audit, refactor, test" }
+func joinTaskFitKeywords() string { return strings.Join(filterpkg.TaskFitKeywords(), ", ") }
 
 func (n *Notes) model(slug string) modelNote { return n.f.Models[slug] }
 
@@ -314,6 +309,9 @@ func (n *Notes) TaskFit(slug string) []string {
 	}
 	return append([]string(nil), values...)
 }
+
+// TaskFitKeywords returns the canonical task-fit keyword order.
+func TaskFitKeywords() []string { return filterpkg.TaskFitKeywords() }
 
 // DisplayName returns the human-facing model name, falling back to the slug so
 // a brand-new row still renders.

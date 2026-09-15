@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	filterpkg "github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -1554,6 +1555,9 @@ func (m tuiModel) filterKey(key string, value interface{}) (tuiModel, tea.Cmd) {
 			m.filterDraft.availability = tuiPreviousAvailability(m.filterDraft.availability)
 		} else if m.filterCursor == 10 {
 			m.filterDraft.copyrightGuardrail = tuiPreviousCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
+		} else if m.filterCursor == 11 {
+			m.filterDraft.taskFit = tuiPreviousTaskFit(m.filterDraft.taskFit)
+			m.filterDraft.taskFitSet = true
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, -1, m.filterSteps)
 		}
@@ -1564,6 +1568,9 @@ func (m tuiModel) filterKey(key string, value interface{}) (tuiModel, tea.Cmd) {
 			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
 		} else if m.filterCursor == 10 {
 			m.filterDraft.copyrightGuardrail = tuiNextCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
+		} else if m.filterCursor == 11 {
+			m.filterDraft.taskFit = tuiNextTaskFit(m.filterDraft.taskFit)
+			m.filterDraft.taskFitSet = true
 		} else if m.filterCursor >= 4 {
 			m.filterDraft.step(m.filterCursor, 1, m.filterSteps)
 		}
@@ -1800,6 +1807,49 @@ func tuiPreviousAvailability(current string) string {
 		}
 	}
 	return values[0]
+}
+
+func tuiTaskFitValues() []string {
+	return append([]string{""}, filterpkg.TaskFitKeywords()...)
+}
+
+func tuiNextTaskFit(current string) string {
+	values := tuiTaskFitValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+1)%len(values)]
+		}
+	}
+	if tuiValidTaskFitCompound(current) {
+		return current
+	}
+	return values[0]
+}
+
+func tuiPreviousTaskFit(current string) string {
+	values := tuiTaskFitValues()
+	for i, value := range values {
+		if strings.EqualFold(value, current) {
+			return values[(i+len(values)-1)%len(values)]
+		}
+	}
+	if tuiValidTaskFitCompound(current) {
+		return current
+	}
+	return values[0]
+}
+
+func tuiValidTaskFitCompound(value string) bool {
+	keywords := strings.Split(value, ",")
+	if len(keywords) < 2 {
+		return false
+	}
+	for _, keyword := range keywords {
+		if !filterpkg.IsTaskFitKeyword(keyword) {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {

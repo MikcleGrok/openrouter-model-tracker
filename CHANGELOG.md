@@ -4,6 +4,10 @@
 
 - Future release changes will be documented here.
 
+## [1.21.5]
+
+- Add Left/Right navigation for Task fit in the TUI, use one canonical keyword/code taxonomy across filtering, notes, display, and help, and add regression coverage for the navigation and taxonomy behavior.
+
 ## [1.21.4]
 
 - Add the `task_fit:K1,K2,...` table and TUI filter. Keywords inside one predicate use AND semantics, repeated `task_fit:` predicates use OR semantics, and an empty `task_fit:` selects models without task-fit metadata. Other filters still combine through AND; the TUI filter editor round-trips the task-fit predicate, including the explicit empty form.
