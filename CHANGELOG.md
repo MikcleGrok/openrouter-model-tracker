@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
-- Change `task_fit:` semantics: CSV keywords (`task_fit:K1,K2,...`) now match when a model has at least one listed keyword (OR); repeated `task_fit:` predicates now combine with other filters via AND. The special handling for repeated predicates in the TUI round-trip is removed. This is a breaking change for filters that relied on CSV-AND or on the TUI preserving repeated predicates verbatim.
 - Future release changes will be documented here.
+
+## [1.22.0]
+
+- Change `task_fit:` semantics: CSV keywords (`task_fit:K1,K2,...`) now match when a model has at least one listed keyword (OR); repeated `task_fit:` predicates now combine with other filters via AND. The special handling for repeated predicates in the TUI round-trip is removed. This is a breaking change for filters that relied on CSV-AND or on the TUI preserving repeated predicates verbatim.
 
 ## [1.21.5]
 
