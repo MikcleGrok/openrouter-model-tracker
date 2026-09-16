@@ -120,19 +120,17 @@ type tuiScoreSourceMsg struct {
 type tuiTickMsg struct{}
 
 type tuiFilterDraft struct {
-	free, paid, scored    bool
-	hasQP                 bool
-	availability          string
-	copyrightGuardrail    string
-	tier                  string
-	taskFit               string
-	taskFitSet            bool
-	taskFitAlternates     string
-	taskFitAlternateCount int
-	quality               string
-	context               string
-	input                 string
-	output                string
+	free, paid, scored bool
+	hasQP              bool
+	availability       string
+	copyrightGuardrail string
+	tier               string
+	taskFit            string
+	taskFitSet         bool
+	quality            string
+	context            string
+	input              string
+	output             string
 }
 
 type tuiModel struct {
@@ -1687,16 +1685,10 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 			draft.tier = strings.TrimSpace(value[len("tier:"):])
 		case strings.HasPrefix(lower, "task_fit:"):
 			parsed := strings.TrimSpace(value[len("task_fit:"):])
-			if draft.taskFitSet {
-				if draft.taskFitAlternateCount > 0 {
-					draft.taskFitAlternates += "\x00"
-				}
-				draft.taskFitAlternates += parsed
-				draft.taskFitAlternateCount++
-			} else {
+			if !draft.taskFitSet {
 				draft.taskFit = parsed
+				draft.taskFitSet = true
 			}
-			draft.taskFitSet = true
 		case strings.HasPrefix(lower, "copyright_guardrail:"):
 			draft.copyrightGuardrail = strings.TrimSpace(value[len("copyright_guardrail:"):])
 		case strings.HasPrefix(lower, "quality>="):
@@ -1743,9 +1735,6 @@ func (d tuiFilterDraft) string() string {
 	}
 	if d.taskFitSet {
 		filters = append(filters, "task_fit:"+strings.TrimSpace(d.taskFit))
-		for _, alternate := range strings.Split(d.taskFitAlternates, "\x00")[:d.taskFitAlternateCount] {
-			filters = append(filters, "task_fit:"+strings.TrimSpace(alternate))
-		}
 	}
 	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
 		if strings.TrimSpace(item.value) != "" {
@@ -2293,16 +2282,11 @@ func (m tuiModel) taskFitFilterDisplayValue() string {
 	if !m.filterDraft.taskFitSet {
 		return m.t("(any)")
 	}
-	values := []string{m.filterDraft.taskFit}
-	values = append(values, strings.Split(m.filterDraft.taskFitAlternates, "\x00")[:m.filterDraft.taskFitAlternateCount]...)
-	for i, value := range values {
-		if strings.TrimSpace(value) == "" {
-			values[i] = m.t("(no task fit)")
-		} else {
-			values[i] = strings.TrimSpace(value)
-		}
+	value := strings.TrimSpace(m.filterDraft.taskFit)
+	if value == "" {
+		return m.t("(no task fit)")
 	}
-	return strings.Join(values, m.t(" OR "))
+	return value
 }
 
 func tuiFilterDisplayValue(field int, value string) string {
@@ -3981,9 +3965,9 @@ The last column stays selected.
 	Filter editor: Up/Down always move between fields, including Tier min. Left/Right select Tier min or step numeric values; Space cycles paid Tier min values. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
 	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
 	Predicates: paid, free, scored; tier:MIN; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
-	Within one task_fit predicate, keywords use AND; repeated task_fit predicates use OR. All other filters combine with the task-fit result through AND.
+	Within one task_fit predicate, CSV keywords use OR; repeated task_fit predicates combine with other filters via AND.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
-	Multiple filters are comma-separated (or repeated with CLI --filter); only repeated task_fit predicates use OR, while other filters use AND.
+	Multiple filters are comma-separated (or repeated with CLI --filter); task_fit CSV keywords use OR; repeated task_fit predicates combine with other filters via AND.
 	quality uses the active score source: SWE-bench is 0..100%; Arena is normalized to 0..100.
 	For quality, both 0..100 and 0..1 input are accepted: quality>=0.8 means quality>=80.
 Column headers: QP/$M is the quality/price ranking score per $/M tokens (was "Q/P score/$M"); Ctx tok is the context window in tokens (was "Context tok"). Both were shortened so Claude and the Status column (SWE %, Arena Elo, or GPQA %) always have room to show their full value instead of being truncated.`
@@ -4235,9 +4219,9 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Tier min. Left/Right выбирают Tier min или изменяют числовые значения; Space циклит платные значения Tier min. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
 	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
 	Предикаты: paid, free, scored; tier:MIN; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
-	Внутри одного предиката task_fit ключевые слова работают через AND; повторные предикаты task_fit — через OR. Все остальные фильтры объединяются с результатом task-fit через AND.
+	Внутри одного предиката task_fit ключевые слова CSV работают через OR; повторные предикаты task_fit объединяются с остальными фильтрами через AND.
 	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
-	Несколько фильтров разделяются запятой (или повторным --filter в CLI); только повторные предикаты task_fit работают через OR, остальные — через AND.
+	Несколько фильтров разделяются запятой (или повторным --filter в CLI); CSV-ключевые слова task_fit работают через OR, а повторные предикаты task_fit объединяются с остальными фильтрами через AND.
 	quality использует активный источник оценки: SWE-bench — 0..100%; Arena нормализована в 0..100.
 	Для quality принимается ввод и 0..100, и 0..1: quality>=0.8 означает quality>=80.
 Заголовки столбцов: QP/$M — ранжирующий показатель качество/цена за $/M токенов (раньше "Q/P score/$M"); Ctx tok — размер контекста в токенах (раньше "Context tok"). Оба сокращены, чтобы у Claude и столбца статуса (SWE %, Arena Elo или GPQA %) всегда было место показать значение полностью, а не обрезанным.`

@@ -489,7 +489,6 @@ func tableFlagExpectsValue(arg string, flags *pflag.FlagSet) bool {
 
 func filterTableModels(models []model.Model, filters []string) ([]model.Model, error) {
 	parsed := make([]func(model.Model) bool, 0, len(filters))
-	taskFitPredicates := make([]func(model.Model) bool, 0)
 	for _, input := range filters {
 		for _, raw := range splitFilter(input) {
 			filter := strings.ToLower(strings.TrimSpace(raw))
@@ -525,8 +524,8 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 			case strings.HasPrefix(filter, "task_fit:"):
 				keywords := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "task_fit:")), ",")
 				if len(keywords) == 1 && strings.TrimSpace(keywords[0]) == "" {
-					taskFitPredicates = append(taskFitPredicates, func(m model.Model) bool { return len(m.TaskFit) == 0 })
-					continue
+					parsed = append(parsed, func(m model.Model) bool { return len(m.TaskFit) == 0 })
+					break
 				}
 				wanted := make([]string, 0, len(keywords))
 				for _, keyword := range keywords {
@@ -539,13 +538,13 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 					}
 					wanted = append(wanted, keyword)
 				}
-				taskFitPredicates = append(taskFitPredicates, func(m model.Model) bool {
+				parsed = append(parsed, func(m model.Model) bool {
 					for _, keyword := range wanted {
-						if !containsString(m.TaskFit, keyword) {
-							return false
+						if containsString(m.TaskFit, keyword) {
+							return true
 						}
 					}
-					return true
+					return false
 				})
 			case strings.HasPrefix(filter, "copyright_guardrail:"):
 				values := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "copyright_guardrail:")), ",")
@@ -600,15 +599,6 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 			if !predicate(candidate) {
 				matches = false
 				break
-			}
-		}
-		if matches && len(taskFitPredicates) > 0 {
-			matches = false
-			for _, predicate := range taskFitPredicates {
-				if predicate(candidate) {
-					matches = true
-					break
-				}
 			}
 		}
 		if matches {

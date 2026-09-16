@@ -868,10 +868,10 @@ func TestFilterTableModelsTaskFitPredicates(t *testing.T) {
 		want   []string
 	}{
 		{"task_fit:implement", []string{"implement", "both"}},
-		{"task_fit:implement,debug", []string{"both"}},
+		{"task_fit:implement,debug", []string{"implement", "debug", "both"}},
 		{"task_fit:", []string{"empty"}},
-		{"task_fit: implement , debug", []string{"both"}},
-		{"task_fit:implement,task_fit:debug", []string{"implement", "debug", "both"}},
+		{"task_fit: implement , debug", []string{"implement", "debug", "both"}},
+		{"task_fit:implement,task_fit:debug", []string{"both"}},
 	} {
 		got, err := filterTableModels(models, []string{test.filter})
 		if err != nil {
