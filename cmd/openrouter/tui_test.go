@@ -543,21 +543,6 @@ func TestTUIFilterDraftTaskFitRoundTrip(t *testing.T) {
 	if empty.taskFit != "" || empty.taskFitSet {
 		t.Fatalf("empty task fit draft = %+v", empty)
 	}
-	repeated := tuiFilterDraftFromString("task_fit:implement,task_fit:debug")
-	got := repeated.string()
-	if got != "task_fit:implement,task_fit:debug" {
-		t.Fatalf("repeated task fit serialization = %q", got)
-	}
-	if reparsed := tuiFilterDraftFromString(repeated.string()); reparsed.string() != got {
-		t.Fatalf("repeated task fit round-trip = %q, want %q", reparsed.string(), got)
-	}
-	withEmptyAlternate := tuiFilterDraftFromString("task_fit:implement,task_fit:,task_fit:debug")
-	if got := withEmptyAlternate.string(); got != "task_fit:implement,task_fit:,task_fit:debug" {
-		t.Fatalf("repeated task fit with empty alternate = %q", got)
-	}
-	if reparsed := tuiFilterDraftFromString(withEmptyAlternate.string()); reparsed.string() != withEmptyAlternate.string() {
-		t.Fatalf("repeated task fit with empty alternate round-trip = %q", reparsed.string())
-	}
 }
 
 func TestTUIFilterDraftTaskFitEditSetsPresenceAndKeepsExplicitEmpty(t *testing.T) {
@@ -574,17 +559,10 @@ func TestTUIFilterDraftTaskFitEditSetsPresenceAndKeepsExplicitEmpty(t *testing.T
 	}
 }
 
-func TestTUIFilterTaskFitArrowsChangePrimaryPredicateAndPreserveAlternates(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:implement,task_fit:debug")}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "plan" || !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:plan,task_fit:debug" {
-		t.Fatalf("right task fit state = %+v, serialized %q; want plan with debug alternate", m.filterDraft, m.filterDraft.string())
-	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "implement" || m.filterDraft.string() != "task_fit:implement,task_fit:debug" {
-		t.Fatalf("left task fit state = %+v, serialized %q; want implement with debug alternate", m.filterDraft, m.filterDraft.string())
+func TestTUIFilterTaskFitRepeatedPredicatesKeepFirst(t *testing.T) {
+	draft := tuiFilterDraftFromString("task_fit:implement,task_fit:debug")
+	if draft.taskFit != "implement" || !draft.taskFitSet || draft.string() != "task_fit:implement" {
+		t.Fatalf("repeated task fit draft = %+v, serialized %q; want first predicate only", draft, draft.string())
 	}
 }
 
@@ -620,17 +598,6 @@ func TestTUIFilterTaskFitArrowsRepairInvalidSingleValue(t *testing.T) {
 	m = next.(tuiModel)
 	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet {
 		t.Fatalf("left from invalid task fit = %+v, want explicit empty value", m.filterDraft)
-	}
-}
-
-func TestTUIFilterViewShowsTaskFitAlternatesAndExplicitEmpty(t *testing.T) {
-	m := tuiModel{overlay: "filter", width: 100, height: 30, filterDraft: tuiFilterDraftFromString("task_fit:,task_fit:implement,task_fit:debug")}
-	view := m.View()
-	if !strings.Contains(view, "Task fit: (no task fit) OR implement OR debug") {
-		t.Fatalf("task fit filter view = %q, want all alternatives and explicit empty predicate", view)
-	}
-	if strings.Contains(view, "Task fit: (any)") {
-		t.Fatalf("explicit empty task fit rendered as any: %q", view)
 	}
 }
 
@@ -816,8 +783,8 @@ func TestTUIInteractiveTaskFitFilterUsesSharedParser(t *testing.T) {
 		filter string
 		want   []string
 	}{
-		{"task_fit:implement,debug", []string{"both"}},
-		{"task_fit:implement,task_fit:debug", []string{"implement", "debug", "both"}},
+		{"task_fit:implement,debug", []string{"implement", "debug", "both"}},
+		{"task_fit:implement,task_fit:debug", []string{"both"}},
 		{"task_fit:", []string{"empty"}},
 	} {
 		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, rows)
@@ -2325,11 +2292,11 @@ func TestTUIFilterHelpDocumentsExamplesOperatorsAndScoreSource(t *testing.T) {
 		"press f",
 		"Predicates:",
 		"task_fit:K1,K2,...",
-		"Within one task_fit predicate, keywords use AND",
-		"repeated task_fit predicates use OR",
+		"Within one task_fit predicate, CSV keywords use OR",
+		"repeated task_fit predicates combine with other filters via AND",
 		"Operators:",
 		"repeated with CLI --filter",
-		"only repeated task_fit predicates use OR",
+		"task_fit CSV keywords use OR; repeated task_fit predicates combine with other filters via AND",
 		"active score source",
 		"quality>=0.8 means quality>=80",
 	} {
