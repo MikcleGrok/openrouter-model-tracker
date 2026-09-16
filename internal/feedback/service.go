@@ -149,3 +149,24 @@ func (s *Service) GetModelPositions(ctx context.Context, identity IdentityID, mo
 		CommunityPosition: communityPosition(modelKey, aggregates, baseRanking),
 	}, nil
 }
+
+// GetCommunityPosition computes modelKey's community-position signal alone
+// (contract §3, and plan 4.6's consumer-signal position.community_position),
+// without requiring an identity — unlike GetModelPositions, which always
+// also computes an identity-scoped PersonalPosition. It exists for the
+// trusted-consumer signal endpoint (internal/feedback/httpapi, Task 4),
+// which has no identity concept at all: no Bearer+X-Identity-Id request
+// context, no "mine" to report, so calling GetModelPositions with a
+// fabricated identity would be both wasteful (an unnecessary
+// AllOwnFeedback call) and misleading (borrows an identity-scoped method
+// for a computation that never depends on identity).
+func (s *Service) GetCommunityPosition(ctx context.Context, modelKey ModelKey, baseRanking []ModelKey) (Position, error) {
+	if modelKey == "" {
+		return Position{}, ErrEmptyModelKey
+	}
+	aggregates, err := s.repo.AllAggregates(ctx, s.now())
+	if err != nil {
+		return Position{}, err
+	}
+	return communityPosition(modelKey, aggregates, baseRanking), nil
+}

@@ -387,6 +387,38 @@ func (s *Store) AllAggregates(ctx context.Context, now time.Time) (map[feedback.
 	return out, nil
 }
 
+// LastUpdatedAt returns the most recent model_feedback.updated_at among
+// modelKey's currently-stored rows, and whether any exist at all. It is not
+// part of feedback.Repository: Aggregate.ComputedAt is the time OF the
+// aggregate computation (the caller-supplied now), never a property of the
+// underlying rows, so it cannot answer "when was this model's community
+// data last actually written" — exactly the source Task 4's consumer-signal
+// freshness policy needs for freshness.as_of (plan 4.6: "as_of вычисляется
+// server-side как MAX(updated_at) последней фактически сохранённой оценки,
+// вошедшей в signal, а не как время формирования GET"; "при отсутствии
+// сохранённых оценок as_of=null"). Kept on Store directly, alongside
+// DeleteIdentity/ActiveCleanupJob/RunCleanup, rather than added to the
+// narrow feedback.Repository interface Task 2 deliberately kept CRUD-free:
+// internal/feedback/httpapi already holds a concrete *Store for the DELETE
+// flow, so it can depend on this the same way.
+func (s *Store) LastUpdatedAt(ctx context.Context, modelKey feedback.ModelKey) (time.Time, bool, error) {
+	var text sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT MAX(updated_at) FROM model_feedback WHERE model_key = ?
+	`, string(modelKey)).Scan(&text)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("sqlite: last updated at: %w", err)
+	}
+	if !text.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := parseTime(text.String)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return t, true, nil
+}
+
 // queryer is the subset of *sql.DB/*sql.Tx that aggregateFor needs, so the
 // same aggregate-computation code can run against either.
 type queryer interface {
