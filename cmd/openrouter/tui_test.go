@@ -28,7 +28,6 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/pricing"
 	"github.com/sboborikin/openrouter-model-tracker/internal/ranking"
 	"github.com/sboborikin/openrouter-model-tracker/internal/refresh"
-	"github.com/sboborikin/openrouter-model-tracker/internal/tier"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tui/input"
 	"github.com/sboborikin/openrouter-model-tracker/internal/tui/screen/output"
 )
@@ -512,11 +511,59 @@ func TestTUIConfiguredScalarBindingsHandleCanonicalAliases(t *testing.T) {
 func TestTUIFilterViewShowsAllowedTierValues(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20}
 	view := m.View()
-	if !strings.Contains(view, "Tier options: (any), "+strings.Join(tier.FilterValues(), ", ")) || strings.Contains(view, "Tier options: (any), opus, sonnet, haiku, free") {
+	if !strings.Contains(view, "Tier options: (any), opus, sonnet, haiku") || strings.Contains(view, "Tier options: (any), opus, sonnet, haiku, free") {
 		t.Fatalf("filter view = %q, want tier select options", view)
 	}
-	if !strings.Contains(view, "Tier min:") {
-		t.Fatalf("filter view = %q, want Tier min label", view)
+	if !strings.Contains(view, "Tier:") {
+		t.Fatalf("filter view = %q, want Tier label", view)
+	}
+}
+
+func TestTUIFilterTierEmptyStateUsesHeaderValue(t *testing.T) {
+	view := ansi.Strip(tuiFilterView(tuiModel{overlay: "filter", width: 100, height: 20}))
+	if !strings.Contains(view, "Tier: (any)") {
+		t.Fatalf("empty tier view = %q, want Tier: (any)", view)
+	}
+	if strings.Contains(view, "[x] (any)") || strings.Contains(view, "[ ] (any)") {
+		t.Fatalf("empty tier view rendered any as a chip: %q", view)
+	}
+}
+
+func TestTUIFilterTierSelectedChipsWrapLikeTaskFit(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 35, height: 30, filterCursor: filterRowTier, filterDraft: tuiFilterDraft{tierSelected: map[string]struct{}{"opus": {}, "haiku": {}}}}
+	view := ansi.Strip(tuiFilterView(m))
+	for _, want := range []string{"[x] opus", "[ ] sonnet", "[x] haiku"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("selected tier view missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "[x] (any)") || strings.Contains(view, "[ ] (any)") {
+		t.Fatalf("selected tier view rendered any as a chip: %q", view)
+	}
+	chipLines := 0
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "[x] ") || strings.Contains(line, "[ ] ") {
+			chipLines++
+		}
+	}
+	if chipLines < 2 {
+		t.Fatalf("selected tier chips did not wrap: %q", view)
+	}
+	m.filterChipCursor = 2
+	view = ansi.Strip(tuiFilterView(m))
+	if !strings.Contains(view, "> [x] haiku") {
+		t.Fatalf("focused tier chip missing ASCII marker: %q", view)
+	}
+}
+
+func TestTUIFilterTierFreeRemainsHiddenButSerializable(t *testing.T) {
+	draft := tuiFilterDraftFromString("tier:free")
+	view := ansi.Strip(tuiFilterView(tuiModel{overlay: "filter", width: 100, height: 20, filterDraft: draft}))
+	if got := draft.string(); got != "tier:free" {
+		t.Fatalf("tier:free serialization = %q, want unchanged", got)
+	}
+	if !strings.Contains(view, "Tier: (any)") || strings.Contains(view, "[x] free") {
+		t.Fatalf("tier:free view = %q", view)
 	}
 }
 
@@ -532,79 +579,289 @@ func TestTUIFilterDraftCopyrightGuardrailRoundTrip(t *testing.T) {
 
 func TestTUIFilterDraftTaskFitRoundTrip(t *testing.T) {
 	draft := tuiFilterDraftFromString("task_fit: implement, debug")
-	if draft.taskFit != "implement,debug" || !draft.taskFitSet || tuiFilterDraftFromString(draft.string()).taskFit != draft.taskFit || !tuiFilterDraftFromString(draft.string()).taskFitSet {
+	if len(draft.taskFitSelected) != 2 || draft.string() != "task_fit:debug,implement" {
 		t.Fatalf("task fit draft = %+v, serialized %q", draft, draft.string())
 	}
 	emptyPredicate := tuiFilterDraftFromString("task_fit:")
-	if !emptyPredicate.taskFitSet || emptyPredicate.string() != "task_fit:" || !tuiFilterDraftFromString(emptyPredicate.string()).taskFitSet {
+	if !emptyPredicate.taskFitExplicitEmpty || emptyPredicate.string() != "task_fit:" || !tuiFilterDraftFromString(emptyPredicate.string()).taskFitExplicitEmpty {
 		t.Fatalf("empty task fit predicate draft = %+v, serialized %q", emptyPredicate, emptyPredicate.string())
 	}
 	empty := tuiFilterDraftFromString(tuiFilterDraft{}.string())
-	if empty.taskFit != "" || empty.taskFitSet {
+	if len(empty.taskFitSelected) != 0 || empty.taskFitExplicitEmpty {
 		t.Fatalf("empty task fit draft = %+v", empty)
 	}
 }
 
-func TestTUIFilterDraftTaskFitEditSetsPresenceAndKeepsExplicitEmpty(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 11}
-	m, _ = m.filterKey("i", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
-	m, _ = m.filterKey("m", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
-	if !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:im" {
-		t.Fatalf("typed task fit draft = %+v, serialized %q", m.filterDraft, m.filterDraft.string())
+func TestTUIFilterEditorRejectsUnknownTierWithoutMutation(t *testing.T) {
+	m := tuiModel{filter: "tier:unknown,quality>=80", filterFormExplicit: true}
+	m.openFilterEditor()
+	if m.err == "" || m.filterDraft.tierInvalid == "" {
+		t.Fatalf("unknown tier was not rejected: err=%q draft=%+v", m.err, m.filterDraft)
 	}
-	m, _ = m.filterKey("backspace", tea.KeyMsg{Type: tea.KeyBackspace})
-	m, _ = m.filterKey("backspace", tea.KeyMsg{Type: tea.KeyBackspace})
-	if !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:" {
-		t.Fatalf("cleared task fit draft = %+v, serialized %q", m.filterDraft, m.filterDraft.string())
+	got, _ := m.filterKey("enter", nil)
+	if got.filter != "tier:unknown,quality>=80" || got.overlay != "filter" {
+		t.Fatalf("unknown tier Enter mutated editor: filter=%q overlay=%q", got.filter, got.overlay)
+	}
+	if got.err != m.err {
+		t.Fatalf("unknown tier Enter error = %q, want %q", got.err, m.err)
+	}
+}
+
+func TestTUIFilterEditorRejectsUnknownTaskFitWithoutMutation(t *testing.T) {
+	m := tuiModel{filter: "task_fit:implement,unknown", filterFormExplicit: true}
+	m.openFilterEditor()
+	if m.err == "" || m.filterDraft.taskFitInvalid == "" {
+		t.Fatalf("unknown task fit was not rejected: err=%v draft=%+v", m.err, m.filterDraft)
+	}
+	got, _ := m.filterKey("enter", nil)
+	if got.filter != "task_fit:implement,unknown" || got.overlay != "filter" {
+		t.Fatalf("unknown task fit Enter mutated editor: filter=%q overlay=%q", got.filter, got.overlay)
+	}
+	if got.err == "" || got.err != m.err || !strings.Contains(got.err, `unknown task fit keyword "unknown"`) {
+		t.Fatalf("unknown task fit Enter error = %v, want visible validation error", got.err)
+	}
+}
+
+func TestTUIFilterViewKeepsFocusedTierVisibleAfterTaskFitExpansion(t *testing.T) {
+	taskFit := map[string]struct{}{}
+	for _, keyword := range filter.TaskFitKeywords() {
+		taskFit[keyword] = struct{}{}
+	}
+	m := tuiModel{
+		overlay: "filter", width: 35, height: 12, filterCursor: filterRowTier,
+		filterDraft: tuiFilterDraft{taskFitSelected: taskFit, tierSelected: map[string]struct{}{"opus": {}}},
+	}
+	view := ansi.Strip(tuiFilterView(m))
+	if !strings.Contains(view, "Tier:") || !strings.Contains(view, "[x] opus") {
+		t.Fatalf("focused tier was clipped after task-fit expansion: %q", view)
 	}
 }
 
 func TestTUIFilterTaskFitRepeatedPredicatesKeepFirst(t *testing.T) {
 	draft := tuiFilterDraftFromString("task_fit:implement,task_fit:debug")
-	if draft.taskFit != "implement" || !draft.taskFitSet || draft.string() != "task_fit:implement" {
-		t.Fatalf("repeated task fit draft = %+v, serialized %q; want first predicate only", draft, draft.string())
+	if len(draft.taskFitSelected) != 2 || draft.string() != "task_fit:implement,task_fit:debug" {
+		t.Fatalf("repeated task fit draft = %+v, serialized %q; want separate predicates", draft, draft.string())
+	}
+	m := tuiModel{filter: draft.string(), overlay: "filter", width: 100, height: 20, filterCursor: filterRowTaskFit, filterChipCursor: 2, filterDraft: draft}
+	before := m.filterDraft.string()
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if got := m.filterDraft.string(); got != before || !m.filterDraft.taskFitEditBlocked || m.err == "" {
+		t.Fatalf("repeated task fit edit = %q blocked=%t error=%q; want unchanged and explicit block", got, m.filterDraft.taskFitEditBlocked, m.err)
+	}
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != before || m.overlay != "filter" {
+		t.Fatalf("repeated task fit Enter mutated filter=%q overlay=%q", m.filter, m.overlay)
+	}
+	if !strings.Contains(ansi.Strip(tuiFilterView(m)), "cannot edit Task fit") {
+		t.Fatalf("repeated task fit error is not visible: %q", tuiFilterView(m))
 	}
 }
 
-func TestTUIFilterTaskFitArrowsCycleBoundariesAndExplicitEmpty(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:")}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "test" || m.filterDraft.string() != "task_fit:test" {
-		t.Fatalf("left from empty task fit = %+v, serialized %q; want test", m.filterDraft, m.filterDraft.string())
+func TestTUIFilterTierRepeatedPredicatesRoundTrip(t *testing.T) {
+	filterValue := "tier:opus,tier:haiku"
+	draft := tuiFilterDraftFromString(filterValue)
+	if len(draft.tierSelected) != 2 || draft.string() != filterValue {
+		t.Fatalf("repeated tier draft = %+v, serialized %q; want separate predicates", draft, draft.string())
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet || m.filterDraft.string() != "task_fit:" {
-		t.Fatalf("right at task fit boundary = %+v, serialized %q; want explicit empty predicate", m.filterDraft, m.filterDraft.string())
+	m := tuiModel{filter: filterValue, overlay: "filter", width: 100, height: 20, filterCursor: filterRowTier, filterChipCursor: 1, filterDraft: draft}
+	before := m.filterDraft.string()
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if got := m.filterDraft.string(); got != before || !m.filterDraft.tierEditBlocked || m.err == "" {
+		t.Fatalf("repeated tier edit = %q blocked=%t error=%q; want unchanged and explicit block", got, m.filterDraft.tierEditBlocked, m.err)
 	}
-	m = tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:implement,debug")}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m = next.(tuiModel)
-	if m.filterDraft.string() != "task_fit:implement,debug" {
-		t.Fatalf("arrow changed compound task fit predicate = %q, want unchanged AND predicate", m.filterDraft.string())
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != before || m.overlay != "filter" {
+		t.Fatalf("repeated tier Enter mutated filter=%q overlay=%q", m.filter, m.overlay)
+	}
+	if !strings.Contains(ansi.Strip(tuiFilterView(m)), "cannot edit Tier") {
+		t.Fatalf("repeated tier error is not visible: %q", tuiFilterView(m))
 	}
 }
 
-func TestTUIFilterTaskFitArrowsRepairInvalidSingleValue(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:unknown")}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet {
-		t.Fatalf("right from invalid task fit = %+v, want explicit empty value", m.filterDraft)
+func TestTUIFilterRepeatedPredicateEditCanBeCleared(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		row   int
+		want  string
+	}{
+		{"tier", "tier:opus,tier:haiku", filterRowTier, ""},
+		{"task fit", "task_fit:implement,task_fit:debug", filterRowTaskFit, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := tuiModel{filter: test.value, overlay: "filter", filterCursor: test.row, filterDraft: tuiFilterDraftFromString(test.value)}
+			m, _ = m.filterKey("c", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+			if got := m.filterDraft.string(); got != test.want || m.err != "" {
+				t.Fatalf("clear draft=%q error=%q, want %q and no error", got, m.err, test.want)
+			}
+		})
 	}
-	m = tuiModel{overlay: "filter", filterCursor: 11, filterDraft: tuiFilterDraftFromString("task_fit:unknown")}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "" || !m.filterDraft.taskFitSet {
-		t.Fatalf("left from invalid task fit = %+v, want explicit empty value", m.filterDraft)
+}
+
+func TestTUIFilterFocusedChipVisibleOnShortViewports(t *testing.T) {
+	tests := []struct {
+		name   string
+		row    int
+		cursor int
+		want   string
+		draft  tuiFilterDraft
+	}{
+		{"task fit last", filterRowTaskFit, len(filter.TaskFitKeywords()) - 1, "test", tuiFilterDraft{taskFitSelected: map[string]struct{}{"implement": {}}}},
+		{"tier sonnet", filterRowTier, 1, "sonnet", tuiFilterDraft{tierSelected: map[string]struct{}{"opus": {}}}},
+		{"tier haiku", filterRowTier, 2, "haiku", tuiFilterDraft{tierSelected: map[string]struct{}{"opus": {}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, height := range []int{5, 6} {
+				m := tuiModel{overlay: "filter", width: 35, height: height, filterCursor: test.row, filterChipCursor: test.cursor, filterDraft: test.draft}
+				view := ansi.Strip(tuiFilterView(m))
+				if !strings.Contains(view, "> [") || !strings.Contains(view, test.want) {
+					t.Fatalf("height %d focused chip missing: %q", height, view)
+				}
+			}
+		})
+	}
+}
+
+func TestTUIOverlayLanguageToggleWorksOutsideInputMode(t *testing.T) {
+	for _, overlay := range []string{"filter", "detail"} {
+		m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo"}})
+		m.overlay = overlay
+		m.visible = m.models
+		m.width, m.height = 80, 20
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+		if got := next.(tuiModel).lang; got != "ru" {
+			t.Fatalf("overlay %q language = %q, want ru", overlay, got)
+		}
+	}
+
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m.overlay, m.inputMode, m.input = "filter", "filter", ""
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if got := next.(tuiModel); got.lang != "" || got.input != "l" {
+		t.Fatalf("input-mode language handling = lang %q input %q, want unchanged language and input l", got.lang, got.input)
+	}
+}
+
+func TestFilterTaskFitChipToggle(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: filterRowTaskFit}
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if m.filterDraft.string() != "task_fit:implement" {
+		t.Fatalf("toggled task fit = %q", m.filterDraft.string())
+	}
+}
+
+func TestFilterTaskFitChipNavigation(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: filterRowTaskFit}
+	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
+	if m.filterChipCursor != 6 {
+		t.Fatalf("left cursor = %d, want 6", m.filterChipCursor)
+	}
+	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	if m.filterChipCursor != 0 {
+		t.Fatalf("right cursor = %d, want 0", m.filterChipCursor)
+	}
+}
+
+func TestFilterTaskFitChipFocusUsesAsciiMarker(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 100, height: 20, filterCursor: filterRowTaskFit, filterChipCursor: 3, filterDraft: tuiFilterDraft{taskFitSelected: map[string]struct{}{"implement": {}}}}
+	view := m.View()
+	if !strings.Contains(view, "> [ ] debug") {
+		t.Fatalf("focused task fit chip missing or wrong: %q", view)
+	}
+	if strings.Contains(view, "\x1b[") || strings.Contains(view, "[1;38;5;230;48;5;24m") {
+		t.Fatalf("focused task fit chip leaked ANSI styling: %q", view)
+	}
+}
+
+func TestFilterTaskFitChipsWrapToMultipleLines(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 60, height: 30, filterDraft: tuiFilterDraft{taskFitSelected: map[string]struct{}{"implement": {}}}}
+	view := ansi.Strip(tuiFilterView(m))
+	for _, keyword := range filter.TaskFitKeywords() {
+		if !strings.Contains(view, keyword) {
+			t.Errorf("wrapped task fit view does not contain %q: %q", keyword, view)
+		}
+	}
+	chipLines := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "[ ]") || strings.Contains(line, "[x]") {
+			chipLines = true
+			if strings.HasSuffix(strings.TrimSpace(line), "[ ]") || strings.HasSuffix(strings.TrimSpace(line), "[x]") {
+				t.Fatalf("chip line ends with a checkbox without a label: %q", line)
+			}
+		}
+	}
+	if !chipLines {
+		t.Fatal("wrapped task fit view has no chip lines")
+	}
+}
+
+func TestFilterTaskFitChipsSingleLineOnWideTerminal(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 200, height: 30, filterDraft: tuiFilterDraft{taskFitSelected: map[string]struct{}{"implement": {}}}}
+	view := ansi.Strip(tuiFilterView(m))
+	var chipLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "implement") {
+			chipLine = line
+			break
+		}
+	}
+	if chipLine == "" {
+		t.Fatalf("wide task fit view has no chip line: %q", view)
+	}
+	for _, keyword := range filter.TaskFitKeywords() {
+		if !strings.Contains(chipLine, keyword) {
+			t.Fatalf("wide task fit chips are not on one line: %q", chipLine)
+		}
+	}
+}
+
+func TestFilterTaskFitChipFocusMarkerFollowsCursor(t *testing.T) {
+	keywords := filter.TaskFitKeywords()
+	for cursor, keyword := range keywords {
+		m := tuiModel{overlay: "filter", width: 60, height: 30, filterCursor: filterRowTaskFit, filterChipCursor: cursor, filterDraft: tuiFilterDraft{taskFitSelected: map[string]struct{}{"implement": {}}}}
+		view := ansi.Strip(tuiFilterView(m))
+		if !strings.Contains(view, "> [ ] "+keyword) && !strings.Contains(view, "> [x] "+keyword) {
+			t.Fatalf("cursor %d missing focus marker on %q: %q", cursor, keyword, view)
+		}
+		for i, other := range keywords {
+			if i != cursor && (strings.Contains(view, "> [ ] "+other) || strings.Contains(view, "> [x] "+other)) {
+				t.Fatalf("cursor %d put focus marker on %q instead of %q: %q", cursor, other, keyword, view)
+			}
+		}
+	}
+}
+
+func TestFilterTaskFitClear(t *testing.T) {
+	draft := tuiFilterDraftFromString("task_fit:implement,task_fit:")
+	draft.clearTaskFit()
+	if draft.string() != "" || draft.taskFitExplicitEmpty {
+		t.Fatalf("cleared task fit = %+v, serialized %q", draft, draft.string())
+	}
+}
+
+func TestFilterTaskFitRoundTripAlphabetical(t *testing.T) {
+	draft := tuiFilterDraft{}
+	draft.toggleTaskFit("plan")
+	draft.toggleTaskFit("debug")
+	draft.toggleTaskFit("implement")
+	parsed := tuiFilterDraftFromString(draft.string())
+	if draft.string() != "task_fit:debug,implement,plan" || len(parsed.taskFitSelected) != 3 {
+		t.Fatalf("round trip = %q, %+v", draft.string(), parsed)
+	}
+}
+
+func TestFilterTaskFitExplicitEmptyPreserved(t *testing.T) {
+	draft := tuiFilterDraftFromString("task_fit:")
+	if !draft.taskFitExplicitEmpty || draft.string() != "task_fit:" {
+		t.Fatalf("explicit empty = %+v, serialized %q", draft, draft.string())
 	}
 }
 
 func TestTUIFilterViewKeepsTaskFitVisibleAtTwentyRows(t *testing.T) {
 	m := tuiModel{overlay: "filter", width: 100, height: 20, filterDraft: tuiFilterDraftFromString("task_fit:implement")}
 	view := m.View()
-	if !strings.Contains(view, "Task fit: implement") {
+	if !strings.Contains(view, "Task fit:") || !strings.Contains(view, "[x] implement") {
 		t.Fatalf("twenty-row filter view clipped Task fit: %q", view)
 	}
 	if got := len(strings.Split(view, "\n")); got != 20 {
@@ -617,8 +874,8 @@ func TestTUIFilterViewKeepsFocusedFieldVisibleAtVerySmallHeight(t *testing.T) {
 		cursor int
 		want   string
 	}{
-		{cursor: 0, want: "Free:"},
-		{cursor: 11, want: "Task fit:"},
+		{cursor: 0, want: "Availability:"},
+		{cursor: filterRowTaskFit, want: "Task fit:"},
 	} {
 		m := tuiModel{overlay: "filter", width: 100, height: 5, filterCursor: test.cursor}
 		view := m.View()
@@ -633,8 +890,8 @@ func TestTUIFilterViewKeepsFocusedFieldVisibleAtHeightSix(t *testing.T) {
 		cursor int
 		want   string
 	}{
-		{cursor: 0, want: "Free:"},
-		{cursor: 11, want: "Task fit:"},
+		{cursor: 0, want: "Availability:"},
+		{cursor: filterRowTaskFit, want: "Task fit:"},
 	} {
 		m := tuiModel{overlay: "filter", width: 100, height: 6, filterCursor: test.cursor}
 		view := m.View()
@@ -1179,7 +1436,7 @@ func TestTUIXDiscardsInProgressFilterFieldEditLikeClearDoes(t *testing.T) {
 			m.filter = "paid,output<=2"
 			m = tuiKey(m, "f")
 			m.filterDraft.output = "12"
-			m.filterCursor = 7 // Output max — the same field the "c" test above exercises.
+			m.filterCursor = filterRowOutput // Output max — the same field the "c" test above exercises.
 			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(test.key)})
 			got := next.(tuiModel)
 			if cmd == nil || fmt.Sprintf("%T", cmd()) != "tea.clearScreenMsg" {
@@ -1801,7 +2058,7 @@ func TestTUIFilterFormOpensAppliesAndPersistsStructuredFields(t *testing.T) {
 	m.configPath = configPath
 	m.filter = "paid,tier:sonnet,quality>=90,context>=100000,input<=1,output<=2"
 	m = tuiKey(m, "f")
-	if m.overlay != "filter" || m.filterDraft.tier != "sonnet" || m.filterDraft.quality != "90" {
+	if m.overlay != "filter" || len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["sonnet"] != struct{}{} || m.filterDraft.quality != "90" {
 		t.Fatalf("filter form open state = overlay %q, draft %+v", m.overlay, m.filterDraft)
 	}
 	if !m.filterDraft.paid || m.filterDraft.free || m.filterDraft.scored {
@@ -1842,16 +2099,16 @@ func TestTUIFilterTierSelectChangesThroughUpdateAndPersists(t *testing.T) {
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(tuiModel)
 	}
-	if m.filterCursor != 3 || m.filterDraft.tier != "sonnet" {
-		t.Fatalf("tier navigation state = cursor %d, tier %q, want cursor 3 and sonnet", m.filterCursor, m.filterDraft.tier)
+	if m.filterCursor != filterRowTier || len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["sonnet"] != struct{}{} {
+		t.Fatalf("tier navigation state = cursor %d, tiers %+v, want sonnet", m.filterCursor, m.filterDraft.tierSelected)
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	want := "tier:haiku"
-	if m.filter != want || len(m.visible) != 2 || !containsModelSlug(m.visible, "sonnet") || !containsModelSlug(m.visible, "haiku") {
-		t.Fatalf("applied tier filter = %q, visible %+v, want %q and sonnet/haiku", m.filter, m.visible, want)
+	want := "tier:opus,sonnet"
+	if m.filter != want || len(m.visible) != 1 || !containsModelSlug(m.visible, "sonnet") {
+		t.Fatalf("applied tier filter = %q, visible %+v, want %q and sonnet", m.filter, m.visible, want)
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1880,20 +2137,20 @@ func TestTUIFilterTierSelectArrowsThroughUpdateAndPersists(t *testing.T) {
 		next, _ := m.Update(msg)
 		m = next.(tuiModel)
 	}
-	if m.filterCursor != 3 || m.filterDraft.tier != "haiku" {
-		t.Fatalf("tier arrow state = cursor %d, tier %q, want cursor 3 and haiku", m.filterCursor, m.filterDraft.tier)
+	if m.filterCursor != filterRowTier || len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["sonnet"] != struct{}{} {
+		t.Fatalf("tier arrow state = cursor %d, tiers %+v, want sonnet", m.filterCursor, m.filterDraft.tierSelected)
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	if m.filter != "tier:haiku" || len(m.visible) != 2 || !containsModelSlug(m.visible, "sonnet") || !containsModelSlug(m.visible, "haiku") {
+	if m.filter != "tier:sonnet" || len(m.visible) != 1 || !containsModelSlug(m.visible, "sonnet") {
 		t.Fatalf("applied arrow tier filter = %q, visible %+v", m.filter, m.visible)
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TUIFilter != "tier:haiku" {
-		t.Fatalf("persisted arrow tier filter = %q, want tier:haiku", cfg.TUIFilter)
+	if cfg.TUIFilter != "tier:sonnet" {
+		t.Fatalf("persisted arrow tier filter = %q, want tier:sonnet", cfg.TUIFilter)
 	}
 }
 
@@ -1916,23 +2173,23 @@ func TestTUIFilterTaskFitArrowsThroughUpdateAndPersists(t *testing.T) {
 	if m.overlay != "filter" {
 		t.Fatalf("filter overlay after f = %q, want filter", m.overlay)
 	}
-	for i := 0; i < 11; i++ {
+	for i := 0; i < filterRowTaskFit; i++ {
 		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = next.(tuiModel)
 	}
-	if m.filterCursor != 11 || m.filterDraft.taskFit != "implement" {
-		t.Fatalf("task fit navigation state = cursor %d, task fit %q, want cursor 11 and implement", m.filterCursor, m.filterDraft.taskFit)
+	if m.filterCursor != filterRowTaskFit || len(m.filterDraft.taskFitSelected) != 1 {
+		t.Fatalf("task fit navigation state = cursor %d, task fit %+v, want cursor 1 and implement", m.filterCursor, m.filterDraft.taskFitSelected)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(tuiModel)
-	if m.filterDraft.taskFit != "plan" {
-		t.Fatalf("task fit arrow state = %q, want plan", m.filterDraft.taskFit)
+	if len(m.filterDraft.taskFitSelected) != 1 || m.filterChipCursor != 1 {
+		t.Fatalf("task fit arrow state = %+v cursor %d, want implement and cursor 1", m.filterDraft.taskFitSelected, m.filterChipCursor)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(tuiModel)
-	want := "task_fit:plan"
-	if m.filter != want || len(m.visible) != 2 || !containsModelSlug(m.visible, "plan") || !containsModelSlug(m.visible, "both") || containsModelSlug(m.visible, "implement") {
-		t.Fatalf("applied task fit filter = %q, visible %+v, want %q and plan/both", m.filter, m.visible, want)
+	want := "task_fit:implement"
+	if m.filter != want || len(m.visible) != 2 || !containsModelSlug(m.visible, "implement") || !containsModelSlug(m.visible, "both") || containsModelSlug(m.visible, "plan") {
+		t.Fatalf("applied task fit filter = %q, visible %+v, want %q and implement/both", m.filter, m.visible, want)
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -1940,6 +2197,64 @@ func TestTUIFilterTaskFitArrowsThroughUpdateAndPersists(t *testing.T) {
 	}
 	if cfg.TUIFilter != want {
 		t.Fatalf("persisted task fit filter = %q, want %q", cfg.TUIFilter, want)
+	}
+}
+
+func TestTUIFilterTaskFitToTierClampsChipCursorAndToggles(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
+	m = tuiKey(m, "f")
+	for i := 0; i < filterRowTaskFit; i++ {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(tuiModel)
+	}
+	for i := 0; i < 6; i++ {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		m = next.(tuiModel)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(tuiModel)
+	if m.filterCursor != filterRowScored {
+		t.Fatalf("first Down after task fit moved to row %d, want scored", m.filterCursor)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(tuiModel)
+	if m.filterCursor != filterRowTier || m.filterChipCursor != len(tuiFilterTierChoices())-1 {
+		t.Fatalf("tier entry state = row %d cursor %d, want tier cursor %d", m.filterCursor, m.filterChipCursor, len(tuiFilterTierChoices())-1)
+	}
+	for _, msg := range []tea.KeyMsg{{Type: tea.KeyLeft}, {Type: tea.KeyRight}} {
+		next, _ = m.Update(msg)
+		m = next.(tuiModel)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(tuiModel)
+	if len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["haiku"] != struct{}{} {
+		t.Fatalf("tier toggle state = %+v, want haiku selected", m.filterDraft.tierSelected)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = next.(tuiModel)
+	if len(m.filterDraft.tierSelected) != 0 {
+		t.Fatalf("tier clear state = %+v, want empty", m.filterDraft.tierSelected)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = next.(tuiModel)
+	if len(m.filterDraft.tierSelected) != 0 {
+		t.Fatalf("tier backspace state = %+v, want empty", m.filterDraft.tierSelected)
+	}
+}
+
+func TestTUIFilterTierToTaskFitPreservesNavigation(t *testing.T) {
+	m := tuiModel{overlay: "filter", filterCursor: filterRowTier, filterChipCursor: len(tuiFilterTierChoices()) - 1}
+	next, _ := m.filterKey("up", tea.KeyMsg{Type: tea.KeyUp})
+	m = next
+	next, _ = m.filterKey("up", tea.KeyMsg{Type: tea.KeyUp})
+	m = next
+	if m.filterCursor != filterRowTaskFit || m.filterChipCursor != len(tuiFilterTierChoices())-1 {
+		t.Fatalf("task fit entry state = row %d cursor %d, want row %d cursor %d", m.filterCursor, m.filterChipCursor, filterRowTaskFit, len(tuiFilterTierChoices())-1)
+	}
+	next, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
+	m = next
+	if m.filterChipCursor != len(tuiFilterTierChoices()) {
+		t.Fatalf("task fit right navigation cursor = %d, want %d", m.filterChipCursor, len(tuiFilterTierChoices()))
 	}
 }
 
@@ -1958,8 +2273,8 @@ func TestTUIFilterTierMinimumAndLegacyFreeSemantics(t *testing.T) {
 	}
 	m.filter = "tier:haiku"
 	visible, _, err = m.buildVisible()
-	if err != nil || len(visible) != 3 || !containsModelSlug(visible, "opus") || !containsModelSlug(visible, "sonnet") || !containsModelSlug(visible, "haiku") || containsModelSlug(visible, "free") {
-		t.Fatalf("TUI tier:haiku = %+v, error %v; want paid haiku and higher only", visible, err)
+	if err != nil || len(visible) != 1 || !containsModelSlug(visible, "haiku") {
+		t.Fatalf("TUI tier:haiku = %+v, error %v; want only haiku", visible, err)
 	}
 }
 
@@ -1991,14 +2306,14 @@ func TestTUIFilterClearCommandWorksFromCheckboxAndTextFields(t *testing.T) {
 	m = tuiKey(m, "f")
 	m.filterDraft.scored = true
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
-	if got := next.(tuiModel).filterDraft; got != (tuiFilterDraft{}) {
+	if got := next.(tuiModel).filterDraft; !reflect.DeepEqual(got, tuiFilterDraft{}) {
 		t.Fatalf("checkbox c did not clear draft: %+v", got)
 	}
 	m = next.(tuiModel)
 	m.filterDraft.output = "12"
-	m.filterCursor = 7
+	m.filterCursor = filterRowOutput
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("с")})
-	if got := next.(tuiModel).filterDraft; got != (tuiFilterDraft{}) {
+	if got := next.(tuiModel).filterDraft; !reflect.DeepEqual(got, tuiFilterDraft{}) {
 		t.Fatalf("Russian-layout c did not clear draft from text field: %+v", got)
 	}
 }
@@ -2007,7 +2322,7 @@ func TestTUIFilterTextFieldCanBeEditedAfterClear(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, nil)
 	m.filter = "output<=2"
 	m = tuiKey(m, "f")
-	m.filterCursor = 7
+	m.filterCursor = filterRowOutput
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = next.(tuiModel)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
@@ -2043,7 +2358,7 @@ func TestTUIFilterDraftCanonicalizesQualityAndPrices(t *testing.T) {
 
 func TestTUIFilterDraftTreatsZeroContextAndPricesAsAny(t *testing.T) {
 	draft := tuiFilterDraftFromString("tier:opus,quality>=75,context>=0,input<=0.00,output<=0")
-	if draft.tier != "opus" || draft.quality != "75" || draft.context != "" || draft.input != "" || draft.output != "" {
+	if len(draft.tierSelected) != 1 || draft.tierSelected["opus"] != struct{}{} || draft.quality != "75" || draft.context != "" || draft.input != "" || draft.output != "" {
 		t.Fatalf("zero predicates draft = %+v, want tier opus, quality 75, other numeric fields unset", draft)
 	}
 	if got := draft.string(); got != "tier:opus,quality>=75" {
@@ -2059,29 +2374,42 @@ func TestTUIFilterDraftPreservesExplicitQualityZero(t *testing.T) {
 }
 
 func TestTUIFilterTierSelectCyclesWhitelistAndClear(t *testing.T) {
-	if got, want := tuiFilterTierValues(), append([]string{""}, tier.FilterValues()...); !reflect.DeepEqual(got, want) {
+	if got, want := tuiFilterTierChoices(), []string{"opus", "sonnet", "haiku"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("tier select values = %v, want %v", got, want)
 	}
-	m := tuiModel{overlay: "filter", filterCursor: 3}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowTier}
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
-	if m.filterDraft.tier != "opus" {
-		t.Fatalf("first tier selection = %q, want opus", m.filterDraft.tier)
+	if len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["opus"] != struct{}{} {
+		t.Fatalf("first tier selection = %+v, want opus", m.filterDraft.tierSelected)
 	}
-	for _, want := range []string{"sonnet", "haiku", ""} {
+	for _, want := range []string{"sonnet", "haiku"} {
+		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 		m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
-		if m.filterDraft.tier != want {
-			t.Fatalf("next tier selection = %q, want %q", m.filterDraft.tier, want)
+		if _, ok := m.filterDraft.tierSelected[want]; !ok {
+			t.Fatalf("selected tier = %+v, want %s", m.filterDraft.tierSelected, want)
 		}
 	}
-	m.filterDraft.tier = "sonnet"
+	m.filterDraft.tierSelected = map[string]struct{}{"sonnet": {}}
 	m, _ = m.filterKey("c", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
-	if m.filterDraft.tier != "" {
-		t.Fatalf("cleared tier = %q, want empty", m.filterDraft.tier)
+	if len(m.filterDraft.tierSelected) != 0 {
+		t.Fatalf("cleared tier = %+v, want empty", m.filterDraft.tierSelected)
+	}
+}
+
+func TestTUIFilterTierClearReturnsToAnyAndOmitsSerialization(t *testing.T) {
+	m := tuiModel{overlay: "filter", width: 100, height: 20, filterCursor: filterRowTier, filterDraft: tuiFilterDraft{tierSelected: map[string]struct{}{"opus": {}, "haiku": {}}}}
+	m, _ = m.filterKey("c", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if got := m.filterDraft.string(); got != "" {
+		t.Fatalf("cleared tier serialization = %q, want empty", got)
+	}
+	view := ansi.Strip(tuiFilterView(m))
+	if !strings.Contains(view, "Tier: (any)") || strings.Contains(view, "[x] (any)") {
+		t.Fatalf("cleared tier view = %q", view)
 	}
 }
 
 func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 3, filterDraft: tuiFilterDraft{quality: "90"}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowTier, filterDraft: tuiFilterDraft{quality: "90"}}
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
 	m, _ = m.filterKey("tab", tea.KeyMsg{Type: tea.KeyTab})
 	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
@@ -2091,7 +2419,7 @@ func TestTUIFilterTierSelectBuildsExistingFilterSyntax(t *testing.T) {
 }
 
 func TestTUIFilterAvailabilityRightArrowCyclesForward(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 9, filterDraft: tuiFilterDraft{availability: "paid"}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowAvailability, filterDraft: tuiFilterDraft{availability: "paid"}}
 	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	if m.filterDraft.availability != "" {
 		t.Fatalf("availability after Right from paid = %q, want \"\" (wraps around)", m.filterDraft.availability)
@@ -2099,30 +2427,145 @@ func TestTUIFilterAvailabilityRightArrowCyclesForward(t *testing.T) {
 }
 
 func TestTUIFilterAvailabilityLeftArrowCyclesBackward(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 9, filterDraft: tuiFilterDraft{availability: "paid"}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowAvailability, filterDraft: tuiFilterDraft{availability: "paid"}}
 	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	if m.filterDraft.availability != "free" {
 		t.Fatalf("availability after Left from paid = %q, want free", m.filterDraft.availability)
 	}
 }
 
+func TestTUIFilterAvailabilityAtCursorZeroCyclesAndApplies(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "paid", InPerM: 1}, {Slug: "free", Free: true}})
+	m.overlay, m.filterCursor = "filter", filterRowAvailability
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if m.filterDraft.availability != "free" {
+		t.Fatalf("cursor 0 first availability state = %q, want free", m.filterDraft.availability)
+	}
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "availability:free" || len(m.visible) != 1 || m.visible[0].Slug != "free" {
+		t.Fatalf("applied free availability = filter %q, visible %+v", m.filter, m.visible)
+	}
+	m.openFilterEditor()
+	m.filterCursor = filterRowAvailability
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if m.filterDraft.availability != "paid" {
+		t.Fatalf("availability did not cycle free -> paid: %q", m.filterDraft.availability)
+	}
+	m, _ = m.filterKey("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	if m.filter != "availability:paid" {
+		t.Fatalf("paid availability did not serialize: %q", m.filter)
+	}
+}
+
+func TestTUIFilterRowsAndAvailabilityOptions(t *testing.T) {
+	if filterRowCount != 10 || filterRowTaskFit != 1 || filterRowAvailability != 0 || filterRowScored != 2 || filterRowTier != 3 || filterRowQuality != 4 || filterRowContext != 5 || filterRowInput != 6 || filterRowOutput != 7 || filterRowHasQP != 8 || filterRowCopyright != 9 {
+		t.Fatalf("filter rows = count %d, scored %d, task fit %d", filterRowCount, filterRowScored, filterRowTaskFit)
+	}
+	m := tuiModel{overlay: "filter", width: 100, height: 30}
+	view := tuiFilterView(m)
+	if strings.Contains(view, "Free:") || strings.Contains(view, "Paid:") {
+		t.Fatalf("filter view exposes legacy rows: %q", view)
+	}
+	if strings.Count(view, "Availability:") != 1 || strings.Count(view, "Availability options: (any), free, paid") != 1 {
+		t.Fatalf("availability rows/options = %q", view)
+	}
+	if strings.Contains(view, "Availability options: (any), (any)") {
+		t.Fatalf("availability options contain duplicate any: %q", view)
+	}
+	if !strings.Contains(view, "Availability: (any)") {
+		t.Fatalf("unset availability view = %q, want Availability: (any)", view)
+	}
+	labels := []string{"Availability:", "Task fit:", "Scored:", "Tier:", "Quality minimum:", "Context minimum:", "Input max:", "Output max:", "Has Q/P:", "Copyright guardrail:"}
+	previous := -1
+	for _, label := range labels {
+		index := strings.Index(view, label)
+		if index <= previous {
+			t.Fatalf("filter row %q is out of order in %q", label, view)
+		}
+		previous = index
+	}
+	m.filterCursor = filterRowScored
+	m, _ = m.filterKey(" ", tea.KeyMsg{Type: tea.KeySpace})
+	if !m.filterDraft.scored {
+		t.Fatal("scored row at cursor 1 did not toggle")
+	}
+	m.filterCursor = 99
+	m, _ = m.filterKey("down", tea.KeyMsg{Type: tea.KeyDown})
+	if m.filterCursor != filterRowCount-1 {
+		t.Fatalf("filter cursor bound = %d, want %d", m.filterCursor, filterRowCount-1)
+	}
+}
+
+func TestTUIFilterAvailabilityViewRendersAllStates(t *testing.T) {
+	for _, test := range []struct {
+		availability string
+		want         string
+	}{
+		{"", "Availability: (any)"},
+		{"free", "Availability: free"},
+		{"paid", "Availability: paid"},
+	} {
+		m := tuiModel{overlay: "filter", width: 100, height: 30, filterDraft: tuiFilterDraft{availability: test.availability}}
+		if view := tuiFilterView(m); !strings.Contains(view, test.want) {
+			t.Fatalf("availability %q view = %q, want %q", test.availability, view, test.want)
+		}
+	}
+}
+
+func TestTUIFilterAvailabilityCyclesExactlyThreeStates(t *testing.T) {
+	for _, test := range []struct {
+		current  string
+		forward  string
+		backward string
+	}{
+		{"", "free", "paid"},
+		{"free", "paid", ""},
+		{"paid", "", "free"},
+		{"any", "free", "paid"},
+	} {
+		if got := tuiNextAvailability(test.current); got != test.forward {
+			t.Errorf("next availability from %q = %q, want %q", test.current, got, test.forward)
+		}
+		if got := tuiPreviousAvailability(test.current); got != test.backward {
+			t.Errorf("previous availability from %q = %q, want %q", test.current, got, test.backward)
+		}
+	}
+}
+
+func TestTUIFilterAvailabilityDraftCanonicalizationAndLegacyPredicates(t *testing.T) {
+	for _, test := range []struct {
+		filter string
+		want   string
+	}{
+		{"availability:any", ""},
+		{"availability:free", "availability:free"},
+		{"availability:paid", "availability:paid"},
+		{"free,paid", "free,paid"},
+	} {
+		draft := tuiFilterDraftFromString(test.filter)
+		if got := draft.string(); got != test.want {
+			t.Errorf("draft %q serialized as %q, want %q", test.filter, got, test.want)
+		}
+	}
+}
+
 func TestTUIFilterNumericArrowsUseDefaultsAndSteps(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 4}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowQuality}
 	for _, test := range []struct {
 		field int
 		want  string
 	}{
-		{4, "5"}, {5, "8192"}, {6, "0.05"}, {7, "0.05"},
+		{filterRowQuality, "5"}, {filterRowContext, "8192"}, {filterRowInput, "0.05"}, {filterRowOutput, "0.05"},
 	} {
 		m.filterCursor = test.field
 		m.filterDraft = tuiFilterDraft{}
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
-		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-4]; got != test.want {
+		if got := map[int]string{filterRowQuality: m.filterDraft.quality, filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[test.field]; got != test.want {
 			t.Fatalf("empty field %d first right step = %q, want %q", test.field, got, test.want)
 		}
 	}
 	m.filterDraft = tuiFilterDraft{quality: "95", context: "100000", input: "1", output: "2"}
-	for field := 4; field <= 7; field++ {
+	for _, field := range []int{filterRowQuality, filterRowContext, filterRowInput, filterRowOutput} {
 		m.filterCursor = field
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	}
@@ -2139,16 +2582,16 @@ func TestTUIFilterNumericArrowsMakeProgressAcrossRepeatedSteps(t *testing.T) {
 		wantRight string
 		wantLeft  string
 	}{
-		{"context", 5, "5", "24581", ""},
-		{"input", 6, "1", "1.15", "0.85"},
-		{"output", 7, "1", "1.15", "0.85"},
+		{"context", filterRowContext, "5", "24581", ""},
+		{"input", filterRowInput, "1", "1.15", "0.85"},
+		{"output", filterRowOutput, "1", "1.15", "0.85"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			m := tuiModel{overlay: "filter", filterCursor: test.field, filterDraft: tuiFilterDraft{context: test.start, input: test.start, output: test.start}}
 			for i := 0; i < 3; i++ {
 				m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 			}
-			got := []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-5]
+			got := map[int]string{filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[test.field]
 			if got != test.wantRight {
 				t.Fatalf("three right steps = %q, want %q", got, test.wantRight)
 			}
@@ -2156,7 +2599,7 @@ func TestTUIFilterNumericArrowsMakeProgressAcrossRepeatedSteps(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 			}
-			got = []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[test.field-5]
+			got = map[int]string{filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[test.field]
 			if got != test.wantLeft {
 				t.Fatalf("three left steps = %q, want %q", got, test.wantLeft)
 			}
@@ -2178,7 +2621,7 @@ func TestTUIFilterDisplayRoundsPricesWithoutChangingFilterSyntax(t *testing.T) {
 }
 
 func TestTUIFilterNumericStepsUseConfiguredValues(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "0.1"}, filterSteps: config.TUISteps{QualityPoints: 1, ContextTokens: 1, InputCents: 10, OutputCents: 20}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowInput, filterDraft: tuiFilterDraft{input: "0.1"}, filterSteps: config.TUISteps{QualityPoints: 1, ContextTokens: 1, InputCents: 10, OutputCents: 20}}
 	m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	if m.filterDraft.input != "0.20" {
 		t.Fatalf("configured input step = %q, want 0.20", m.filterDraft.input)
@@ -2186,14 +2629,14 @@ func TestTUIFilterNumericStepsUseConfiguredValues(t *testing.T) {
 }
 
 func TestTUIFilterNumericStepsUseConfiguredValuesWithProgress(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 5, filterDraft: tuiFilterDraft{context: "5"}, filterSteps: config.TUISteps{ContextTokens: 1, InputCents: 1, OutputCents: 1}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowContext, filterDraft: tuiFilterDraft{context: "5"}, filterSteps: config.TUISteps{ContextTokens: 1, InputCents: 1, OutputCents: 1}}
 	for i := 0; i < 2; i++ {
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 	}
 	if m.filterDraft.context != "7" {
 		t.Fatalf("configured context right steps = %q, want 7", m.filterDraft.context)
 	}
-	m.filterCursor = 6
+	m.filterCursor = filterRowInput
 	m.filterDraft.input = "5"
 	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	if m.filterDraft.input != "4.99" {
@@ -2212,7 +2655,7 @@ func TestTUIPriceStepsUseConfiguredCentsAndReachZero(t *testing.T) {
 			t.Errorf("tuiPriceStep(%d) = %d, want %d", test.cents, got, test.want)
 		}
 	}
-	m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: "0.01"}}
+	m := tuiModel{overlay: "filter", filterCursor: filterRowInput, filterDraft: tuiFilterDraft{input: "0.01"}}
 	m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	if m.filterDraft.input != "0.00" {
 		t.Fatalf("price step crossed zero: %q", m.filterDraft.input)
@@ -2221,7 +2664,7 @@ func TestTUIPriceStepsUseConfiguredCentsAndReachZero(t *testing.T) {
 
 func TestTUIPriceStepsCrossCanonicalBoundaries(t *testing.T) {
 	for _, test := range []struct{ start, want string }{{"0.99", "1.00"}, {"9.99", "10.00"}} {
-		m := tuiModel{overlay: "filter", filterCursor: 6, filterDraft: tuiFilterDraft{input: test.start}, filterSteps: config.TUISteps{InputCents: 1}}
+		m := tuiModel{overlay: "filter", filterCursor: filterRowInput, filterDraft: tuiFilterDraft{input: test.start}, filterSteps: config.TUISteps{InputCents: 1}}
 		m, _ = m.filterKey("right", tea.KeyMsg{Type: tea.KeyRight})
 		if m.filterDraft.input != test.want {
 			t.Fatalf("price step %s = %q, want %s", test.start, m.filterDraft.input, test.want)
@@ -2239,12 +2682,12 @@ func TestTUIRefreshAppliesUpdatedSteps(t *testing.T) {
 }
 
 func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
-	m := tuiModel{overlay: "filter", filterCursor: 4, filterDraft: tuiFilterDraft{quality: "0", context: "0", input: "0", output: "0"}}
-	for field := 4; field <= 7; field++ {
+	m := tuiModel{overlay: "filter", filterCursor: filterRowQuality, filterDraft: tuiFilterDraft{quality: "0", context: "0", input: "0", output: "0"}}
+	for _, field := range []int{filterRowQuality, filterRowContext, filterRowInput, filterRowOutput} {
 		m.filterCursor = field
 		m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 	}
-	if m.filterDraft != (tuiFilterDraft{}) {
+	if !reflect.DeepEqual(m.filterDraft, tuiFilterDraft{}) {
 		t.Fatalf("numeric left at zero draft = %+v, want empty fields", m.filterDraft)
 	}
 	m.filterDraft = tuiFilterDraft{quality: "101", context: "-1", input: "-0.5", output: "-2"}
@@ -2255,31 +2698,31 @@ func TestTUIFilterNumericArrowsClampAndPersistSyntax(t *testing.T) {
 }
 
 func TestTUIFilterNumericLeftAtZeroClearsDraftAndRendersAny(t *testing.T) {
-	for _, field := range []int{4, 5, 6, 7} {
+	for _, field := range []int{filterRowQuality, filterRowContext, filterRowInput, filterRowOutput} {
 		m := tuiModel{overlay: "filter", filterCursor: field, filterDraft: tuiFilterDraft{quality: "0", context: "0", input: "0", output: "0"}, width: 100, height: 20}
 		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 		m = next.(tuiModel)
-		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-4]; got != "" {
+		if got := map[int]string{filterRowQuality: m.filterDraft.quality, filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[field]; got != "" {
 			t.Fatalf("field %d left at zero draft = %q, want empty", field, got)
 		}
-		if got := tuiFilterView(m); !strings.Contains(got, []string{"Quality minimum", "Context minimum", "Input max", "Output max"}[field-4]+": (any)") {
+		if got := tuiFilterView(m); !strings.Contains(got, map[int]string{filterRowQuality: "Quality minimum", filterRowContext: "Context minimum", filterRowInput: "Input max", filterRowOutput: "Output max"}[field]+": (any)") {
 			t.Fatalf("field %d left at zero view = %q, want any", field, got)
 		}
 		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 		m = next.(tuiModel)
-		if got := []string{m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-4]; got != "" {
+		if got := map[int]string{filterRowQuality: m.filterDraft.quality, filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[field]; got != "" {
 			t.Fatalf("field %d repeated left draft = %q, want empty", field, got)
 		}
 	}
 }
 
 func TestTUIFilterNumericArrowsDoNotCrossZero(t *testing.T) {
-	for _, field := range []int{5, 6, 7} {
+	for _, field := range []int{filterRowContext, filterRowInput, filterRowOutput} {
 		m := tuiModel{overlay: "filter", filterCursor: field, filterDraft: tuiFilterDraft{context: "1", input: "1", output: "1"}}
 		for i := 0; i < 200; i++ {
 			m, _ = m.filterKey("left", tea.KeyMsg{Type: tea.KeyLeft})
 		}
-		got := []string{m.filterDraft.context, m.filterDraft.input, m.filterDraft.output}[field-5]
+		got := map[int]string{filterRowContext: m.filterDraft.context, filterRowInput: m.filterDraft.input, filterRowOutput: m.filterDraft.output}[field]
 		if got != "" {
 			t.Fatalf("field %d repeated left = %q, want empty", field, got)
 		}
@@ -6322,11 +6765,7 @@ func TestTUILanguageZeroValueStaysEnglish(t *testing.T) {
 	}
 }
 
-// TestTUILanguageToggleKey covers the l key itself: it flips m.lang from
-// the main list, flips it back, and — per this feature's design decision
-// to make language_toggle globally reachable like x, checked
-// unconditionally in key() rather than gated on m.overlay == "" — also
-// works from inside an overlay without closing it.
+// TestTUILanguageToggleKey covers the l key from the main list.
 func TestTUILanguageToggleKey(t *testing.T) {
 	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
 	if m.lang != "" {
@@ -6340,15 +6779,15 @@ func TestTUILanguageToggleKey(t *testing.T) {
 	if m.lang != "" {
 		t.Fatalf("l did not switch back to English: lang = %q", m.lang)
 	}
-	// From inside an overlay: the overlay must stay open (l is not treated
-	// as a close/cancel key), and the language still flips.
-	m.overlay, m.settingsCursor = "settings", 0
-	m = tuiKey(m, "l")
+}
+
+func TestFilterLanguageToggleFiresInFilterOverlay(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "a"}})
+	m.overlay = "filter"
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = next.(tuiModel)
 	if m.lang != "ru" {
-		t.Fatalf("l did not switch to Russian from inside Settings: lang = %q", m.lang)
-	}
-	if m.overlay != "settings" {
-		t.Fatalf("l closed the Settings overlay: overlay = %q, want \"settings\" to stay open", m.overlay)
+		t.Fatalf("language did not change in filter overlay: %q", m.lang)
 	}
 }
 
@@ -6532,7 +6971,7 @@ func TestTUIRussianFilterOverlayRendersTranslatedText(t *testing.T) {
 	m.width, m.height, m.lang = 100, 24, "ru"
 	m.openFilterEditor()
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Фильтр", "Минимальный тир", "Качество (минимум)", "Доступность", "Esc", "Enter", "Tab/Shift+Tab"} {
+	for _, want := range []string{"Фильтр", "Тир", "Качество (минимум)", "Доступность", "Esc", "Enter", "Tab/Shift+Tab"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Russian Filter overlay is missing %q:\n%s", want, view)
 		}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
-	filterpkg "github.com/sboborikin/openrouter-model-tracker/internal/filter"
+	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
 	"github.com/sboborikin/openrouter-model-tracker/internal/notes"
@@ -120,18 +121,40 @@ type tuiScoreSourceMsg struct {
 type tuiTickMsg struct{}
 
 type tuiFilterDraft struct {
-	free, paid, scored bool
-	hasQP              bool
-	availability       string
-	copyrightGuardrail string
-	tier               string
-	taskFit            string
-	taskFitSet         bool
-	quality            string
-	context            string
-	input              string
-	output             string
+	free, paid, scored     bool
+	hasQP                  bool
+	availability           string
+	copyrightGuardrail     string
+	tierSelected           map[string]struct{}
+	tierPredicateGroups    [][]string
+	tierDirty              bool
+	tierInvalid            string
+	tierEditBlocked        bool
+	taskFitSelected        map[string]struct{}
+	taskFitPredicateGroups [][]string
+	taskFitDirty           bool
+	taskFitExplicitEmpty   bool
+	taskFitInvalid         string
+	taskFitEditBlocked     bool
+	quality                string
+	context                string
+	input                  string
+	output                 string
 }
+
+const (
+	filterRowAvailability = iota
+	filterRowTaskFit
+	filterRowScored
+	filterRowTier
+	filterRowQuality
+	filterRowContext
+	filterRowInput
+	filterRowOutput
+	filterRowHasQP
+	filterRowCopyright
+	filterRowCount
+)
 
 type tuiModel struct {
 	ctx                   context.Context
@@ -168,6 +191,7 @@ type tuiModel struct {
 	columnCursor          int
 	settingsCursor        int
 	filterCursor          int
+	filterChipCursor      int
 	filterDraft           tuiFilterDraft
 	pendingColumns        []tuiColumn
 	input, inputMode      string
@@ -712,12 +736,13 @@ var tuiTranslationsRU = map[string]string{
 	"Error: ":  "Ошибка: ",
 
 	"Filter": "Фильтр",
-	"↑/↓ move · ←/→ step values · Space toggles/cycles Tier min · type to edit": "↑/↓ перемещение · ←/→ изменение значений · Space переключает/циклит Tier min · ввод текста для правки",
-	"Tier options: (any), ": "Варианты Tier min: (любой), ",
+	"↑/↓/Tab move rows · ←/→ chips or values · Space toggle · c clear":                   "↑/↓/Tab перемещение по строкам · ←/→ чипы или значения · Space переключить · c очистить",
+	"↑/↓ move · ←/→ step numeric values · Space toggles/cycles selectors · type to edit": "↑/↓ перемещение · ←/→ изменение числовых значений · Space переключает/циклит селекторы · ввод текста для правки",
+	"Tier options: (any), ": "Варианты Tier: (любой), ",
 	"Free":                  "Бесплатные",
 	"Paid":                  "Платные",
 	"Scored":                "С оценкой",
-	"Tier min":              "Минимальный тир",
+	"Tier":                  "Тир",
 	"Quality minimum":       "Качество (минимум)",
 	"Context minimum":       "Контекст (минимум)",
 	"Input max":             "Вход (максимум)",
@@ -910,6 +935,10 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 		return m.inputKey(msg)
 	}
 	key := msg.Value
+	if m.keyMatches("main", "language_toggle", key) {
+		m.toggleLanguage()
+		return m, nil
+	}
 	if key == "y" && m.selection.Active {
 		if m.screenController == nil {
 			return m, nil
@@ -924,36 +953,6 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 		}
 	}
 	originalKey := key
-	// x is a hardcoded, always-on universal exit — not part of the
-	// customizable keymap — so it is checked here before any of the
-	// keymap-driven routing below. The normalized boundary key (not raw input)
-	// makes it Cyrillic-aware: "ч" sits at the physical position of Latin
-	// "x" on a ЙЦУКЕН layout and must close/quit exactly like "x" does,
-	// while still being blocked above whenever text input is active, and
-	// still excluded for Alt/paste (the boundary never aliases those).
-	if key == "x" {
-		if m.overlay != "" {
-			m.closeOverlay()
-			return m, nil
-		}
-		return m, tea.Quit
-	}
-	// language_toggle (l, plus its Cyrillic ЙЦУКЕН-position alias д via
-	// the input boundary) is checked unconditionally here too, the same way x
-	// is above: it is not gated on m.overlay == "" the way open_settings,
-	// open_details, help and full_help below are, because none of them
-	// share a meaning with l inside any overlay's own switch (checked: no
-	// overlay context binds a letter to "l" today) — a user mid-overlay
-	// (help, detail, settings, columns, filter) can flip the whole
-	// interface's language without backing out first, matching how x
-	// already reaches every overlay. It is still, like every other command
-	// key, unreachable while m.inputMode != "" — that branch already
-	// returned above — so l/д types literally into an active search or
-	// help-search draft, exactly as before.
-	if m.keyMatches("main", "language_toggle", key) {
-		m.toggleLanguage()
-		return m, nil
-	}
 	if m.overlay == "" && m.keyMatches("main", "open_settings", key) {
 		key = "o"
 	}
@@ -990,6 +989,12 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 	}
 	if m.keyMatches(context, "navigate_down", key) {
 		key = "down"
+	}
+	// Overlay handlers own printable input. x remains a convenient overlay
+	// close key, but must not reach the main keymap while an overlay is open.
+	if m.overlay != "" && key == "x" {
+		m.closeOverlay()
+		return m, nil
 	}
 	if m.overlay == "help" {
 		if m.keyMatches("help", "full_help", originalKey) {
@@ -1094,6 +1099,8 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 		return m.filterKey(key, msg)
 	}
 	switch key {
+	case "x":
+		return m, tea.Quit
 	case "ctrl+c":
 		// "x" is handled unconditionally above (translated through
 		// the input boundary, so this covers its Cyrillic "ч" alias too) — it
@@ -1527,8 +1534,18 @@ func (m *tuiModel) openFilterEditor() {
 	m.overlay = "filter"
 	m.inputMode = ""
 	m.filterCursor = 0
+	m.filterChipCursor = 0
+	m.err = ""
 	if m.filterFormExplicit || m.filter != config.DefaultFilter {
 		m.filterDraft = tuiFilterDraftFromString(m.filter)
+		if err := filter.ValidateTaskFit(m.filter); err != nil {
+			m.filterDraft.taskFitInvalid = err.Error()
+			m.err = err.Error()
+		}
+		if err := filter.ValidateTiers(m.filter); err != nil {
+			m.filterDraft.tierInvalid = err.Error()
+			m.err = err.Error()
+		}
 	} else {
 		m.filterDraft = tuiFilterDraft{}
 	}
@@ -1536,72 +1553,103 @@ func (m *tuiModel) openFilterEditor() {
 
 func (m tuiModel) filterKey(key string, value interface{}) (tuiModel, tea.Cmd) {
 	runes := tuiKeyRunes(value)
-	const filterFields = 12
+	m.normalizeFilterChipCursor()
 	switch key {
 	case "esc":
 		m.closeOverlay()
 	case "up":
 		m.filterCursor = max(0, m.filterCursor-1)
+		m.normalizeFilterChipCursor()
 	case "k":
 		m.filterCursor = max(0, m.filterCursor-1)
+		m.normalizeFilterChipCursor()
 	case "down":
-		m.filterCursor = min(filterFields-1, m.filterCursor+1)
+		m.filterCursor = min(filterRowCount-1, m.filterCursor+1)
+		m.normalizeFilterChipCursor()
 	case "left":
-		if m.filterCursor == 3 {
-			m.filterDraft.tier = tuiPreviousFilterTier(m.filterDraft.tier)
-		} else if m.filterCursor == 9 {
+		if m.filterCursor == filterRowTaskFit {
+			m.filterChipCursor = (m.filterChipCursor + len(filter.TaskFitKeywords()) - 1) % len(filter.TaskFitKeywords())
+		} else if m.filterCursor == filterRowTier {
+			m.filterChipCursor = (m.filterChipCursor + len(tuiFilterTierChoices()) - 1) % len(tuiFilterTierChoices())
+		} else if m.filterCursor == filterRowAvailability {
 			m.filterDraft.availability = tuiPreviousAvailability(m.filterDraft.availability)
-		} else if m.filterCursor == 10 {
+		} else if m.filterCursor == filterRowCopyright {
 			m.filterDraft.copyrightGuardrail = tuiPreviousCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
-		} else if m.filterCursor == 11 {
-			m.filterDraft.taskFit = tuiPreviousTaskFit(m.filterDraft.taskFit)
-			m.filterDraft.taskFitSet = true
-		} else if m.filterCursor >= 4 {
+		} else if m.filterCursor == filterRowQuality || m.filterCursor == filterRowContext || m.filterCursor == filterRowInput || m.filterCursor == filterRowOutput {
 			m.filterDraft.step(m.filterCursor, -1, m.filterSteps)
 		}
 	case "right":
-		if m.filterCursor == 3 {
-			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
-		} else if m.filterCursor == 9 {
+		if m.filterCursor == filterRowTaskFit {
+			m.filterChipCursor = (m.filterChipCursor + 1) % len(filter.TaskFitKeywords())
+		} else if m.filterCursor == filterRowTier {
+			m.filterChipCursor = (m.filterChipCursor + 1) % len(tuiFilterTierChoices())
+		} else if m.filterCursor == filterRowAvailability {
 			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
-		} else if m.filterCursor == 10 {
+		} else if m.filterCursor == filterRowCopyright {
 			m.filterDraft.copyrightGuardrail = tuiNextCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
-		} else if m.filterCursor == 11 {
-			m.filterDraft.taskFit = tuiNextTaskFit(m.filterDraft.taskFit)
-			m.filterDraft.taskFitSet = true
-		} else if m.filterCursor >= 4 {
+		} else if m.filterCursor == filterRowQuality || m.filterCursor == filterRowContext || m.filterCursor == filterRowInput || m.filterCursor == filterRowOutput {
 			m.filterDraft.step(m.filterCursor, 1, m.filterSteps)
 		}
 	case "j", "tab":
-		m.filterCursor = min(filterFields-1, m.filterCursor+1)
+		m.filterCursor = min(filterRowCount-1, m.filterCursor+1)
+		m.normalizeFilterChipCursor()
 	case "shift+tab":
 		m.filterCursor = max(0, m.filterCursor-1)
+		m.normalizeFilterChipCursor()
 	case " ":
 		switch m.filterCursor {
-		case 0:
-			m.filterDraft.free = !m.filterDraft.free
-		case 1:
-			m.filterDraft.paid = !m.filterDraft.paid
-		case 2:
+		case filterRowScored:
 			m.filterDraft.scored = !m.filterDraft.scored
-		case 3:
-			m.filterDraft.tier = tuiNextFilterTier(m.filterDraft.tier)
-		case 8:
+		case filterRowTier:
+			if m.filterDraft.tierEditingBlocked() {
+				m.filterDraft.tierEditBlocked = true
+				m.err = "cannot edit Tier with repeated predicates; clear it first"
+				return m, nil
+			}
+			m.filterDraft.toggleTier(tuiFilterTierChoices()[m.filterChipCursor])
+		case filterRowHasQP:
 			m.filterDraft.hasQP = !m.filterDraft.hasQP
-		case 9:
+		case filterRowAvailability:
 			m.filterDraft.availability = tuiNextAvailability(m.filterDraft.availability)
-		case 10:
+		case filterRowCopyright:
 			m.filterDraft.copyrightGuardrail = tuiNextCopyrightGuardrail(m.filterDraft.copyrightGuardrail)
+		case filterRowTaskFit:
+			if m.filterDraft.taskFitEditingBlocked() {
+				m.filterDraft.taskFitEditBlocked = true
+				m.err = "cannot edit Task fit with repeated predicates; clear it first"
+				return m, nil
+			}
+			m.filterDraft.toggleTaskFit(filter.TaskFitKeywords()[m.filterChipCursor])
 		}
 	case "c":
-		m.filterDraft = tuiFilterDraft{}
+		if m.filterCursor == filterRowTier {
+			m.filterDraft.clearTier()
+			m.filterDraft.tierEditBlocked = false
+			m.err = ""
+		} else if m.filterCursor == filterRowTaskFit {
+			m.filterDraft.clearTaskFit()
+			m.filterDraft.taskFitEditBlocked = false
+			m.err = ""
+		} else {
+			m.filterDraft = tuiFilterDraft{}
+			m.err = ""
+		}
 	case "backspace":
-		m.filterDraft.deleteLast(m.filterCursor)
+		if m.filterCursor == filterRowTaskFit {
+			if m.filterDraft.taskFitEditingBlocked() {
+				m.filterDraft.taskFitEditBlocked = true
+				m.err = "cannot edit Task fit with repeated predicates; clear it first"
+				return m, nil
+			}
+			m.filterDraft.toggleTaskFit(filter.TaskFitKeywords()[m.filterChipCursor])
+		} else {
+			m.filterDraft.deleteLast(m.filterCursor)
+		}
 	case "enter":
 		return m.applyFilterDraft()
 	default:
-		if len(runes) > 0 && m.filterCursor >= 3 {
-			if m.filterCursor != 3 {
+		if len(runes) > 0 && m.filterCursor != filterRowAvailability && m.filterCursor != filterRowScored && m.filterCursor != filterRowHasQP {
+			if m.filterCursor != filterRowTier && m.filterCursor != filterRowTaskFit {
 				m.filterDraft.append(m.filterCursor, string(runes))
 			}
 		}
@@ -1609,7 +1657,32 @@ func (m tuiModel) filterKey(key string, value interface{}) (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m *tuiModel) normalizeFilterChipCursor() {
+	var choices []string
+	switch m.filterCursor {
+	case filterRowTaskFit:
+		choices = filter.TaskFitKeywords()
+	case filterRowTier:
+		choices = tuiFilterTierChoices()
+	default:
+		return
+	}
+	m.filterChipCursor = max(0, min(len(choices)-1, m.filterChipCursor))
+}
+
 func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
+	if m.filterDraft.tierEditBlocked || m.filterDraft.taskFitEditBlocked {
+		if m.filterDraft.tierEditBlocked {
+			m.err = "cannot edit Tier with repeated predicates; clear it first"
+		} else {
+			m.err = "cannot edit Task fit with repeated predicates; clear it first"
+		}
+		return m, nil
+	}
+	if err := m.filterDraft.validationError(); err != "" {
+		m.err = err
+		return m, nil
+	}
 	m.filterDraft.clampNumeric()
 	candidate := m.filterDraft.string()
 	if _, err := filterTableModels(append([]model.Model(nil), m.models...), splitFilter(candidate)); err != nil {
@@ -1629,6 +1702,13 @@ func (m tuiModel) applyFilterDraft() (tuiModel, tea.Cmd) {
 	return m, nil
 }
 
+func (d tuiFilterDraft) validationError() string {
+	if d.tierInvalid != "" {
+		return d.tierInvalid
+	}
+	return d.taskFitInvalid
+}
+
 // filterStatusValue is a method, not a bare package-level function, so it
 // can read m.lang for the language-aware "cleared" text: applyFilterDraft
 // (its only caller) needs that, and nothing outside this file calls it at
@@ -1641,33 +1721,13 @@ func (m tuiModel) filterStatusValue(filter string) string {
 	return filter
 }
 
-func tuiFilterTierValues() []string {
-	return append([]string{""}, tier.FilterValues()...)
+func tuiFilterTierChoices() []string {
+	return []string{"opus", "sonnet", "haiku"}
 }
 
-func tuiNextFilterTier(current string) string {
-	values := tuiFilterTierValues()
-	for i, value := range values {
-		if strings.EqualFold(value, current) {
-			return values[(i+1)%len(values)]
-		}
-	}
-	return values[0]
-}
-
-func tuiPreviousFilterTier(current string) string {
-	values := tuiFilterTierValues()
-	for i, value := range values {
-		if strings.EqualFold(value, current) {
-			return values[(i+len(values)-1)%len(values)]
-		}
-	}
-	return values[0]
-}
-
-func tuiFilterDraftFromString(filter string) tuiFilterDraft {
+func tuiFilterDraftFromString(filterString string) tuiFilterDraft {
 	draft := tuiFilterDraft{}
-	for _, raw := range splitFilter(filter) {
+	for _, raw := range splitFilter(filterString) {
 		value := strings.TrimSpace(raw)
 		lower := strings.ToLower(value)
 		switch {
@@ -1680,31 +1740,60 @@ func tuiFilterDraftFromString(filter string) tuiFilterDraft {
 		case lower == "has-q/p":
 			draft.hasQP = true
 		case strings.HasPrefix(lower, "availability:"):
-			draft.availability = strings.TrimSpace(value[len("availability:"):])
+			draft.availability = strings.ToLower(strings.TrimSpace(value[len("availability:"):]))
+			if draft.availability == "any" {
+				draft.availability = ""
+			}
 		case strings.HasPrefix(lower, "tier:"):
-			draft.tier = strings.TrimSpace(value[len("tier:"):])
+			group := []string{}
+			if draft.tierSelected == nil {
+				draft.tierSelected = make(map[string]struct{})
+			}
+			for _, selected := range strings.Split(value[len("tier:"):], ",") {
+				selected = strings.ToLower(strings.TrimSpace(selected))
+				if tier.IsValid(selected) {
+					draft.tierSelected[selected] = struct{}{}
+					group = append(group, selected)
+				}
+			}
+			sort.Strings(group)
+			draft.tierPredicateGroups = append(draft.tierPredicateGroups, group)
 		case strings.HasPrefix(lower, "task_fit:"):
 			parsed := strings.TrimSpace(value[len("task_fit:"):])
-			if !draft.taskFitSet {
-				draft.taskFit = parsed
-				draft.taskFitSet = true
+			group := []string{}
+			if parsed == "" {
+				draft.taskFitExplicitEmpty = true
+				draft.taskFitPredicateGroups = append(draft.taskFitPredicateGroups, group)
+				continue
 			}
+			if draft.taskFitSelected == nil {
+				draft.taskFitSelected = make(map[string]struct{})
+			}
+			for _, keyword := range strings.Split(parsed, ",") {
+				keyword = strings.ToLower(strings.TrimSpace(keyword))
+				if filter.IsTaskFitKeyword(keyword) {
+					draft.taskFitSelected[keyword] = struct{}{}
+					group = append(group, keyword)
+				}
+			}
+			sort.Strings(group)
+			draft.taskFitPredicateGroups = append(draft.taskFitPredicateGroups, group)
 		case strings.HasPrefix(lower, "copyright_guardrail:"):
 			draft.copyrightGuardrail = strings.TrimSpace(value[len("copyright_guardrail:"):])
 		case strings.HasPrefix(lower, "quality>="):
-			draft.quality = tuiCanonicalDraftValue(4, strings.TrimSpace(value[len("quality>="):]))
+			draft.quality = tuiCanonicalDraftValue(filterRowQuality, strings.TrimSpace(value[len("quality>="):]))
 		case strings.HasPrefix(lower, "context>="):
-			draft.context = tuiCanonicalDraftValue(5, strings.TrimSpace(value[len("context>="):]))
+			draft.context = tuiCanonicalDraftValue(filterRowContext, strings.TrimSpace(value[len("context>="):]))
 			if draft.context == "0" {
 				draft.context = ""
 			}
 		case strings.HasPrefix(lower, "input<="):
-			draft.input = tuiCanonicalDraftValue(6, strings.TrimSpace(value[len("input<="):]))
+			draft.input = tuiCanonicalDraftValue(filterRowInput, strings.TrimSpace(value[len("input<="):]))
 			if draft.input == "0.00" {
 				draft.input = ""
 			}
 		case strings.HasPrefix(lower, "output<="):
-			draft.output = tuiCanonicalDraftValue(7, strings.TrimSpace(value[len("output<="):]))
+			draft.output = tuiCanonicalDraftValue(filterRowOutput, strings.TrimSpace(value[len("output<="):]))
 			if draft.output == "0.00" {
 				draft.output = ""
 			}
@@ -1733,16 +1822,39 @@ func (d tuiFilterDraft) string() string {
 	if strings.TrimSpace(d.copyrightGuardrail) != "" {
 		filters = append(filters, "copyright_guardrail:"+strings.TrimSpace(d.copyrightGuardrail))
 	}
-	if d.taskFitSet {
-		filters = append(filters, "task_fit:"+strings.TrimSpace(d.taskFit))
+	if !d.taskFitDirty && d.taskFitPredicateGroups != nil {
+		for _, group := range d.taskFitPredicateGroups {
+			filters = append(filters, "task_fit:"+strings.Join(group, ","))
+		}
+	} else if len(d.taskFitSelected) > 0 {
+		keywords := make([]string, 0, len(d.taskFitSelected))
+		for keyword := range d.taskFitSelected {
+			keywords = append(keywords, keyword)
+		}
+		sort.Strings(keywords)
+		filters = append(filters, "task_fit:"+strings.Join(keywords, ","))
+	} else if d.taskFitExplicitEmpty {
+		filters = append(filters, "task_fit:")
 	}
-	for _, item := range []struct{ name, value, operator string }{{"tier", d.tier, ":"}, {"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
+	if !d.tierDirty && d.tierPredicateGroups != nil {
+		for _, group := range d.tierPredicateGroups {
+			filters = append(filters, "tier:"+strings.Join(group, ","))
+		}
+	} else if len(d.tierSelected) > 0 {
+		tiers := make([]string, 0, len(d.tierSelected))
+		for selected := range d.tierSelected {
+			tiers = append(tiers, selected)
+		}
+		sort.Strings(tiers)
+		filters = append(filters, "tier:"+strings.Join(tiers, ","))
+	}
+	for _, item := range []struct{ name, value, operator string }{{"quality", d.quality, ">="}, {"context", d.context, ">="}, {"input", d.input, "<="}, {"output", d.output, "<="}} {
 		if strings.TrimSpace(item.value) != "" {
-			field := map[string]int{"quality": 4, "context": 5, "input": 6, "output": 7}[item.name]
+			field := map[string]int{"quality": filterRowQuality, "context": filterRowContext, "input": filterRowInput, "output": filterRowOutput}[item.name]
 			value := strings.TrimSpace(item.value)
 			if field != 0 {
 				value = tuiCanonicalDraftValue(field, value)
-				if (field == 5 && value == "0") || ((field == 6 || field == 7) && value == "0.00") {
+				if (field == filterRowContext && value == "0") || ((field == filterRowInput || field == filterRowOutput) && value == "0.00") {
 					continue
 				}
 			}
@@ -1750,6 +1862,43 @@ func (d tuiFilterDraft) string() string {
 		}
 	}
 	return strings.Join(filters, ",")
+}
+
+func (d *tuiFilterDraft) toggleTier(choice string) {
+	d.tierDirty = true
+	d.tierInvalid = ""
+	if choice == "" {
+		d.clearTier()
+		return
+	}
+	if d.tierSelected == nil {
+		d.tierSelected = make(map[string]struct{})
+	}
+	delete(d.tierSelected, "free")
+	if _, ok := d.tierSelected[choice]; ok {
+		delete(d.tierSelected, choice)
+		return
+	}
+	d.tierSelected[choice] = struct{}{}
+}
+
+func (d tuiFilterDraft) tierEditingBlocked() bool {
+	return !d.tierDirty && len(d.tierPredicateGroups) > 1
+}
+
+func (d *tuiFilterDraft) clearTier() {
+	d.tierDirty = true
+	d.tierInvalid = ""
+	d.tierSelected = nil
+}
+
+func (m tuiModel) tierHasVisibleSelection() bool {
+	for _, choice := range tuiFilterTierChoices() {
+		if _, ok := m.filterDraft.tierSelected[choice]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func tuiCopyrightGuardrailValues() []string {
@@ -1777,7 +1926,10 @@ func tuiPreviousCopyrightGuardrail(current string) string {
 }
 
 func tuiNextAvailability(current string) string {
-	values := []string{"", "any", "free", "paid"}
+	values := []string{"", "free", "paid"}
+	if current == "any" {
+		current = ""
+	}
 	for i, value := range values {
 		if value == current {
 			return values[(i+1)%len(values)]
@@ -1786,59 +1938,18 @@ func tuiNextAvailability(current string) string {
 	return values[0]
 }
 
-// tuiPreviousAvailability cycles the Filter overlay's Availability field
-// backward through "", "any", "free", "paid" — the reverse of tuiNextAvailability.
+// tuiPreviousAvailability cycles the Filter overlay's Availability field backward through any, free, paid.
 func tuiPreviousAvailability(current string) string {
-	values := []string{"", "any", "free", "paid"}
+	values := []string{"", "free", "paid"}
+	if current == "any" {
+		current = ""
+	}
 	for i, value := range values {
 		if value == current {
 			return values[(i-1+len(values))%len(values)]
 		}
 	}
 	return values[0]
-}
-
-func tuiTaskFitValues() []string {
-	return append([]string{""}, filterpkg.TaskFitKeywords()...)
-}
-
-func tuiNextTaskFit(current string) string {
-	values := tuiTaskFitValues()
-	for i, value := range values {
-		if strings.EqualFold(value, current) {
-			return values[(i+1)%len(values)]
-		}
-	}
-	if tuiValidTaskFitCompound(current) {
-		return current
-	}
-	return values[0]
-}
-
-func tuiPreviousTaskFit(current string) string {
-	values := tuiTaskFitValues()
-	for i, value := range values {
-		if strings.EqualFold(value, current) {
-			return values[(i+len(values)-1)%len(values)]
-		}
-	}
-	if tuiValidTaskFitCompound(current) {
-		return current
-	}
-	return values[0]
-}
-
-func tuiValidTaskFitCompound(value string) bool {
-	keywords := strings.Split(value, ",")
-	if len(keywords) < 2 {
-		return false
-	}
-	for _, keyword := range keywords {
-		if !filterpkg.IsTaskFitKeyword(keyword) {
-			return false
-		}
-	}
-	return true
 }
 
 func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
@@ -1854,7 +1965,7 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 			return
 		}
 		value = parsed
-		if field == 4 && value > 0 && value <= 1 {
+		if field == filterRowQuality && value > 0 && value <= 1 {
 			value *= 100
 		}
 		if direction < 0 && value <= 0 {
@@ -1865,15 +1976,15 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 		if direction < 0 {
 			return
 		}
-		if field == 4 || field == 5 {
-			if field == 4 {
+		if field == filterRowQuality || field == filterRowContext {
+			if field == filterRowQuality {
 				*values[field] = tuiCanonicalDraftValue(field, strconv.Itoa(steps.QualityPoints))
 			} else {
 				*values[field] = tuiCanonicalDraftValue(field, strconv.Itoa(steps.ContextTokens))
 			}
 		} else {
 			base := steps.InputCents
-			if field == 7 {
+			if field == filterRowOutput {
 				base = steps.OutputCents
 			}
 			*values[field] = tuiCanonicalDraftValue(field, fmt.Sprintf("%.2f", float64(base)/100))
@@ -1881,7 +1992,7 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 		return
 	}
 	previous := value
-	if field == 4 {
+	if field == filterRowQuality {
 		step := steps.QualityPoints
 		if steps.Legacy {
 			step = steps.Quality
@@ -1892,13 +2003,13 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 			step := []int{0, 0, 0, 0, 0, steps.Context, steps.Input, steps.Output}[field]
 			value *= 1 + float64(direction)*float64(step)/100
 			value = tuiSteppedInteger(value, previous, direction)
-		} else if field == 5 {
+		} else if field == filterRowContext {
 			value += float64(direction * tuiContextStep(int(math.Round(previous)), steps.ContextTokens))
 			value = tuiSteppedInteger(value, previous, direction)
 		} else {
 			cents := int(math.Round(previous * 100))
 			base := steps.InputCents
-			if field == 7 {
+			if field == filterRowOutput {
 				base = steps.OutputCents
 			}
 			cents += direction * tuiPriceStep(cents, base)
@@ -1910,7 +2021,7 @@ func (d *tuiFilterDraft) step(field, direction int, steps config.TUISteps) {
 	if value < 0 {
 		value = 0
 	}
-	if field == 4 && value > 100 {
+	if field == filterRowQuality && value > 100 {
 		value = 100
 	}
 	*values[field] = tuiIntegerValue(value)
@@ -1978,14 +2089,14 @@ func tuiCanonicalDraftValue(field int, raw string) string {
 	}
 	value = math.Max(0, value)
 	switch field {
-	case 4:
+	case filterRowQuality:
 		if value > 0 && value <= 1 {
 			value *= 100
 		}
 		return tuiIntegerValue(math.Min(100, value))
-	case 5:
+	case filterRowContext:
 		return tuiIntegerValue(value)
-	case 6, 7:
+	case filterRowInput, filterRowOutput:
 		return tuiPriceFilterValue(math.Round(value*100) / 100)
 	default:
 		return strings.TrimSpace(raw)
@@ -1994,35 +2105,66 @@ func tuiCanonicalDraftValue(field int, raw string) string {
 
 func (d *tuiFilterDraft) append(field int, value string) {
 	switch field {
-	case 3:
-		d.tier += value
-	case 4:
+	case filterRowQuality:
 		d.quality += value
-	case 5:
+	case filterRowContext:
 		d.context += value
-	case 6:
+	case filterRowInput:
 		d.input += value
-	case 7:
+	case filterRowOutput:
 		d.output += value
-	case 10:
+	case filterRowCopyright:
 		d.copyrightGuardrail += value
-	case 11:
-		d.taskFit += value
-		if strings.TrimSpace(d.taskFit) != "" {
-			d.taskFitSet = true
-		}
+	case filterRowTaskFit:
+		return
 	}
 }
 
 func (d *tuiFilterDraft) deleteLast(field int) {
-	values := []*string{nil, nil, nil, &d.tier, &d.quality, &d.context, &d.input, &d.output, nil, &d.availability, &d.copyrightGuardrail, &d.taskFit}
-	if field < len(values) && values[field] != nil {
-		value := *values[field]
-		if value != "" {
-			_, size := utf8.DecodeLastRuneInString(value)
-			*values[field] = value[:len(value)-size]
+	var value *string
+	switch field {
+	case filterRowQuality:
+		value = &d.quality
+	case filterRowContext:
+		value = &d.context
+	case filterRowInput:
+		value = &d.input
+	case filterRowOutput:
+		value = &d.output
+	case filterRowCopyright:
+		value = &d.copyrightGuardrail
+	}
+	if value != nil {
+		if *value != "" {
+			_, size := utf8.DecodeLastRuneInString(*value)
+			*value = (*value)[:len(*value)-size]
 		}
 	}
+}
+
+func (d *tuiFilterDraft) toggleTaskFit(keyword string) {
+	d.taskFitDirty = true
+	d.taskFitInvalid = ""
+	if d.taskFitSelected == nil {
+		d.taskFitSelected = make(map[string]struct{})
+	}
+	if _, ok := d.taskFitSelected[keyword]; ok {
+		delete(d.taskFitSelected, keyword)
+		return
+	}
+	d.taskFitSelected[keyword] = struct{}{}
+	d.taskFitExplicitEmpty = false
+}
+
+func (d tuiFilterDraft) taskFitEditingBlocked() bool {
+	return !d.taskFitDirty && len(d.taskFitPredicateGroups) > 1
+}
+
+func (d *tuiFilterDraft) clearTaskFit() {
+	d.taskFitDirty = true
+	d.taskFitInvalid = ""
+	d.taskFitSelected = nil
+	d.taskFitExplicitEmpty = false
 }
 func (m *tuiModel) togglePending(col tuiColumn) {
 	for i, existing := range m.pendingColumns {
@@ -2220,23 +2362,62 @@ func (m tuiModel) baseView() string {
 }
 
 func tuiFilterView(m tuiModel) string {
-	values := []string{tuiFilterCheck(m.filterDraft.free), tuiFilterCheck(m.filterDraft.paid), tuiFilterCheck(m.filterDraft.scored), m.filterDraft.tier, m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.availability, m.filterDraft.copyrightGuardrail, m.taskFitFilterDisplayValue()}
-	labels := []string{"Free", "Paid", "Scored", "Tier min", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Availability", "Copyright guardrail", "Task fit"}
-	// FilterValues returns the literal paid tier predicate values, the same
-	// tokens the CLI's tier:MIN filter syntax accepts — never translated.
-	tierOptions := m.t("Tier options: (any), ") + strings.Join(tier.FilterValues(), ", ")
-	hint := m.t("↑/↓ move · ←/→ step values · Space toggles/cycles Tier min · type to edit")
+	values := []string{m.filterDraft.availability, "", tuiFilterCheck(m.filterDraft.scored), "", m.filterDraft.quality, m.filterDraft.context, m.filterDraft.input, m.filterDraft.output, tuiFilterCheck(m.filterDraft.hasQP), m.filterDraft.copyrightGuardrail}
+	labels := []string{"Availability", "Task fit", "Scored", "Tier", "Quality minimum", "Context minimum", "Input max", "Output max", "Has Q/P", "Copyright guardrail"}
+	tierOptions := m.t("Tier options: (any), opus, sonnet, haiku")
+	availabilityOptions := m.t("Availability options: (any), free, paid")
+	hint := m.t("↑/↓/Tab move rows · ←/→ chips or values · Space toggle · c clear")
 	rows := make([]string, 0, len(labels))
+	focusedRowIndex := -1
+	focusedHeaderIndex := -1
 	for i, label := range labels {
 		prefix := "  "
 		if i == m.filterCursor {
 			prefix = "> "
 		}
+		if i == filterRowTaskFit {
+			if i == m.filterCursor {
+				focusedRowIndex = len(rows)
+				focusedHeaderIndex = len(rows)
+			}
+			rows = append(rows, prefix+m.t(label)+":")
+			if len(m.filterDraft.taskFitSelected) == 0 {
+				rows[len(rows)-1] += " " + m.taskFitFilterDisplayValue()
+			} else {
+				chipStart := len(rows)
+				for chipIndex, chipRow := range m.taskFitChipRows() {
+					rows = append(rows, "  "+chipRow)
+					if i == m.filterCursor && strings.Contains(chipRow, "> [") {
+						focusedRowIndex = chipStart + chipIndex
+					}
+				}
+			}
+			continue
+		}
+		if i == filterRowTier {
+			if i == m.filterCursor {
+				focusedRowIndex = len(rows)
+				focusedHeaderIndex = len(rows)
+			}
+			rows = append(rows, prefix+m.t(label)+":")
+			if !m.tierHasVisibleSelection() {
+				rows[len(rows)-1] += " " + m.t("(any)")
+			} else {
+				chipStart := len(rows)
+				for chipIndex, chipRow := range m.tierChipRows() {
+					rows = append(rows, "  "+chipRow)
+					if i == m.filterCursor && strings.Contains(chipRow, "> [") {
+						focusedRowIndex = chipStart + chipIndex
+					}
+				}
+			}
+			continue
+		}
 		value := values[i]
-		if i >= 4 {
+		if i == filterRowQuality || i == filterRowContext || i == filterRowInput || i == filterRowOutput {
 			value = tuiFilterDisplayValue(i, value)
 		}
-		if i >= 3 && value == "" {
+		if i != filterRowScored && i != filterRowHasQP && i != filterRowCopyright && i != filterRowTaskFit && value == "" {
 			value = m.t("(any)")
 		}
 		rows = append(rows, prefix+m.t(label)+": "+value)
@@ -2246,12 +2427,15 @@ func tuiFilterView(m tuiModel) string {
 	if steps.Legacy {
 		stepText = fmt.Sprintf(m.t("Steps (legacy): quality ±%d points · context/input/output ±%d%%/%d%%/%d%% · display rounds to integers · values >= 0"), steps.Quality, steps.Context, steps.Input, steps.Output)
 	}
-	lines := []string{m.t("Filter"), "", hint, tierOptions, ""}
+	lines := []string{m.t("Filter"), "", hint, tierOptions, availabilityOptions, ""}
 	lines = append(lines, rows...)
-	lines = append(lines, "", m.t("Enter apply · Esc cancel · c clear · Tab/Shift+Tab move"), tierOptions, stepText)
+	if m.err != "" {
+		lines = append(lines, m.t("Error: ")+m.err)
+	}
+	lines = append(lines, "", m.t("Enter apply · Esc cancel · c clear · Tab/Shift+Tab move"), stepText)
 	contentHeight := max(1, m.height-4)
 	if len(lines) > contentHeight {
-		lines = []string{m.t("Filter"), tierOptions}
+		lines = []string{m.t("Filter"), tierOptions, availabilityOptions}
 		if len(lines) > contentHeight {
 			lines = nil
 		}
@@ -2261,10 +2445,19 @@ func tuiFilterView(m tuiModel) string {
 			rowCapacity = 1
 		}
 		if len(rows) > rowCapacity {
-			start := min(max(0, m.filterCursor-rowCapacity/2), len(rows)-rowCapacity)
+			start := min(max(0, focusedRowIndex-rowCapacity/2), len(rows)-rowCapacity)
+			if focusedRowIndex >= 0 {
+				start = min(focusedRowIndex, len(rows)-rowCapacity)
+				if focusedHeaderIndex >= 0 && rowCapacity >= focusedRowIndex-focusedHeaderIndex+1 {
+					start = min(focusedHeaderIndex, len(rows)-rowCapacity)
+				}
+			}
 			rows = rows[start : start+rowCapacity]
 		}
 		lines = append(lines, rows...)
+		if m.err != "" {
+			lines = append(lines, m.t("Error: ")+m.err)
+		}
 		footer := []string{m.t("Enter apply · Esc cancel · c clear · Tab/Shift+Tab move"), stepText}
 		if len(lines)+1+len(footer) <= contentHeight {
 			lines = append(lines, "")
@@ -2279,14 +2472,63 @@ func tuiFilterView(m tuiModel) string {
 }
 
 func (m tuiModel) taskFitFilterDisplayValue() string {
-	if !m.filterDraft.taskFitSet {
+	if len(m.filterDraft.taskFitSelected) == 0 && !m.filterDraft.taskFitExplicitEmpty {
 		return m.t("(any)")
 	}
-	value := strings.TrimSpace(m.filterDraft.taskFit)
-	if value == "" {
+	if len(m.filterDraft.taskFitSelected) == 0 {
 		return m.t("(no task fit)")
 	}
-	return value
+	return ""
+}
+
+func (m tuiModel) taskFitChipRows() []string {
+	available := max(1, m.width-10)
+	rows := []string{""}
+	for i, keyword := range filter.TaskFitKeywords() {
+		selected := "[ ]"
+		if _, ok := m.filterDraft.taskFitSelected[keyword]; ok {
+			selected = "[x]"
+		}
+		chip := selected + " " + keyword
+		if i == m.filterChipCursor && m.filterCursor == filterRowTaskFit {
+			chip = "> " + chip
+		}
+		candidate := chip
+		if rows[len(rows)-1] != "" {
+			candidate = rows[len(rows)-1] + " " + chip
+		}
+		if tableDisplayWidth(candidate) <= available {
+			rows[len(rows)-1] = candidate
+		} else {
+			rows = append(rows, chip)
+		}
+	}
+	return rows
+}
+
+func (m tuiModel) tierChipRows() []string {
+	available := max(1, m.width-10)
+	rows := []string{""}
+	for i, choice := range tuiFilterTierChoices() {
+		selected := "[ ]"
+		if _, ok := m.filterDraft.tierSelected[choice]; ok {
+			selected = "[x]"
+		}
+		chip := selected + " " + choice
+		if i == m.filterChipCursor && m.filterCursor == filterRowTier {
+			chip = "> " + chip
+		}
+		candidate := chip
+		if rows[len(rows)-1] != "" {
+			candidate = rows[len(rows)-1] + " " + chip
+		}
+		if tableDisplayWidth(candidate) <= available {
+			rows[len(rows)-1] = candidate
+		} else {
+			rows = append(rows, chip)
+		}
+	}
+	return rows
 }
 
 func tuiFilterDisplayValue(field int, value string) string {
@@ -3960,11 +4202,11 @@ const tuiHelpSectionFiltersBody = `Columns, search, and filters
 The last column stays selected.
 \t/\tsearch\tsearches Name/Slug as plain substring text.
 \tf\tfilter\tedits a structured filter and does not change the search.
-	CLI example: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier min includes the selected tier and all higher paid tiers.
-	TUI example: press f, enable Paid, select sonnet in Tier min and 0.8 in Quality minimum, then Enter.
-	Filter editor: Up/Down always move between fields, including Tier min. Left/Right select Tier min or step numeric values; Space cycles paid Tier min values. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
+	CLI example: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier is an exact OR filter; tier:opus,haiku matches either tier.
+	TUI example: press f, enable Paid, select opus or haiku in Tier and 0.8 in Quality minimum, then Enter. (any) omits the tier predicate.
+	Filter editor: Up/Down always move between fields, including Tier. Left/Right move across Tier chips or step numeric values; Space toggles the focused chip. Tab/Shift+Tab also move; typing, Backspace, Enter and c remain available.
 	Numeric steps: Quality uses percentage points; Context uses integer token steps; Input and Output use configured absolute cents per $/M. Prices are displayed and serialized with two decimal places, and all draft values are canonicalized on load/apply. Numeric values are never below zero.
-	Predicates: paid, free, scored; tier:MIN; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
+	Predicates: paid, free, scored; tier:VALUE[,VALUE...]; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (CSV allowed); quality>=N; context>=N; input<=N; output<=N.
 	Within one task_fit predicate, CSV keywords use OR; repeated task_fit predicates combine with other filters via AND.
 	Operators: ':' selects a value; '>=' sets a minimum; '<=' sets a maximum.
 	Multiple filters are comma-separated (or repeated with CLI --filter); task_fit CSV keywords use OR; repeated task_fit predicates combine with other filters via AND.
@@ -4214,11 +4456,11 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 Последний столбец остаётся выбранным.
 \t/\tпоиск\tищет по Name/Slug как обычный текст-подстроку.
 \tf\tфильтр\tредактирует структурированный фильтр и не меняет поиск.
-	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier min включает выбранный тир и все более высокие платные тиры.
-	Пример TUI: нажмите f, включите Платные, выберите sonnet в Tier min и 0.8 в Качество (минимум), затем Enter.
-	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Tier min. Left/Right выбирают Tier min или изменяют числовые значения; Space циклит платные значения Tier min. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
+	Пример CLI: omt table --filter 'paid,quality>=80' --filter 'tier:sonnet'. Tier — точный OR-фильтр; tier:opus,haiku выбирает любой из этих тиров.
+	Пример TUI: нажмите f, включите Платные, выберите opus или haiku в Tier и 0.8 в Качество (минимум), затем Enter. (any) не добавляет tier-предикат.
+	Редактор фильтра: Up/Down всегда перемещаются между полями, включая Tier. Left/Right перемещаются по чипам Tier или изменяют числовые значения; Space переключает выбранный чип. Tab/Shift+Tab тоже перемещают; ввод текста, Backspace, Enter и c остаются доступны.
 	Числовые шаги: Качество использует процентные пункты; Контекст использует целочисленные шаги в токенах; Вход и Выход используют настроенные абсолютные центы за $/M. Цены отображаются и сериализуются с двумя знаками после запятой, все черновые значения канонизируются при загрузке/применении. Числовые значения никогда не бывают меньше нуля.
-	Предикаты: paid, free, scored; tier:MIN; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
+	Предикаты: paid, free, scored; tier:VALUE[,VALUE...]; task_fit:K1,K2,...; task_fit:; copyright_guardrail:enforces|bypasses|unknown (допустим CSV); quality>=N; context>=N; input<=N; output<=N.
 	Внутри одного предиката task_fit ключевые слова CSV работают через OR; повторные предикаты task_fit объединяются с остальными фильтрами через AND.
 	Операторы: ':' задаёт значение; '>=' задаёт минимум; '<=' задаёт максимум.
 	Несколько фильтров разделяются запятой (или повторным --filter в CLI); CSV-ключевые слова task_fit работают через OR, а повторные предикаты task_fit объединяются с остальными фильтрами через AND.

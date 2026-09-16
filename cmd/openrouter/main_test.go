@@ -81,7 +81,7 @@ func TestResolveTUIFilterFromPersistedConfigFeedsStructuredEditor(t *testing.T) 
 	filter := resolveTUIFilter("", false, cfg.TUIFilter, cfg.TUIFilterSet, cfg.DefaultFilter)
 	m := tuiModel{configPath: configPath, filter: filter, filterFormExplicit: cfg.TUIFilterSet}
 	m.openFilterEditor()
-	if m.filterDraft.tier != "opus" || m.filterDraft.quality != "75" || m.filterDraft.context != "" || m.filterDraft.input != "" || m.filterDraft.output != "" {
+	if len(m.filterDraft.tierSelected) != 1 || m.filterDraft.tierSelected["opus"] != struct{}{} || m.filterDraft.quality != "75" || m.filterDraft.context != "" || m.filterDraft.input != "" || m.filterDraft.output != "" {
 		t.Fatalf("resolved persisted filter draft = %+v", m.filterDraft)
 	}
 	m, _ = m.applyFilterDraft()

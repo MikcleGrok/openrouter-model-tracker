@@ -4,6 +4,13 @@
 
 - Future release changes will be documented here.
 
+## [1.22.1]
+
+- Improve the Task fit filter in the TUI with multi-select keyword chips, deterministic alphabetical serialization, explicit empty-filter handling, and safer cursor/keyboard transitions; preserve the documented task-fit filtering semantics and add regression coverage.
+- Change `tier:` filtering to exact OR membership for one or more comma-separated tiers (`tier:opus,haiku`), with a multi-select TUI picker, deterministic ordering, safe cursor clamping, and compatibility for the legacy `tier:free` syntax.
+- Reorder the TUI filter form around Availability and expose its `(any)`, `free`, and `paid` states consistently, including keyboard cycling, rendering, and application behavior.
+- Update CLI/TUI reference documentation and filter help, and extend validation and TUI tests for the new filter syntax, ordering, compatibility, and keyboard safety.
+
 ## [1.22.0]
 
 - Change `task_fit:` semantics: CSV keywords (`task_fit:K1,K2,...`) now match when a model has at least one listed keyword (OR); repeated `task_fit:` predicates now combine with other filters via AND. The special handling for repeated predicates in the TUI round-trip is removed. This is a breaking change for filters that relied on CSV-AND or on the TUI preserving repeated predicates verbatim.

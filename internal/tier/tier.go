@@ -5,7 +5,7 @@ import "strings"
 
 var values = []string{"opus", "sonnet", "haiku", "free"}
 
-// FilterValues returns the paid tiers offered by the minimum-tier filter.
+// FilterValues returns the paid tiers shown by the TUI tier picker.
 func FilterValues() []string {
 	return append([]string(nil), values[:len(values)-1]...)
 }
@@ -25,8 +25,8 @@ func IsValid(value string) bool {
 	return false
 }
 
-// AtLeast reports whether value is at or above the selected minimum tier.
-// The legacy free filter is exact rather than a minimum paid-tier threshold.
+// AtLeast reports the legacy minimum-tier relationship.
+// New filter predicates use exact membership in the selected tier set.
 func AtLeast(value, minimum string) bool {
 	valueRank, minimumRank := rank(value), rank(minimum)
 	if valueRank < 0 || minimumRank < 0 {

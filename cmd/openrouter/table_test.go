@@ -823,19 +823,19 @@ func TestFilterTableModelsRejectsUnknownTier(t *testing.T) {
 func TestFilterTableModelsAcceptsTierCaseInsensitively(t *testing.T) {
 	models := []model.Model{{Slug: "opus", Tier: "opus"}, {Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}, {Slug: "free", Tier: "free"}}
 	filtered, err := filterTableModels(models, []string{"tier:SONNET"})
-	if err != nil || len(filtered) != 2 || filtered[0].Slug != "opus" || filtered[1].Slug != "sonnet" {
-		t.Fatalf("case-insensitive minimum tier filter = %+v, error %v", filtered, err)
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "sonnet" {
+		t.Fatalf("case-insensitive exact tier filter = %+v, error %v", filtered, err)
 	}
 }
 
-func TestFilterTableModelsMinimumTierIncludesSelectedAndHigherPaidTiers(t *testing.T) {
+func TestFilterTableModelsTierMatchesExactMembership(t *testing.T) {
 	models := []model.Model{{Slug: "opus", Tier: "opus"}, {Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}, {Slug: "free", Tier: "free"}}
 	for _, minimum := range []string{"opus", "sonnet", "haiku"} {
 		filtered, err := filterTableModels(models, []string{"tier:" + minimum})
 		if err != nil {
 			t.Fatalf("tier:%s: %v", minimum, err)
 		}
-		want := map[string][]string{"opus": []string{"opus"}, "sonnet": []string{"opus", "sonnet"}, "haiku": []string{"opus", "sonnet", "haiku"}}[minimum]
+		want := []string{minimum}
 		got := make([]string, 0, len(filtered))
 		for _, row := range filtered {
 			got = append(got, row.Slug)
@@ -847,6 +847,18 @@ func TestFilterTableModelsMinimumTierIncludesSelectedAndHigherPaidTiers(t *testi
 	filtered, err := filterTableModels(models, []string{"tier:free"})
 	if err != nil || len(filtered) != 1 || filtered[0].Slug != "free" {
 		t.Fatalf("tier:free = %+v, error %v; want only free", filtered, err)
+	}
+}
+
+func TestFilterTableModelsTierCSVUsesORAndPreservesFree(t *testing.T) {
+	models := []model.Model{{Slug: "opus", Tier: "opus"}, {Slug: "sonnet", Tier: "sonnet"}, {Slug: "haiku", Tier: "haiku"}, {Slug: "free", Tier: "free", Free: true}}
+	filtered, err := filterTableModels(models, []string{"tier:opus,haiku"})
+	if err != nil || len(filtered) != 2 || filtered[0].Slug != "opus" || filtered[1].Slug != "haiku" {
+		t.Fatalf("tier CSV = %+v, error %v; want opus and haiku", filtered, err)
+	}
+	filtered, err = filterTableModels(models, []string{"tier:free"})
+	if err != nil || len(filtered) != 1 || filtered[0].Slug != "free" {
+		t.Fatalf("tier:free = %+v, error %v; want free", filtered, err)
 	}
 }
 
