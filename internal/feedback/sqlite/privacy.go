@@ -43,9 +43,10 @@ type CleanupJob struct {
 	UpdatedAt time.Time
 }
 
-// deleteIdentityResult is DeleteIdentity's withTx payload: the job plus
-// whether this call is the one that created it (as opposed to finding one
-// already active and declining to start a second delete).
+// deleteIdentityResult is DeleteIdentity's withTx payload: the job created
+// by a successful call. (A call that finds an already-active job never
+// reaches this type at all — see DeleteIdentity's own doc comment — so
+// created is always true whenever DeleteIdentity returns a nil error.)
 type deleteIdentityResult struct {
 	job     CleanupJob
 	created bool
@@ -53,10 +54,10 @@ type deleteIdentityResult struct {
 
 // DeleteIdentity implements the DB half of DELETE /v1/me/feedback (plan
 // 4.7/10.2). In one transaction (BEGIN IMMEDIATE, via Open's _txlock=immediate)
-// it: checks for an already-active cleanup job and, if found, returns it
-// with created=false instead of starting a second delete (plan 5.2: "не
-// более одной активной job; активная job блокирует ... privacy operations");
-// otherwise creates a new job row (state cleanup_pending, no identity/
+// it: checks for an already-active cleanup job and, if found, returns
+// ErrMaintenanceLocked instead of starting a second delete (plan 5.2: "не
+// более одной активной job; активная job блокирует ... privacy operations")
+// — otherwise creates a new job row (state cleanup_pending, no identity/
 // review/token), deletes every model_feedback row for identity (cascading
 // to skill_ratings via ON DELETE CASCADE), deletes the identities row, and
 // commits. The job becomes durable only together with the committed delete:
@@ -66,20 +67,27 @@ type deleteIdentityResult struct {
 // rows" from "identity had rows": both delete 0-or-more rows and commit the
 // same job, matching the endpoint's idempotent contract.
 //
-// Deciding what HTTP status this maps to (204 vs 202 cleanup_pending vs 503)
-// is Task 4's job; this method only reports what happened at the DB layer.
+// ErrMaintenanceLocked is returned unconditionally when a job is already
+// active, even for a caller retrying their own already-committed delete:
+// privacy_cleanup_jobs rows carry no identity (by design, plan 5.2), so
+// there is no safe way to tell "this caller's own delete, already done" from
+// "someone else's delete, still in flight" — treating both as blocked is the
+// only honest answer. Task 4's mapping of this to HTTP 503 (rather than the
+// 204/202 a genuinely completed delete gets) is what lets a caller whose
+// delete never actually happened know to retry, instead of being told 202
+// cleanup_pending for a job that was never theirs.
 func (s *Store) DeleteIdentity(ctx context.Context, identity feedback.IdentityID, now time.Time) (job CleanupJob, created bool, err error) {
 	if identity == "" {
 		return CleanupJob{}, false, fmt.Errorf("sqlite: DeleteIdentity: empty identity")
 	}
 
 	result, err := withTx(ctx, s.db, func(tx *sql.Tx) (deleteIdentityResult, error) {
-		existing, found, err := activeJobTx(ctx, tx)
+		_, found, err := activeJobTx(ctx, tx)
 		if err != nil {
 			return deleteIdentityResult{}, err
 		}
 		if found {
-			return deleteIdentityResult{job: existing, created: false}, nil
+			return deleteIdentityResult{}, ErrMaintenanceLocked
 		}
 
 		newJob := CleanupJob{ID: newJobID(), State: CleanupJobPending, CreatedAt: now, UpdatedAt: now}
@@ -158,14 +166,27 @@ func (s *Store) setJobState(ctx context.Context, jobID string, state CleanupJobS
 }
 
 // RunCleanup performs the post-commit cleanup phase described in plan
-// 4.7/10.2, as a separate, idempotent, resumable operation from the DELETE
-// transaction DeleteIdentity already committed: it takes a fresh backup
-// (already without the deleted identity, since the delete already
-// committed), verifies that backup is readable, prunes old backups per
-// retain, and only then marks the active job done — releasing the
-// maintenance lock. It returns ErrNoActiveCleanupJob if there is no job in
-// cleanup_pending or failed state to resume (plan: "при crash/restart
+// 4.7/9.2/10.2, as a separate, idempotent, resumable operation from the
+// DELETE transaction DeleteIdentity already committed: it takes a fresh
+// backup (already without the deleted identity, since the delete already
+// committed), verifies that backup is readable, deletes every OTHER backup
+// file in backupDir, and only then marks the active job done — releasing
+// the maintenance lock. It returns ErrNoActiveCleanupJob if there is no job
+// in cleanup_pending or failed state to resume (plan: "при crash/restart
 // сервер видит durable cleanup_pending... и возобновляет cleanup").
+//
+// Unlike an ordinary operator-triggered Backup, this phase does not apply
+// DefaultBackupRetain (or any caller-chosen retention): it always keeps
+// exactly the one backup it just took and removes every older one,
+// equivalent to calling Backup with retain=1. This is not a stricter
+// default, it is the documented contract for privacy deletion specifically
+// — plan 4.7 "удаляются старые backup-копии", plan 9.2 "старые backups,
+// включая pre-delete backup, удаляются по cleanup policy", plan 10.2
+// "успешное privacy deletion не обещает сохранение старого pre-delete
+// backup". Applying ordinary retention here would let up to
+// DefaultBackupRetain-1 older backups survive with the just-deleted
+// identity's data still intact in them, while the job reports done —
+// exactly the leak this method exists to prevent.
 //
 // A prior failure (job state failed) is retried by first durably moving the
 // job back to cleanup_pending — a separate, already-committed step before
@@ -175,7 +196,7 @@ func (s *Store) setJobState(ctx context.Context, jobID string, state CleanupJobS
 // resume, never a lost or ambiguous state. On failure, the job is marked
 // failed and the error returned; the committed DB delete this job followed
 // is never touched by this method.
-func (s *Store) RunCleanup(ctx context.Context, backupDir string, retain int, now time.Time) (CleanupJob, error) {
+func (s *Store) RunCleanup(ctx context.Context, backupDir string, now time.Time) (CleanupJob, error) {
 	job, found, err := s.ActiveCleanupJob(ctx)
 	if err != nil {
 		return CleanupJob{}, err
@@ -192,7 +213,10 @@ func (s *Store) RunCleanup(ctx context.Context, backupDir string, retain int, no
 		job.UpdatedAt = now
 	}
 
-	if _, backupErr := s.Backup(ctx, backupDir, retain); backupErr != nil {
+	// retain=1: keep only the backup this call just took, never the
+	// ordinary DefaultBackupRetain -- see the doc comment above.
+	const postDeleteBackupRetain = 1
+	if _, backupErr := s.Backup(ctx, backupDir, postDeleteBackupRetain); backupErr != nil {
 		if setErr := s.setJobState(ctx, job.ID, CleanupJobFailed, now); setErr != nil {
 			return CleanupJob{}, fmt.Errorf("sqlite: post-commit cleanup failed (%v) and marking job failed also failed: %w", backupErr, setErr)
 		}

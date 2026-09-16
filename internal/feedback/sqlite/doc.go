@@ -7,9 +7,13 @@
 // (Task 4) wires this package's Store into internal/feedback.Service and
 // exposes it over the network, neither of which this package knows about.
 //
-// Every exact schema/formula value this package's migrations encode is
-// restated from .task/model-feedback-plan/contract.md and the plan sections
-// quoted in .superpowers/sdd/plan/task-3-brief.md; where this package's own
+// Every exact schema value (tables, columns, constraints) and privacy-
+// cleanup transaction rule this package's migrations and privacy.go encode
+// is restated from the .task/model-feedback-plan/plan.md sections (5.1,
+// 5.2, 9.1, 9.2, 10.2) quoted in .superpowers/sdd/plan/task-3-brief.md —
+// not from .task/model-feedback-plan/contract.md, whose own section 9
+// explicitly places SQLite schema/migrations/upsert implementation out of
+// its scope and defers to plan.md for all of it. Where this package's own
 // doc comments repeat a rule from there, keep both in sync rather than
 // letting them drift.
 //
@@ -33,6 +37,8 @@
 // forever. Genuine SQLITE_BUSY — contention this single-connection
 // serialization cannot see, e.g. a second OS-level connection or process
 // touching the same file — is handled by a bounded retry with backoff at
-// transaction begin/commit (busy.go), which returns ErrBusyTimeout once
-// exhausted instead of retrying indefinitely.
+// transaction begin only (busy.go); Commit is deliberately never retried
+// (see withTx's own doc comment for why retrying it would be unsafe), which
+// returns ErrBusyTimeout once the begin retry is exhausted instead of
+// retrying indefinitely.
 package sqlite

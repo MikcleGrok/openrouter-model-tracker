@@ -7,15 +7,29 @@ import (
 	"fmt"
 )
 
-// withTx runs fn inside a transaction on db, retrying only the BeginTx and
-// Commit steps on a bounded SQLITE_BUSY (busy.go) — the two points where a
-// lock held by some other connection or process can surface, since fn's own
-// statements already run under the engine's PRAGMA busy_timeout wait and,
-// within one Store, are fully serialized by SetMaxOpenConns(1). Retrying
-// Commit specifically (rather than starting over) is safe: SQLite documents
-// that a COMMIT which fails with SQLITE_BUSY leaves the transaction open and
-// uncommitted, so calling Commit again on the same *sql.Tx is the correct
-// retry, not a new attempt on a stale handle.
+// withTx runs fn inside a transaction on db, retrying only the BeginTx step
+// on a bounded SQLITE_BUSY (busy.go) — the point where a lock held by some
+// other connection or process can surface before this transaction has done
+// anything at all, so a retry there is simply a fresh, independent attempt.
+// fn's own statements run under the engine's PRAGMA busy_timeout wait and,
+// within one Store, are fully serialized by SetMaxOpenConns(1).
+//
+// Commit is deliberately never retried. database/sql marks a *sql.Tx done
+// (via an atomic compare-and-swap) and releases its connection back to the
+// pool as part of Tx.Commit, before the driver's own COMMIT even runs —
+// regardless of whether that COMMIT succeeds. So a second call to the same
+// tx.Commit() after a failure returns sql.ErrTxDone, never the real
+// underlying error, which would make a "retry" both silently swallow the
+// actual failure (ErrTxDone is not a busy error, so it would stop the retry
+// loop immediately anyway) and, worse, leave the connection sitting in the
+// pool mid-transaction if the driver-level COMMIT genuinely failed without
+// rolling back on its own: with SetMaxOpenConns(1) that connection can be
+// the only one available, wedging every subsequent BEGIN IMMEDIATE for the
+// rest of the process. Calling Rollback on a commit failure — a no-op that
+// harmlessly returns sql.ErrTxDone if the driver already closed the
+// transaction, and actually releases the lock if it did not — is the safe
+// response; retrying would have to re-run fn's whole body from scratch on a
+// brand new transaction, not re-call Commit.
 //
 // On any error from fn, the transaction is rolled back and that error is
 // returned (wrapped with the rollback error too, if that also failed) —
@@ -47,8 +61,11 @@ func withTx[T any](ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) (T, erro
 		return zero, fnErr
 	}
 
-	commitErr := retryOnBusy(ctx, defaultBusyRetryAttempts, defaultBusyRetryBaseDelay, tx.Commit)
-	if commitErr != nil {
+	if commitErr := tx.Commit(); commitErr != nil {
+		// Best-effort: if the driver left the transaction open (the
+		// documented SQLITE_BUSY-on-COMMIT case), release it rather than
+		// leaving it held on a connection that may be the pool's only one.
+		_ = tx.Rollback()
 		return zero, fmt.Errorf("sqlite: commit: %w", commitErr)
 	}
 	return result, nil

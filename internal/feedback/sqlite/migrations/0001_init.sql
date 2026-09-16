@@ -1,9 +1,11 @@
 -- 0001_init: the MVP feedback schema, verbatim from
--- .task/model-feedback-plan/contract.md section 5.1 plus one addition (the
--- final index below) documented at its own definition. schema_migrations
--- itself is bootstrapped by the migration runner (migrate.go), not by this
--- file, since it must exist before this file's own checksum can even be
--- looked up.
+-- .task/model-feedback-plan/plan.md section 5.1 plus one addition (the
+-- final index below) documented at its own definition. (contract.md's own
+-- section 9 explicitly places the SQLite schema out of its scope and
+-- defers to plan.md -- plan.md is the correct citation here, not
+-- contract.md.) schema_migrations itself is bootstrapped by the migration
+-- runner (migrate.go), not by this file, since it must exist before this
+-- file's own checksum can even be looked up.
 
 CREATE TABLE identities (
     id BLOB PRIMARY KEY,

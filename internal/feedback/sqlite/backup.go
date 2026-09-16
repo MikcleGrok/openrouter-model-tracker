@@ -92,7 +92,12 @@ func (s *Store) Backup(ctx context.Context, dir string, retain int) (string, err
 	}
 
 	if err := verifyReadable(ctx, finalPath); err != nil {
-		return finalPath, fmt.Errorf("sqlite: backup: verify %s: %w", finalPath, err)
+		// A backup that fails its own readability check must not be left on
+		// disk: besides being useless, it would still count toward
+		// pruneOldBackups' retention and could push a genuinely good backup
+		// out ahead of a corrupt one.
+		_ = os.Remove(finalPath)
+		return "", fmt.Errorf("sqlite: backup: verify %s: %w", finalPath, err)
 	}
 
 	if err := pruneOldBackups(dir, retain); err != nil {
@@ -112,14 +117,27 @@ func (s *Store) Backup(ctx context.Context, dir string, retain int) (string, err
 // called against a path a Store still has open.
 //
 // It refuses to touch destPath at all if backupPath does not open as a
-// valid SQLite database, copies it into a temporary file next to destPath,
-// fsyncs and atomically renames that into destPath, removes any stale
-// -wal/-shm sidecar files left over from destPath's previous life (a leftover
-// WAL from the file this just replaced must never be replayed against the
-// restored content), and finally re-verifies destPath itself opens.
+// valid SQLite database. It then removes any stale -wal/-shm sidecar files
+// left over from destPath's previous life -- before the rename, not after:
+// the old main file is being discarded either way, and leaving its WAL in
+// place even briefly after the new content is renamed into destPath would
+// let SQLite replay that unrelated WAL over the just-restored content,
+// including inside the verifyReadable call below. It then copies backupPath
+// into a temporary file next to destPath, fsyncs and atomically renames that
+// into destPath, and finally re-verifies destPath itself opens.
 func Restore(ctx context.Context, backupPath, destPath string) error {
 	if err := verifyReadable(ctx, backupPath); err != nil {
 		return fmt.Errorf("sqlite: restore: source %s is not a readable SQLite database: %w", backupPath, err)
+	}
+
+	// A removal error here (anything other than "the sidecar doesn't exist")
+	// is a hard failure, not best-effort: silently leaving a stale -wal/-shm
+	// behind is exactly the corruption hazard this ordering exists to avoid.
+	if err := removeSidecarFile(destPath + "-wal"); err != nil {
+		return fmt.Errorf("sqlite: restore: remove stale %s-wal: %w", destPath, err)
+	}
+	if err := removeSidecarFile(destPath + "-shm"); err != nil {
+		return fmt.Errorf("sqlite: restore: remove stale %s-shm: %w", destPath, err)
 	}
 
 	tmpPath := destPath + ".restoring.tmp"
@@ -139,15 +157,18 @@ func Restore(ctx context.Context, backupPath, destPath string) error {
 		return fmt.Errorf("sqlite: restore: fsync dir: %w", err)
 	}
 
-	// destPath's own prior -wal/-shm sidecars (if it was ever opened in WAL
-	// mode) now describe a main file that no longer exists; best-effort
-	// remove them rather than risk a later process trying to replay a WAL
-	// against unrelated content.
-	_ = os.Remove(destPath + "-wal")
-	_ = os.Remove(destPath + "-shm")
-
 	if err := verifyReadable(ctx, destPath); err != nil {
 		return fmt.Errorf("sqlite: restore: verify %s after restore: %w", destPath, err)
+	}
+	return nil
+}
+
+// removeSidecarFile removes path, treating "it does not exist" (the normal
+// case -- most databases are not mid-WAL-checkpoint when backed up) as
+// success rather than an error.
+func removeSidecarFile(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }
