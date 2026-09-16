@@ -220,6 +220,30 @@ func pruneOldBackups(dir string, retain int) error {
 	return nil
 }
 
+// pruneAllBackupsExcept removes every file matching backupFileGlob in dir
+// except keep, by exact path comparison — never by sort order. This is
+// RunCleanup's own pruning primitive (see its doc comment): unlike
+// pruneOldBackups, which decides what to keep from a lexicographic sort of
+// filenames and can misorder once backup version numbers have a different
+// digit count, this function makes no ordering assumption about the
+// filenames at all, so it cannot keep the wrong file regardless of how
+// backup names are shaped, now or in the future.
+func pruneAllBackupsExcept(dir, keep string) error {
+	matches, err := filepath.Glob(filepath.Join(dir, backupFileGlob))
+	if err != nil {
+		return fmt.Errorf("sqlite: list backups: %w", err)
+	}
+	for _, path := range matches {
+		if path == keep {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("sqlite: remove old backup %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 // copyFile copies src to dst, creating/truncating dst. It does not fsync —
 // callers that need durability call fsyncFile on dst afterward.
 func copyFile(src, dst string) error {

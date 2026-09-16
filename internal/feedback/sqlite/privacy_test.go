@@ -269,6 +269,84 @@ func TestRunCleanup_PostDeleteCleanupRemovesAllOtherBackups(t *testing.T) {
 	}
 }
 
+// TestRunCleanup_KeepsExactlyTheFreshBackupRegardlessOfFilenameSort is the
+// regression test for the round-2 review finding: RunCleanup's "keep only
+// the fresh post-delete backup" guarantee must not depend on
+// pruneOldBackups' plain lexicographic filename sort, which misorders once
+// two backups' version numbers have a different digit count --
+// "feedback-v10-..." sorts before "feedback-v9-..." as a string even though
+// 10 > 9 numerically. It seeds a stale dummy file named as if from schema
+// version 10 (this repo's real schema is v1, so any dummy with a version
+// number that sorts after "v1" reproduces the same class of misordering)
+// before running the real DeleteIdentity + RunCleanup sequence, and asserts
+// RunCleanup ends up keeping the backup it just took -- not the stale dummy
+// a sort-based scheme would have preferred.
+func TestRunCleanup_KeepsExactlyTheFreshBackupRegardlessOfFilenameSort(t *testing.T) {
+	ctx := context.Background()
+	store := openMigratedStore(t)
+	now := time.Now()
+	backupDir := filepath.Join(t.TempDir(), "backups")
+
+	if _, err := store.UpsertFeedback(ctx, "user-a", mustInput(t, "anthropic/claude", 5, nil, "secret"), now); err != nil {
+		t.Fatalf("UpsertFeedback: %v", err)
+	}
+
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatalf("mkdir backupDir: %v", err)
+	}
+	// A dummy file matching backupFileGlob whose name sorts lexicographically
+	// AFTER any "feedback-v1-..." backup this schema version can ever
+	// produce, exactly reproducing what "feedback-v10-..." vs
+	// "feedback-v9-..." would do at version 9/10: a plain sort-and-keep-the-
+	// last-N scheme (pruneOldBackups with retain=1) would keep THIS stale
+	// file over the fresh post-delete backup RunCleanup is about to take.
+	// Its content is irrelevant -- pruning only matches filenames.
+	stalePath := filepath.Join(backupDir, "feedback-v10-99999999T999999.000000000Z.sqlite")
+	if err := os.WriteFile(stalePath, []byte("not a real backup, just needs to match the glob"), 0o600); err != nil {
+		t.Fatalf("write stale dummy backup: %v", err)
+	}
+
+	if _, _, err := store.DeleteIdentity(ctx, "user-a", now.Add(time.Hour)); err != nil {
+		t.Fatalf("DeleteIdentity: %v", err)
+	}
+	job, err := store.RunCleanup(ctx, backupDir, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("RunCleanup: %v", err)
+	}
+	if job.State != CleanupJobDone {
+		t.Fatalf("job.State = %s, want %s", job.State, CleanupJobDone)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(backupDir, backupFileGlob))
+	if err != nil {
+		t.Fatalf("glob backups after cleanup: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("backups after RunCleanup = %v, want exactly 1", matches)
+	}
+	if matches[0] == stalePath {
+		t.Fatalf("RunCleanup kept the stale dummy backup (%s) instead of the fresh post-delete backup -- the exact leak this fix prevents", stalePath)
+	}
+	if _, err := os.Stat(stalePath); err == nil {
+		t.Fatalf("stale dummy backup %s still exists after RunCleanup", stalePath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v", stalePath, err)
+	}
+
+	survivor, err := Open(ctx, matches[0], Config{})
+	if err != nil {
+		t.Fatalf("Open surviving backup: %v", err)
+	}
+	defer survivor.Close()
+	var count int
+	if err := survivor.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM model_feedback`).Scan(&count); err != nil {
+		t.Fatalf("count model_feedback in surviving backup: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("surviving backup has %d model_feedback rows, want 0", count)
+	}
+}
+
 // TestRunCleanup_RetryAfterFailure simulates a failed post-commit cleanup
 // (an unwritable backup directory) and proves: the job moves to failed
 // without touching the already-committed delete, and a subsequent retry

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/feedback"
@@ -177,16 +178,31 @@ func (s *Store) setJobState(ctx context.Context, jobID string, state CleanupJobS
 //
 // Unlike an ordinary operator-triggered Backup, this phase does not apply
 // DefaultBackupRetain (or any caller-chosen retention): it always keeps
-// exactly the one backup it just took and removes every older one,
-// equivalent to calling Backup with retain=1. This is not a stricter
-// default, it is the documented contract for privacy deletion specifically
-// — plan 4.7 "удаляются старые backup-копии", plan 9.2 "старые backups,
-// включая pre-delete backup, удаляются по cleanup policy", plan 10.2
-// "успешное privacy deletion не обещает сохранение старого pre-delete
-// backup". Applying ordinary retention here would let up to
-// DefaultBackupRetain-1 older backups survive with the just-deleted
-// identity's data still intact in them, while the job reports done —
-// exactly the leak this method exists to prevent.
+// exactly the one backup it just took and removes every other one. This is
+// not a stricter default, it is the documented contract for privacy
+// deletion specifically — plan 4.7 "удаляются старые backup-копии", plan
+// 9.2 "старые backups, включая pre-delete backup, удаляются по cleanup
+// policy", plan 10.2 "успешное privacy deletion не обещает сохранение
+// старого pre-delete backup". Applying ordinary retention here would let
+// older backups survive with the just-deleted identity's data still intact
+// in them, while the job reports done — exactly the leak this method exists
+// to prevent.
+//
+// This "keep exactly one" guarantee is deliberately NOT implemented as
+// Backup(ctx, backupDir, 1): Backup's own retention (pruneOldBackups) keeps
+// the newest N backups by a plain lexicographic sort of their filenames
+// (feedback-v<version>-<timestamp>.sqlite, version unpadded), which
+// misorders once two backups' version numbers have a different digit count
+// — "feedback-v10-..." sorts before "feedback-v9-..." as a string, even
+// though 10 > 9. If a stale backup from an earlier or later schema version
+// happened to sort after the one this call just took, a plain retain=1
+// Backup call could delete the fresh post-delete backup and keep the stale
+// one instead — silently reintroducing this exact leak. So this method
+// calls Backup with an effectively unbounded retain (disabling Backup's own
+// pruning for this call entirely) and then calls pruneAllBackupsExcept,
+// which deletes every other backup file by exact path comparison against
+// the path Backup returned — never by sort order, so it cannot be fooled by
+// any past, present, or future backup-filename shape.
 //
 // A prior failure (job state failed) is retried by first durably moving the
 // job back to cleanup_pending — a separate, already-committed step before
@@ -213,16 +229,26 @@ func (s *Store) RunCleanup(ctx context.Context, backupDir string, now time.Time)
 		job.UpdatedAt = now
 	}
 
-	// retain=1: keep only the backup this call just took, never the
-	// ordinary DefaultBackupRetain -- see the doc comment above.
-	const postDeleteBackupRetain = 1
-	if _, backupErr := s.Backup(ctx, backupDir, postDeleteBackupRetain); backupErr != nil {
+	fail := func(cleanupErr error) (CleanupJob, error) {
 		if setErr := s.setJobState(ctx, job.ID, CleanupJobFailed, now); setErr != nil {
-			return CleanupJob{}, fmt.Errorf("sqlite: post-commit cleanup failed (%v) and marking job failed also failed: %w", backupErr, setErr)
+			return CleanupJob{}, fmt.Errorf("sqlite: post-commit cleanup failed (%v) and marking job failed also failed: %w", cleanupErr, setErr)
 		}
 		job.State = CleanupJobFailed
 		job.UpdatedAt = now
-		return job, fmt.Errorf("sqlite: post-commit cleanup: %w", backupErr)
+		return job, fmt.Errorf("sqlite: post-commit cleanup: %w", cleanupErr)
+	}
+
+	// unboundedRetain disables Backup's own sort-based pruning for this
+	// call (see the doc comment above for why relying on it here is
+	// unsafe); pruneAllBackupsExcept below does the actual, order-
+	// independent pruning this method's contract requires.
+	const unboundedRetain = math.MaxInt
+	backupPath, backupErr := s.Backup(ctx, backupDir, unboundedRetain)
+	if backupErr != nil {
+		return fail(backupErr)
+	}
+	if pruneErr := pruneAllBackupsExcept(backupDir, backupPath); pruneErr != nil {
+		return fail(pruneErr)
 	}
 
 	if err := s.setJobState(ctx, job.ID, CleanupJobDone, now); err != nil {
