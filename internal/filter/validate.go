@@ -49,7 +49,7 @@ func IsTaskFitKeyword(value string) bool {
 	return ok
 }
 
-// Split separates comma-delimited predicates while keeping task_fit values in one predicate.
+// Split separates comma-delimited predicates while keeping CSV-valued predicates in one predicate.
 func Split(value string) []string {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -65,6 +65,10 @@ func Split(value string) []string {
 			result[len(result)-1] += "," + trimmed
 			continue
 		}
+		if len(result) > 0 && continuesTierCSV(trimmed) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(result[len(result)-1])), "tier:") {
+			result[len(result)-1] += "," + trimmed
+			continue
+		}
 		result = append(result, trimmed)
 	}
 	return result
@@ -73,28 +77,42 @@ func Split(value string) []string {
 // IsPredicateStart reports whether value starts a new structured filter predicate.
 func IsPredicateStart(value string) bool {
 	lower := strings.ToLower(strings.TrimSpace(value))
+	if isStructuredPredicateStart(lower) {
+		return true
+	}
+	return lower == "paid" || lower == "free" || lower == "scored" || lower == "has-q/p"
+}
+
+func continuesTierCSV(value string) bool {
+	return tier.IsValid(value) || !IsPredicateStart(value)
+}
+
+func isStructuredPredicateStart(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
 	for _, prefix := range []string{"availability:", "tier:", "task_fit:", "copyright_guardrail:", "quality>=", "context>=", "input<=", "output<="} {
 		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
 	}
-	return lower == "paid" || lower == "free" || lower == "scored" || lower == "has-q/p"
+	return false
 }
 
 // ValidateTiers validates tier predicates in a comma-separated filter.
 func ValidateTiers(value string) error {
-	for _, raw := range strings.Split(value, ",") {
+	for _, raw := range Split(value) {
 		predicate := strings.TrimSpace(raw)
 		lower := strings.ToLower(predicate)
 		if !strings.HasPrefix(lower, "tier:") {
 			continue
 		}
-		value := strings.TrimSpace(predicate[len("tier:"):])
-		if value == "" {
-			return fmt.Errorf("tier must not be empty")
-		}
-		if !tier.IsValid(value) {
-			return fmt.Errorf("unknown tier %q; allowed values: %s", value, tier.ValuesString())
+		for _, rawValue := range strings.Split(strings.TrimSpace(predicate[len("tier:"):]), ",") {
+			value := strings.TrimSpace(rawValue)
+			if value == "" {
+				return fmt.Errorf("tier must not be empty")
+			}
+			if !tier.IsValid(value) {
+				return fmt.Errorf("unknown tier %q; allowed values: %s", value, tier.ValuesString())
+			}
 		}
 	}
 	return nil

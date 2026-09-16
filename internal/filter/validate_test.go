@@ -56,3 +56,38 @@ func TestSplitKeepsTaskFitCSVAndRepeatedPredicates(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateTiersAcceptsCSVAndRejectsEmptyOrUnknownValues(t *testing.T) {
+	for _, value := range []string{"tier:opus,haiku", "tier:free", "tier:opus,opus", "tier:opus,has-q/p", "tier:opus,paid", "tier:opus,scored"} {
+		if err := ValidateTiers(value); err != nil {
+			t.Errorf("ValidateTiers(%q) = %v, want nil", value, err)
+		}
+	}
+	for _, value := range []string{"tier:", "tier:opus,", "tier:,opus", "tier:unknown"} {
+		if err := ValidateTiers(value); err == nil {
+			t.Errorf("ValidateTiers(%q) = nil, want error", value)
+		}
+	}
+}
+
+func TestSplitKeepsTierCSVAndSeparatesRepeatedPredicates(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{name: "free remains a tier value", value: "tier:opus,free", want: []string{"tier:opus,free"}},
+		{name: "has-q/p starts a bare predicate", value: "tier:opus,has-q/p", want: []string{"tier:opus", "has-q/p"}},
+		{name: "paid starts a bare predicate", value: "tier:opus,paid", want: []string{"tier:opus", "paid"}},
+		{name: "scored starts a bare predicate", value: "tier:opus,scored", want: []string{"tier:opus", "scored"}},
+		{name: "repeated tier predicates split", value: "tier:opus,haiku,tier:sonnet", want: []string{"tier:opus,haiku", "tier:sonnet"}},
+		{name: "bare legacy predicates remain separate", value: "free,paid,scored", want: []string{"free", "paid", "scored"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Split(tt.value); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("Split(%q) = %#v, want %#v", tt.value, got, tt.want)
+			}
+		})
+	}
+}

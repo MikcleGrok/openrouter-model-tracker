@@ -513,14 +513,22 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 					return nil, fmt.Errorf("table: invalid availability %q; allowed values: any, free, paid", availability)
 				}
 			case strings.HasPrefix(filter, "tier:"):
-				tier := strings.TrimSpace(strings.TrimPrefix(filter, "tier:"))
-				if tier == "" {
+				values := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "tier:")), ",")
+				if len(values) == 1 && strings.TrimSpace(values[0]) == "" {
 					return nil, fmt.Errorf("table: malformed filter %q; tier must not be empty", raw)
 				}
-				if !tierpkg.IsValid(tier) {
-					return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", tier, raw, tierpkg.ValuesString())
+				wanted := make(map[string]struct{}, len(values))
+				for _, value := range values {
+					value = strings.ToLower(strings.TrimSpace(value))
+					if value == "" {
+						return nil, fmt.Errorf("table: malformed filter %q; tier value must not be empty", raw)
+					}
+					if !tierpkg.IsValid(value) {
+						return nil, fmt.Errorf("table: unknown tier %q in filter %q; allowed values: %s", value, raw, tierpkg.ValuesString())
+					}
+					wanted[value] = struct{}{}
 				}
-				parsed = append(parsed, func(m model.Model) bool { return tierpkg.AtLeast(m.Tier, tier) })
+				parsed = append(parsed, func(m model.Model) bool { _, ok := wanted[strings.ToLower(m.Tier)]; return ok })
 			case strings.HasPrefix(filter, "task_fit:"):
 				keywords := strings.Split(strings.TrimSpace(strings.TrimPrefix(filter, "task_fit:")), ",")
 				if len(keywords) == 1 && strings.TrimSpace(keywords[0]) == "" {
@@ -588,7 +596,7 @@ func filterTableModels(models []model.Model, filters []string) ([]model.Model, e
 				}
 				parsed = append(parsed, func(m model.Model) bool { return m.OutPerM <= threshold })
 			default:
-				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:MIN, task_fit:K1,K2,..., copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
+				return nil, fmt.Errorf("table: unknown filter %q; allowed values: paid, free, scored, has-q/p, availability:any|free|paid, tier:opus,sonnet,..., task_fit:K1,K2,..., copyright_guardrail:enforces|bypasses|unknown, quality>=N, context>=N, input<=N, output<=N", raw)
 			}
 		}
 	}
