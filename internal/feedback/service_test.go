@@ -380,6 +380,122 @@ func TestUpdateByIdentityADoesNotChangeIdentityBRowsOrPersonalPosition(t *testin
 	}
 }
 
+// TestUpdateByIdentityAAcrossCountMatrixDoesNotAffectIdentityB combines the
+// two properties the brief's section 15 step 2 requires together, at every
+// required count level, rather than each in isolation: A acting on a shared
+// model M must never move B's own stored row or B's personal position on a
+// completely unrelated model, whether M currently has 0, 1, 4, 5, 19, or 20
+// other voters. The n=4 case is the interesting one: background voters
+// alone leave M at count 4 (ineligible), and it is specifically identity
+// A's own vote that tips M to count 5 (eligible) — the boundary crossing
+// itself is exercised, not just the two sides of it independently.
+func TestUpdateByIdentityAAcrossCountMatrixDoesNotAffectIdentityB(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc, _ := newTestService(t1)
+	ctx := context.Background()
+	const identityA IdentityID = "matrix-ab-identity-a"
+	const identityB IdentityID = "matrix-ab-identity-b"
+
+	// B's own ratings, wholly unrelated to anything the loop below does:
+	// neither model is ever touched by A or by any background identity.
+	if _, err := svc.SaveFeedback(ctx, identityB, mustFeedbackInput(t, "matrix-ab/b-primary", 4, []SkillRating{{Key: "reasoning", Rating: 5}}, "b's own review")); err != nil {
+		t.Fatalf("SaveFeedback(B, b-primary): unexpected error: %v", err)
+	}
+	if _, err := svc.SaveFeedback(ctx, identityB, mustFeedbackInput(t, "matrix-ab/b-secondary", 2, nil, "")); err != nil {
+		t.Fatalf("SaveFeedback(B, b-secondary): unexpected error: %v", err)
+	}
+	bBaseRanking := []ModelKey{"matrix-ab/b-primary", "matrix-ab/b-secondary"}
+
+	snapshotB := func(t *testing.T) (row1, row2 *OwnFeedback, pos1, pos2 Position) {
+		t.Helper()
+		row1, err := svc.GetOwnFeedback(ctx, identityB, "matrix-ab/b-primary")
+		if err != nil || row1 == nil {
+			t.Fatalf("GetOwnFeedback(B, b-primary): got %+v, err %v", row1, err)
+		}
+		row2, err = svc.GetOwnFeedback(ctx, identityB, "matrix-ab/b-secondary")
+		if err != nil || row2 == nil {
+			t.Fatalf("GetOwnFeedback(B, b-secondary): got %+v, err %v", row2, err)
+		}
+		posResult1, err := svc.GetModelPositions(ctx, identityB, "matrix-ab/b-primary", bBaseRanking)
+		if err != nil {
+			t.Fatalf("GetModelPositions(B, b-primary): unexpected error: %v", err)
+		}
+		posResult2, err := svc.GetModelPositions(ctx, identityB, "matrix-ab/b-secondary", bBaseRanking)
+		if err != nil {
+			t.Fatalf("GetModelPositions(B, b-secondary): unexpected error: %v", err)
+		}
+		return row1, row2, posResult1.PersonalPosition, posResult2.PersonalPosition
+	}
+
+	beforeRow1, beforeRow2, beforePos1, beforePos2 := snapshotB(t)
+	if beforePos1 != (Position{Value: 1, Status: PositionStatusRanked}) {
+		t.Fatalf("sanity check: B's b-primary PersonalPosition = %+v, want rank 1 (higher rating)", beforePos1)
+	}
+	if beforePos2 != (Position{Value: 2, Status: PositionStatusRanked}) {
+		t.Fatalf("sanity check: B's b-secondary PersonalPosition = %+v, want rank 2", beforePos2)
+	}
+
+	for _, n := range []int{0, 1, 4, 5, 19, 20} {
+		n := n
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			model := ModelKey(fmt.Sprintf("matrix-ab/model-n%d", n))
+			for i := 0; i < n; i++ {
+				background := IdentityID(fmt.Sprintf("matrix-ab-background-n%d-%d", n, i))
+				if _, err := svc.SaveFeedback(ctx, background, mustFeedbackInput(t, string(model), 4, nil, "")); err != nil {
+					t.Fatalf("SaveFeedback(background %s, %s): unexpected error: %v", background, model, err)
+				}
+			}
+			before, err := svc.GetAggregate(ctx, model, nil)
+			if err != nil {
+				t.Fatalf("GetAggregate(%s) before A's vote: unexpected error: %v", model, err)
+			}
+			if before.Count != n {
+				t.Fatalf("GetAggregate(%s) before A's vote: Count = %d, want %d", model, before.Count, n)
+			}
+
+			// Identity A votes on the shared model, becoming its (n+1)th
+			// voter — the only action this subtest takes on shared state.
+			if _, err := svc.SaveFeedback(ctx, identityA, mustFeedbackInput(t, string(model), 4, nil, "")); err != nil {
+				t.Fatalf("SaveFeedback(A, %s): unexpected error: %v", model, err)
+			}
+
+			after, err := svc.GetAggregate(ctx, model, nil)
+			if err != nil {
+				t.Fatalf("GetAggregate(%s) after A's vote: unexpected error: %v", model, err)
+			}
+			if after.Count != n+1 {
+				t.Errorf("GetAggregate(%s) after A's vote: Count = %d, want %d", model, after.Count, n+1)
+			}
+			wantEligible := CommunityPositionEligible(n + 1)
+			positions, err := svc.GetModelPositions(ctx, identityA, model, nil)
+			if err != nil {
+				t.Fatalf("GetModelPositions(A, %s): unexpected error: %v", model, err)
+			}
+			if gotEligible := positions.CommunityPosition.Status == PositionStatusRanked; gotEligible != wantEligible {
+				t.Errorf("n=%d (count after A votes=%d): CommunityPosition = %+v, want eligible=%v", n, n+1, positions.CommunityPosition, wantEligible)
+			}
+
+			// Whatever just happened to the shared model M, B's own row
+			// and personal position on B's own, unrelated models must be
+			// byte-identical to the snapshot taken before this test's loop
+			// ever started.
+			gotRow1, gotRow2, gotPos1, gotPos2 := snapshotB(t)
+			if !reflect.DeepEqual(*gotRow1, *beforeRow1) {
+				t.Errorf("n=%d: B's b-primary row changed: before=%+v after=%+v", n, *beforeRow1, *gotRow1)
+			}
+			if !reflect.DeepEqual(*gotRow2, *beforeRow2) {
+				t.Errorf("n=%d: B's b-secondary row changed: before=%+v after=%+v", n, *beforeRow2, *gotRow2)
+			}
+			if gotPos1 != beforePos1 {
+				t.Errorf("n=%d: B's b-primary PersonalPosition changed: before=%+v after=%+v", n, beforePos1, gotPos1)
+			}
+			if gotPos2 != beforePos2 {
+				t.Errorf("n=%d: B's b-secondary PersonalPosition changed: before=%+v after=%+v", n, beforePos2, gotPos2)
+			}
+		})
+	}
+}
+
 // TestCommunityPositionCountMatrix covers the identity/count matrix the
 // task brief requires: community-position eligibility and ranking across
 // vote counts 0, 1, 4, 5, 19, 20, cross-checked against exclusion by two
