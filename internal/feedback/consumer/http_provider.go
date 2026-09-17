@@ -20,6 +20,21 @@ import (
 // — never coerced or best-effort-decoded.
 const SupportedSchemaVersion = "feedback-signal.v1"
 
+// SupportedPolicyVersion is the only feedback-signal policy_version this
+// adapter trusts (httpapi/handlers_signal.go's own signalPolicyVersion
+// constant, duplicated here per doc.go's decoupling rationale). policy.go's
+// whole safety argument is that sample-count thresholds, freshness TTL, and
+// which dimension status is safe to route on are server-side policy this
+// package never recomputes locally (doc.go) — that delegation is only sound
+// if this adapter also pins which policy version those band meanings came
+// from. A response carrying any other policy_version is ErrIncompatibleSchema,
+// exactly like an unsupported schema_version: a hypothetical
+// "feedback-signal-policy.v2" could redefine what "established" means (e.g.
+// no longer implying "safe to route on") without changing the wire shape at
+// all, and this adapter must not silently keep producing routing decisions
+// under semantics it never verified.
+const SupportedPolicyVersion = "feedback-signal-policy.v1"
+
 // expectedSignalScope is the only signal_scope this adapter ever accepts
 // (plan 4.6: the MVP consumer endpoint "всегда отдаёт только
 // social/community signal... с signal_scope=community"). Any other value —
@@ -276,6 +291,9 @@ func decodeSignal(body []byte) (FeedbackSignal, error) {
 
 	if dto.SchemaVersion != SupportedSchemaVersion {
 		return FeedbackSignal{}, &AdapterError{Err: ErrIncompatibleSchema, Detail: "unsupported schema_version"}
+	}
+	if dto.PolicyVersion != SupportedPolicyVersion {
+		return FeedbackSignal{}, &AdapterError{Err: ErrIncompatibleSchema, Detail: "unsupported policy_version"}
 	}
 	if dto.SignalScope != expectedSignalScope {
 		return FeedbackSignal{}, &AdapterError{Err: ErrIncompatibleSchema, Detail: "unsupported signal_scope"}

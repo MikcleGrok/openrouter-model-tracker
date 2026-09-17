@@ -193,6 +193,109 @@ func TestEvaluate_NoSignalAtAll(t *testing.T) {
 	}
 }
 
+// TestEvaluate_WholeSignalStatusAlwaysWinsOverDimensionShape is the
+// regression test for the review finding that evaluateDimension only ever
+// checked SignalUnavailable at the whole-signal level, never
+// SignalStale/SignalIncompatibleSchema/SignalPolicyRejected nor
+// Freshness.Stale — so a hand-built (or future, non-reference) provider
+// that reports a non-usable whole-signal status while leaving an
+// established-looking dimension untouched (e.g. a caching provider marking
+// stale data without also rewriting every dimension's own status) must
+// still get baseline, never routing/ranking/warning. Every case below
+// deliberately pairs the non-usable whole-signal condition with an
+// otherwise-established dimension, so a regression back to "only dim.Status
+// is checked" would fail loudly instead of accidentally passing.
+func TestEvaluate_WholeSignalStatusAlwaysWinsOverDimensionShape(t *testing.T) {
+	established := dimensionAt(20)
+
+	cases := []struct {
+		name       string
+		signal     FeedbackSignal
+		wantReason ReasonCode
+	}{
+		{
+			name: "whole signal stale, dimension still shows established",
+			signal: FeedbackSignal{
+				Status:        SignalStale,
+				Overall:       established,
+				Skills:        map[string]Dimension{"reasoning": established},
+				Freshness:     Freshness{ComputedAt: time.Now(), TTLSeconds: 86400, Stale: true},
+				SchemaVersion: SupportedSchemaVersion,
+				PolicyVersion: SupportedPolicyVersion,
+			},
+			wantReason: ReasonStale,
+		},
+		{
+			name: "whole signal incompatible_schema, dimension still shows established",
+			signal: FeedbackSignal{
+				Status:        SignalIncompatibleSchema,
+				Overall:       established,
+				Skills:        map[string]Dimension{"reasoning": established},
+				Freshness:     Freshness{ComputedAt: time.Now(), TTLSeconds: 86400},
+				SchemaVersion: SupportedSchemaVersion,
+				PolicyVersion: SupportedPolicyVersion,
+			},
+			wantReason: ReasonIncompatibleSchema,
+		},
+		{
+			name: "whole signal policy_rejected, dimension still shows established",
+			signal: FeedbackSignal{
+				Status:        SignalPolicyRejected,
+				Overall:       established,
+				Skills:        map[string]Dimension{"reasoning": established},
+				Freshness:     Freshness{ComputedAt: time.Now(), TTLSeconds: 86400},
+				SchemaVersion: SupportedSchemaVersion,
+				PolicyVersion: SupportedPolicyVersion,
+			},
+			wantReason: ReasonPolicyRejected,
+		},
+		{
+			name: "status usable but Freshness.Stale true (inconsistent provider), dimension still shows established",
+			signal: FeedbackSignal{
+				Status:        SignalUsable,
+				Overall:       established,
+				Skills:        map[string]Dimension{"reasoning": established},
+				Freshness:     Freshness{ComputedAt: time.Now(), TTLSeconds: 86400, Stale: true},
+				SchemaVersion: SupportedSchemaVersion,
+				PolicyVersion: SupportedPolicyVersion,
+			},
+			wantReason: ReasonStale,
+		},
+		{
+			name: "unrecognized/empty whole-signal status, dimension still shows established",
+			signal: FeedbackSignal{
+				Status:        SignalStatus(""),
+				Overall:       established,
+				Skills:        map[string]Dimension{"reasoning": established},
+				Freshness:     Freshness{ComputedAt: time.Now(), TTLSeconds: 86400},
+				SchemaVersion: SupportedSchemaVersion,
+				PolicyVersion: SupportedPolicyVersion,
+			},
+			wantReason: ReasonIncompatibleSchema,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			overall := EvaluateOverall(tc.signal, nil)
+			if overall.Mode != ModeBaseline || overall.Action != ActionBaseline || overall.ReasonCode != tc.wantReason {
+				t.Errorf("EvaluateOverall = %+v, want baseline/baseline/%s", overall, tc.wantReason)
+			}
+			if overall.Routing != nil {
+				t.Errorf("EvaluateOverall must never carry Routing when the whole signal is non-usable, got %+v", overall)
+			}
+
+			skill := EvaluateSkill(tc.signal, nil, "reasoning")
+			if skill.Mode != ModeBaseline || skill.Action != ActionBaseline || skill.ReasonCode != tc.wantReason {
+				t.Errorf("EvaluateSkill = %+v, want baseline/baseline/%s", skill, tc.wantReason)
+			}
+			if skill.Routing != nil {
+				t.Errorf("EvaluateSkill must never carry Routing when the whole signal is non-usable, got %+v", skill)
+			}
+		})
+	}
+}
+
 // TestBaselineForError_EveryTypedError proves baseline-on-error for all
 // four typed adapter errors plus a generic unrecognized error, both through
 // EvaluateOverall and EvaluateSkill.

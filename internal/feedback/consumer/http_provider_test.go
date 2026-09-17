@@ -228,6 +228,23 @@ func TestGetSignal_UnsupportedSchemaVersion(t *testing.T) {
 	}
 }
 
+// TestGetSignal_UnsupportedPolicyVersion is the regression test for the
+// review finding that policy_version was decoded but never validated:
+// policy.go's whole safety argument rests on delegating threshold/TTL/
+// confidence/routing-safety semantics to server-side policy, which is only
+// sound if this adapter pins which policy version those band meanings came
+// from. A server claiming a different policy_version could redefine what
+// "established" means without changing the wire shape at all.
+func TestGetSignal_UnsupportedPolicyVersion(t *testing.T) {
+	m := validSignalMap()
+	m["policy_version"] = "feedback-signal-policy.v2"
+	srv := serveJSON(t, http.StatusOK, m)
+	defer srv.Close()
+	if _, err := newTestProvider(t, srv.URL).GetSignal(context.Background(), "acme/model-1"); !errors.Is(err, ErrIncompatibleSchema) {
+		t.Fatalf("err = %v, want ErrIncompatibleSchema", err)
+	}
+}
+
 func TestGetSignal_UnsupportedSignalScope(t *testing.T) {
 	m := validSignalMap()
 	m["signal_scope"] = "personal" // there is no personal consumer scope (doc.go)

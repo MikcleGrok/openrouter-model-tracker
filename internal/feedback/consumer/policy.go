@@ -125,6 +125,52 @@ func baselineForError(err error) PolicyDecision {
 	}
 }
 
+// baselineReasonForSignalStatus reports whether the WHOLE signal's own
+// top-level status already rules out anything but a baseline decision,
+// independent of any one dimension's own status — and if so, which reason
+// code applies. This is the whole-signal counterpart to evaluateDimension's
+// per-dimension switch below: plan 4.6 is explicit that "При stale,
+// unavailable, incompatible schema или policy signal возвращает
+// соответствующий status, null values и baseline generation" at the WHOLE
+// SIGNAL level, not only when a given dimension happens to mirror that
+// status.
+//
+// Today's HTTPReferenceSignalProvider never actually produces a
+// FeedbackSignal with Status SignalIncompatibleSchema or
+// SignalPolicyRejected (decodeSignal converts those wire statuses into a Go
+// error before constructing one), and the real server always mirrors a
+// whole-signal "stale" onto every dimension's own status too — so for
+// today's only provider, evaluateDimension's per-dimension switch alone
+// would already reach baseline in every case this function also catches.
+// But EvaluateOverall/EvaluateSkill are exported API taking any
+// caller-supplied FeedbackSignal (plan 3.4 explicitly anticipates other
+// providers), and nothing enforces that a hypothetical different provider
+// keeps status and per-dimension shape in that same lockstep — e.g. a
+// caching provider that marks the whole signal SignalStale while leaving a
+// previously-established dimension's own Status untouched. Checking the
+// whole-signal status here, unconditionally, is what makes "stale ->
+// baseline" true by construction rather than true by accident of what the
+// one reference provider happens to produce.
+func baselineReasonForSignalStatus(status SignalStatus) (reason ReasonCode, notUsable bool) {
+	switch status {
+	case SignalUsable:
+		return "", false
+	case SignalUnavailable:
+		return ReasonNoSignal, true
+	case SignalStale:
+		return ReasonStale, true
+	case SignalIncompatibleSchema:
+		return ReasonIncompatibleSchema, true
+	case SignalPolicyRejected:
+		return ReasonPolicyRejected, true
+	default:
+		// An empty/unrecognized status on a hand-built FeedbackSignal (a
+		// test fixture, or a future SignalProvider) is never treated as
+		// usable — never guess.
+		return ReasonIncompatibleSchema, true
+	}
+}
+
 // evaluateDimension is the shared decision core behind EvaluateOverall and
 // EvaluateSkill: given the signal-level context (whole-signal status, any
 // provider error) and one dimension to judge, produce the PolicyDecision.
@@ -135,8 +181,16 @@ func evaluateDimension(signal FeedbackSignal, providerErr error, label string, d
 	if providerErr != nil {
 		return baselineForError(providerErr)
 	}
-	if signal.Status == SignalUnavailable {
-		return baseline(ReasonNoSignal)
+	if reason, notUsable := baselineReasonForSignalStatus(signal.Status); notUsable {
+		return baseline(reason)
+	}
+	// Freshness.Stale is the server's own authoritative "has this signal
+	// aged past its TTL" bit (plan 4.6) — checked independently of Status
+	// so a provider that (incorrectly) reports Status: SignalUsable
+	// alongside a stale Freshness still gets baseline, never routing/
+	// ranking/warning on data past its TTL.
+	if signal.Freshness.Stale {
+		return baseline(ReasonStale)
 	}
 	if !hasDim {
 		return baseline(ReasonInsufficientSample)

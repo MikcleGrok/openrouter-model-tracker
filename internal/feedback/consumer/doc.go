@@ -44,10 +44,15 @@
 // one of four sentinel errors (contract.go): ErrUnavailable (transport
 // failure, timeout, or a 5xx/unexpected HTTP status), ErrUnauthorized (401
 // or 403), ErrIncompatibleSchema (a response that fails to decode, fails
-// required-field validation, or carries an unsupported schema_version/
-// signal_scope/status), and ErrPolicyRejected (the server's own top-level
-// status is "policy_rejected"). On any of these, GetSignal returns the zero
-// FeedbackSignal — it never returns a partially-decoded signal alongside an
+// required-field validation, or carries an unsupported
+// schema_version/policy_version/signal_scope/status), and ErrPolicyRejected
+// (the server's own top-level status is "policy_rejected"). Both
+// schema_version and policy_version are pinned (SupportedSchemaVersion/
+// SupportedPolicyVersion, http_provider.go) — not just the wire shape but
+// also the band semantics ("established" means "safe to route on", etc.)
+// that policy.go relies on the server to define. On any of these, GetSignal
+// returns the zero FeedbackSignal — it never returns a partially-decoded
+// signal alongside an
 // error, and it never invents a value for a field it could not verify.
 //
 // # Policy is deterministic and always has a safe fallback
