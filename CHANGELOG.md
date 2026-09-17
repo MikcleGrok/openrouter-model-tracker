@@ -4,6 +4,14 @@
 
 - Future release changes will be documented here.
 
+## [1.23.0]
+
+- Add an optional, self-hosted feedback/rating service (disabled by default): a loopback-only `feedback-server` process backed by SQLite, a personal `Bearer token + X-Identity-Id` identity model, and a separate trusted-consumer credential for a future assistant/inference runtime to read community rating signal — never personal ratings.
+- Add a "Feedback" tab to the TUI's model detail screen for rating a model (overall + per-skill, 1-5, optional review text) and viewing your own rating, the community aggregate, and separate personal/community/base positions, plus a dedicated `Мои оценки`/`My ratings` view (hotkey `M`) listing every model you've personally rated, ordered by your own rating.
+- Add `openrouter feedback init` and `openrouter feedback delete` CLI subcommands for provisioning a local identity and for self-service deletion of all of your feedback data.
+- Sanitize review text before display and before send (control-sequence stripping, invalid-UTF-8 replacement, length/line caps) to keep the TUI safe against adversarial input.
+- Document local rollout, the trusted-consumer shadow/allowlist staged rollout, and self-service data deletion in the reference docs.
+
 ## [1.22.1]
 
 - Improve the Task fit filter in the TUI with multi-select keyword chips, deterministic alphabetical serialization, explicit empty-filter handling, and safer cursor/keyboard transitions; preserve the documented task-fit filtering semantics and add regression coverage.
