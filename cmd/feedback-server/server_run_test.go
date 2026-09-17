@@ -67,6 +67,35 @@ func TestBuildServerHandles_Success(t *testing.T) {
 	}
 }
 
+// TestBuildServerHandles_IdenticalTokenFilesRejected is review round 1
+// finding #3, exercised through the real startup path: an operator pointing
+// --token-file and --consumer-token-file at the same file must get a clear
+// startup error (via httpapi.New's own new guard), not a server that starts
+// fine and then permanently 403s every real consumer credential holder with
+// no diagnostic.
+func TestBuildServerHandles_IdenticalTokenFilesRejected(t *testing.T) {
+	cfg := baseTestConfig(t)
+	cfg.consumerTokenFile = cfg.tokenFile // operator error: same file for both
+
+	h, err := buildServerHandles(context.Background(), cfg, io.Discard, io.Discard)
+	if err == nil {
+		h.listener.Close()
+		h.store.Close()
+		t.Fatal("buildServerHandles with identical token files: want an error, got nil")
+	}
+	if h != nil {
+		t.Errorf("buildServerHandles returned non-nil handles alongside an error: %+v", h)
+	}
+
+	// No dangling DB lock: buildServerHandles must have closed the store it
+	// opened before New() rejected the config.
+	store, err := sqlite.Open(context.Background(), cfg.dbPath, sqlite.Config{})
+	if err != nil {
+		t.Fatalf("reopen after rejected config: %v", err)
+	}
+	store.Close()
+}
+
 // TestBuildServerHandles_MigrationFailureNeverOpensAListener reproduces
 // plan 7.2's "Ошибка миграции должна завершить процесс до открытия HTTP
 // listener": a database whose recorded migration checksum no longer

@@ -12,24 +12,42 @@ import (
 	"github.com/sboborikin/openrouter-model-tracker/internal/feedback"
 )
 
+// TestSignal_NoDataAtAll_Unavailable covers the whole-model zero-rating
+// case: the top-level status is "unavailable" (there is no signal to
+// serve at all — no as_of, no useful freshness), but per the review round
+// 1 fix (finding #1), every DIMENSION still takes the ordinary
+// dimensionSignal(0, 0) path — "insufficient", not a separate
+// "unavailable" dimension shape — matching plan §4.6's unconditional
+// "count < 5 -> insufficient" rule and §11.2's boundary matrix, which
+// explicitly places 0 inside that same bucket rather than carving out a
+// separate state for it.
 func TestSignal_NoDataAtAll_Unavailable(t *testing.T) {
 	env := newTestEnv(t, nil)
 	resp := env.do(t, http.MethodGet, "/v1/models/acme/never-rated/feedback/signal", consumerHeaders(), nil)
 	got := decodeJSON[signalResponseDTO](t, resp)
 
 	if got.Status != "unavailable" {
-		t.Errorf("status = %q, want unavailable", got.Status)
+		t.Errorf("top-level status = %q, want unavailable", got.Status)
 	}
-	if got.Overall.Status != "unavailable" || got.Overall.Value != nil {
-		t.Errorf("overall = %+v, want unavailable/nil value", got.Overall)
+	if got.Overall.Status != "insufficient" || got.Overall.Value != nil {
+		t.Errorf("overall = %+v, want insufficient/nil value", got.Overall)
+	}
+	if got.Overall.Confidence == nil || *got.Overall.Confidence != "insufficient" {
+		t.Errorf("overall.confidence = %v, want insufficient", got.Overall.Confidence)
+	}
+	if got.Overall.SampleCount != 0 {
+		t.Errorf("overall.sample_count = %d, want 0", got.Overall.SampleCount)
 	}
 	for _, key := range feedback.AllowedSkills() {
 		dim, ok := got.Skills[key]
 		if !ok {
 			t.Fatalf("skills missing key %q", key)
 		}
-		if dim.Status != "unavailable" || dim.Value != nil {
-			t.Errorf("skills[%q] = %+v, want unavailable/nil value", key, dim)
+		if dim.Status != "insufficient" || dim.Value != nil {
+			t.Errorf("skills[%q] = %+v, want insufficient/nil value", key, dim)
+		}
+		if dim.Confidence == nil || *dim.Confidence != "insufficient" {
+			t.Errorf("skills[%q].confidence = %v, want insufficient", key, dim.Confidence)
 		}
 	}
 	if got.Freshness.AsOf != nil {
@@ -47,24 +65,26 @@ func TestSignal_NoDataAtAll_Unavailable(t *testing.T) {
 }
 
 // TestSignal_OverallDimensionBoundaries checks the deterministic policy
-// (contract §6, plan 4.6) at the required counts 1/4/5/19/20 for the
-// OVERALL dimension. count=0 is covered separately by
-// TestSignal_NoDataAtAll_Unavailable, since a whole-model zero count is
-// "unavailable" (no signal at all), not "insufficient" (some data, below
-// threshold) — see handlers_signal.go's own doc comment for why those are
-// different states here.
+// (contract §6, plan 4.6) at the required counts 0/1/4/5/19/20 for the
+// OVERALL dimension. count=0 gets its own wantTopStatus ("unavailable",
+// since a whole-model zero count also means no as_of/freshness at all —
+// see TestSignal_NoDataAtAll_Unavailable for the top-level-only checks),
+// but the dimension shape itself is identical to every other <5 case:
+// insufficient/null/insufficient (review round 1 finding #1).
 func TestSignal_OverallDimensionBoundaries(t *testing.T) {
 	cases := []struct {
 		count          int
+		wantTopStatus  string
 		wantStatus     string
 		wantConfidence string
 		wantValue      bool
 	}{
-		{count: 1, wantStatus: "insufficient", wantConfidence: "insufficient", wantValue: false},
-		{count: 4, wantStatus: "insufficient", wantConfidence: "insufficient", wantValue: false},
-		{count: 5, wantStatus: "provisional", wantConfidence: "provisional", wantValue: true},
-		{count: 19, wantStatus: "provisional", wantConfidence: "provisional", wantValue: true},
-		{count: 20, wantStatus: "established", wantConfidence: "established", wantValue: true},
+		{count: 0, wantTopStatus: "unavailable", wantStatus: "insufficient", wantConfidence: "insufficient", wantValue: false},
+		{count: 1, wantTopStatus: "usable", wantStatus: "insufficient", wantConfidence: "insufficient", wantValue: false},
+		{count: 4, wantTopStatus: "usable", wantStatus: "insufficient", wantConfidence: "insufficient", wantValue: false},
+		{count: 5, wantTopStatus: "usable", wantStatus: "provisional", wantConfidence: "provisional", wantValue: true},
+		{count: 19, wantTopStatus: "usable", wantStatus: "provisional", wantConfidence: "provisional", wantValue: true},
+		{count: 20, wantTopStatus: "usable", wantStatus: "established", wantConfidence: "established", wantValue: true},
 	}
 	for _, tc := range cases {
 		t.Run(strconv.Itoa(tc.count), func(t *testing.T) {
@@ -78,8 +98,8 @@ func TestSignal_OverallDimensionBoundaries(t *testing.T) {
 			resp := env.do(t, http.MethodGet, "/v1/models/acme/boundary-model/feedback/signal", consumerHeaders(), nil)
 			got := decodeJSON[signalResponseDTO](t, resp)
 
-			if got.Status != "usable" {
-				t.Fatalf("top-level status = %q, want usable", got.Status)
+			if got.Status != tc.wantTopStatus {
+				t.Fatalf("top-level status = %q, want %q", got.Status, tc.wantTopStatus)
 			}
 			if got.Overall.Status != tc.wantStatus {
 				t.Errorf("overall.status = %q, want %q", got.Overall.Status, tc.wantStatus)

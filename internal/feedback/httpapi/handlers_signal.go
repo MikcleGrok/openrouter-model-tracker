@@ -85,14 +85,22 @@ func (s *Server) buildSignal(ctx context.Context, modelKey feedback.ModelKey) (s
 	switch {
 	case !hasAsOf:
 		// No ratings at all for this model (contract §6: "при отсутствии
-		// сохранённых оценок as_of=null"). Distinct from "insufficient":
-		// insufficient means "some data exists, below threshold"; here
-		// there is no signal at all.
+		// сохранённых оценок as_of=null"). The whole signal is reported
+		// unavailable at the top level (there is nothing to serve), but
+		// plan §4.6's dimension policy is unconditional on that: "При
+		// count < 5 dimension value равно null, status/confidence=
+		// insufficient" — and §11.2's own boundary matrix explicitly puts
+		// 0 inside the "<5 → insufficient" case, not a separate state.
+		// Every dimension therefore still takes the ordinary
+		// dimensionSignal(0, 0) path (review round 1 finding #1): a
+		// consumer keyed on confidence=="insufficient" for "brand new
+		// model, not enough votes yet" must not instead see a null
+		// confidence here, which would misread it as a provider outage.
 		resp.Status = "unavailable"
 		resp.Freshness = signalFreshnessDTO{AsOf: nil, ComputedAt: now, TTLSeconds: signalTTLSeconds, Stale: false}
-		resp.Overall = unavailableDimension()
+		resp.Overall = dimensionSignal(0, 0)
 		for _, key := range feedback.AllowedSkills() {
-			resp.Skills[key] = unavailableDimension()
+			resp.Skills[key] = dimensionSignal(0, 0)
 		}
 	default:
 		age := now.Sub(asOf)
@@ -167,12 +175,6 @@ func dimensionSignal(count int, average float64) signalDimensionDTO {
 // (informational — plan 4.6 nulls "values", not counts).
 func staleDimension(count int) signalDimensionDTO {
 	return signalDimensionDTO{Value: nil, Status: "stale", Confidence: nil, SampleCount: count}
-}
-
-// unavailableDimension is one dimension's shape when the model has no
-// stored ratings at all.
-func unavailableDimension() signalDimensionDTO {
-	return signalDimensionDTO{Value: nil, Status: "unavailable", Confidence: nil, SampleCount: 0}
 }
 
 func strPtr(s string) *string { return &s }

@@ -29,9 +29,21 @@ import (
 // identity's actual delete for real (it is idempotent: even if this
 // identity's rows were already gone, it still creates a fresh job, deletes
 // zero rows, and commits, exactly matching its own documented "does not
-// distinguish 'had no rows' from 'had rows'" contract), so a 204 or 202
-// this handler returns is always backed by a delete this exact request
-// caused or confirmed, never a borrowed report of a stranger's job.
+// distinguish 'had no rows' from 'had rows'" contract).
+//
+// The line this handler must never cross (review round 1, finding #2):
+// plan §4.7 defines 202 strictly — "только после успешного COMMIT" — a
+// promise that THIS request's own DeleteIdentity call actually committed a
+// delete, with cleanup still finishing in the background. It is never "the
+// system is busy, try later" spelled as 202. So the *only* way this
+// handler reaches finishCleanupOrPending (which can answer 204 or 202) is
+// the `err == nil` branch below, i.e. an actual successful DeleteIdentity
+// call in this exact request — whether on the first attempt or after a
+// drain-and-retry. Every other path (a drain that fails to clear the lock,
+// or exhausting the retry budget without ever getting past
+// ErrMaintenanceLocked) means this identity's own delete never committed
+// in this request, and answers 503 instead, via the same writeServiceError
+// shape already used elsewhere for ErrMaintenanceLocked.
 func (s *Server) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	identity := identityFromContext(r.Context())
 	ctx := r.Context()
@@ -40,13 +52,20 @@ func (s *Server) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; attempt < s.deleteRetryAttempts; attempt++ {
 		_, _, err := s.store.DeleteIdentity(ctx, identity, now)
 		if err == nil {
+			// This request's own delete just committed — only from this
+			// point on may the response be 204/202 (plan 4.7).
 			s.finishCleanupOrPending(w, ctx, now)
 			return
 		}
 		if errors.Is(err, sqlite.ErrMaintenanceLocked) {
 			if _, runErr := s.store.RunCleanup(ctx, s.backupDir, now); runErr != nil && !errors.Is(runErr, sqlite.ErrNoActiveCleanupJob) {
-				s.logger.Warn("delete: could not drain active cleanup job this attempt", "error", runErr.Error())
-				writeJSON(w, http.StatusAccepted, deleteStatusResponseDTO{Status: "cleanup_pending"})
+				// The blocking job could not be drained this attempt, and
+				// this identity's own DeleteIdentity call above never even
+				// started (it was rejected before any transaction began) —
+				// nothing committed for this identity in this request, so
+				// this is a plain pre-COMMIT failure, not "cleanup_pending".
+				s.logger.Error("delete: could not drain active cleanup job; this identity's own delete was never attempted", "error", runErr.Error())
+				s.writeServiceError(w, sqlite.ErrMaintenanceLocked)
 				return
 			}
 			// The blocking job is now done (or had already finished by the
@@ -61,13 +80,16 @@ func (s *Server) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exhausted local retries: the maintenance lock is still held by a job
-	// this handler could not drain within s.deleteRetryAttempts attempts.
-	// This is still an honest "cleanup_pending" — the system genuinely is
-	// in that state — never a bare 503; a client-side retry (or an
-	// operator noticing many consecutive 202s, which is what would
-	// eventually reveal a genuinely stuck job) will keep making progress.
-	writeJSON(w, http.StatusAccepted, deleteStatusResponseDTO{Status: "cleanup_pending"})
+	// Exhausted local retries without this identity's own DeleteIdentity
+	// call ever succeeding (some other job keeps re-taking the maintenance
+	// lock faster than this handler can drain it): this identity's delete
+	// never committed in this request, so plan 4.7's 202 — a promise that
+	// it did — does not apply here. 503, the same as any other pre-COMMIT
+	// failure; a client retry (or an operator noticing repeated 503s,
+	// which is what would eventually reveal a genuinely stuck job) is what
+	// makes further progress, not a misleading "cleanup_pending".
+	s.logger.Error("delete: exhausted retry attempts without this identity's own delete ever committing")
+	s.writeServiceError(w, sqlite.ErrMaintenanceLocked)
 }
 
 // finishCleanupOrPending runs the post-commit cleanup phase once, right

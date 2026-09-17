@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"log/slog"
@@ -115,6 +116,19 @@ type Server struct {
 func New(store *sqlite.Store, cfg Config) (*Server, error) {
 	if len(cfg.UserToken) == 0 {
 		return nil, fmt.Errorf("httpapi: user token must not be empty")
+	}
+	// Plan §6.1/§6.3 state the two credentials are "полностью отделён" /
+	// "не совмещается" — an explicit invariant, not merely a convention.
+	// Nothing in classifyToken can enforce it at request time (it checks
+	// the user secret first, so a shared secret would classify as
+	// tokenUser and simply 403 every consumer request with no
+	// diagnostic — fail-closed, but silent); catching the misconfiguration
+	// here, at startup, gives an operator who points --token-file and
+	// --consumer-token-file at the same file a clear, immediate error
+	// instead of a permanently-403ing consumer endpoint (review round 1,
+	// finding #3).
+	if len(cfg.ConsumerToken) > 0 && subtle.ConstantTimeCompare(cfg.UserToken, cfg.ConsumerToken) == 1 {
+		return nil, fmt.Errorf("httpapi: user token and consumer token must not be the same secret")
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
