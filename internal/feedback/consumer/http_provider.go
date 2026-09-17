@@ -247,6 +247,14 @@ var requiredSignalKeys = []string{
 // "overall" and every entry of "skills".
 var requiredDimensionKeys = []string{"value", "status", "confidence", "sample_count"}
 
+// requiredFreshnessKeys are the fields decodeSignal requires inside
+// "freshness". Without this check, a provider that omitted (say) "stale"
+// from an otherwise well-formed freshness object would decode it as the Go
+// zero value (false) instead of being rejected — silently defeating the
+// Freshness.Stale check a review round added specifically as
+// defense-in-depth against exactly this kind of incomplete response.
+var requiredFreshnessKeys = []string{"as_of", "computed_at", "ttl_seconds", "stale"}
+
 var validSignalStatuses = map[string]SignalStatus{
 	"usable":              SignalUsable,
 	"stale":               SignalStale,
@@ -379,8 +387,12 @@ func validateRawShape(raw map[string]any) error {
 			return fmt.Errorf("missing required field %q", key)
 		}
 	}
-	if _, ok := raw["freshness"].(map[string]any); !ok {
+	freshness, ok := raw["freshness"].(map[string]any)
+	if !ok {
 		return errors.New("\"freshness\" is not an object")
+	}
+	if err := validateRequiredKeys(freshness, requiredFreshnessKeys, "freshness"); err != nil {
+		return err
 	}
 	if _, ok := raw["position"].(map[string]any); !ok {
 		return errors.New("\"position\" is not an object")
@@ -409,7 +421,15 @@ func validateRawShape(raw map[string]any) error {
 }
 
 func validateDimensionKeys(obj map[string]any, label string) error {
-	for _, key := range requiredDimensionKeys {
+	return validateRequiredKeys(obj, requiredDimensionKeys, label)
+}
+
+// validateRequiredKeys reports an error naming the first of keys missing
+// from obj (labeled label in the error), or nil if every key is present.
+// Shared by validateDimensionKeys ("overall" and each "skills" entry) and
+// validateRawShape's own "freshness" check.
+func validateRequiredKeys(obj map[string]any, keys []string, label string) error {
+	for _, key := range keys {
 		if _, ok := obj[key]; !ok {
 			return fmt.Errorf("%s missing required field %q", label, key)
 		}

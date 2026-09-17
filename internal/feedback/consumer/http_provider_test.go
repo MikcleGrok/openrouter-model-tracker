@@ -218,6 +218,27 @@ func TestGetSignal_OverallMissingDimensionKey(t *testing.T) {
 	}
 }
 
+// TestGetSignal_FreshnessMissingKey is the regression test for the review's
+// "consumer adapter doesn't validate freshness sub-keys" finding: removing
+// any of freshness's four expected keys — including "stale", whose absence
+// would otherwise silently decode as the Go zero value false, defeating the
+// Freshness.Stale defense-in-depth check — must be rejected exactly like a
+// missing overall/skills dimension key.
+func TestGetSignal_FreshnessMissingKey(t *testing.T) {
+	for _, key := range requiredFreshnessKeys {
+		t.Run(key, func(t *testing.T) {
+			m := validSignalMap()
+			freshness := m["freshness"].(map[string]any)
+			delete(freshness, key)
+			srv := serveJSON(t, http.StatusOK, m)
+			defer srv.Close()
+			if _, err := newTestProvider(t, srv.URL).GetSignal(context.Background(), "acme/model-1"); !errors.Is(err, ErrIncompatibleSchema) {
+				t.Fatalf("freshness missing %q: err = %v, want ErrIncompatibleSchema", key, err)
+			}
+		})
+	}
+}
+
 func TestGetSignal_UnsupportedSchemaVersion(t *testing.T) {
 	m := validSignalMap()
 	m["schema_version"] = "feedback-signal.v2"
