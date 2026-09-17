@@ -8,10 +8,22 @@ import (
 
 // feedbackReviewMaxRunes and feedbackReviewMaxLines are the hard caps the
 // task brief's sanitization contract requires (.superpowers/sdd/plan/task-6-brief.md
-// section 8.3): after normalization the result never exceeds 4096 runes or
-// 200 lines, truncated deterministically at a rune/line boundary.
+// section 8.3): after normalization the result never exceeds these many
+// runes or lines, truncated deterministically at a rune/line boundary.
+//
+// feedbackReviewMaxRunes MUST equal internal/feedback.ReviewMaxLength, the
+// domain's real, server-enforced limit — it is kept as a separate constant
+// (not an import) rather than referencing that package directly, matching
+// feedback.go's feedbackSkillKeys convention that cmd/openrouter (the TUI
+// binary) does not gain a dependency on the feedback server's domain
+// package for a handful of small constants. An earlier, larger value here
+// (4096) let the TUI advertise and accept reviews the server would then
+// reject with an inexplicable 400 that a retry could never fix (the review
+// draft is kept for retry, so the rejection loop was unrecoverable without
+// manually shortening the text). TestFeedbackReviewMaxRunesMatchesDomainLimit
+// pins these two numbers together so they cannot silently drift apart again.
 const (
-	feedbackReviewMaxRunes = 4096
+	feedbackReviewMaxRunes = 2000
 	feedbackReviewMaxLines = 200
 )
 

@@ -602,6 +602,54 @@ func TestFeedbackErrorMessageSanitizesServerControlledText(t *testing.T) {
 	}
 }
 
+// TestFeedbackErrorMessageRendersFieldLevelValidationDetail is the
+// regression test for the review's "validation error is not
+// self-describing" finding: feedbackErrorMessage used to render only
+// *APIError.Error()'s own field *count* ("1 field error(s)"), leaving a
+// user unable to tell which field was rejected or why — meaning a review
+// truncated by a too-strict server-side limit produced an inexplicable 400
+// that a retry (the draft is kept) could never fix. It must now render the
+// actual per-field name and message instead.
+func TestFeedbackErrorMessageRendersFieldLevelValidationDetail(t *testing.T) {
+	err := &feedbackclient.APIError{
+		StatusCode: http.StatusBadRequest,
+		Message:    "validation failed",
+		Fields: []feedbackclient.ValidationField{
+			{Field: "review", Value: "...", Message: "must be at most 2000 runes"},
+		},
+	}
+	got := feedbackErrorMessage(err, "")
+	if !strings.Contains(got, "review") || !strings.Contains(got, "must be at most 2000 runes") {
+		t.Fatalf("feedbackErrorMessage = %q, want it to include the field name and message", got)
+	}
+	if strings.Contains(got, "field error(s)") {
+		t.Fatalf("feedbackErrorMessage = %q, want the per-field detail, not the bare count summary", got)
+	}
+
+	// Multiple fields: every one of them must show up, not just the first.
+	multi := &feedbackclient.APIError{
+		StatusCode: http.StatusBadRequest,
+		Message:    "validation failed",
+		Fields: []feedbackclient.ValidationField{
+			{Field: "overall", Value: "9", Message: "must be an integer between 1 and 5"},
+			{Field: "skills[0].key", Value: "bogus", Message: "not an allowed skill"},
+		},
+	}
+	gotMulti := feedbackErrorMessage(multi, "")
+	for _, want := range []string{"overall", "must be an integer between 1 and 5", "skills[0].key", "not an allowed skill"} {
+		if !strings.Contains(gotMulti, want) {
+			t.Fatalf("feedbackErrorMessage = %q, want it to contain %q", gotMulti, want)
+		}
+	}
+
+	// No Fields at all (e.g. malformed JSON): falls back to the server's
+	// own generic message, unchanged from before this fix.
+	noFields := &feedbackclient.APIError{StatusCode: http.StatusBadRequest, Message: "malformed JSON body"}
+	if got := feedbackErrorMessage(noFields, ""); !strings.Contains(got, "malformed JSON body") {
+		t.Fatalf("feedbackErrorMessage with no Fields = %q, want it to fall back to the server message", got)
+	}
+}
+
 // TestFeedbackSuccessfulSaveReplacesLocalStateWithServerResponse confirms
 // brief 8.2 step 5: on success the local state is replaced with exactly what
 // the server returned, not merely with what was sent.

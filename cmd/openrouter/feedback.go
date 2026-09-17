@@ -11,6 +11,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -300,11 +302,18 @@ func feedbackErrorMessage(err error, lang string) string {
 		// review text before it is ever interpolated into a rendered line,
 		// not the older, narrower normalizePlainLine the shared Detail
 		// pipeline applies (that one does not strip C1 controls or bidi
-		// overrides, only 7-bit escapes and bytes <0x20/0x7f).
+		// overrides, only 7-bit escapes and bytes <0x20/0x7f). When the
+		// error carries field-level detail (APIError.Fields), render that
+		// instead of relying on feedbackValidationDetail's err.Error()
+		// fallback, which only reports a field *count* ("1 field
+		// error(s)") — leaving a user unable to tell which field was
+		// rejected or why, and unable to fix a retry that can otherwise
+		// never succeed.
+		detail := sanitizeFeedbackReviewText(feedbackValidationDetail(err))
 		if ru {
-			return "Сервер отклонил отзыв: " + sanitizeFeedbackReviewText(err.Error())
+			return "Сервер отклонил отзыв: " + detail
 		}
-		return "Feedback server rejected the submission: " + sanitizeFeedbackReviewText(err.Error())
+		return "Feedback server rejected the submission: " + detail
 	default:
 		// Same reasoning as above: err.Error() here can also be an
 		// *APIError carrying server-controlled text (any error shape not
@@ -314,6 +323,26 @@ func feedbackErrorMessage(err error, lang string) string {
 		}
 		return "Feedback error: " + sanitizeFeedbackReviewText(err.Error())
 	}
+}
+
+// feedbackValidationDetail renders the actual per-field validation messages
+// from a 400 *APIError's Fields (client.ValidationField{Field, Value,
+// Message}), one "field: message" per entry joined with "; " — instead of
+// *APIError.Error()'s own summary, which collapses Fields down to a bare
+// count ("1 field error(s)") and discards exactly the information a user
+// needs to understand and fix a rejected submission. Falls back to err's own
+// Error() string when err is not an *APIError or carries no Fields at all
+// (e.g. a 400 for malformed JSON, which has no field-scoped detail to show).
+func feedbackValidationDetail(err error) string {
+	var apiErr *feedbackclient.APIError
+	if !errors.As(err, &apiErr) || len(apiErr.Fields) == 0 {
+		return err.Error()
+	}
+	parts := make([]string, 0, len(apiErr.Fields))
+	for _, f := range apiErr.Fields {
+		parts = append(parts, f.Field+": "+f.Message)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // startFeedbackLoad resets the feedback state for row and dispatches a fresh

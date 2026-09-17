@@ -4,7 +4,25 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/sboborikin/openrouter-model-tracker/internal/feedback"
 )
+
+// TestFeedbackReviewMaxRunesMatchesDomainLimit pins feedbackReviewMaxRunes to
+// the domain's real, server-enforced limit (internal/feedback.ReviewMaxLength).
+// The TUI's visible cap must never allow a review the server will go on to
+// reject — see feedbackReviewMaxRunes's own doc comment for the review-round
+// bug this test guards against (an unrecoverable rejection loop). This is
+// the only place cmd/openrouter imports internal/feedback at all, and only
+// from a _test.go file: production code keeps its own separate constant
+// (feedback.go's decoupling convention), but the two numbers cannot drift
+// apart without this test failing.
+func TestFeedbackReviewMaxRunesMatchesDomainLimit(t *testing.T) {
+	if feedbackReviewMaxRunes != feedback.ReviewMaxLength {
+		t.Fatalf("feedbackReviewMaxRunes = %d, want it to equal internal/feedback.ReviewMaxLength = %d",
+			feedbackReviewMaxRunes, feedback.ReviewMaxLength)
+	}
+}
 
 // The constants below are the UTF-8 byte encodings of specific control and
 // format code points used by the adversarial-input tests in this file,
