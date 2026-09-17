@@ -237,6 +237,9 @@ type tuiModel struct {
 	// feedback holds the Feedback tab's state for whichever single model it
 	// was last opened for — see feedback.go's tuiFeedbackState.
 	feedback tuiFeedbackState
+	// personalRatings holds the "My ratings" / personal-ranking view mode's
+	// own state — see personal_ratings.go's tuiPersonalRatingsState.
+	personalRatings tuiPersonalRatingsState
 }
 
 type tuiFreshness struct {
@@ -478,6 +481,14 @@ func (m *tuiModel) advanceFrame() {
 }
 
 func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
+	if m.personalRatings.active {
+		// The "My ratings" view is its own, separately-ordered subset of the
+		// catalog (personal_ratings.go) — it ignores m.filter/m.search/
+		// m.layout entirely rather than composing with them, matching the
+		// plan's "отдельное действие", not a filter predicate on the normal
+		// table.
+		return personalRatingsVisible(m.personalRatings.rows), -1, nil
+	}
 	filtered := append([]model.Model(nil), m.models...)
 	if m.filter != "" {
 		var err error
@@ -879,6 +890,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.applyFeedbackSummaryMsg(msg)
 	case tuiFeedbackSaveMsg:
 		m = m.applyFeedbackSaveMsg(msg)
+	case tuiPersonalRatingsMsg:
+		m = m.applyPersonalRatingsMsg(msg)
 	case tuiScoreSourceMsg:
 		if msg.generation != m.scoreSourceGeneration {
 			return m, nil
@@ -1196,6 +1209,15 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 		}
 		m.sortKey = "utility"
 		m.rebuild()
+	case "M":
+		// Uppercase M, not keymap-configurable — like m/s/S/c/n below, it is
+		// a plain hardcoded case. It deliberately does NOT go through
+		// m.keyMatches: that helper canonicalizes bindings case-
+		// insensitively (keymap.CanonicalBinding lowercases both sides), so
+		// registering "M" as a configurable binding would make a plain "m"
+		// keypress also satisfy it — colliding with the ranking-toggle case
+		// right above. A literal Go switch case has no such ambiguity.
+		return m.togglePersonalRatings()
 	case "S":
 		m.reverse = !m.reverse
 		m.rebuild()
@@ -2319,6 +2341,9 @@ func (m tuiModel) baseView() string {
 			lines[i+2] = prefix + strings.TrimSpace(lines[i+2])
 		}
 		return tuiBox(strings.Join(lines, "\n"), m.width, m.height)
+	}
+	if m.personalRatings.active {
+		return tuiPersonalRatingsBaseView(m)
 	}
 	titleText := m.t("OpenRouter models")
 	if m.width >= 80 {
@@ -4206,6 +4231,7 @@ Data/view
 \tR\trefresh\trefresh local data.
 \tc\tcolumns\topen selection.
 \tn\tview\tswitch the last column between Task fit and Note.
+\tM\tview\ttoggle the "My ratings" (personal ranking) view: only models you rated, ordered by your rating; press M again to return.
 
 Filters/settings
 \tf\tfilter\tedit a structured filter.
@@ -4459,6 +4485,7 @@ const tuiHelpSectionHotkeysBodyRU = `Хоткеи
 \tR\tобновление\tобновить локальные данные.
 \tc\tстолбцы\tоткрыть выбор.
 \tn\tвид\tпереключить последний столбец между Task fit и Заметкой.
+\tM\tвид\tпереключить вид «Мои оценки» (персональный рейтинг): только оценённые вами модели, по вашей оценке; повторное нажатие M возвращает обычный список.
 
 Фильтры/настройки
 \tf\tфильтр\tредактировать структурированный фильтр.
