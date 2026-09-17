@@ -292,6 +292,7 @@ func TestSubcommandHelpIsEnglish(t *testing.T) {
 		{command: "history", wanted: []string{"Show price history", "filter by slug", "show observations after RFC3339", "report", "markdown", "tsv", "do not use less"}, old: []string{"Показать историю цен", "фильтр по slug", "показывать наблюдения после RFC3339", "формат: markdown или tsv", "requires --model"}},
 		{command: "version", wanted: []string{"Show the binary version"}, old: []string{"Показать версию бинарника"}},
 		{command: "init", wanted: []string{"Create a user config and local cache directory"}, old: []string{"Создать"}},
+		{command: "feedback", wanted: []string{"Manage the local identity for the optional feedback-server integration", "Create the local feedback identity and verify the token file is readable"}},
 		{command: "tui", wanted: []string{"Browse local model data in an interactive terminal table", "--refresh-interval", "--ranking", "tier-priority", "mixed-utility", "default mixed-utility", "automatic live refresh interval"}},
 		{command: "report", wanted: []string{"Regenerate the Markdown comparison document from local data", "sort the ranked list by", "score source for the ranked list", "open the generated document with the system handler"}},
 	}

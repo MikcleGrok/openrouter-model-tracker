@@ -784,6 +784,7 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(refreshCmd, checkCmd, historyCmd, versionCmd, initCmd, tuiCmd, reportCmd)
 	root.AddCommand(tableCmd)
+	root.AddCommand(newFeedbackCmd(&cfgPath))
 	completionCmd := &cobra.Command{Use: "completion", Short: "Generate the autocompletion script for the specified shell", Args: cobra.NoArgs}
 	noDescriptions := false
 	newShellCompletion := func(use string) *cobra.Command {
