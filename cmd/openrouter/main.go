@@ -350,7 +350,8 @@ func newRootCmd() *cobra.Command {
 			"openrouter collects prices and context from the public OpenRouter API, and scores from swebench.com,\n" +
 			"vals.ai (SWE-bench Verified and GPQA Diamond) and arena.ai using the manual model-map.tsv mapping,\n" +
 			"then regenerates the markdown document.\n" +
-			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.",
+			"Prose lives in notes.yaml: edits to the .md file itself will be overwritten on the next run.\n" +
+			"The tui subcommand also supports optional per-model feedback ratings and a personal \"My ratings\" view (hotkey M).",
 		SilenceUsage: true,
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -571,7 +572,7 @@ func newRootCmd() *cobra.Command {
 	var tuiRanking string
 	var tuiScoreSource string
 	tuiCmd := &cobra.Command{
-		Use: "tui", Short: "Browse local model data in an interactive terminal table", Args: cobra.NoArgs,
+		Use: "tui", Short: "Browse local model data in an interactive terminal table; M toggles a personal \"My ratings\" view", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(cfgPath)
 			if err != nil {

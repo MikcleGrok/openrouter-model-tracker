@@ -426,6 +426,24 @@ Feedback в TUI остаётся видимой, но показывает expla
 поведение (graceful degradation), а не ошибка. Отключение `feedback.enabled` или полная остановка
 `feedback-server` никак не влияет на остальной `openrouter-model-tracker`.
 
+#### «Мои оценки» / «My ratings» (хоткей `M`)
+
+Хоткей `M` (заглавная — отдельно от строчной `m`, переключателя ranking mode) переключает
+основной список моделей в отдельный вид «Мои оценки»/«My ratings»: только модели, которые
+текущая identity уже оценила через вкладку Feedback, отсортированные по собственной оценке, а
+не по quality/q-p, как в обычном ranking-режиме; повторное нажатие `M` возвращает к обычному
+списку на ту же позицию курсора. Для каждой строки показываются её номер в этом персональном
+списке, модель (с иконками, как в основном списке), собственная оценка (1–5) и `base_position` —
+позиция модели в обычной (не персональной) таблице, если она в ней присутствует, иначе
+«не ранжировано»/"not ranked yet". Пока текущая партия оценок ещё не загружена, показывается
+статус загрузки; если часть запросов к `feedback-server` завершилась ошибкой, уже полученные
+строки остаются видимыми, а статус отдельно сообщает, сколько оценок не удалось получить; если
+ни одна модель ещё не оценена — поясняющее сообщение вместо пустой таблицы. Навигация
+(`↑↓`/`j`/`k`, `Enter`/`→` для деталей) и универсальные хоткеи (`x`, `Esc`) работают в этом виде
+так же, как в основном списке. Как и вкладка Feedback, вид «Мои оценки» требует включённого
+`feedback.enabled: true` и доступного `feedback-server`; при отключённой фиче `M` показывает то
+же disabled/offline-объяснение, что и сама вкладка Feedback, вместо открытия вида.
+
 Доверенный consumer-эндпоинт (`.../feedback/signal`, `feedback-server consumer-token init|rotate`)
 предназначен для будущей внешней интеграции с inference runtime и не используется ни `omt`/
 `openrouter-model-tracker`, ни `feedback-server` сам по себе — текущий `cmd/openrouter` не является
@@ -1211,7 +1229,7 @@ make demo-gif
 
 Клавиша `o` открывает окно Settings: в нем можно переключить ranking и score source, отредактировать текущий structured filter и увидеть выбранные колонки. Смена score source читает локальный snapshot и не требует сети. `?` и `F1` открывают один и тот же секционный help-overlay; `?` сразу показывает секцию `Hotkeys` (2), а `F1` — `Overview` (0).
 
-Основные хоткеи main-контекста: `l` — язык EN/RU; `p` — cycle availability `any→free→paid→any`; `v` — переключить layout `all↔top-paid-free`; `q` — сортировка по quality; `r` — по q/p; `s` — cycle sort; `S` — обратный порядок; `m` — переключить ranking `tier↔mixed`; `n` — переключить последнюю колонку `task-fit↔note`; `R` — ручное обновление; `c` — columns overlay; `f` — filter overlay; `o` — settings overlay; `F1`/`?` — help с 6 секциями `Overview/Score Sources/Hotkeys/Filters/Model Detail/Methodology`; `/` — search. Оверлеи имеют идентификаторы `""` (main list), `detail`, `settings`, `columns`, `filter` и `help`; `/` в main list открывает input-режим `search`, а `/` внутри help — `help-search`.
+Основные хоткеи main-контекста: `l` — язык EN/RU; `p` — cycle availability `any→free→paid→any`; `v` — переключить layout `all↔top-paid-free`; `q` — сортировка по quality; `r` — по q/p; `s` — cycle sort; `S` — обратный порядок; `m` — переключить ranking `tier↔mixed`; `M` — переключить вид «Мои оценки»/«My ratings» (персональный рейтинг); `n` — переключить последнюю колонку `task-fit↔note`; `R` — ручное обновление; `c` — columns overlay; `f` — filter overlay; `o` — settings overlay; `F1`/`?` — help с 6 секциями `Overview/Score Sources/Hotkeys/Filters/Model Detail/Methodology`; `/` — search. Оверлеи имеют идентификаторы `""` (main list), `detail`, `settings`, `columns`, `filter` и `help`; `/` в main list открывает input-режим `search`, а `/` внутри help — `help-search`.
 
 В structured filter TUI поддерживается `copyright_guardrail:enforces`, `copyright_guardrail:bypasses,unknown` и другие CSV-комбинации этих трех значений. Пустое или отсутствующее значение модели отображается и фильтруется как `unknown`; статус не выводится из `license`.
 
