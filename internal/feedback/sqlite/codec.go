@@ -11,10 +11,28 @@ import (
 // timeLayout is the text encoding used for every TEXT timestamp column
 // (identities.created_at/last_seen_at, model_feedback.created_at/updated_at,
 // privacy_cleanup_jobs.created_at/updated_at, schema_migrations.applied_at).
-// RFC3339Nano round-trips a Go time.Time exactly (to the nanosecond) through
-// a plain string column, and formatTime always normalizes to UTC first so
-// two servers in different local zones never disagree on stored order.
-const timeLayout = time.RFC3339Nano
+// It round-trips a Go time.Time exactly (to the nanosecond) through a plain
+// string column, and formatTime always normalizes to UTC first so two
+// servers in different local zones never disagree on stored order.
+//
+// This is a fixed-width layout (always 9 fractional digits), not
+// time.RFC3339Nano, deliberately: RFC3339Nano strips trailing zeros from the
+// fractional second, so a whole-second timestamp (no fractional part at
+// all) can sort lexicographically AFTER a sub-second timestamp from the
+// same or even a later real moment — e.g. "...T12:00:00Z" (whole second)
+// compares greater than "...T12:00:00.5Z" (500ms later) because 'Z' (0x5A)
+// sorts after '.' (0x2E) in a byte-wise comparison. That broke
+// repository.go's LastUpdatedAt, which does MAX(updated_at) as a plain SQL
+// string aggregate over this column: it could pick the wrong ("earlier" by
+// clock time but lexicographically "larger") row. A fixed-width layout with
+// always-present fractional digits has no such gap: every value is the same
+// length and the same character position always carries the same
+// significance, so byte-wise order and chronological order agree.
+//
+// This is the exact same layout string backup.go's own filename timestamp
+// already uses (its "timestamp" local var), for consistency between the two
+// places this package needs a lexicographically sortable time encoding.
+const timeLayout = "20060102T150405.000000000Z"
 
 // formatTime renders t as this package's canonical TEXT timestamp encoding.
 func formatTime(t time.Time) string {

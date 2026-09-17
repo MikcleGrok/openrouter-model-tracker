@@ -576,3 +576,42 @@ func TestUpsertFeedback_ConcurrentSameIdentityNoDoubleVote(t *testing.T) {
 		t.Fatalf("final overall = %d, want one of the two submitted values", own.Overall)
 	}
 }
+
+// TestLastUpdatedAt_PicksChronologicallyLaterRowDespiteSubSecondPrecision is
+// the regression test for the review's "RFC3339Nano is not lexicographically
+// ordered" finding: LastUpdatedAt does MAX(updated_at) as a plain SQL string
+// aggregate over the TEXT column codec.go's formatTime writes. Under the old
+// time.RFC3339Nano layout, a whole-second timestamp (no fractional digits)
+// sorted lexicographically AFTER a later sub-second timestamp — 'Z' (0x5A)
+// sorts after '.' (0x2E) — so MAX() could pick the wrong, chronologically
+// earlier row. This seeds exactly that shape (one whole-second row, one
+// later sub-second row for a different identity on the same model) and
+// requires LastUpdatedAt to return the real, later timestamp.
+func TestLastUpdatedAt_PicksChronologicallyLaterRowDespiteSubSecondPrecision(t *testing.T) {
+	ctx := context.Background()
+	store := openMigratedStore(t)
+
+	const modelKey = "acme/last-updated-model"
+	wholeSecond := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	laterSubSecond := wholeSecond.Add(500 * time.Millisecond)
+
+	if _, err := store.UpsertFeedback(ctx, feedback.IdentityID("user-whole-second"),
+		mustInput(t, modelKey, 4, nil, ""), wholeSecond); err != nil {
+		t.Fatalf("UpsertFeedback (whole-second row): %v", err)
+	}
+	if _, err := store.UpsertFeedback(ctx, feedback.IdentityID("user-sub-second"),
+		mustInput(t, modelKey, 5, nil, ""), laterSubSecond); err != nil {
+		t.Fatalf("UpsertFeedback (later sub-second row): %v", err)
+	}
+
+	got, ok, err := store.LastUpdatedAt(ctx, feedback.ModelKey(modelKey))
+	if err != nil {
+		t.Fatalf("LastUpdatedAt: %v", err)
+	}
+	if !ok {
+		t.Fatal("LastUpdatedAt: ok = false, want true (rows exist)")
+	}
+	if !got.Equal(laterSubSecond) {
+		t.Fatalf("LastUpdatedAt = %v, want %v (the chronologically later, sub-second row)", got, laterSubSecond)
+	}
+}
