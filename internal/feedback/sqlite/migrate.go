@@ -94,6 +94,14 @@ func loadMigrations() ([]migrationFile, error) {
 // version and nothing else (plan 9.1: "в startup выводить текущую schema
 // version без пользовательских данных") — pass nil (or io.Discard) to
 // suppress it.
+//
+// After applying every embedded migration, it also guards against running
+// an older binary against a database a newer binary already migrated: if
+// schema_migrations' own highest recorded version is higher than the
+// highest version this binary embeds, that is a downgrade this binary
+// cannot safely proceed under (it has no idea what the newer schema
+// actually looks like), and Migrate returns ErrSchemaTooNew instead of
+// starting up against a schema it does not fully understand.
 func (s *Store) Migrate(ctx context.Context, out io.Writer) (int, error) {
 	migrations, err := loadMigrations()
 	if err != nil {
@@ -120,6 +128,20 @@ func (s *Store) Migrate(ctx context.Context, out io.Writer) (int, error) {
 				ErrChecksumMismatch, m.version, m.name, recordedChecksum, m.checksum)
 		}
 		version = m.version
+	}
+
+	// SchemaVersion reads schema_migrations' own MAX(version), independent
+	// of the embedded migrations list just walked above: a version recorded
+	// there but absent from this binary's own embedded migrations (a
+	// downgrade) is never visited by the loop, since that loop only ever
+	// queries by the specific versions it embeds.
+	dbVersion, err := s.SchemaVersion(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("sqlite: read schema version after migrate: %w", err)
+	}
+	if dbVersion > version {
+		return 0, fmt.Errorf("%w: database schema version %d is newer than this binary supports (max %d); refusing to start",
+			ErrSchemaTooNew, dbVersion, version)
 	}
 
 	if out != nil {

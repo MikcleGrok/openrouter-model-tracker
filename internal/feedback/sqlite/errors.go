@@ -29,3 +29,12 @@ var ErrNoActiveCleanupJob = errors.New("sqlite: no active privacy cleanup job to
 // is not lost, per plan 5.1: "после исчерпания попыток вернуть
 // контролируемую ошибку, не блокировать HTTP бесконечно".
 var ErrBusyTimeout = errors.New("sqlite: exhausted retries waiting for a locked database")
+
+// ErrSchemaTooNew is returned by Migrate when schema_migrations already
+// records a version higher than any migration this binary embeds — e.g. an
+// older binary run against a database a newer binary already migrated.
+// Proceeding in that state risks writing data in a way inconsistent with
+// the newer schema the database actually has, so Migrate refuses to start
+// rather than silently running against a schema it does not fully
+// understand.
+var ErrSchemaTooNew = errors.New("sqlite: database schema is newer than this binary supports")

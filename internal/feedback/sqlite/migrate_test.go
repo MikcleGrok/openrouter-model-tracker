@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMigrate_CleanDatabase(t *testing.T) {
@@ -127,6 +128,41 @@ func TestMigrate_SchemaVersionBeforeAnyMigration(t *testing.T) {
 	}
 	if version != 0 {
 		t.Fatalf("SchemaVersion before any migration = %d, want 0", version)
+	}
+}
+
+// TestMigrate_RefusesToStartWhenDatabaseSchemaIsNewerThanBinary is the
+// regression test for the review's "no schema downgrade guard" finding: a
+// schema_migrations row recording a version this binary's embedded
+// migrations do not know about — standing in for an older binary run
+// against a database a newer binary already migrated — must stop startup
+// with ErrSchemaTooNew rather than silently proceeding.
+func TestMigrate_RefusesToStartWhenDatabaseSchemaIsNewerThanBinary(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "feedback.sqlite")
+	store, err := Open(ctx, dbPath, Config{})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.ensureSchemaMigrationsTable(ctx); err != nil {
+		t.Fatalf("ensureSchemaMigrationsTable: %v", err)
+	}
+	// Seed a version no embedded migration declares at all.
+	const futureVersion = 999
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO schema_migrations (version, applied_at, checksum) VALUES (?, ?, ?)
+	`, futureVersion, formatTime(time.Now()), "deadbeef"); err != nil {
+		t.Fatalf("seed future schema_migrations row: %v", err)
+	}
+
+	_, err = store.Migrate(ctx, io.Discard)
+	if err == nil {
+		t.Fatal("Migrate succeeded against a database schema newer than this binary supports, want an error")
+	}
+	if !errors.Is(err, ErrSchemaTooNew) {
+		t.Fatalf("Migrate error = %v, want ErrSchemaTooNew", err)
 	}
 }
 
