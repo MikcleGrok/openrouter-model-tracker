@@ -66,15 +66,20 @@ var feedbackFieldCount = feedbackFocusReview + 1
 // ever shown at a time, matching how the detail overlay itself only ever
 // shows one row — see tuiModel.feedback.
 type tuiFeedbackState struct {
-	// slug and seq/saveSeq identify which model and which in-flight
-	// request(s) this state belongs to. A GetSummary/PutFeedback response
-	// is applied only when both its slug and its seq/saveSeq still match —
-	// see applyFeedbackSummaryMsg/applyFeedbackSaveMsg. This is what keeps a
-	// slow response for a previously-viewed model from ever repainting a
-	// model the user has since switched to.
-	slug    string
-	seq     uint64
-	saveSeq uint64
+	// slug and reqSeq identify which model and which in-flight request this
+	// state belongs to. reqSeq is ONE monotonic counter shared by every
+	// GetSummary and PutFeedback dispatch for this tab — never two separate
+	// counters — specifically so a save can never be mistaken for stale (or
+	// vice versa) by racing against the wrong sequence space: startFeedbackLoad
+	// bumps it and replaces the whole struct (so a model switch always moves
+	// it forward, even across the reset), and startFeedbackSave bumps the
+	// very same counter rather than a private one. A GetSummary/PutFeedback
+	// response is applied only when both its slug and its reqSeq still match
+	// — see applyFeedbackSummaryMsg/applyFeedbackSaveMsg. This is what keeps
+	// a slow response for a previously-viewed model, or a superseded earlier
+	// attempt for the same model, from ever repainting current state.
+	slug   string
+	reqSeq uint64
 
 	loading bool
 	loaded  bool
@@ -107,7 +112,7 @@ type tuiFeedbackState struct {
 // tuiFeedbackSummaryMsg is the result of a GetSummary tea.Cmd.
 type tuiFeedbackSummaryMsg struct {
 	slug          string
-	seq           uint64
+	reqSeq        uint64
 	includeOthers bool
 	summary       feedbackclient.Summary
 	err           error
@@ -116,7 +121,7 @@ type tuiFeedbackSummaryMsg struct {
 // tuiFeedbackSaveMsg is the result of a PutFeedback tea.Cmd.
 type tuiFeedbackSaveMsg struct {
 	slug    string
-	seq     uint64
+	reqSeq  uint64
 	summary feedbackclient.Summary
 	err     error
 }
@@ -127,8 +132,9 @@ type tuiFeedbackSaveMsg struct {
 // added here — matching brief 8.2 step 2's "с context/timeout вызывает
 // GetFeedbackSummary". includeOthers is false for every automatic load and
 // true only for the explicit "others" action — see tuiFeedbackState's own
-// othersRequested doc comment.
-func (m tuiModel) feedbackSummaryCmd(slug string, seq uint64, includeOthers bool) tea.Cmd {
+// othersRequested doc comment. reqSeq is the shared load/save counter — see
+// tuiFeedbackState's own doc comment.
+func (m tuiModel) feedbackSummaryCmd(slug string, reqSeq uint64, includeOthers bool) tea.Cmd {
 	c, ctx := m.feedbackClient, m.ctx
 	return func() tea.Msg {
 		reqCtx := ctx
@@ -136,13 +142,15 @@ func (m tuiModel) feedbackSummaryCmd(slug string, seq uint64, includeOthers bool
 			reqCtx = context.Background()
 		}
 		summary, err := c.GetSummary(reqCtx, slug, includeOthers)
-		return tuiFeedbackSummaryMsg{slug: slug, seq: seq, includeOthers: includeOthers, summary: summary, err: err}
+		return tuiFeedbackSummaryMsg{slug: slug, reqSeq: reqSeq, includeOthers: includeOthers, summary: summary, err: err}
 	}
 }
 
 // feedbackSaveCmd returns a tea.Cmd calling PutFeedback once for slug — a
 // single idempotent PUT per brief 8.2 step 5, never retried automatically.
-func (m tuiModel) feedbackSaveCmd(slug string, seq uint64, req feedbackclient.FeedbackRequest) tea.Cmd {
+// reqSeq is the shared load/save counter — see tuiFeedbackState's own doc
+// comment for why this must never be a private save-only counter.
+func (m tuiModel) feedbackSaveCmd(slug string, reqSeq uint64, req feedbackclient.FeedbackRequest) tea.Cmd {
 	c, ctx := m.feedbackClient, m.ctx
 	return func() tea.Msg {
 		reqCtx := ctx
@@ -150,16 +158,16 @@ func (m tuiModel) feedbackSaveCmd(slug string, seq uint64, req feedbackclient.Fe
 			reqCtx = context.Background()
 		}
 		summary, err := c.PutFeedback(reqCtx, slug, req)
-		return tuiFeedbackSaveMsg{slug: slug, seq: seq, summary: summary, err: err}
+		return tuiFeedbackSaveMsg{slug: slug, reqSeq: reqSeq, summary: summary, err: err}
 	}
 }
 
 // applyFeedbackSummaryMsg applies a GetSummary result, discarding it outright
-// if it no longer matches the feedback state's current slug/seq (a stale
+// if it no longer matches the feedback state's current slug/reqSeq (a stale
 // response for a model the user has since left, or superseded by a newer
-// request for the same model — see startFeedbackLoad).
+// request — load or save — for the same model, see startFeedbackLoad).
 func (m tuiModel) applyFeedbackSummaryMsg(msg tuiFeedbackSummaryMsg) tuiModel {
-	if msg.slug != m.feedback.slug || msg.seq != m.feedback.seq {
+	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.reqSeq {
 		return m
 	}
 	m.feedback.loading = false
@@ -179,14 +187,18 @@ func (m tuiModel) applyFeedbackSummaryMsg(msg tuiFeedbackSummaryMsg) tuiModel {
 	return m
 }
 
-// applyFeedbackSaveMsg applies a PutFeedback result, guarded by slug/seq the
-// same way applyFeedbackSummaryMsg is. On error the draft (overall/skills/
-// review) is left exactly as the user entered it and editing stays open —
-// brief 8.2 step 6: "оставить введённый draft, показать retry, не считать
-// сохранение успешным". On success the local state is replaced by the
-// server's own response, per step 5.
+// applyFeedbackSaveMsg applies a PutFeedback result, guarded by slug/reqSeq
+// the same way applyFeedbackSummaryMsg is — against the SAME shared counter,
+// not a separate save-only one, so a save superseded by an intervening
+// model-switch-and-back (which bumps reqSeq via startFeedbackLoad) or by a
+// second save for the same model is correctly seen as stale rather than
+// silently overwriting the newer attempt's outcome. On error the draft
+// (overall/skills/review) is left exactly as the user entered it and editing
+// stays open — brief 8.2 step 6: "оставить введённый draft, показать retry,
+// не считать сохранение успешным". On success the local state is replaced by
+// the server's own response, per step 5.
 func (m tuiModel) applyFeedbackSaveMsg(msg tuiFeedbackSaveMsg) tuiModel {
-	if msg.slug != m.feedback.slug || msg.seq != m.feedback.saveSeq {
+	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.reqSeq {
 		return m
 	}
 	m.feedback.saving = false
@@ -262,15 +274,25 @@ func feedbackErrorMessage(err error, lang string) string {
 		}
 		return "Feedback server temporarily unavailable"
 	case feedbackclient.IsValidationError(err):
+		// *APIError.Error() embeds the server's own message string
+		// (errorResponseDTO's "error" field) verbatim — server-controlled
+		// text that must go through the same terminal-safe sanitizer as
+		// review text before it is ever interpolated into a rendered line,
+		// not the older, narrower normalizePlainLine the shared Detail
+		// pipeline applies (that one does not strip C1 controls or bidi
+		// overrides, only 7-bit escapes and bytes <0x20/0x7f).
 		if ru {
-			return "Сервер отклонил отзыв: " + err.Error()
+			return "Сервер отклонил отзыв: " + sanitizeFeedbackReviewText(err.Error())
 		}
-		return "Feedback server rejected the submission: " + err.Error()
+		return "Feedback server rejected the submission: " + sanitizeFeedbackReviewText(err.Error())
 	default:
+		// Same reasoning as above: err.Error() here can also be an
+		// *APIError carrying server-controlled text (any error shape not
+		// matched by a more specific case above).
 		if ru {
-			return "Ошибка отзывов: " + err.Error()
+			return "Ошибка отзывов: " + sanitizeFeedbackReviewText(err.Error())
 		}
-		return "Feedback error: " + err.Error()
+		return "Feedback error: " + sanitizeFeedbackReviewText(err.Error())
 	}
 }
 
@@ -280,8 +302,8 @@ func feedbackErrorMessage(err error, lang string) string {
 // pressed retry twice — be told apart from the one whose result should
 // actually apply.
 func (m tuiModel) startFeedbackLoad(row model.Model, includeOthers bool) (tuiModel, tea.Cmd) {
-	nextSeq := m.feedback.seq + 1
-	m.feedback = tuiFeedbackState{slug: row.Slug, seq: nextSeq, loading: true}
+	nextSeq := m.feedback.reqSeq + 1
+	m.feedback = tuiFeedbackState{slug: row.Slug, reqSeq: nextSeq, loading: true}
 	return m, m.feedbackSummaryCmd(row.Slug, nextSeq, includeOthers)
 }
 
@@ -472,9 +494,13 @@ func (m tuiModel) startFeedbackSave() (tuiModel, tea.Cmd) {
 	m.feedback.validationErr = ""
 	m.feedback.saveErr = ""
 	m.feedback.saving = true
-	m.feedback.saveSeq++
+	// Bump the SAME counter startFeedbackLoad bumps — never a private
+	// save-only one — so a stale save response can never be mistaken for
+	// current just because the user switched models and back in between
+	// (see tuiFeedbackState's own reqSeq doc comment).
+	m.feedback.reqSeq++
 	req := feedbackclient.FeedbackRequest{Overall: m.feedback.draftOverall, Skills: skills, Review: review}
-	return m, m.feedbackSaveCmd(m.feedback.slug, m.feedback.saveSeq, req)
+	return m, m.feedbackSaveCmd(m.feedback.slug, m.feedback.reqSeq, req)
 }
 
 // withFeedbackClient constructs m.feedbackClient from fc when enabled,

@@ -131,7 +131,7 @@ func TestFeedbackTabLoadingThenSuccess(t *testing.T) {
 		t.Fatalf("loading skeleton not shown in view:\n%s", view)
 	}
 
-	cmd := m.feedbackSummaryCmd(row.Slug, m.feedback.seq, false)
+	cmd := m.feedbackSummaryCmd(row.Slug, m.feedback.reqSeq, false)
 	msg := runFeedbackCmd(t, cmd)
 	m = runtimeTUIUpdate(t, m, msg)
 
@@ -155,35 +155,133 @@ func TestFeedbackTabLoadingThenSuccess(t *testing.T) {
 	}
 }
 
-// TestFeedbackStaleSummaryResponseDiscarded is brief 11.3's "stale response"
-// case: a slow GetSummary for a model the user has since left (seq no
-// longer current) must never repaint state for the model now on screen.
-func TestFeedbackStaleSummaryResponseDiscarded(t *testing.T) {
+// TestFeedbackStaleSummaryResponseForDifferentModelDoesNotRepaintScreen is
+// brief 11.3's actual "stale response" scenario — "поздний ответ старой
+// модели не должен перерисовать новую" — a late GetSummary for a DIFFERENT
+// model the user has since left, arriving while a DIFFERENT model is now on
+// screen. This is deliberately not the same as a same-slug retry
+// superseding an earlier same-slug request (covered by
+// TestFeedbackTabLoadingThenSuccess's single-request assertion and by the
+// save-path test below): a real model switch closes the detail overlay,
+// moves the cursor, and reopens it on a different row entirely.
+func TestFeedbackStaleSummaryResponseForDifferentModelDoesNotRepaintScreen(t *testing.T) {
+	rowA := model.Model{Slug: "vendor/model-a", DisplayName: "Model A"}
+	rowB := model.Model{Slug: "vendor/model-b", DisplayName: "Model B"}
+	// The real HTTP round trip is never exercised here: runtimeTUIUpdate
+	// only runs Update(), never the tea.Cmd it returns (matching this whole
+	// file's convention), so every GetSummary result below is fed in
+	// directly as a message. Only a non-nil client is needed, to let
+	// ensureFeedbackSummaryLoaded actually dispatch a (never-run) load.
 	client := newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(feedbackSummaryJSON(t, "vendor/model", 3, 3.5, 5)))
+		t.Fatalf("unexpected real HTTP request: %s %s", r.Method, r.URL.Path)
 	})
-	row := feedbackTestRow()
-	m := feedbackRuntimeModel(row, client)
-	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
-	staleSeq := m.feedback.seq
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{rowA, rowB})
+	m.visible, m.cursor, m.width, m.height = m.models, 0, 100, 30
+	m.feedbackClient = client
 
-	// The user leaves the model (closes detail, would pick another one) —
-	// simulated directly by re-opening the load for the same slug via
-	// retry-shaped state: bump the generation the way switching models
-	// would, without needing a second row in this fixture.
-	m.feedback.loadErr = "boom"
-	next, _ := m.startFeedbackLoad(row, false)
-	m = next
-	if m.feedback.seq == staleSeq {
-		t.Fatalf("startFeedbackLoad did not advance seq")
+	// Open A's Feedback tab: a GetSummary for A is now in flight.
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	staleSlug, staleSeq := m.feedback.slug, m.feedback.reqSeq
+	if staleSlug != rowA.Slug {
+		t.Fatalf("opened tab on the wrong model: %q", staleSlug)
 	}
 
-	stale := tuiFeedbackSummaryMsg{slug: row.Slug, seq: staleSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 3}}}
+	// The user leaves A without waiting for the response: close detail, move
+	// to B, reopen detail, and open B's Feedback tab — a second GetSummary,
+	// for a completely different model, is now the current request.
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	if m.feedback.slug != rowB.Slug {
+		t.Fatalf("Feedback tab did not switch to model B: %+v", m.feedback)
+	}
+	if m.feedback.reqSeq == staleSeq {
+		t.Fatalf("opening B's tab reused A's request sequence number")
+	}
+
+	// A's slow response for the OLD slug/seq now finally arrives.
+	stale := tuiFeedbackSummaryMsg{slug: staleSlug, reqSeq: staleSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 1}}}
 	before := m.feedback
 	m = runtimeTUIUpdate(t, m, stale)
 	if m.feedback != before {
-		t.Fatalf("a stale summary response (seq %d, current %d) mutated state:\nbefore=%+v\nafter=%+v", staleSeq, m.feedback.seq, before, m.feedback)
+		t.Fatalf("A's stale response (slug %q seq %d) mutated state while B (slug %q seq %d) is on screen:\nbefore=%+v\nafter=%+v",
+			staleSlug, staleSeq, m.feedback.slug, m.feedback.reqSeq, before, m.feedback)
+	}
+	if strings.Contains(m.View(), "My rating: 1/5") {
+		t.Fatalf("stale model A rating leaked into the view while B is displayed:\n%s", m.View())
+	}
+
+	// B's own (current) response still applies normally.
+	current := tuiFeedbackSummaryMsg{slug: rowB.Slug, reqSeq: m.feedback.reqSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 5}}}
+	m = runtimeTUIUpdate(t, m, current)
+	if !strings.Contains(m.View(), "My rating: 5/5") {
+		t.Fatalf("B's current response was not applied:\n%s", m.View())
+	}
+}
+
+// TestFeedbackStaleSaveResponseAfterModelSwitchAndBackDoesNotOverwriteRetry
+// is the regression test for the review's "save-path stale-response guard
+// isn't actually monotonic" finding: startFeedbackLoad used to reset the
+// whole tuiFeedbackState struct, silently zeroing a separate saveSeq field
+// back to 0 every time — so a save started, then abandoned by switching to
+// another model and back, then retried, could make the RETRY's sequence
+// number collide with the ORIGINAL, still-in-flight save's number, letting
+// the stale first response win over the real retry's outcome. reqSeq is now
+// the one counter both loads and saves advance, so this can no longer
+// happen: concretely, save A (slow) -> switch away and back to A (a load) ->
+// save A again (the retry) -> the first save's late response must be
+// dropped, and the retry's response must be the one that applies.
+func TestFeedbackStaleSaveResponseAfterModelSwitchAndBackDoesNotOverwriteRetry(t *testing.T) {
+	client := newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected real HTTP request: %s %s", r.Method, r.URL.Path)
+	})
+	row := feedbackTestRow()
+	m := feedbackRuntimeModel(row, client)
+
+	// 1. Load A, then start a first save (Overall=2) — the "slow" PUT whose
+	// response arrives much later, after the sequence below.
+	m, _ = m.startFeedbackLoad(row, false)
+	m = runtimeTUIUpdate(t, m, tuiFeedbackSummaryMsg{slug: row.Slug, reqSeq: m.feedback.reqSeq, summary: feedbackclient.Summary{}})
+	m.feedback.editing, m.feedback.draftOverall = true, 2
+	m, _ = m.startFeedbackSave()
+	staleSaveSeq := m.feedback.reqSeq
+	if !m.feedback.saving {
+		t.Fatalf("first save did not start")
+	}
+
+	// 2. The user switches away and back to A before that slow PUT ever
+	// resolves. reqSeq must land strictly ahead of the in-flight save.
+	m, _ = m.startFeedbackLoad(row, false)
+	if m.feedback.reqSeq <= staleSaveSeq {
+		t.Fatalf("reqSeq did not advance past the in-flight save: stale=%d after-reload=%d", staleSaveSeq, m.feedback.reqSeq)
+	}
+	m = runtimeTUIUpdate(t, m, tuiFeedbackSummaryMsg{slug: row.Slug, reqSeq: m.feedback.reqSeq, summary: feedbackclient.Summary{}})
+
+	// 3. The user edits and saves again (Overall=5) — the retry the stale
+	// response must never be allowed to clobber.
+	m.feedback.editing, m.feedback.draftOverall = true, 5
+	m, _ = m.startFeedbackSave()
+	currentSaveSeq := m.feedback.reqSeq
+	if currentSaveSeq == staleSaveSeq {
+		t.Fatalf("the retry reused the first save's sequence number: %d", currentSaveSeq)
+	}
+
+	// 4. The FIRST save's response finally arrives, tagged with the now-
+	// stale sequence number. It must be dropped, not applied.
+	staleSave := tuiFeedbackSaveMsg{slug: row.Slug, reqSeq: staleSaveSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 2}}}
+	before := m.feedback
+	m = runtimeTUIUpdate(t, m, staleSave)
+	if m.feedback != before {
+		t.Fatalf("a stale save response (seq %d, current %d) mutated state:\nbefore=%+v\nafter=%+v", staleSaveSeq, m.feedback.reqSeq, before, m.feedback)
+	}
+
+	// 5. The retry's own (current) response arrives and must apply normally.
+	currentSave := tuiFeedbackSaveMsg{slug: row.Slug, reqSeq: currentSaveSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 5}}}
+	m = runtimeTUIUpdate(t, m, currentSave)
+	if m.feedback.saving || m.feedback.summary.Mine == nil || m.feedback.summary.Mine.Overall != 5 {
+		t.Fatalf("the retry's own response was not applied: %+v", m.feedback)
 	}
 }
 
@@ -311,7 +409,7 @@ func TestFeedbackEditFlowThroughRealKeypresses(t *testing.T) {
 	m := feedbackRuntimeModel(row, client)
 
 	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")}) // open Feedback tab
-	m = runtimeTUIUpdate(t, m, runFeedbackCmd(t, m.feedbackSummaryCmd(row.Slug, m.feedback.seq, false)))
+	m = runtimeTUIUpdate(t, m, runFeedbackCmd(t, m.feedbackSummaryCmd(row.Slug, m.feedback.reqSeq, false)))
 	if !m.feedback.loaded {
 		t.Fatalf("summary did not load")
 	}
@@ -328,7 +426,7 @@ func TestFeedbackEditFlowThroughRealKeypresses(t *testing.T) {
 	if !m.feedback.saving {
 		t.Fatalf("Ctrl+S did not start saving")
 	}
-	saveMsg := runFeedbackCmd(t, m.feedbackSaveCmd(row.Slug, m.feedback.saveSeq, feedbackclient.FeedbackRequest{Overall: 5}))
+	saveMsg := runFeedbackCmd(t, m.feedbackSaveCmd(row.Slug, m.feedback.reqSeq, feedbackclient.FeedbackRequest{Overall: 5}))
 	m = runtimeTUIUpdate(t, m, saveMsg)
 
 	if m.feedback.editing || m.feedback.saveErr != "" {
@@ -339,6 +437,71 @@ func TestFeedbackEditFlowThroughRealKeypresses(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "My rating: 5/5") {
 		t.Fatalf("view does not reflect the saved rating:\n%s", m.View())
+	}
+}
+
+// TestFeedbackReviewFieldAcceptsGlobalBindingLettersAsLiteralInput is the
+// regression test for the review's Critical finding: j, k, l and x are all
+// pre-existing global/context key bindings (language_toggle, the "detail"
+// context's own navigate_up/navigate_down defaults, and the universal
+// overlay-close key) that used to intercept these runes in key()'s prologue
+// before the review field's own reviewKey ever saw them — silently eating
+// ordinary English words and, for x, destroying the whole in-progress edit
+// by closing the detail overlay outright. This must be driven through the
+// real Update/key path, not by calling reviewKey directly, since that
+// bypass is exactly the layer the bug lived in — every other test in this
+// file assigns draftReview as a struct literal, which is why it slipped
+// through before.
+func TestFeedbackReviewFieldAcceptsGlobalBindingLettersAsLiteralInput(t *testing.T) {
+	client := newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	row := feedbackTestRow()
+	m := feedbackRuntimeModel(row, client)
+	m.feedback = tuiFeedbackState{slug: row.Slug, loaded: true, editing: true, focus: feedbackFocusReview}
+
+	for _, r := range "jklx" {
+		beforeLang := m.lang
+		m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if m.overlay != "detail" {
+			t.Fatalf("typing %q closed the detail overlay (overlay=%q) instead of inserting it", r, m.overlay)
+		}
+		if !m.feedback.editing {
+			t.Fatalf("typing %q left the edit form instead of inserting it", r)
+		}
+		if m.lang != beforeLang {
+			t.Fatalf("typing %q changed the display language to %q instead of inserting it", r, m.lang)
+		}
+	}
+	if m.feedback.draftReview != "jklx" {
+		t.Fatalf("draftReview = %q, want %q — j/k/l/x did not all land as literal characters", m.feedback.draftReview, "jklx")
+	}
+}
+
+// TestFeedbackErrorMessageSanitizesServerControlledText is the regression
+// test for the review's "server-controlled error text bypasses the
+// sanitizer" finding: *APIError.Error() embeds the server's own message
+// string (errorResponseDTO's "error" field) verbatim, so a compromised or
+// malicious feedback-server response could smuggle a C1 CSI/bidi-override
+// payload through a load/save error message. feedbackErrorMessage must run
+// that text through the same sanitizeFeedbackReviewText review text goes
+// through — not rely on the shared Detail pipeline's older, narrower
+// normalizePlainLine, which does not strip C1 controls or bidi overrides.
+func TestFeedbackErrorMessageSanitizesServerControlledText(t *testing.T) {
+	malicious := "clean" + feedbackTestC1CSI + "2Jinjected" + feedbackTestRLO + "reversed" + feedbackTestPDF
+	for name, err := range map[string]error{
+		"validation error (400, IsValidationError branch)": &feedbackclient.APIError{StatusCode: http.StatusBadRequest, Message: malicious},
+		"unexpected error (500, default branch)":           &feedbackclient.APIError{StatusCode: http.StatusInternalServerError, Message: malicious},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, lang := range []string{"", "ru"} {
+				got := feedbackErrorMessage(err, lang)
+				if strings.Contains(got, feedbackTestC1CSI) || strings.Contains(got, feedbackTestRLO) || strings.Contains(got, feedbackTestPDF) {
+					t.Fatalf("lang %q: sanitized error message still carries a raw C1/bidi payload: %q", lang, got)
+				}
+				if !strings.Contains(got, "clean") || !strings.Contains(got, "injected") || !strings.Contains(got, "reversed") {
+					t.Fatalf("lang %q: sanitization dropped the safe text alongside the payload: %q", lang, got)
+				}
+			}
+		})
 	}
 }
 

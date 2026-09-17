@@ -907,9 +907,22 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // overlay's own dedicated close key already did before x delegated to it.
 // Resetting detailOffset/inputMode/input unconditionally is harmless even
 // when the closing overlay never touched them — they are zero already.
+//
+// It also discards an in-progress feedback edit, the same way the
+// feedback.cancel action does (feedbackEditKey): closeOverlay can run while
+// m.feedback.editing is still true — e.g. the detail row itself disappears
+// out from under an open edit (m.detailRow() failing after a background
+// refresh) — and leaving editing=true stuck after the overlay is gone would
+// make every future keypress in the main list wrongly re-enter the edit-form
+// key routing in key().
 func (m *tuiModel) closeOverlay() {
 	m.overlay, m.detailOffset = "", 0
 	m.inputMode, m.input = "", ""
+	if m.feedback.editing {
+		m.feedback.editing = false
+		m.feedback.validationErr, m.feedback.saveErr = "", ""
+		m.feedback.draftOverall, m.feedback.draftSkills, m.feedback.draftReview = feedbackDraftFromSummary(m.feedback.summary)
+	}
 }
 
 func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
@@ -947,6 +960,21 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 	// to cancel out of an active text input.
 	if m.inputMode != "" {
 		return m.inputKey(msg)
+	}
+	// The feedback edit form needs the exact same guarantee, for the exact
+	// same reason, and it is not covered by m.inputMode above: without this
+	// check, "l" below flips the whole app's language mid-edit (eaten before
+	// ever reaching the form), the universal "x"-closes-overlay case further
+	// down destroys the in-progress edit outright, and "detail" context's
+	// own navigate_up/navigate_down defaults (k/j) get rewritten to "up"/
+	// "down" before the review field ever sees the raw rune — so an ordinary
+	// English word containing j, k, l, or x becomes simply unwritable and a
+	// stray x can silently discard the whole form. Routing straight into
+	// feedbackEditKey with the untouched msg, before any global binding
+	// runs, is what makes every key (including j/k/l/x) reach the form
+	// exactly as typed.
+	if m.overlay == "detail" && m.feedback.editing {
+		return m.feedbackEditKey(msg.Value, msg.Original, msg.Runes)
 	}
 	key := msg.Value
 	if m.keyMatches("main", "language_toggle", key) {
@@ -1061,12 +1089,8 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			return m, nil
 		}
 		if m.detailTab == detailTabFeedback {
-			// The Feedback tab's own sub-modes take the keyboard fully,
-			// exactly like the settings/filter/columns overlays already do
-			// while open — see feedback.go.
-			if m.feedback.editing {
-				return m.feedbackEditKey(key, originalKey, msg.Runes)
-			}
+			// m.feedback.editing is already handled above, before any global
+			// key binding could intercept it — reaching here means view mode.
 			if next, cmd, handled := m.feedbackViewKey(originalKey, row); handled {
 				return next, cmd
 			}
