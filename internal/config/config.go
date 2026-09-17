@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,21 +27,22 @@ import (
 
 // Config is the whole configuration file.
 type Config struct {
-	DataDir          string        `yaml:"data_dir"`
-	DefaultOutput    string        `yaml:"default_output"`
-	DefaultFilter    string        `yaml:"default_filter"`
-	DefaultFilterSet bool          `yaml:"-"`
-	Cache            CacheConfig   `yaml:"cache"`
-	Table            TableConfig   `yaml:"table"`
-	TUI              TUIConfig     `yaml:"tui"`
-	TUIFilter        string        `yaml:"tui_filter"`
-	TUIFilterSet     bool          `yaml:"-"`
-	TUILanguage      string        `yaml:"tui_language"`
-	TUISteps         TUISteps      `yaml:"tui_steps"`
-	TUIKeymap        TUIKeymap     `yaml:"tui_keymap"`
-	Ranking          RankingConfig `yaml:"ranking"`
-	Pricing          PricingConfig `yaml:"pricing"`
-	Icons            IconConfig    `yaml:"icons"`
+	DataDir          string         `yaml:"data_dir"`
+	DefaultOutput    string         `yaml:"default_output"`
+	DefaultFilter    string         `yaml:"default_filter"`
+	DefaultFilterSet bool           `yaml:"-"`
+	Cache            CacheConfig    `yaml:"cache"`
+	Table            TableConfig    `yaml:"table"`
+	TUI              TUIConfig      `yaml:"tui"`
+	TUIFilter        string         `yaml:"tui_filter"`
+	TUIFilterSet     bool           `yaml:"-"`
+	TUILanguage      string         `yaml:"tui_language"`
+	TUISteps         TUISteps       `yaml:"tui_steps"`
+	TUIKeymap        TUIKeymap      `yaml:"tui_keymap"`
+	Ranking          RankingConfig  `yaml:"ranking"`
+	Pricing          PricingConfig  `yaml:"pricing"`
+	Icons            IconConfig     `yaml:"icons"`
+	Feedback         FeedbackConfig `yaml:"feedback"`
 }
 
 // PricingConfig lets the displayed Quality/Price column's input:output price
@@ -238,6 +240,220 @@ func cloneTUIKeymap(source TUIKeymap) TUIKeymap {
 		}
 	}
 	return result
+}
+
+// FeedbackConfig configures the optional TUI-side connection to a running
+// feedback-server process (internal/feedback/httpapi, a separate binary —
+// cmd/feedback-server). It is a strictly typed, validated section, but every
+// field is optional and Enabled defaults to false, so a config file written
+// before this section existed — or one that simply never mentions
+// "feedback:" — still loads exactly as before, with the feedback-dependent
+// parts of the TUI staying off (plan 7.1: "чтобы существующий TUI и старые
+// конфиги продолжили работать без сервера").
+//
+// TokenFile and IdentityFile are relative-path-resolved by the same
+// convention the rest of this package already uses for DataDir/DefaultOutput
+// (cmd/openrouter/main.go's resolveConfigPath, applied by that command layer
+// against this config's own file path) — this package only validates the
+// raw configured string, it never joins it against a directory itself.
+type FeedbackConfig struct {
+	Enabled        bool                   `yaml:"enabled"`
+	Endpoint       string                 `yaml:"endpoint"`
+	TokenFile      string                 `yaml:"token_file"`
+	IdentityFile   string                 `yaml:"identity_file"`
+	RequestTimeout string                 `yaml:"request_timeout"`
+	Consumer       FeedbackConsumerConfig `yaml:"consumer"`
+}
+
+// FeedbackConsumerConfig documents the separate trusted-consumer contract's
+// own client shape (plan 4.5/6.1/7.1): its own endpoint, its own
+// consumer_token_file — never interchangeable with FeedbackConfig.TokenFile,
+// a completely different credential — and its own timeout. Nothing in this
+// repo (cmd/openrouter, internal/feedback/client) actually reads this
+// section today: it exists so an external inference runtime/adapter that
+// wants to call the consumer signal endpoint has one documented config shape
+// to mirror, per plan 7.1's "реальный inference runtime может владеть
+// собственным эквивалентным config, но обязан использовать отдельный
+// consumer token file."
+type FeedbackConsumerConfig struct {
+	Endpoint          string `yaml:"endpoint"`
+	ConsumerTokenFile string `yaml:"consumer_token_file"`
+	RequestTimeout    string `yaml:"request_timeout"`
+}
+
+// DefaultFeedbackEndpoint matches cmd/feedback-server's own default --listen
+// address (127.0.0.1:8787), so a local MVP setup following the plan's own
+// worked example (feedback-server token init -> feedback-server ->
+// feedback init -> feedback.enabled: true) needs no endpoint override at all.
+const DefaultFeedbackEndpoint = "http://127.0.0.1:8787"
+
+// DefaultFeedbackRequestTimeout matches plan 7.1's own worked example
+// (request_timeout: 3s).
+const DefaultFeedbackRequestTimeout = 3 * time.Second
+
+// feedbackMaxURLLength/feedbackMaxPathLength bound FeedbackConfig's string
+// fields (plan 7.1: "ограниченный размер token" — this package holds only
+// paths and a URL, never the token itself, so the bound is applied here to
+// the configured strings; internal/feedback/client separately bounds the
+// actual token/identity *file content* it reads at request time). Both
+// limits are generous for any real value and exist only to reject
+// obviously-wrong input (e.g. an entire file pasted into the wrong key).
+const (
+	feedbackMaxURLLength  = 2048
+	feedbackMaxPathLength = 4096
+)
+
+// defaultFeedbackConfigPath mirrors DefaultPath's own "user home, else a
+// relative fallback" pattern.
+func defaultFeedbackConfigPath(name string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "openrouter", name)
+	}
+	return filepath.Join(home, ".config", "openrouter", name)
+}
+
+// DefaultFeedbackTokenFile, DefaultFeedbackIdentityFile and
+// DefaultFeedbackConsumerTokenFile are what a bare `feedback: {}` (or no
+// "feedback:" key at all) falls back to — distinct default paths so the
+// user token and the consumer token never collide by default.
+func DefaultFeedbackTokenFile() string { return defaultFeedbackConfigPath("feedback-token") }
+func DefaultFeedbackIdentityFile() string {
+	return defaultFeedbackConfigPath("feedback-identity")
+}
+func DefaultFeedbackConsumerTokenFile() string {
+	return defaultFeedbackConfigPath("feedback-consumer-token")
+}
+
+func (c FeedbackConfig) EffectiveEndpoint() string {
+	if strings.TrimSpace(c.Endpoint) == "" {
+		return DefaultFeedbackEndpoint
+	}
+	return c.Endpoint
+}
+
+func (c FeedbackConfig) EffectiveTokenFile() string {
+	if strings.TrimSpace(c.TokenFile) == "" {
+		return DefaultFeedbackTokenFile()
+	}
+	return c.TokenFile
+}
+
+func (c FeedbackConfig) EffectiveIdentityFile() string {
+	if strings.TrimSpace(c.IdentityFile) == "" {
+		return DefaultFeedbackIdentityFile()
+	}
+	return c.IdentityFile
+}
+
+// EffectiveRequestTimeout parses RequestTimeout, defaulting to
+// DefaultFeedbackRequestTimeout when unset. Unlike Cache's
+// EffectiveTTL/EffectiveRequestTimeout, an explicit value must be strictly
+// positive (plan 7.1: "положительный timeout") — there is no "explicit
+// zero means disabled" state for a network request timeout here.
+func (c FeedbackConfig) EffectiveRequestTimeout() (time.Duration, error) {
+	return parsePositiveDuration(c.RequestTimeout, DefaultFeedbackRequestTimeout, "feedback.request_timeout")
+}
+
+// Validate checks every field of a FeedbackConfig (plan 7.1: "Проверять URL
+// scheme/host, положительный timeout и ограниченный размер token"),
+// including its nested Consumer section, and that the two credentials'
+// paths are not accidentally configured to the same file (plan 7.1:
+// "feedback.token_file и feedback.consumer.consumer_token_file — разные
+// credentials и не могут быть заменены друг другом"). It always validates
+// the *effective* (defaulted) values, so a config with no "feedback:" key at
+// all — every field its zero value — validates trivially against this
+// section's own defaults, which is what keeps loading an old config
+// backward compatible.
+func (c FeedbackConfig) Validate() error {
+	if _, err := c.EffectiveRequestTimeout(); err != nil {
+		return err
+	}
+	if err := validateFeedbackEndpoint("feedback.endpoint", c.EffectiveEndpoint()); err != nil {
+		return err
+	}
+	if err := validateFeedbackPathLength("feedback.token_file", c.EffectiveTokenFile()); err != nil {
+		return err
+	}
+	if err := validateFeedbackPathLength("feedback.identity_file", c.EffectiveIdentityFile()); err != nil {
+		return err
+	}
+	if err := c.Consumer.Validate(); err != nil {
+		return err
+	}
+	if c.EffectiveTokenFile() == c.Consumer.EffectiveConsumerTokenFile() {
+		return fmt.Errorf("feedback.token_file and feedback.consumer.consumer_token_file must be different files")
+	}
+	return nil
+}
+
+func (c FeedbackConsumerConfig) EffectiveEndpoint() string {
+	if strings.TrimSpace(c.Endpoint) == "" {
+		return DefaultFeedbackEndpoint
+	}
+	return c.Endpoint
+}
+
+func (c FeedbackConsumerConfig) EffectiveConsumerTokenFile() string {
+	if strings.TrimSpace(c.ConsumerTokenFile) == "" {
+		return DefaultFeedbackConsumerTokenFile()
+	}
+	return c.ConsumerTokenFile
+}
+
+func (c FeedbackConsumerConfig) EffectiveRequestTimeout() (time.Duration, error) {
+	return parsePositiveDuration(c.RequestTimeout, DefaultFeedbackRequestTimeout, "feedback.consumer.request_timeout")
+}
+
+func (c FeedbackConsumerConfig) Validate() error {
+	if _, err := c.EffectiveRequestTimeout(); err != nil {
+		return err
+	}
+	if err := validateFeedbackEndpoint("feedback.consumer.endpoint", c.EffectiveEndpoint()); err != nil {
+		return err
+	}
+	if err := validateFeedbackPathLength("feedback.consumer.consumer_token_file", c.EffectiveConsumerTokenFile()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func parsePositiveDuration(value string, fallback time.Duration, name string) (time.Duration, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration such as 3s", name)
+	}
+	return d, nil
+}
+
+func validateFeedbackEndpoint(field, raw string) error {
+	if len(raw) > feedbackMaxURLLength {
+		return fmt.Errorf("%s must be at most %d characters", field, feedbackMaxURLLength)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL: %w", field, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%s must use the http or https scheme", field)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%s must include a host", field)
+	}
+	return nil
+}
+
+func validateFeedbackPathLength(field, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	if len(raw) > feedbackMaxPathLength {
+		return fmt.Errorf("%s must be at most %d characters", field, feedbackMaxPathLength)
+	}
+	return nil
 }
 
 type CacheConfig struct {
@@ -763,6 +979,9 @@ func Load(path string) (Config, error) {
 	case "", "en", "ru":
 	default:
 		return Config{}, fmt.Errorf("config: %s: tui_language must be \"en\" or \"ru\"", path)
+	}
+	if err := c.Feedback.Validate(); err != nil {
+		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return c, nil
 }

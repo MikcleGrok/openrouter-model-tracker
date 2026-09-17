@@ -974,3 +974,146 @@ func TestInitUsesExistingAbsoluteCustomCacheDir(t *testing.T) {
 		t.Fatalf("absolute custom cache directory stat = %v, info = %+v", err, info)
 	}
 }
+
+// TestFeedbackDefaultsWhenSectionAbsent is Task 5's own backward-compatibility
+// requirement: a config predating the "feedback:" section (here, one that
+// only sets unrelated keys) must still load successfully, with
+// feedback.enabled defaulting to false and every other field falling back to
+// its own documented default.
+func TestFeedbackDefaultsWhenSectionAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("data_dir: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Feedback.Enabled {
+		t.Errorf("Feedback.Enabled = true, want false (disabled by default)")
+	}
+	if got.Feedback.EffectiveEndpoint() != DefaultFeedbackEndpoint {
+		t.Errorf("EffectiveEndpoint = %q, want %q", got.Feedback.EffectiveEndpoint(), DefaultFeedbackEndpoint)
+	}
+	if got.Feedback.EffectiveTokenFile() != DefaultFeedbackTokenFile() {
+		t.Errorf("EffectiveTokenFile = %q, want %q", got.Feedback.EffectiveTokenFile(), DefaultFeedbackTokenFile())
+	}
+	if got.Feedback.EffectiveIdentityFile() != DefaultFeedbackIdentityFile() {
+		t.Errorf("EffectiveIdentityFile = %q, want %q", got.Feedback.EffectiveIdentityFile(), DefaultFeedbackIdentityFile())
+	}
+	timeout, err := got.Feedback.EffectiveRequestTimeout()
+	if err != nil || timeout != DefaultFeedbackRequestTimeout {
+		t.Errorf("EffectiveRequestTimeout = %v, %v, want %v, nil", timeout, err, DefaultFeedbackRequestTimeout)
+	}
+	if got.Feedback.Consumer.EffectiveConsumerTokenFile() != DefaultFeedbackConsumerTokenFile() {
+		t.Errorf("Consumer.EffectiveConsumerTokenFile = %q, want %q", got.Feedback.Consumer.EffectiveConsumerTokenFile(), DefaultFeedbackConsumerTokenFile())
+	}
+	if got.Feedback.EffectiveTokenFile() == got.Feedback.Consumer.EffectiveConsumerTokenFile() {
+		t.Errorf("default token file and default consumer token file must differ, both = %q", got.Feedback.EffectiveTokenFile())
+	}
+}
+
+// TestFeedbackLoadsConfiguredSection loads the full "feedback:" section
+// exactly as plan 7.1's own worked example shows it (absolute paths here
+// instead of "~/..." since this package's own path resolution convention —
+// see FeedbackConfig's doc comment — never expands "~" itself; that is the
+// command layer's job, same as DataDir/DefaultOutput).
+func TestFeedbackLoadsConfiguredSection(t *testing.T) {
+	dir := t.TempDir()
+	tokenFile := filepath.Join(dir, "feedback-token")
+	identityFile := filepath.Join(dir, "feedback-identity")
+	consumerTokenFile := filepath.Join(dir, "feedback-consumer-token")
+	body := "feedback:\n" +
+		"  enabled: true\n" +
+		"  endpoint: http://127.0.0.1:9999\n" +
+		"  token_file: " + tokenFile + "\n" +
+		"  identity_file: " + identityFile + "\n" +
+		"  request_timeout: 5s\n" +
+		"  consumer:\n" +
+		"    endpoint: http://127.0.0.1:9999\n" +
+		"    consumer_token_file: " + consumerTokenFile + "\n" +
+		"    request_timeout: 2s\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.Feedback.Enabled {
+		t.Errorf("Feedback.Enabled = false, want true")
+	}
+	if got.Feedback.EffectiveEndpoint() != "http://127.0.0.1:9999" {
+		t.Errorf("EffectiveEndpoint = %q", got.Feedback.EffectiveEndpoint())
+	}
+	if got.Feedback.EffectiveTokenFile() != tokenFile {
+		t.Errorf("EffectiveTokenFile = %q, want %q", got.Feedback.EffectiveTokenFile(), tokenFile)
+	}
+	if got.Feedback.EffectiveIdentityFile() != identityFile {
+		t.Errorf("EffectiveIdentityFile = %q, want %q", got.Feedback.EffectiveIdentityFile(), identityFile)
+	}
+	timeout, err := got.Feedback.EffectiveRequestTimeout()
+	if err != nil || timeout != 5*time.Second {
+		t.Errorf("EffectiveRequestTimeout = %v, %v, want 5s, nil", timeout, err)
+	}
+	if got.Feedback.Consumer.EffectiveConsumerTokenFile() != consumerTokenFile {
+		t.Errorf("Consumer.EffectiveConsumerTokenFile = %q, want %q", got.Feedback.Consumer.EffectiveConsumerTokenFile(), consumerTokenFile)
+	}
+	consumerTimeout, err := got.Feedback.Consumer.EffectiveRequestTimeout()
+	if err != nil || consumerTimeout != 2*time.Second {
+		t.Errorf("Consumer.EffectiveRequestTimeout = %v, %v, want 2s, nil", consumerTimeout, err)
+	}
+}
+
+// TestFeedbackRejectsInvalidValues covers plan 7.1's own validation list:
+// URL scheme/host, positive timeout, and the token_file/consumer_token_file
+// distinctness invariant.
+func TestFeedbackRejectsInvalidValues(t *testing.T) {
+	cases := map[string]string{
+		"non-positive timeout (zero)":   "feedback:\n  request_timeout: 0s\n",
+		"negative timeout":              "feedback:\n  request_timeout: -1s\n",
+		"unparseable timeout":           "feedback:\n  request_timeout: never\n",
+		"non-http(s) scheme":            "feedback:\n  endpoint: ftp://example.com\n",
+		"missing host":                  "feedback:\n  endpoint: http:///path\n",
+		"malformed endpoint URL":        "feedback:\n  endpoint: \"http://[::1\"\n",
+		"consumer non-positive timeout": "feedback:\n  consumer:\n    request_timeout: 0s\n",
+		"consumer non-http(s) scheme":   "feedback:\n  consumer:\n    endpoint: ftp://example.com\n",
+		"token_file equals consumer file": "feedback:\n" +
+			"  token_file: /tmp/shared-secret\n" +
+			"  consumer:\n" +
+			"    consumer_token_file: /tmp/shared-secret\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatalf("Load accepted invalid feedback config %q", body)
+			}
+		})
+	}
+}
+
+// TestFeedbackRejectsUnknownFields proves KnownFields(true) still rejects an
+// unrecognized key both directly under "feedback:" and under its nested
+// "consumer:" sub-section.
+func TestFeedbackRejectsUnknownFields(t *testing.T) {
+	cases := map[string]string{
+		"top-level unknown field": "feedback:\n  bogus_field: true\n",
+		"consumer unknown field":  "feedback:\n  consumer:\n    bogus_field: true\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatalf("Load accepted unknown field in %q", body)
+			}
+		})
+	}
+}
