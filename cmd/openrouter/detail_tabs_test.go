@@ -226,7 +226,7 @@ func TestDetailTabsOpenAndNavigateWithResetScroll(t *testing.T) {
 	if m.detailTab != 2 || m.detailOffset != 0 {
 		t.Fatalf("Shift+Tab navigation = tab %d offset %d", m.detailTab, m.detailOffset)
 	}
-	if bar := tuiDetailTabBar(2, "", 20); !strings.Contains(bar, "[3/4]") {
+	if bar := tuiDetailTabBar(2, "", 20); !strings.Contains(bar, "[3/5]") {
 		t.Fatalf("narrow tab bar lost active accessibility: %q", bar)
 	}
 }
@@ -304,12 +304,12 @@ func TestDetailHelpEnglishRussianParity(t *testing.T) {
 	if got := detailHelpKeyActionInventory(t, english); !reflect.DeepEqual(got, detailHelpKeyActionInventory(t, russian)) {
 		t.Fatalf("English/Russian detail help key/action inventory differs: EN=%v RU=%v", got, detailHelpKeyActionInventory(t, russian))
 	}
-	for _, want := range []string{"Identity", "Pricing", "Benchmarks", "provenance", "Fit & Notes", "1-4", "Left / Right", "Tab / Shift+Tab", "Esc or h", "SWE score", "Q/P", "source", "unit"} {
+	for _, want := range []string{"Identity", "Pricing", "Benchmarks", "provenance", "Fit & Notes", "Feedback", "1-5", "Left / Right", "Tab / Shift+Tab", "Esc or h", "SWE score", "Q/P", "source", "unit"} {
 		if !strings.Contains(english, want) {
 			t.Errorf("English detail help missing %q", want)
 		}
 	}
-	for _, want := range []string{"Идентичность", "Цены", "Бенчмарки", "Происхождение", "Соответствие и заметки", "1-4", "Left / Right", "Tab / Shift+Tab", "Esc или h", "SWE", "Q/P", "источник", "единицу"} {
+	for _, want := range []string{"Идентичность", "Цены", "Бенчмарки", "Происхождение", "Соответствие и заметки", "Отзывы", "1-5", "Left / Right", "Tab / Shift+Tab", "Esc или h", "SWE", "Q/P", "источник", "единицу"} {
 		if !strings.Contains(russian, want) {
 			t.Errorf("Russian detail help missing %q", want)
 		}
@@ -325,13 +325,16 @@ func TestDetailHelpEnglishRussianParity(t *testing.T) {
 			t.Errorf("Russian detail help does not name tab %d (%q)", tab+1, titles[1])
 		}
 	}
-	for _, gone := range []string{"1-5", "The five groups", "or Fit & Notes; resets scroll.\n\t"} {
-		if strings.Contains(english, gone) {
-			t.Errorf("English detail help still documents the removed five-tab layout: %q", gone)
-		}
+	// "1-5" and "five groups" are legitimate again now that Feedback is a
+	// real fifth tab — what must still be gone is the OLD five-tab layout's
+	// own wording, where the fifth tab was Provenance (now folded into
+	// Identity) rather than Feedback, and where Fit & Notes was the last
+	// tab named in the digit-range sentence.
+	if strings.Contains(english, "or Fit & Notes; resets scroll.\n\t") {
+		t.Errorf("English detail help still documents the old five-tab layout (Fit & Notes as the last tab)")
 	}
-	if strings.Contains(russian, "1-5") || strings.Contains(russian, "Пять групп") {
-		t.Errorf("Russian detail help still documents the removed five-tab layout")
+	if strings.Contains(russian, "или Соответствие и заметки; прокрутка сбрасывается.\n\t") {
+		t.Errorf("Russian detail help still documents the old five-tab layout (Соответствие и заметки as the last tab)")
 	}
 }
 
@@ -340,8 +343,8 @@ func TestDetailHelpEnglishRussianParity(t *testing.T) {
 // gap, and every section heading the document can emit routed to one of
 // them — Provenance into Identity, Fit and notes kept on its own.
 func TestDetailTabInventoryIsSequentialAndMergesProvenanceIntoIdentity(t *testing.T) {
-	if detailTabCount != 4 || len(detailTabTitles) != detailTabCount {
-		t.Fatalf("detail tab count = %d with %d titles, want 4", detailTabCount, len(detailTabTitles))
+	if detailTabCount != 5 || len(detailTabTitles) != detailTabCount {
+		t.Fatalf("detail tab count = %d with %d titles, want 5", detailTabCount, len(detailTabTitles))
 	}
 	for _, want := range []struct {
 		heading string
@@ -372,6 +375,63 @@ func TestDetailTabInventoryIsSequentialAndMergesProvenanceIntoIdentity(t *testin
 				t.Errorf("tab title %q is blank", title)
 			}
 		}
+	}
+}
+
+// TestDetailFeedbackIsTheFifthTabAndOwnsNoSectionHeadings pins the new tab's
+// place in the inventory (index 4, digit key 5, titled "Feedback"/"Отзывы")
+// and that its content never comes from the static DetailLines document at
+// all — none of the other tabs' section headings ever leak into it, and vice
+// versa its own heading never answers detailSectionTab.
+func TestDetailFeedbackIsTheFifthTabAndOwnsNoSectionHeadings(t *testing.T) {
+	if detailTabFeedback != detailTabCount-1 {
+		t.Fatalf("detailTabFeedback = %d, want the last tab (%d)", detailTabFeedback, detailTabCount-1)
+	}
+	if detailTabTitles[detailTabFeedback][0] != "Feedback" || detailTabTitles[detailTabFeedback][1] != "Отзывы" {
+		t.Fatalf("Feedback tab titles = %v", detailTabTitles[detailTabFeedback])
+	}
+	if _, ok := detailSectionTab("-- Feedback --"); ok {
+		t.Errorf("the Feedback heading must not be claimed by the static-document section router")
+	}
+
+	row := model.Model{Slug: "demo/model", DisplayName: "Demo", Provider: "Acme", Tier: "sonnet"}
+	m := detailBudgetModel(t, row, "", 100, detailScreenBudget)
+	m.detailTab = detailTabFeedback
+	lines := strings.Join(m.detailLinesForTab(row), "\n")
+	for _, gone := range []string{"-- Identity --", "-- Pricing --", "-- Benchmarks --", "-- Fit and notes --"} {
+		if strings.Contains(lines, gone) {
+			t.Errorf("Feedback tab leaked a static-document section heading %q:\n%s", gone, lines)
+		}
+	}
+	if !strings.Contains(lines, "-- Feedback --") {
+		t.Errorf("Feedback tab is missing its own heading:\n%s", lines)
+	}
+}
+
+// TestDetailDigitAndTabNavigationReachFeedback walks the real runtime key
+// path onto the new fifth tab specifically: the digit key, and arriving via
+// Right/Tab from the previous tab.
+func TestDetailDigitAndTabNavigationReachFeedback(t *testing.T) {
+	m := newTUIModel(context.Background(), "", refresh.Options{}, 0, []model.Model{{Slug: "demo/model", DisplayName: "Demo"}})
+	m.visible, m.cursor, m.width, m.height = m.models, 0, 100, 24
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	if m.detailTab != detailTabFeedback {
+		t.Fatalf("digit 5 = tab %d, want detailTabFeedback (%d)", m.detailTab, detailTabFeedback)
+	}
+	if bar := tuiDetailTabBar(detailTabFeedback, "", 100); !strings.Contains(bar, "[5 Feedback]") {
+		t.Fatalf("tab bar does not name Feedback as tab 5: %q", bar)
+	}
+
+	m.detailTab = detailTabFitNotes
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.detailTab != detailTabFeedback {
+		t.Fatalf("Right from Fit & Notes = tab %d, want Feedback (%d)", m.detailTab, detailTabFeedback)
+	}
+	m.detailTab = detailTabFitNotes
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.detailTab != detailTabFeedback {
+		t.Fatalf("Tab from Fit & Notes = tab %d, want Feedback (%d)", m.detailTab, detailTabFeedback)
 	}
 }
 

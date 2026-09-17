@@ -284,14 +284,41 @@ func TestLoadTUIKeymapSupportsCustomScalarAndListBindings(t *testing.T) {
 	}
 }
 
+// TestLoadTUIKeymapSupportsFeedbackContext confirms the Feedback detail
+// tab's own keymap context (added alongside main/settings/detail/help/
+// columns/filter) is a fully registered context: a custom binding for one of
+// its actions loads, and every one of its default actions survives
+// WithDefaults untouched when the config's own tui_keymap section never
+// mentions "feedback" at all — matching every other context's own backward
+// compatibility guarantee.
+func TestLoadTUIKeymapSupportsFeedbackContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tui_keymap:\n  feedback:\n    save: ['ctrl+w']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.TUIKeymap["feedback"]["save"], ",") != "ctrl+w" {
+		t.Fatalf("custom feedback.save binding = %v", got.TUIKeymap["feedback"]["save"])
+	}
+	for action, want := range map[string][]string{"edit": {"e"}, "cancel": {"esc"}, "retry": {"r"}, "others": {"o"}} {
+		if strings.Join(got.TUIKeymap["feedback"][action], ",") != strings.Join(want, ",") {
+			t.Errorf("feedback.%s default = %v, want %v", action, got.TUIKeymap["feedback"][action], want)
+		}
+	}
+}
+
 func TestLoadRejectsInvalidTUIKeymap(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown action":        "tui_keymap:\n  main:\n    nope: x\n",
-		"unknown context":       "tui_keymap:\n  popup:\n    close: esc\n",
-		"empty binding":         "tui_keymap:\n  main:\n    open_settings: [\"\"]\n",
-		"conflict":              "tui_keymap:\n  main:\n    open_settings: [x]\n    help: [x]\n",
-		"conflict with default": "tui_keymap:\n  main:\n    open_settings: l\n",
-		"space alias conflict":  "tui_keymap:\n  columns:\n    toggle: [' ']\n    apply: [space]\n",
+		"unknown action":          "tui_keymap:\n  main:\n    nope: x\n",
+		"unknown feedback action": "tui_keymap:\n  feedback:\n    nope: x\n",
+		"unknown context":         "tui_keymap:\n  popup:\n    close: esc\n",
+		"empty binding":           "tui_keymap:\n  main:\n    open_settings: [\"\"]\n",
+		"conflict":                "tui_keymap:\n  main:\n    open_settings: [x]\n    help: [x]\n",
+		"conflict with default":   "tui_keymap:\n  main:\n    open_settings: l\n",
+		"space alias conflict":    "tui_keymap:\n  columns:\n    toggle: [' ']\n    apply: [space]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")

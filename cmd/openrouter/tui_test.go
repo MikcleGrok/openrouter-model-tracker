@@ -5903,7 +5903,7 @@ func TestTUIHelpDocumentsTheDetailScreen(t *testing.T) {
 		"Model detail view",
 		"Enter or Right opens the detail screen",
 		"Esc or h closes it",
-		"1-4",
+		"1-5",
 		"Tab / Shift+Tab",
 		"scroll the detail text",
 		"links to the model's OpenRouter page",

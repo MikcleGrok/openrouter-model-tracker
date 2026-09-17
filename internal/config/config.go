@@ -195,6 +195,12 @@ var defaultTUIKeymap = TUIKeymap{
 	"help":     {"close": {"esc", "?"}, "full_help": {"f1"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}},
 	"columns":  {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
 	"filter":   {"close": {"esc"}, "navigate_up": {"up", "k"}, "navigate_down": {"down", "j"}, "toggle": {"space"}, "apply": {"enter"}},
+	// feedback governs the Feedback detail tab's own sub-mode actions only
+	// (entering/leaving the rating form, retrying a failed load, and asking
+	// to see the community aggregate excluding the user's own vote); it
+	// never touches Esc-closes-detail, tab navigation, or scrolling, all of
+	// which stay owned by "detail" above.
+	"feedback": {"edit": {"e"}, "save": {"ctrl+s"}, "cancel": {"esc"}, "retry": {"r"}, "others": {"o"}},
 }
 
 var tuiKeymapActions = map[string]map[string]bool{
@@ -204,6 +210,7 @@ var tuiKeymapActions = map[string]map[string]bool{
 	"help":     {"close": true, "full_help": true, "navigate_up": true, "navigate_down": true},
 	"columns":  {"close": true, "navigate_up": true, "navigate_down": true, "toggle": true, "apply": true},
 	"filter":   {"close": true, "navigate_up": true, "navigate_down": true, "toggle": true, "apply": true},
+	"feedback": {"edit": true, "save": true, "cancel": true, "retry": true, "others": true},
 }
 
 func DefaultTUIKeymap() TUIKeymap {

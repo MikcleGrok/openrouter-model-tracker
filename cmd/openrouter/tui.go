@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sboborikin/openrouter-model-tracker/internal/config"
+	feedbackclient "github.com/sboborikin/openrouter-model-tracker/internal/feedback/client"
 	"github.com/sboborikin/openrouter-model-tracker/internal/filter"
 	"github.com/sboborikin/openrouter-model-tracker/internal/keymap"
 	"github.com/sboborikin/openrouter-model-tracker/internal/model"
@@ -228,6 +229,14 @@ type tuiModel struct {
 	// persisted via config.SaveTUILanguage.
 	lang             string
 	screenController *tuiscreen.Controller
+	// feedbackClient is non-nil only when feedback.enabled is true in config
+	// and the client constructed successfully; nil means the Feedback detail
+	// tab shows its disabled explanation and issues no HTTP calls at all —
+	// see feedback.go's withFeedbackClient.
+	feedbackClient *feedbackclient.Client
+	// feedback holds the Feedback tab's state for whichever single model it
+	// was last opened for — see feedback.go's tuiFeedbackState.
+	feedback tuiFeedbackState
 }
 
 type tuiFreshness struct {
@@ -308,6 +317,7 @@ func runTUIWithRankingConfigCompiled(ctx context.Context, out io.Writer, dataDir
 		}
 		m.filterFormExplicit = true
 		m.filterDefaulted = !filterExplicit && (!cfg.TUIFilterSet || isLegacyTUIFilter(cfg.TUIFilter))
+		m = m.withFeedbackClient(cfg.Feedback)
 		m.rebuild()
 	}
 	if width, height := tuiTerminalSize(out); width > 0 && height > 0 {
@@ -865,6 +875,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.freshness = msg.freshness
 		m.rebuild()
 		m.clampDetailOffset()
+	case tuiFeedbackSummaryMsg:
+		m = m.applyFeedbackSummaryMsg(msg)
+	case tuiFeedbackSaveMsg:
+		m = m.applyFeedbackSaveMsg(msg)
 	case tuiScoreSourceMsg:
 		if msg.generation != m.scoreSourceGeneration {
 			return m, nil
@@ -1046,6 +1060,17 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.closeOverlay()
 			return m, nil
 		}
+		if m.detailTab == detailTabFeedback {
+			// The Feedback tab's own sub-modes take the keyboard fully,
+			// exactly like the settings/filter/columns overlays already do
+			// while open — see feedback.go.
+			if m.feedback.editing {
+				return m.feedbackEditKey(key, originalKey, msg.Runes)
+			}
+			if next, cmd, handled := m.feedbackViewKey(originalKey, row); handled {
+				return next, cmd
+			}
+		}
 		maxOffset := tuioutput.Detail(tuioutput.DetailData{Width: m.width, Height: m.height, Lines: m.detailFrameLines(row)}).MaxOffset
 		switch key {
 		case "esc", "h":
@@ -1066,7 +1091,7 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.detailOffset = 0
 		case "end", "G":
 			m.detailOffset = maxOffset
-		case "1", "2", "3", "4":
+		case "1", "2", "3", "4", "5":
 			m.detailTab = int(key[0] - '1')
 			m.detailTabsActive = true
 			m.detailOffset = 0
@@ -1086,6 +1111,9 @@ func (m tuiModel) key(value interface{}) (next tuiModel, cmd tea.Cmd) {
 			m.detailTabsActive = true
 			m.detailTab = max(0, m.detailTab-1)
 			m.detailOffset = 0
+		}
+		if m.detailTab == detailTabFeedback {
+			return m.ensureFeedbackSummaryLoaded(row)
 		}
 		return m, nil
 	}
@@ -3566,16 +3594,17 @@ func (m tuiModel) detailLines(row model.Model) []string {
 // detailTabCount is both the number of tabs and the highest digit key
 // that selects one: the digits stay 1..detailTabCount with no gap, so a
 // merged group never leaves a dead key behind.
-const detailTabCount = 4
+const detailTabCount = 5
 
 const (
 	detailTabIdentity = iota
 	detailTabPricing
 	detailTabBenchmarks
 	detailTabFitNotes
+	detailTabFeedback
 )
 
-var detailTabTitles = [detailTabCount][2]string{{"Identity", "Идентичность"}, {"Pricing", "Цены"}, {"Benchmarks", "Бенчмарки"}, {"Fit & Notes", "Соответствие и заметки"}}
+var detailTabTitles = [detailTabCount][2]string{{"Identity", "Идентичность"}, {"Pricing", "Цены"}, {"Benchmarks", "Бенчмарки"}, {"Fit & Notes", "Соответствие и заметки"}, {"Feedback", "Отзывы"}}
 
 // detailSectionTab maps a section heading to the tab that shows it. The
 // document keeps all five headings — they are what groups the rows
@@ -3607,6 +3636,13 @@ func (m tuiModel) detailLinesForTab(row model.Model) []string {
 	lines := m.detailLines(row)
 	if !m.detailTabsActive || m.detailTab < 0 || m.detailTab >= detailTabCount {
 		return lines
+	}
+	if m.detailTab == detailTabFeedback {
+		// The Feedback tab's content never comes from DetailLines/notes.yaml
+		// at all — it is fetched asynchronously per model (see feedback.go)
+		// — so it does not participate in the section-heading scan below;
+		// only the model title line is shared with every other tab.
+		return append([]string{lines[0]}, m.feedbackTabLines(row)...)
 	}
 	result := []string{lines[0]}
 	section := detailTabIdentity
@@ -4218,8 +4254,8 @@ Column headers: QP/$M is the quality/price ranking score per $/M tokens (was "Q/
 // detail screen's own block, relocated verbatim out of what used to be the
 // single Hotkeys section.
 const tuiHelpSectionDetailBody = `Model detail view
-The four groups are Identity, Pricing, Benchmarks, and Fit & Notes. Identity also carries provenance and metadata: both blocks are short and static, and together they still fit one screen.
-\t1-4\ttabs\tselect Identity, Pricing, Benchmarks, or Fit & Notes; resets scroll.
+The five groups are Identity, Pricing, Benchmarks, Fit & Notes, and Feedback. Identity also carries provenance and metadata: both blocks are short and static, and together they still fit one screen.
+\t1-5\ttabs\tselect Identity, Pricing, Benchmarks, Fit & Notes, or Feedback; resets scroll.
 \tLeft / Right\ttabs\tselect the previous or next tab; resets scroll.
 \tTab / Shift+Tab\ttabs\tselect the next or previous tab; resets scroll.
 \tEnter or Right\tdetail\tEnter or Right opens the detail screen for the highlighted model.
@@ -4227,6 +4263,7 @@ The four groups are Identity, Pricing, Benchmarks, and Fit & Notes. Identity als
 \tUp/Down or j/k\tscroll\tscroll the detail text; PgUp/PgDown and Home/End also work.
 The screen opens on the Identity tab and keeps the model header visible above the active tab. It shows owner, release date, tier, context, full pricing including the long-context tier, both score sources as separate labelled blocks, task fit, note and the vendor description.
 Fit & Notes is a list, not a paragraph: every task-fit tag is its own item, and the note is split into one item per claim.
+Feedback shows this model's own rating, the community's aggregate rating, and a personal position among the models you have rated yourself; it needs feedback.enabled in config.yaml and never runs without it. Inside that tab, e opens the rating form, Ctrl+S saves, Esc cancels, r retries a failed load, and o reveals the community aggregate excluding your own vote.
 The vendor description is wrapped to the terminal width instead of being cut like a table cell.
 The screen also links to the model's OpenRouter page and, when the catalogue knows one, to its HuggingFace repository. Links are shown as plain text; there are no clickable terminal hyperlinks.
 History shows separate input price, output price, SWE score percentage, SWE Q/P, and Arena raw Elo series. Missing observations are gaps; no-history and a metric unavailable for this slug are shown explicitly. Current values are never substituted into a historical series.
@@ -4471,8 +4508,8 @@ const tuiHelpSectionFiltersBodyRU = `Столбцы, поиск и фильтр�
 // tuiHelpSectionDetailBodyRU is tuiHelpSectionDetailBody's Russian
 // translation.
 const tuiHelpSectionDetailBodyRU = `Экран деталей модели
-Четыре группы: Идентичность, Цены, Бенчмарки, Соответствие и заметки. Происхождение и метаданные показаны внутри «Идентичности»: оба блока короткие и статичные, вместе они по-прежнему помещаются на один экран.
-\t1-4\tвкладки\tвыбрать Идентичность, Цены, Бенчмарки или Соответствие и заметки; прокрутка сбрасывается.
+Пять групп: Идентичность, Цены, Бенчмарки, Соответствие и заметки, Отзывы. Происхождение и метаданные показаны внутри «Идентичности»: оба блока короткие и статичные, вместе они по-прежнему помещаются на один экран.
+\t1-5\tвкладки\tвыбрать Идентичность, Цены, Бенчмарки, Соответствие и заметки или Отзывы; прокрутка сбрасывается.
 \tLeft / Right\tвкладки\tвыбрать предыдущую или следующую вкладку; прокрутка сбрасывается.
 \tTab / Shift+Tab\tвкладки\tвыбрать следующую или предыдущую вкладку; прокрутка сбрасывается.
 \tEnter или Right\tдетали\tEnter или Right открывает экран деталей для выделенной модели.
@@ -4480,6 +4517,7 @@ const tuiHelpSectionDetailBodyRU = `Экран деталей модели
 \tUp/Down или j/k\tпрокрутка\tпрокрутить текст деталей; PgUp/PgDown и Home/End тоже работают.
 Экран открывается на вкладке «Идентичность» и сохраняет заголовок модели над активной вкладкой. Он показывает производителя, дату релиза, тир, контекст, полную цену включая тир длинного контекста, оба источника оценки как отдельные подписанные блоки, task fit, заметку и вендорское описание.
 «Соответствие и заметки» — это список, а не абзац: каждый тег task fit — отдельный пункт, а заметка разбита на пункты по одному на утверждение.
+«Отзывы» показывают собственную оценку этой модели, агрегированную оценку сообщества и личную позицию среди моделей, которые вы сами оценили; вкладка требует feedback.enabled в config.yaml и без него никогда не обращается к сети. Внутри вкладки e открывает форму оценки, Ctrl+S сохраняет, Esc отменяет, r повторяет неудавшуюся загрузку, а o показывает агрегат сообщества без вашего голоса.
 Вендорское описание переносится по ширине терминала, а не обрезается, как ячейка таблицы.
 Экран также содержит ссылку на страницу модели на OpenRouter и, если каталог её знает, — на репозиторий HuggingFace. Ссылки показаны как обычный текст; кликабельных терминальных гиперссылок нет.
 История показывает отдельные ряды входной цены, выходной цены, процента SWE, SWE Q/P и сырого Arena Elo. Отсутствующие наблюдения — это пропуски; отсутствие истории и метрики для этого slug показываются явно. Текущие значения никогда не подставляются в исторический ряд.
