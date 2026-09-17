@@ -66,20 +66,34 @@ var feedbackFieldCount = feedbackFocusReview + 1
 // ever shown at a time, matching how the detail overlay itself only ever
 // shows one row — see tuiModel.feedback.
 type tuiFeedbackState struct {
-	// slug and reqSeq identify which model and which in-flight request this
-	// state belongs to. reqSeq is ONE monotonic counter shared by every
-	// GetSummary and PutFeedback dispatch for this tab — never two separate
-	// counters — specifically so a save can never be mistaken for stale (or
-	// vice versa) by racing against the wrong sequence space: startFeedbackLoad
-	// bumps it and replaces the whole struct (so a model switch always moves
-	// it forward, even across the reset), and startFeedbackSave bumps the
-	// very same counter rather than a private one. A GetSummary/PutFeedback
-	// response is applied only when both its slug and its reqSeq still match
-	// — see applyFeedbackSummaryMsg/applyFeedbackSaveMsg. This is what keeps
-	// a slow response for a previously-viewed model, or a superseded earlier
-	// attempt for the same model, from ever repainting current state.
-	slug   string
-	reqSeq uint64
+	// slug identifies which model this state belongs to.
+	//
+	// reqSeq is the single, ever-increasing counter every GetSummary and
+	// PutFeedback dispatch for this tab draws its own sequence number from.
+	// It is never reset to a smaller value, including across a model-switch
+	// struct replacement — startFeedbackLoad always seeds the new struct
+	// from reqSeq+1 — so a past dispatch's number can never collide with a
+	// later one's after a reset (the bug round 1 fixed).
+	//
+	// loadReqSeq and saveReqSeq are the reqSeq value each captured at the
+	// moment ITS OWN currently-relevant request was dispatched. They are
+	// deliberately two separate fields rather than one shared "current"
+	// marker: a load and a save are independent async operations, and a
+	// save dispatched while a load is still in flight (or vice versa) must
+	// not be able to invalidate the OTHER operation's own freshness check —
+	// that was round 1's own regression: unifying the check itself (not
+	// just the counter) meant a save could permanently strand an in-flight
+	// load's response, since "loading = false" only ever happens inside the
+	// now-unreachable branch of a check the save had just invalidated.
+	// applyFeedbackSummaryMsg compares against loadReqSeq only;
+	// applyFeedbackSaveMsg compares against saveReqSeq only. Both are still
+	// drawn from the one shared reqSeq, so round 1's own guarantee (no
+	// collision across a model-switch-and-back) still holds for each
+	// independently.
+	slug       string
+	reqSeq     uint64
+	loadReqSeq uint64
+	saveReqSeq uint64
 
 	loading bool
 	loaded  bool
@@ -163,11 +177,15 @@ func (m tuiModel) feedbackSaveCmd(slug string, reqSeq uint64, req feedbackclient
 }
 
 // applyFeedbackSummaryMsg applies a GetSummary result, discarding it outright
-// if it no longer matches the feedback state's current slug/reqSeq (a stale
-// response for a model the user has since left, or superseded by a newer
-// request — load or save — for the same model, see startFeedbackLoad).
+// if it no longer matches the feedback state's current slug/loadReqSeq (a
+// stale response for a model the user has since left, or superseded by a
+// newer load for the same model, see startFeedbackLoad). Checked against
+// loadReqSeq specifically, never the raw shared reqSeq counter — an
+// intervening save dispatch also advances reqSeq but must never invalidate
+// this still-in-flight load's own tracking (see tuiFeedbackState's own doc
+// comment).
 func (m tuiModel) applyFeedbackSummaryMsg(msg tuiFeedbackSummaryMsg) tuiModel {
-	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.reqSeq {
+	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.loadReqSeq {
 		return m
 	}
 	m.feedback.loading = false
@@ -187,18 +205,20 @@ func (m tuiModel) applyFeedbackSummaryMsg(msg tuiFeedbackSummaryMsg) tuiModel {
 	return m
 }
 
-// applyFeedbackSaveMsg applies a PutFeedback result, guarded by slug/reqSeq
-// the same way applyFeedbackSummaryMsg is — against the SAME shared counter,
-// not a separate save-only one, so a save superseded by an intervening
+// applyFeedbackSaveMsg applies a PutFeedback result, guarded by slug/
+// saveReqSeq — its own dedicated marker, not the raw shared reqSeq counter
+// or the load's loadReqSeq — so a save superseded by an intervening
 // model-switch-and-back (which bumps reqSeq via startFeedbackLoad) or by a
 // second save for the same model is correctly seen as stale rather than
-// silently overwriting the newer attempt's outcome. On error the draft
-// (overall/skills/review) is left exactly as the user entered it and editing
-// stays open — brief 8.2 step 6: "оставить введённый draft, показать retry,
-// не считать сохранение успешным". On success the local state is replaced by
-// the server's own response, per step 5.
+// silently overwriting the newer attempt's outcome, while a concurrently
+// in-flight load's own freshness check is left untouched (see
+// tuiFeedbackState's own doc comment). On error the draft (overall/skills/
+// review) is left exactly as the user entered it and editing stays open —
+// brief 8.2 step 6: "оставить введённый draft, показать retry, не считать
+// сохранение успешным". On success the local state is replaced by the
+// server's own response, per step 5.
 func (m tuiModel) applyFeedbackSaveMsg(msg tuiFeedbackSaveMsg) tuiModel {
-	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.reqSeq {
+	if msg.slug != m.feedback.slug || msg.reqSeq != m.feedback.saveReqSeq {
 		return m
 	}
 	m.feedback.saving = false
@@ -297,13 +317,20 @@ func feedbackErrorMessage(err error, lang string) string {
 }
 
 // startFeedbackLoad resets the feedback state for row and dispatches a fresh
-// GetSummary. Bumping seq (rather than starting a parallel counter) is what
-// lets a superseded in-flight request for the very same slug — e.g. the user
-// pressed retry twice — be told apart from the one whose result should
-// actually apply.
+// GetSummary. Bumping reqSeq (rather than starting a parallel counter) is
+// what lets a superseded in-flight request for the very same slug — e.g. the
+// user pressed retry twice — be told apart from the one whose result should
+// actually apply. The new value is stored in loadReqSeq specifically (not
+// just reqSeq) — see tuiFeedbackState's own doc comment for why an
+// independent load-only marker is required. The struct replacement also
+// zeroes saveReqSeq, which is safe: any save response tagged for a
+// previous model is already excluded by the slug check alone, and a save
+// for the SAME model started after this reload will draw its own saveReqSeq
+// from this same, already-advanced reqSeq — never colliding with an older
+// one (round 1's guarantee, preserved).
 func (m tuiModel) startFeedbackLoad(row model.Model, includeOthers bool) (tuiModel, tea.Cmd) {
 	nextSeq := m.feedback.reqSeq + 1
-	m.feedback = tuiFeedbackState{slug: row.Slug, reqSeq: nextSeq, loading: true}
+	m.feedback = tuiFeedbackState{slug: row.Slug, reqSeq: nextSeq, loadReqSeq: nextSeq, loading: true}
 	return m, m.feedbackSummaryCmd(row.Slug, nextSeq, includeOthers)
 }
 
@@ -332,7 +359,14 @@ func (m tuiModel) feedbackViewKey(originalKey string, row model.Model) (tuiModel
 		return m, nil, false
 	}
 	if m.keyMatches("feedback", "edit", originalKey) {
-		if m.feedback.saving {
+		if m.feedback.saving || m.feedback.loading {
+			// Editing before the initial GetSummary resolves would start
+			// the draft from a blank/zero state rather than the model's
+			// actual own-rating history, and was also the precondition that
+			// let a save-while-loading strand the load's spinner (round 2's
+			// own regression) — simplest and safest is to just not allow
+			// it; the tab is still fully readable (loading skeleton) while
+			// this waits.
 			return m, nil, true
 		}
 		m.feedback.editing = true
@@ -494,13 +528,18 @@ func (m tuiModel) startFeedbackSave() (tuiModel, tea.Cmd) {
 	m.feedback.validationErr = ""
 	m.feedback.saveErr = ""
 	m.feedback.saving = true
-	// Bump the SAME counter startFeedbackLoad bumps — never a private
-	// save-only one — so a stale save response can never be mistaken for
-	// current just because the user switched models and back in between
-	// (see tuiFeedbackState's own reqSeq doc comment).
+	// Bump the SAME shared counter startFeedbackLoad bumps — never a
+	// private, from-zero save-only counter — so a stale save response can
+	// never be mistaken for current just because the user switched models
+	// and back in between (round 1's guarantee). Store the new value in
+	// saveReqSeq specifically: this must NOT touch loadReqSeq, or a save
+	// dispatched while a load is still in flight would strand that load's
+	// own response (round 1's own regression, fixed in round 2) — see
+	// tuiFeedbackState's own doc comment.
 	m.feedback.reqSeq++
+	m.feedback.saveReqSeq = m.feedback.reqSeq
 	req := feedbackclient.FeedbackRequest{Overall: m.feedback.draftOverall, Skills: skills, Review: review}
-	return m, m.feedbackSaveCmd(m.feedback.slug, m.feedback.reqSeq, req)
+	return m, m.feedbackSaveCmd(m.feedback.slug, m.feedback.saveReqSeq, req)
 }
 
 // withFeedbackClient constructs m.feedbackClient from fc when enabled,

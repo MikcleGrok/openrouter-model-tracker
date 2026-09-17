@@ -285,6 +285,103 @@ func TestFeedbackStaleSaveResponseAfterModelSwitchAndBackDoesNotOverwriteRetry(t
 	}
 }
 
+// TestFeedbackSaveWhileLoadInFlightDoesNotStrandTheLoadingSpinner is the
+// regression test for round 2's own finding: round 1 fixed the stale-save
+// race by unifying two independently-resettable counters into one shared
+// reqSeq, but checking BOTH load and save responses against that SAME shared
+// field meant a save dispatched while a load was still in flight bumped the
+// very field the load's own freshness check depended on — so the load's
+// eventual response was discarded as stale, and since "loading = false" only
+// ever happens inside that discarded branch, the tab was stuck showing
+// "Loading feedback..." forever (the only way out was leaving the tab and
+// coming back, since retry/others/ensureFeedbackSummaryLoaded are themselves
+// gated on !loading). loadReqSeq and saveReqSeq must be independent markers,
+// both still drawn from the one shared, never-decreasing reqSeq, so a save
+// can never invalidate a load's own tracking or vice versa.
+func TestFeedbackSaveWhileLoadInFlightDoesNotStrandTheLoadingSpinner(t *testing.T) {
+	client := newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected real HTTP request: %s %s", r.Method, r.URL.Path)
+	})
+	row := feedbackTestRow()
+	m := feedbackRuntimeModel(row, client)
+
+	// 1. Open the tab: a GetSummary is dispatched and is still "in flight" —
+	// its response is not delivered yet.
+	m, _ = m.startFeedbackLoad(row, false)
+	loadReqSeq := m.feedback.reqSeq
+	if !m.feedback.loading {
+		t.Fatalf("load did not start")
+	}
+
+	// 2. Before that response arrives, the user rates and saves. Dispatched
+	// directly at the state-machine level: startFeedbackSave has no loading
+	// guard of its own (only feedbackViewKey's "edit" action gates entry on
+	// !loading, a separate, additional defense not exercised by this test),
+	// so this reaches exactly the interleaving the finding describes
+	// regardless of how the UI arrives at it.
+	m.feedback.editing, m.feedback.draftOverall = true, 4
+	m, _ = m.startFeedbackSave()
+	if !m.feedback.saving {
+		t.Fatalf("save did not start")
+	}
+	if m.feedback.reqSeq == loadReqSeq {
+		t.Fatalf("save did not advance the shared reqSeq counter")
+	}
+	if !m.feedback.loading {
+		t.Fatalf("starting the save incorrectly cleared the still-in-flight load's loading flag")
+	}
+
+	// 3. The load's response finally arrives, tagged with its own original
+	// sequence number — which by now differs from the save's.
+	loadResp := tuiFeedbackSummaryMsg{slug: row.Slug, reqSeq: loadReqSeq, summary: feedbackclient.Summary{}}
+	m = runtimeTUIUpdate(t, m, loadResp)
+
+	if m.feedback.loading {
+		t.Fatalf("loading spinner is permanently stuck: the load's response was discarded as stale by the save's own counter bump")
+	}
+	if !m.feedback.saving {
+		t.Fatalf("the still-in-flight save's own state was disturbed by the load response landing")
+	}
+	if strings.Contains(m.View(), "Loading feedback") {
+		t.Fatalf("view still shows the loading skeleton after the load's response landed:\n%s", m.View())
+	}
+
+	// 4. The save's own response then arrives too, and must still apply
+	// normally — independence must hold both ways.
+	saveResp := tuiFeedbackSaveMsg{slug: row.Slug, reqSeq: m.feedback.reqSeq, summary: feedbackclient.Summary{Mine: &feedbackclient.OwnFeedback{Overall: 4}}}
+	m = runtimeTUIUpdate(t, m, saveResp)
+	if m.feedback.saving || m.feedback.summary.Mine == nil || m.feedback.summary.Mine.Overall != 4 {
+		t.Fatalf("the save's own response was not applied: %+v", m.feedback)
+	}
+}
+
+// TestFeedbackEditActionIgnoredWhileLoadingAvoidsBlankDraft is the regression
+// test for the round 2 finding's paired fix: feedbackViewKey's "edit" action
+// had no loading guard, so entering edit mode before the initial GetSummary
+// resolved started the draft from a blank/zero state instead of the model's
+// actual own-rating history, and was also the precondition that let the
+// stranding bug above happen at all through the real UI. The tab must stay
+// read-only (though still visible, showing the loading skeleton) until the
+// load resolves.
+func TestFeedbackEditActionIgnoredWhileLoadingAvoidsBlankDraft(t *testing.T) {
+	client := newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected real HTTP request: %s %s", r.Method, r.URL.Path)
+	})
+	row := feedbackTestRow()
+	m := feedbackRuntimeModel(row, client)
+	m.detailTab = detailTabFeedback // feedbackViewKey only fires on this tab
+
+	m, _ = m.startFeedbackLoad(row, false)
+	if !m.feedback.loading {
+		t.Fatalf("load did not start")
+	}
+
+	m = runtimeTUIUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.feedback.editing {
+		t.Fatalf("edit action must be ignored while a load is in flight")
+	}
+}
+
 // TestFeedbackOfflineSaveKeepsDraftForRetry is brief 11.3's "offline" case:
 // a network error on save must never be treated as success, and the user's
 // entered draft must survive so they can retry rather than retype it.
