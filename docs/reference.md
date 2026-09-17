@@ -431,6 +431,31 @@ Feedback в TUI остаётся видимой, но показывает expla
 `openrouter-model-tracker`, ни `feedback-server` сам по себе — текущий `cmd/openrouter` не является
 inference runtime и не читает community signal.
 
+#### Rollout доверенного consumer (shadow → allowlist)
+
+Provisioning consumer credential (`feedback-server consumer-token init`, см. выше) сам по себе не
+означает, что community signal уже разрешено использовать для routing/warning решений — включение
+проходит двумя последовательными стадиями, а не одним flag'ом.
+
+1. **Shadow/read-only.** Trusted consumer запрашивает `.../feedback/signal` через HTTP/reference
+   adapter, но policy/routing рантайма при этом не меняется — ответ только наблюдается и логируется
+   для сравнения: deterministic threshold/TTL поведение, доля typed adapter errors
+   (`unavailable`/`unauthorized`/`incompatible_schema`/`policy_rejected`) и fallback rate. На этой
+   стадии сигнал ничего не решает — только собирает данные для следующего шага.
+2. Переходить к стадии 2 можно только после периода shadow-наблюдения и отдельного
+   **contract/security sign-off** — не по таймеру и не по «метрики выглядят нормально».
+3. **Allowlist / ограниченное влияние.** После sign-off сигналу разрешается влиять только на
+   структурированные, allowlisted routing/warning решения, которые уже описывает policy contract
+   (`internal/feedback/consumer/policy.go`, тип `PolicyDecision`) — никогда на сырые текстовые
+   отзывы и никогда как unstructured prompt injection. Реальное подключение к генератору ответа —
+   отдельный интеграционный проект вне рамок этого rollout; референсный
+   `internal/feedback/consumer/fakeflow.go` доказывает только порядок `provider → policy →
+   generator` и baseline fallback при ошибках, а не готовую интеграцию с рантаймом.
+4. **Rollback.** Consumer rollout откатывается независимо от пользовательского feedback в любой
+   момент: `feedback-server consumer-token rotate` (см. выше) немедленно делает прежний consumer
+   credential недействительным, ничего не меняя в `--token-file`, которым пользуются PUT/GET
+   собственной оценки, TUI и community aggregate — они продолжают работать как раньше.
+
 ### Bash completion
 
 Для текущей shell-сессии:
