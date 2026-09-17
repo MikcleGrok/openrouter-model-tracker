@@ -11,6 +11,7 @@
 - [Onboarding record](#onboarding-record)
 - [Команды](#команды)
   - [Семантика score, quality и tier](#семантика-score-quality-и-tier)
+  - [Feedback (экспериментально, по умолчанию выключено)](#feedback-экспериментально-по-умолчанию-выключено)
   - [Bash completion](#bash-completion)
 - [Makefile](#makefile)
   - [Семантика Q/P и utility](#семантика-qp-и-utility)
@@ -335,11 +336,100 @@ metric, unit, source/provenance, measured variant, identity status и manual tie
 - `openrouter completion bash` (`omt completion bash`) — сгенерировать Bash completion
 - `openrouter version`
 - `openrouter --version` — показать версию бинарника
+- `openrouter feedback init` — клиентская часть provisioning для опционального `feedback-server`
+  (см. «Feedback» ниже); ничего не делает с обычным каталогом данных/кэшем и не требует `--data-dir`.
 
 Версия release-бинарника является нормализованным SemVer 2.0.0 без префикса `v`.
 Единственный источник release-версии — чистый checkout на exact immutable tag
 `vMAJOR.MINOR.PATCH` с optional prerelease (`-rc.1`); build metadata (`+...`) запрещена.
 Обычная локальная сборка по-прежнему показывает descriptive version от `git describe`.
+
+### Feedback (экспериментально, по умолчанию выключено)
+
+`feedback-server` — отдельный процесс и отдельный бинарник (`cmd/feedback-server`), который хранит
+личные и агрегированные community-оценки моделей в собственной SQLite-базе и отдаёт их по HTTP. Он
+не заменяет и не трогает обычный каталог данных `openrouter-model-tracker`: TUI обращается к нему
+только как HTTP-клиент, а при остановленном или недоступном сервере весь остальной функционал
+(`table`, `tui`, `refresh`, `report`, `history`, ...) работает точно так же, как без этой фичи.
+Секция `feedback:` в `config.yaml` по умолчанию отсутствует, `feedback.enabled` по умолчанию
+`false` — старый конфиг без этой секции по-прежнему проходит загрузку без изменений, а неизвестные
+поля конфига по-прежнему отклоняются.
+
+`feedback-server` пока не входит ни в один из способов установки из раздела «Installation» в
+README (brew/curl/scoop/winget ставят только `openrouter`/`omt`) — соберите его из исходников:
+
+```bash
+go build -o feedback-server ./cmd/feedback-server
+```
+
+Локальный запуск (single-user MVP: оба процесса — `feedback-server` и `omt`/`openrouter` — на одной
+машине под одним доверенным OS-пользователем; секреты не передаются по сети и не появляются в
+аргументах командной строки, конфиге или логах):
+
+1. Создать секреты сервера. `feedback-server` требует ОБА token-файла для старта, даже если
+   consumer-эндпоинт (доверенный `.../feedback/signal` для внешнего inference runtime, см.
+   `internal/feedback/consumer`) пока не используется:
+
+   ```bash
+   feedback-server token init --token-file ~/.config/openrouter/feedback-token
+   feedback-server consumer-token init --consumer-token-file ~/.config/openrouter/feedback-consumer-token
+   ```
+
+   Оба файла создаются атомарно с правами `0600` в каталоге `0700`; повторный `init` на уже
+   существующий путь отказывает, а не перезаписывает secret. `consumer-token rotate` заменяет
+   secret на новый, не трогая привязку `audience=assistant-runtime`/scope — после ротации нужно
+   перезапустить `feedback-server` (и любой consumer).
+
+2. Запустить сервер (по умолчанию слушает `127.0.0.1:8787`, база —
+   `~/.local/share/openrouter-feedback/feedback.db`, бэкапы — `~/.local/share/openrouter-feedback/backups`):
+
+   ```bash
+   feedback-server \
+     --token-file ~/.config/openrouter/feedback-token \
+     --consumer-token-file ~/.config/openrouter/feedback-consumer-token
+   ```
+
+   Перед тем как принять первое соединение, сервер применяет миграции; ошибка миграции завершает
+   процесс до открытия listener'а. `SIGINT`/`SIGTERM` останавливают сервер, дожидаясь завершения
+   текущих запросов и закрывая базу.
+
+3. На клиентской машине выполнить `openrouter feedback init` (или `omt feedback init`) — команда
+   создаёт `feedback.identity_file`, если его ещё нет (иначе переиспользует существующий), и
+   проверяет, что `feedback.token_file` читается. Сам shared secret она не генерирует и не
+   копирует — это уже сделано шагом 1; `feedback init` только связывает клиента с уже созданным
+   token-файлом и заводит локальный псевдоним-identity:
+
+   ```bash
+   omt feedback init --config ~/.config/openrouter/config.yaml
+   ```
+
+   Дефолтные `feedback.token_file`/`feedback.identity_file` — те же пути, что и созданный на шаге 1
+   token-файл (`~/.config/openrouter/feedback-token`/`~/.config/openrouter/feedback-identity`), так
+   что при обычном single-user MVP шаги 1 и 3 совпадают по пути без дополнительной настройки конфига.
+   Относительные `token_file`/`identity_file` в `config.yaml` разрешаются относительно самого файла
+   конфига, как и `data_dir`/`default_output`.
+
+4. Включить фичу в `config.yaml`:
+
+   ```yaml
+   feedback:
+     enabled: true
+   ```
+
+   `endpoint`/`token_file`/`identity_file`/`request_timeout` можно не указывать — используются те
+   же дефолты, что и выше. После этого на карточке модели в TUI появляется рабочая вкладка Feedback:
+   своя оценка, оценка сообщества, своя позиция и отзыв, с async-загрузкой и явными
+   loading/offline/error состояниями.
+
+Пока `feedback.enabled: false` (дефолт) или `feedback-server` не запущен/недоступен, вкладка
+Feedback в TUI остаётся видимой, но показывает explanatory disabled/offline state — это осознанное
+поведение (graceful degradation), а не ошибка. Отключение `feedback.enabled` или полная остановка
+`feedback-server` никак не влияет на остальной `openrouter-model-tracker`.
+
+Доверенный consumer-эндпоинт (`.../feedback/signal`, `feedback-server consumer-token init|rotate`)
+предназначен для будущей внешней интеграции с inference runtime и не используется ни `omt`/
+`openrouter-model-tracker`, ни `feedback-server` сам по себе — текущий `cmd/openrouter` не является
+inference runtime и не читает community signal.
 
 ### Bash completion
 
