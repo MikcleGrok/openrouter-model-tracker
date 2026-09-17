@@ -86,7 +86,7 @@ func mouseButton(value tea.MouseButton) MouseButton { return MouseButton(value) 
 
 var layoutAliases = map[rune]string{
 	'ч': "x", 'л': "k", 'о': "j", 'щ': "o", 'п': "g", 'П': "G", 'р': "h", 'д': "l",
-	'ы': "s", 'Ы': "S", 'ь': "m", 'с': "c", 'т': "n", 'а': "f", 'й': "q", 'з': "p",
+	'ы': "s", 'Ы': "S", 'ь': "m", 'Ь': "M", 'с': "c", 'т': "n", 'а': "f", 'й': "q", 'з': "p",
 	'к': "r", 'К': "R", '.': "/", ',': "?",
 }
 

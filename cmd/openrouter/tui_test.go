@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -6006,6 +6007,7 @@ func TestTUILayoutAliasesAreWellFormed(t *testing.T) {
 		0x044B: "s", // ы
 		0x042B: "S", // Ы
 		0x044C: "m", // ь
+		0x042C: "M", // Ь
 		0x0441: "c", // с
 		0x0442: "n", // т
 		0x0430: "f", // а
@@ -6188,6 +6190,20 @@ func tuiShortcutColumnsModelScrolled(t *testing.T) tuiModel {
 	return m
 }
 
+// tuiShortcutPersonalRatingsModel needs a working feedbackClient, unlike
+// every other setup in this file, so that M actually toggles the "My
+// ratings" view (personal_ratings.go) instead of taking the disabled-
+// feedback no-op branch — mirrors
+// personal_ratings_runtime_test.go's own personalRatingsRuntimeModel
+// construction. The handler is never actually reached: this comparison
+// only runs m.key(...) itself, never the tea.Cmd it dispatches.
+func tuiShortcutPersonalRatingsModel(t *testing.T) tuiModel {
+	t.Helper()
+	m := tuiShortcutListModel(t)
+	m.feedbackClient = newFeedbackRuntimeClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	return m
+}
+
 type tuiShortcutCase struct {
 	name    string
 	latin   string
@@ -6195,7 +6211,7 @@ type tuiShortcutCase struct {
 	setup   func(t *testing.T) tuiModel
 }
 
-// tuiShortcutCases покрывает все 20 алиасов таблицы tuiLayoutAliases; клавиши
+// tuiShortcutCases покрывает все 21 алиас таблицы tuiLayoutAliases; клавиши
 // навигации, живущие сразу в нескольких switch-блоках, получают строку на
 // каждый контекст, потому что именно там ломается «алиас есть, но не во всех
 // оверлеях».
@@ -6213,6 +6229,7 @@ func tuiShortcutCases() []tuiShortcutCase {
 		{name: "list cycle sort key", latin: "s", russian: "ы", setup: tuiShortcutListModel},
 		{name: "list reverse order", latin: "S", russian: "Ы", setup: tuiShortcutListModel},
 		{name: "list toggle ranking", latin: "m", russian: "ь", setup: tuiShortcutListModel},
+		{name: "list toggle personal ratings", latin: "M", russian: "Ь", setup: tuiShortcutPersonalRatingsModel},
 		{name: "list open columns", latin: "c", russian: "с", setup: tuiShortcutListModel},
 		{name: "list toggle last column", latin: "n", russian: "т", setup: tuiShortcutListModel},
 		{name: "list edit filter", latin: "f", russian: "а", setup: tuiShortcutListModel},

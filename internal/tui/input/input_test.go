@@ -14,6 +14,8 @@ func TestCommandKeyNormalizesLayoutWithoutTouchingModifiedInput(t *testing.T) {
 	}{
 		{"cyrillic physical j", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("о")}, "j"},
 		{"cyrillic physical g", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("п")}, "g"},
+		{"cyrillic physical m", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ь")}, "m"},
+		{"cyrillic physical M", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Ь")}, "M"},
 		{"alt stays opaque", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("о"), Alt: true}, "alt+о"},
 		{"paste stays opaque", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("о"), Paste: true}, "[о]"},
 	} {

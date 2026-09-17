@@ -56,17 +56,43 @@ type personalRatingRow struct {
 type tuiPersonalRatingsState struct {
 	active     bool
 	generation uint64
+	// cancel stops the current generation's still-running fetch — called on
+	// toggle-off (and defensively before starting a new one) so mashing M
+	// on a large catalog can never overlap two live batches: each of
+	// fetchPersonalRatings' workers is blocked on a c.GetOwnFeedback call
+	// carrying this context, and a cancelled context makes that call (and
+	// every subsequent one the worker would otherwise start) fail
+	// immediately instead of actually reaching the network.
+	cancel context.CancelFunc
 
 	loading bool
 	loaded  bool
 	err     string
 
 	rows []personalRatingRow
+	// baseRank is the base-ranking snapshot the current generation's batch
+	// was ordered against (personalRatingsBaseRanking, computed once at
+	// toggle-on) — kept around so a rating changed later from the Feedback
+	// tab (syncPersonalRatingsAfterSave) can update/insert a row and
+	// re-sort without needing a whole new fetch.
+	baseRank map[string]int
 	// errCount/total describe the most recently completed batch: how many of
 	// the total models in the catalog at fetch time failed their
 	// GetOwnFeedback call. A model that failed is simply absent from rows —
 	// it is never assumed unrated, since that is not what the failure means.
 	errCount, total int
+
+	// savedCursor/savedSelectedSlug capture the normal table's cursor
+	// position at the moment the mode was toggled ON, so toggling OFF can
+	// restore it exactly. This is not the same thing as m.selectedSlug
+	// surviving on its own: entering the mode immediately rebuilds with
+	// rows still nil, and restoreSelection's own empty-list branch clears
+	// m.selectedSlug in that situation — so without this separate copy,
+	// toggling off would strand the user wherever the freshly loaded batch
+	// happens to put the cursor (its own top row) instead of back where
+	// they were browsing.
+	savedCursor       int
+	savedSelectedSlug string
 }
 
 // tuiPersonalRatingsMsg is the result of one full personalRatingsCmd batch:
@@ -95,35 +121,66 @@ func (m tuiModel) togglePersonalRatings() (tuiModel, tea.Cmd) {
 		return m, nil
 	}
 	if m.personalRatings.active {
-		// m.status/m.err are left untouched — this view never reads or
-		// writes them, so the normal table reappears with whatever status it
-		// last had before the user toggled into "My ratings", exactly as if
-		// this mode had never been entered.
+		// Stop the current batch outright — a still-running fetch left
+		// alive across a toggle-off is exactly what let mashing M overlap
+		// several full batches against the feedback server.
+		if m.personalRatings.cancel != nil {
+			m.personalRatings.cancel()
+			m.personalRatings.cancel = nil
+		}
 		m.personalRatings.active = false
+		// Restore exactly the cursor/selection the normal table had before
+		// this mode was entered — see tuiPersonalRatingsState's own doc
+		// comment for why this can't just rely on m.selectedSlug having
+		// survived on its own.
+		m.cursor = m.personalRatings.savedCursor
+		m.selectedSlug = m.personalRatings.savedSelectedSlug
 		m.rebuild()
 		return m, nil
 	}
+	baseRank, err := m.personalRatingsBaseRanking()
+	if err != nil {
+		// Matches buildVisible's own convention: a ranking-config error is
+		// surfaced, never swallowed into a silently wrong base_position
+		// column. The mode is not entered at all.
+		m.err = err.Error()
+		return m, nil
+	}
+	if m.personalRatings.cancel != nil {
+		// Defensive only — toggling off above already cancels the previous
+		// batch, so this path should be unreachable, but two live batches
+		// must never coexist regardless of how this state was reached.
+		m.personalRatings.cancel()
+	}
+	parentCtx := m.ctx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	fetchCtx, cancel := context.WithCancel(parentCtx)
 	m.personalRatings.generation++
 	generation := m.personalRatings.generation
 	models := append([]model.Model(nil), m.models...)
-	baseRank := m.personalRatingsBaseRanking()
+	m.personalRatings.savedCursor = m.cursor
+	m.personalRatings.savedSelectedSlug = m.selectedSlug
 	m.personalRatings.active = true
 	m.personalRatings.loading = true
 	m.personalRatings.loaded = false
 	m.personalRatings.err = ""
 	m.personalRatings.rows = nil
+	m.personalRatings.baseRank = baseRank
+	m.personalRatings.cancel = cancel
 	m.personalRatings.errCount, m.personalRatings.total = 0, 0
 	m.rebuild()
-	return m, m.personalRatingsCmd(models, baseRank, generation)
+	return m, m.personalRatingsCmd(fetchCtx, models, baseRank, generation)
 }
 
 // personalRatingsBaseRanking computes modelSlug -> 1-based rank within the
 // app's own ranking (the same "utility" ordering the main table defaults
 // to, under the currently active ranking mode) — the "existing ranking
 // tie-breaker" plan.md's readiness criterion calls for. This mirrors
-// buildVisible's own compiled-ranking resolution so the two never disagree
-// about what "the app's ranking" means.
-func (m tuiModel) personalRatingsBaseRanking() map[string]int {
+// buildVisible's own compiled-ranking resolution, error surfaced the same
+// way, so the two never disagree about what "the app's ranking" means.
+func (m tuiModel) personalRatingsBaseRanking() (map[string]int, error) {
 	ranked := append([]model.Model(nil), m.models...)
 	compiled := m.rankingConfig
 	if !m.rankingConfigSet {
@@ -131,27 +188,27 @@ func (m tuiModel) personalRatingsBaseRanking() map[string]int {
 		c.PriceWeight = &m.priceWeight
 		compiled, _ = ranking.Compile(c)
 	}
-	_ = sortTableModelsWithRankingAndConfig(ranked, "utility", false, m.ranking, compiled, m.mixInputWeight, m.mixOutputWeight)
+	if err := sortTableModelsWithRankingAndConfig(ranked, "utility", false, m.ranking, compiled, m.mixInputWeight, m.mixOutputWeight); err != nil {
+		return nil, err
+	}
 	positions := make(map[string]int, len(ranked))
 	for i, row := range ranked {
 		positions[row.Slug] = i + 1
 	}
-	return positions
+	return positions, nil
 }
 
 // personalRatingsCmd fetches GetOwnFeedback for every model in models,
 // bounded by personalRatingsConcurrency concurrent requests, and returns one
 // aggregated tuiPersonalRatingsMsg — matching feedback.go's
 // feedbackSummaryCmd shape (a tea.Cmd closing over the client/ctx, returning
-// exactly one tea.Msg), just batched over many models instead of one.
-func (m tuiModel) personalRatingsCmd(models []model.Model, baseRank map[string]int, generation uint64) tea.Cmd {
-	c, ctx := m.feedbackClient, m.ctx
+// exactly one tea.Msg), just batched over many models instead of one. ctx is
+// the per-toggle cancellable context togglePersonalRatings derives — every
+// GetOwnFeedback call started under it aborts as soon as it is cancelled.
+func (m tuiModel) personalRatingsCmd(ctx context.Context, models []model.Model, baseRank map[string]int, generation uint64) tea.Cmd {
+	c := m.feedbackClient
 	return func() tea.Msg {
-		reqCtx := ctx
-		if reqCtx == nil {
-			reqCtx = context.Background()
-		}
-		rows, errCount, firstErr := fetchPersonalRatings(reqCtx, c, models, baseRank)
+		rows, errCount, firstErr := fetchPersonalRatings(ctx, c, models, baseRank)
 		sortPersonalRatingRows(rows)
 		return tuiPersonalRatingsMsg{generation: generation, rows: rows, errCount: errCount, total: len(models), err: firstErr}
 	}
@@ -296,4 +353,98 @@ func personalRatingsVisible(rows []personalRatingRow) []model.Model {
 		result[i] = row.model
 	}
 	return result
+}
+
+// personalRatingsEffectiveRows re-resolves the last loaded batch's rows
+// against the CURRENT catalog (m.models) by slug: a model still present
+// gets its live catalog data (price, quality, name, ...) instead of the
+// frozen snapshot taken at fetch time, and a model removed from the catalog
+// entirely — e.g. by the app's own periodic background refresh — is
+// dropped from the view outright rather than kept showing stale.
+//
+// The rating value itself (and the order it produced) is left exactly as
+// the last fetch computed it: a periodic refresh never re-fetches the whole
+// batch on its own. This matches the Feedback tab's own existing behavior
+// across a background refresh — a model's loaded rating is never silently
+// re-fetched there either (see feedback.go); only the underlying model row
+// is live, via the shared m.visible/detailRow plumbing, which is exactly
+// what this method reproduces for this view. Re-fetching every rated
+// model's GetOwnFeedback on every refresh tick was rejected as needless
+// extra load against the feedback server for values that do not change on
+// their own — see syncPersonalRatingsAfterSave for the one case a rating
+// actually does change while this view is open.
+func (m tuiModel) personalRatingsEffectiveRows() []personalRatingRow {
+	if len(m.personalRatings.rows) == 0 {
+		return nil
+	}
+	live := make(map[string]model.Model, len(m.models))
+	for _, row := range m.models {
+		live[row.Slug] = row
+	}
+	result := make([]personalRatingRow, 0, len(m.personalRatings.rows))
+	for _, row := range m.personalRatings.rows {
+		current, ok := live[row.model.Slug]
+		if !ok {
+			continue
+		}
+		row.model = current
+		result = append(result, row)
+	}
+	return result
+}
+
+// personalRatingsFindModel looks up slug in models by exact match — used by
+// syncPersonalRatingsAfterSave to resolve a newly-rated model's own catalog
+// row when adding it to the list for the first time.
+func personalRatingsFindModel(models []model.Model, slug string) (model.Model, bool) {
+	for _, row := range models {
+		if row.Slug == slug {
+			return row, true
+		}
+	}
+	return model.Model{}, false
+}
+
+// syncPersonalRatingsAfterSave keeps an already-loaded "My ratings" batch
+// consistent with a rating just changed from inside the Feedback tab
+// (open My-ratings, Enter into a model's detail, change the rating, Esc
+// back — the personal-ratings mode stays active the whole time, since the
+// detail overlay sits on top of it): an already-listed model's changed
+// rating is updated in place, a model rated for the first time is added,
+// and the whole set is re-sorted — all without the user having to manually
+// toggle M off and back on.
+//
+// A no-op before the mode has ever been toggled on this session
+// (baseRank is nil then, so there is no batch to keep in sync and no base
+// ranking to place a newly-added row against) or when summary carries no
+// rating at all (should not happen for a successful save — the edit form
+// requires Overall 1-5 before it will even dispatch one — guarded
+// defensively regardless).
+func (m tuiModel) syncPersonalRatingsAfterSave(slug string, summary feedbackclient.Summary) tuiModel {
+	if summary.Mine == nil || m.personalRatings.baseRank == nil {
+		return m
+	}
+	rows := m.personalRatings.rows
+	updated := false
+	for i := range rows {
+		if rows[i].model.Slug == slug {
+			rows[i].overall = summary.Mine.Overall
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		row, ok := personalRatingsFindModel(m.models, slug)
+		if !ok {
+			return m
+		}
+		position, hasPosition := m.personalRatings.baseRank[slug]
+		rows = append(rows, personalRatingRow{model: row, overall: summary.Mine.Overall, basePosition: position, hasBasePosition: hasPosition})
+	}
+	sortPersonalRatingRows(rows)
+	m.personalRatings.rows = rows
+	if m.personalRatings.active {
+		m.rebuild()
+	}
+	return m
 }

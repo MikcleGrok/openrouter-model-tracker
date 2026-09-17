@@ -236,6 +236,12 @@ func (m tuiModel) applyFeedbackSaveMsg(msg tuiFeedbackSaveMsg) tuiModel {
 	m.feedback.editing = false
 	m.feedback.savedFlash = true
 	m.feedback.draftOverall, m.feedback.draftSkills, m.feedback.draftReview = feedbackDraftFromSummary(msg.summary)
+	// Keep an already-open "My ratings" view (personal_ratings.go) in sync
+	// with this rating — its own batch is a snapshot, and this is the one
+	// case that snapshot can actually go wrong while the view is still
+	// open: the detail overlay's Feedback tab sits on top of it, so the
+	// user can rate/re-rate a model without ever leaving the mode.
+	m = m.syncPersonalRatingsAfterSave(msg.slug, msg.summary)
 	return m
 }
 

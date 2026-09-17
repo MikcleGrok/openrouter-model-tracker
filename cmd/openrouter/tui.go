@@ -486,8 +486,11 @@ func (m *tuiModel) buildVisible() ([]model.Model, int, error) {
 		// catalog (personal_ratings.go) — it ignores m.filter/m.search/
 		// m.layout entirely rather than composing with them, matching the
 		// plan's "отдельное действие", not a filter predicate on the normal
-		// table.
-		return personalRatingsVisible(m.personalRatings.rows), -1, nil
+		// table. personalRatingsEffectiveRows re-resolves each row against
+		// the live m.models first, so a background refresh can never leave
+		// this view showing a removed model or stale catalog data for one
+		// still present.
+		return personalRatingsVisible(m.personalRatingsEffectiveRows()), -1, nil
 	}
 	filtered := append([]model.Model(nil), m.models...)
 	if m.filter != "" {

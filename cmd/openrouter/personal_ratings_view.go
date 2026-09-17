@@ -16,6 +16,12 @@ type personalRatingsLabels struct {
 	columnRank, columnName, columnMine, columnBase string
 	loadingLine, readyLine, emptyLine              string
 	partialErrorFormat                             string
+	// hints is this view's own footer hotkey line — kept here rather than
+	// routed through m.t (tui.go's English-keyed translation table) since
+	// that table only ever covers the normal list's own literal English
+	// strings; a string absent from it silently falls back to English
+	// inside an otherwise fully Russian view.
+	hints string
 }
 
 func personalRatingsLabelsForLang(lang string) personalRatingsLabels {
@@ -31,6 +37,7 @@ func personalRatingsLabelsForLang(lang string) personalRatingsLabels {
 			readyLine:          "готово",
 			emptyLine:          "Вы ещё не оценили ни одну модель.",
 			partialErrorFormat: "не удалось получить %d из %d оценок; показаны только успешно загруженные модели.",
+			hints:              "↑↓ навигация · Enter детали · M назад к моделям · x выход",
 		}
 	}
 	return personalRatingsLabels{
@@ -44,6 +51,7 @@ func personalRatingsLabelsForLang(lang string) personalRatingsLabels {
 		readyLine:          "ready",
 		emptyLine:          "You have not rated any models yet.",
 		partialErrorFormat: "%d of %d ratings could not be loaded; showing the models that loaded successfully.",
+		hints:              "↑↓ navigate · Enter details · M back to models · x quit",
 	}
 }
 
@@ -61,8 +69,9 @@ func tuiPersonalRatingsBaseView(m tuiModel) string {
 	if m.width >= 80 {
 		titleText += "  " + m.freshnessLine()
 	}
+	rows := m.personalRatingsEffectiveRows()
 	title := truncateTable(titleText, m.width)
-	meta := truncateTable(plainTableText(fmt.Sprintf("%s: %d", pl.columnName, len(m.personalRatings.rows))), m.width)
+	meta := truncateTable(plainTableText(fmt.Sprintf("%s: %d", pl.columnName, len(rows))), m.width)
 	lines := []string{tuiTitleStyle.Render(title), tuiMetaStyle.Render(meta)}
 
 	rankWidth, identityWidth, mineWidth, baseWidth := personalRatingsColumnWidths(m.width)
@@ -79,12 +88,10 @@ func tuiPersonalRatingsBaseView(m tuiModel) string {
 	if m.personalRatings.err != "" {
 		statusLine = tuiErrorStyle.Render(truncateTable(plainTableText(status), m.width))
 	}
-	hints := m.t("↑↓ navigate · Enter details · M back to models · x quit")
-	hintsLine := tuiHintStyle.Render(truncateTable(hints, m.width))
+	hintsLine := tuiHintStyle.Render(truncateTable(pl.hints, m.width))
 
 	rowsBudget := m.height - 6
 	if rowsBudget > 0 {
-		rows := m.personalRatings.rows
 		start := max(0, min(m.cursor-max(1, rowsBudget)/2, max(0, len(rows)-1)))
 		end := min(len(rows), start+rowsBudget)
 		for i := start; i < end; i++ {
