@@ -19,13 +19,16 @@ version_key() {
 selected=
 selected_version=
 selected_key=
+required_key=$(version_key "$required")
 for candidate in /opt/homebrew/Cellar/go/*/libexec/bin/go /usr/local/Cellar/go/*/libexec/bin/go /opt/homebrew/Cellar/go@*/*/libexec/bin/go /usr/local/Cellar/go@*/*/libexec/bin/go; do
     [ -x "$candidate" ] || continue
     actual=$($candidate version 2>/dev/null || true)
     actual_version=$(printf '%s\n' "$actual" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^go[0-9]/) { sub(/^go/, "", $i); print $i; exit } }')
     [ -n "$actual_version" ] || continue
-    case "$actual_version" in "$major.$minor".*) ;; *) continue ;; esac
     actual_key=$(version_key "$actual_version")
+    if [ "$actual_key" -lt "$required_key" ]; then
+        continue
+    fi
     if [ -z "$selected" ] || [ "$actual_key" -gt "$selected_key" ]; then
         selected=$candidate
         selected_version=$actual_version

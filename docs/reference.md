@@ -54,7 +54,7 @@ SmartScreen покажет предупреждение — это ожидае�
 
 **Сборка из исходников** (macOS/Linux/Windows) — `go build -o openrouter
 ./cmd/openrouter` (Windows: `-o openrouter.exe`), нужен [Go](https://go.dev)
-1.26.5+. На macOS/Linux также доступен `git clone ... && cd ... && make
+1.26.10+. На macOS/Linux также доступен `git clone ... && cd ... && make
 install` — подробности (`PREFIX`/`BINDIR`, локальный disposable tap для
 разработки) в разделе «Локальная разработка» ниже.
 
