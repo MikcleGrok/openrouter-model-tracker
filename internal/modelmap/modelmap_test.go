@@ -282,6 +282,7 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"anthropic/claude-sonnet-4.5": "Model: claude-sonnet-4-5",
 		"anthropic/claude-haiku-4.5":  "Model: claude-haiku-4-5-20251001",
 		"minimax/minimax-m2":          "Model: minimax-m2",
+		"mistralai/devstral-2512":     "Model: Devstral (2512)",
 	}
 	if got := NamesFor(entries, "vals"); !reflect.DeepEqual(got, wantVals) {
 		t.Errorf("NamesFor(vals) =\n  %v\nwant\n  %v", got, wantVals)
@@ -335,6 +336,10 @@ func TestProductionModelMapDeclaredScoreNames(t *testing.T) {
 		"nvidia/nemotron-3.5-lightning:free":     "august26-chatbot1-fmme",
 		"z-ai/glm-4.7-flash":                     "glm-4.7-flash-fireworks",
 		"z-ai/glm-5.3-flash":                     "glm-5.3-flash-text",
+		"anthropic/claude-sonnet-5.5":            "claude-sonnet-5-5-xhigh",
+		"x-ai/grok-4.7":                          "grok-4.7-xhigh-public",
+		"mistralai/mistral-large-4-0":            "mistral-large-4-text",
+		"qwen/qwen3.8-27b":                       "qwen3.8-27b",
 	}
 	if got := NamesFor(entries, "arena"); !reflect.DeepEqual(got, wantArena) {
 		t.Errorf("NamesFor(arena) =\n  %v\nwant\n  %v", got, wantArena)
