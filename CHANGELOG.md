@@ -4,6 +4,11 @@
 
 - Future release changes will be documented here.
 
+## [1.24.0]
+
+- Add 37 `model-map.tsv` tier mappings: 5 opus (`anthropic/claude-opus-5.5`, `anthropic/claude-opus-4.5`, `anthropic/claude-opus-4.1`, `openai/gpt-6-astra-pro`, `google/gemini-4-argon`), 20 sonnet (`anthropic/claude-sonnet-5.5`, `openai/gpt-6-sol`, `openai/gpt-6-sol-pro`, `openai/gpt-6.1-sol`, `openai/gpt-6.1-sol-pro`, `openai/gpt-6.1-terra`, `openai/gpt-6.1-terra-pro`, `moonshotai/kimi-k3.1-pro`, `x-ai/grok-4.7`, `qwen/qwen3.8-max-prime`, `qwen/qwen3.8-2.4t-a95b`, `deepseek/deepseek-v4-pro-0813`, `z-ai/glm-5.3-prime`, `mistralai/mistral-large-4-0`, `meta/muse-wonder`, `meta/muse-spark-1.2`, `meta/muse-spark-1.3`, `meta/muse-spark-open`, `xiaomi/mimo-v2.6-pro`, `xiaomi/mimo-v2.6-pro-ultraspeed`), and 12 haiku (`openai/gpt-6-luna`, `openai/gpt-6-luna-pro`, `qwen/qwen3.8-27b`, `qwen/qwen3.8-flash`, `qwen/qwen3.8-omni-flash`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4.1-flash-1017`, `z-ai/glm-5.3-flashx`, `minimax/minimax-m3.1-flash`, `mistralai/devstral-2512`, `meta/muse-glimmer-30b`, `nvidia/nemotron-3.5-lightning`).
+- Add confirmed Arena identity mappings for `anthropic/claude-sonnet-5.5`, `x-ai/grok-4.7`, `mistralai/mistral-large-4-0`, and `qwen/qwen3.8-27b`, plus a confirmed `swebench=` identity mapping for `mistralai/devstral-2512`.
+
 ## [1.23.0]
 
 - Add an optional, self-hosted feedback/rating service (disabled by default): a loopback-only `feedback-server` process backed by SQLite, a personal `Bearer token + X-Identity-Id` identity model, and a separate trusted-consumer credential for a future assistant/inference runtime to read community rating signal — never personal ratings.
