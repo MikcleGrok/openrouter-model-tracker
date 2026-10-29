@@ -139,6 +139,48 @@ minimax/minimax-m2	tier=haiku	swebench=Model: minimax-m2	arena=minimax-m2
 qwen/qwen3-next-80b-a3b-instruct	tier=haiku	arena=qwen3-next-80b-a3b-instruct
 qwen/qwen3-235b-a22b-2507	tier=haiku	arena=qwen3-235b-a22b-instruct-2507
 
+# ── Дополнительные Opus ──────────────────────────────────────────────────────
+anthropic/claude-opus-5.5	tier=opus
+anthropic/claude-opus-4.5	tier=opus
+anthropic/claude-opus-4.1	tier=opus
+openai/gpt-6-astra-pro	tier=opus
+google/gemini-4-argon	tier=opus
+
+# ── Дополнительные Sonnet ────────────────────────────────────────────────────
+anthropic/claude-sonnet-5.5	tier=sonnet	arena=claude-sonnet-5-5-xhigh
+openai/gpt-6-sol	tier=sonnet
+openai/gpt-6-sol-pro	tier=sonnet
+openai/gpt-6.1-sol	tier=sonnet
+openai/gpt-6.1-sol-pro	tier=sonnet
+openai/gpt-6.1-terra	tier=sonnet
+openai/gpt-6.1-terra-pro	tier=sonnet
+moonshotai/kimi-k3.1-pro	tier=sonnet
+x-ai/grok-4.7	tier=sonnet	arena=grok-4.7-xhigh-public
+qwen/qwen3.8-max-prime	tier=sonnet
+qwen/qwen3.8-2.4t-a95b	tier=sonnet
+deepseek/deepseek-v4-pro-0813	tier=sonnet
+z-ai/glm-5.3-prime	tier=sonnet
+mistralai/mistral-large-4-0	tier=sonnet	arena=mistral-large-4-text
+meta/muse-wonder	tier=sonnet
+meta/muse-spark-1.2	tier=sonnet
+meta/muse-spark-1.3	tier=sonnet
+xiaomi/mimo-v2.6-pro	tier=sonnet	arena=mimo-v2-6-pro-mw0j-text
+xiaomi/mimo-v2.6-pro-ultraspeed	tier=sonnet
+
+# ── Дополнительные Haiku ─────────────────────────────────────────────────────
+openai/gpt-6-luna	tier=haiku
+openai/gpt-6-luna-pro	tier=haiku
+qwen/qwen3.8-27b	tier=haiku	arena=qwen3.8-27b
+qwen/qwen3.8-flash	tier=haiku
+qwen/qwen3.8-omni-flash	tier=haiku
+deepseek/deepseek-v4.1-flash	tier=haiku
+deepseek/deepseek-v4.1-flash-1017	tier=haiku
+z-ai/glm-5.3-flashx	tier=haiku
+minimax/minimax-m3.1-flash	tier=haiku
+mistralai/devstral-2512	tier=haiku	swebench=Model: Devstral (2512)
+meta/muse-glimmer-30b	tier=haiku
+nvidia/nemotron-3.5-lightning	tier=haiku
+
 # ── Бесплатные ───────────────────────────────────────────────────────────────
 nvidia/nemotron-3.5-content-safety:free	tier=free
 nvidia/nemotron-3-ultra-550b-a55b:free	tier=free	vals=nvidia/nemotron-3-ultra-550b-a55b	arena=may26-chatbot4-3x57	gpqa=nvidia/nemotron-3-ultra-550b-a55b
