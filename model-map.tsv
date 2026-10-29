@@ -164,6 +164,7 @@ mistralai/mistral-large-4-0	tier=sonnet	arena=mistral-large-4-text
 meta/muse-wonder	tier=sonnet
 meta/muse-spark-1.2	tier=sonnet
 meta/muse-spark-1.3	tier=sonnet
+meta/muse-spark-open	tier=sonnet
 xiaomi/mimo-v2.6-pro	tier=sonnet
 xiaomi/mimo-v2.6-pro-ultraspeed	tier=sonnet
 
